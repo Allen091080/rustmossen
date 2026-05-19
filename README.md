@@ -214,7 +214,7 @@ python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
 如果你后面再回来维护这套仓库，建议先看：
 
 1. 本 README
-2. `scripts/platform_check.ts`
+2. `PLAN_PRODUCTION.md`（生产化路线图）
 3. `scripts/smoke_check.py`
 4. `scripts/personal_acceptance_check.py`
 5. `AGENTS.md`
