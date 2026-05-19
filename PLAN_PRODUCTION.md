@@ -21,7 +21,7 @@
 - 运行 `git push`、`git reset --hard`、`rm -rf` 等不可逆操作
 - 删除任何未在本文档中明示要删的文件
 - 修改 `/Users/allen/Documents/ds4/` 下任何东西（那是模型服务器，不在本任务范围）
-- 修改 TypeScript 源码（顶层 .ts / .tsx / `components/` `commands/` `tools/` 等）—— 本计划只动 Rust crate
+- 退出 `crates/` 目录工作 —— 本项目只剩 Rust，没有其他语言源码
 
 ### 0.2 执行节奏
 
@@ -211,9 +211,9 @@ grep -n '"MiniMax-M2"' crates/mossen-cli/src/repl.rs
 
 ### 背景
 
-Claude Code 习惯在 `~/.claude/CLAUDE.md` 写一行 `@OTHER.md` 来 import 其他文件。Mossen 的 Rust 端 `gather_memory_text`（`crates/mossen-cli/src/system_prompt.rs:192-249`）目前只是**把整个文件当字面量塞进 prompt**，不展开 @-include。
+用户可能在 `~/.claude/CLAUDE.md` 或 `MOSSEN.md` 里写一行 `@OTHER.md` 来 import 其他文件（这是常见 agent 配置约定）。Mossen 的 `gather_memory_text`（`crates/mossen-cli/src/system_prompt.rs:192-249`）目前只是**把整个文件当字面量塞进 prompt**，不展开 @-include。
 
-这意味着当前用户的 `~/.claude/CLAUDE.md` 只有一行 `@RTK.md` 时，传给模型的只是这 6 个字符，真正的 RTK.md 内容（约 1 KB）丢失。
+这意味着当用户的 `~/.claude/CLAUDE.md` 只有一行 `@RTK.md` 时，传给模型的只是这 6 个字符，真正的 RTK.md 内容（约 1 KB）丢失。
 
 ### 位置
 
@@ -227,7 +227,7 @@ Claude Code 习惯在 `~/.claude/CLAUDE.md` 写一行 `@OTHER.md` 来 import 其
 #### Step 1：在 `system_prompt.rs` 加 expand 函数（放在 `gather_memory_text` 之前）
 
 ```rust
-/// 递归展开 `@<file>` import。语义贴近 Claude Code：
+/// 递归展开 `@<file>` import。语义约定如下：
 /// - 一行（前后允许空白）只包含 `@<path>` 就替换为该文件内容
 /// - path 是相对路径时，相对 `parent`（被 include 的源文件目录）解析
 /// - 防止循环：用 `visited` 跟踪已展开的 canonical 路径，已访问的直接保留原行

@@ -22,7 +22,6 @@ mossen
 常用验证命令：
 
 ```bash
-./run-bun-featured.sh scripts/platform_check.ts
 python3 scripts/smoke_check.py
 python3 scripts/personal_acceptance_check.py
 python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
@@ -153,7 +152,6 @@ python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
 
 最近一轮明确跑过并通过的主验证包括：
 
-- `./run-bun-featured.sh scripts/platform_check.ts`
 - `python3 scripts/smoke_check.py`
 - `python3 scripts/personal_acceptance_check.py`
 - `python3 scripts/personal_acceptance_check.py --with-extended-real-tasks`
