@@ -1,0 +1,59 @@
+[package]
+name = "mossen-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen CLI 主二进制 — AI 编程助手终端入口"
+
+[[bin]]
+name = "mossen"
+path = "src/main.rs"
+
+[dependencies]
+mossen-agent.workspace = true
+mossen-tui.workspace = true
+mossen-commands.workspace = true
+mossen-tools.workspace = true
+mossen-mcp.workspace = true
+mossen-types.workspace = true
+mossen-utils.workspace = true
+mossen-skills.workspace = true
+mossen-remote.workspace = true
+
+# 核心
+tokio.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI 特有
+console.workspace = true
+dotenvy.workspace = true
+signal-hook.workspace = true
+signal-hook-tokio.workspace = true
+nix.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+url.workspace = true
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+once_cell.workspace = true
+async-trait.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+dirs.workspace = true
+which.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+unicode-width.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

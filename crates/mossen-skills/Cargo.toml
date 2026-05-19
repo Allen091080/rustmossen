@@ -1,0 +1,41 @@
+[package]
+name = "mossen-skills"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen 技能与插件系统 — 可扩展的技能加载与执行框架"
+
+[lib]
+name = "mossen_skills"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+mossen-utils.workspace = true
+mossen-agent.workspace = true
+
+# 核心
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+# 文件系统
+walkdir.workspace = true
+notify.workspace = true
+globset.workspace = true
+
+# 工具
+uuid.workspace = true
+chrono.workspace = true
+semver.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "mossen-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen 共享类型 — 消息、工具、配置、状态的核心定义"
+
+[lib]
+name = "mossen_types"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+indexmap.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+strum = { version = "0.26", features = ["derive"] }
+bitflags = "2.6"
+regex.workspace = true
+once_cell.workspace = true

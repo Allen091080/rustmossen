@@ -1,0 +1,64 @@
+[package]
+name = "mossen-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen 工具系统 — 46 个内置工具的 Rust 实现"
+
+[lib]
+name = "mossen_tools"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+mossen-utils.workspace = true
+mossen-agent.workspace = true
+mossen-mcp.workspace = true
+
+# 核心
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+# 文件系统与代码分析
+walkdir.workspace = true
+globset.workspace = true
+ignore.workspace = true
+notify.workspace = true
+similar.workspace = true
+
+# 进程管理
+nix.workspace = true
+
+# 网络
+reqwest.workspace = true
+
+# 工具
+regex.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tempfile.workspace = true
+base64.workspace = true
+sha2.workspace = true
+
+# 路径
+shellexpand.workspace = true
+
+# 数据校验
+schemars.workspace = true
+jsonschema.workspace = true
+
+# YAML 前置事项解析
+serde_yaml.workspace = true
+once_cell = "1"
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
+mockall.workspace = true
+assert_cmd.workspace = true

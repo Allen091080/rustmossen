@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "sourceExtensions": [".ts", ".tsx", ".js", ".jsx"],
+  "ignoreDirs": [
+    ".git",
+    ".claude",
+    ".mossen",
+    ".mossensrc",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage"
+  ],
+  "rules": [
+    {
+      "id": "surface-no-core-internals",
+      "from": [
+        "components/Workbench/**",
+        "components/workbench/**",
+        "workbench/**",
+        "surfaces/**",
+        "surface/**",
+        "apps/workbench/**",
+        "desktop/**",
+        "web/**",
+        "mobile/**",
+        "panel-state/**"
+      ],
+      "to": [
+        "query.ts",
+        "QueryEngine.ts",
+        "Tool.ts",
+        "Task.ts",
+        "tools/**",
+        "bootstrap/state.ts",
+        "state/AppStateStore.ts",
+        "screens/REPL.tsx",
+        "components/PromptInput/**",
+        "components/Messages.tsx",
+        "components/VirtualMessageList.tsx",
+        "components/FullscreenLayout.tsx",
+        "utils/permissions/**",
+        "hooks/useCanUseTool.tsx",
+        "hooks/toolPermission/**"
+      ],
+      "reason": "Workbench/Web/Mobile surfaces must consume protocol or subprocess output, not Core internals."
+    },
+    {
+      "id": "external-extension-no-core-private-import",
+      "from": [
+        "extensions/**",
+        "extension/**",
+        "skills/external/**",
+        "skills/community/**",
+        "plugins/external/**",
+        "plugins/community/**",
+        "workflow-packs/**",
+        "prompt-packs/**",
+        "language-packs/**"
+      ],
+      "to": [
+        "query.ts",
+        "QueryEngine.ts",
+        "Tool.ts",
+        "Task.ts",
+        "tools/**",
+        "utils/permissions/**",
+        "hooks/useCanUseTool.tsx",
+        "hooks/toolPermission/**",
+        "bootstrap/state.ts",
+        "state/AppStateStore.ts",
+        "services/api/**",
+        "services/modelRuntime/**"
+      ],
+      "reason": "External extensions must use gateway, manifest, permission declarations, and event streams."
+    },
+    {
+      "id": "protocol-no-react-ink-ui",
+      "from": [
+        "entrypoints/sdk/**",
+        "platform/**",
+        "cli/structuredIO.ts",
+        "cli/transports/**"
+      ],
+      "to": [
+        "components/**",
+        "screens/**",
+        "ink/**",
+        "ink.ts"
+      ],
+      "reason": "Protocol and SDK layers must stay UI-agnostic."
+    },
+    {
+      "id": "core-no-workbench-surface-import",
+      "from": [
+        "query.ts",
+        "QueryEngine.ts",
+        "Tool.ts",
+        "Task.ts",
+        "tools/**",
+        "utils/permissions/**",
+        "hooks/useCanUseTool.tsx",
+        "hooks/toolPermission/**",
+        "bootstrap/**",
+        "state/**",
+        "services/api/**",
+        "services/modelRuntime/**",
+        "services/compact/**",
+        "utils/memory/**"
+      ],
+      "to": [
+        "components/Workbench/**",
+        "components/workbench/**",
+        "workbench/**",
+        "surfaces/**",
+        "surface/**",
+        "apps/workbench/**",
+        "desktop/**",
+        "web/**",
+        "mobile/**"
+      ],
+      "reason": "Core must not depend on Workbench/Web/Mobile implementation."
+    }
+  ],
+  "allowlist": []
+}
+

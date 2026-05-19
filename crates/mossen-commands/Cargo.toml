@@ -1,0 +1,41 @@
+[package]
+name = "mossen-commands"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen 命令系统 — 80+ 斜杠命令与 CLI 子命令"
+
+[lib]
+name = "mossen_commands"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+mossen-utils.workspace = true
+mossen-agent.workspace = true
+mossen-tools.workspace = true
+
+# 核心
+tokio.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+# 工具
+chrono.workspace = true
+uuid.workspace = true
+regex.workspace = true
+semver.workspace = true
+reqwest.workspace = true
+similar.workspace = true
+console.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
+mockall.workspace = true

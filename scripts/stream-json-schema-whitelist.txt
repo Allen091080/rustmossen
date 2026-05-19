@@ -1,0 +1,128 @@
+# Mossen stream-json protocol schema whitelist (CWB-3, 2026-04-29)
+#
+# 本文件是 stream-json 协议契约的 single source of truth (whitelist).
+# 任何 schema 增删 / 重命名 必须同 commit 改:
+#   - entrypoints/sdk/coreSchemas.ts (Zod schema 定义)
+#   - entrypoints/sdk/controlSchemas.ts (control schema 定义)
+#   - 本文件 (whitelist)
+#   - docs/reference/protocol-contract.md (协议契约文档)
+#   - scripts/stream_json_contract_smoke.py (校验逻辑, 必要时调锚点)
+#
+# 校验逻辑: scripts/stream_json_contract_smoke.py
+# 漂移即 fail (run_all_smoke.sh step 19 阻断 commit).
+#
+# 红线 (docs/reference/red-lines.md §3):
+#   stream-json 协议 only-additive — 可加字段 / 加 union 成员;
+#   不删字段 / 不改字段语义 / 不重命名 union 成员;
+#   破坏性变化必须先写 deprecation 草案 + Allen 拍板.
+#
+# 实测来源: main HEAD e586296, 2026-04-29 实测 entrypoints/sdk/{core,control}Schemas.ts.
+
+# =====================================================================
+# Section A — SDKMessage union (28 成员, coreSchemas.ts)
+# 实测出现顺序与文件一致 (非字典序, 与 z.union 内顺序对齐, 便于 grep)
+# =====================================================================
+SDKAssistantMessageSchema
+SDKUserMessageSchema
+SDKUserMessageReplaySchema
+SDKResultMessageSchema
+SDKSystemMessageSchema
+SDKPartialAssistantMessageSchema
+SDKCompactBoundaryMessageSchema
+SDKCompactCompletedEventSchema
+SDKStatusMessageSchema
+SDKAPIRetryMessageSchema
+SDKLocalCommandOutputMessageSchema
+SDKHookStartedMessageSchema
+SDKHookProgressMessageSchema
+SDKHookResponseMessageSchema
+SDKToolProgressMessageSchema
+SDKAuthStatusMessageSchema
+SDKTaskNotificationMessageSchema
+SDKTaskStartedMessageSchema
+SDKTaskProgressMessageSchema
+SDKSessionStateChangedMessageSchema
+SDKFilesPersistedEventSchema
+SDKToolUseSummaryMessageSchema
+SDKRateLimitEventSchema
+SDKElicitationCompleteMessageSchema
+SDKPromptSuggestionMessageSchema
+SDKToolResultMessageSchema
+SDKCapabilityRecommendationMessageSchema
+SDKCapabilityRecommendationResultMessageSchema
+
+# =====================================================================
+# Section B — SDKControlRequestInner union (29 成员, controlSchemas.ts)
+# =====================================================================
+SDKControlInterruptRequestSchema
+SDKControlPermissionRequestSchema
+SDKControlInitializeRequestSchema
+SDKControlSetPermissionModeRequestSchema
+SDKControlSetModelRequestSchema
+SDKControlSetMaxThinkingTokensRequestSchema
+SDKControlMcpStatusRequestSchema
+SDKControlGetContextUsageRequestSchema
+SDKHookCallbackRequestSchema
+SDKControlMcpMessageRequestSchema
+SDKControlRewindFilesRequestSchema
+SDKControlCancelAsyncMessageRequestSchema
+SDKControlSeedReadStateRequestSchema
+SDKControlMcpSetServersRequestSchema
+SDKControlReloadPluginsRequestSchema
+SDKControlMcpReconnectRequestSchema
+SDKControlMcpToggleRequestSchema
+SDKControlStopTaskRequestSchema
+SDKControlApplyFlagSettingsRequestSchema
+SDKControlGetSettingsRequestSchema
+SDKControlElicitationRequestSchema
+SDKControlSlashCommandRequestSchema
+SDKControlCompactConversationRequestSchema
+SDKControlGetConfigSummaryRequestSchema
+SDKControlRuntimeDoctorSummaryRequestSchema
+SDKControlGitDiffSummaryRequestSchema
+SDKControlApplyConfigChangeRequestSchema
+SDKControlGetCapabilityOperationsRequestSchema
+SDKControlProjectMemoryOperationRequestSchema
+
+# =====================================================================
+# Section C — StdoutMessage union (8 成员, controlSchemas.ts:642-651)
+# =====================================================================
+StdoutMessage:SDKMessageSchema
+StdoutMessage:SDKStreamlinedTextMessageSchema
+StdoutMessage:SDKStreamlinedToolUseSummaryMessageSchema
+StdoutMessage:SDKPostTurnSummaryMessageSchema
+StdoutMessage:SDKControlResponseSchema
+StdoutMessage:SDKControlRequestSchema
+StdoutMessage:SDKControlCancelRequestSchema
+StdoutMessage:SDKKeepAliveMessageSchema
+
+# =====================================================================
+# Section D — StdinMessage union (6 成员, controlSchemas.ts)
+# =====================================================================
+StdinMessage:SDKUserMessageSchema
+StdinMessage:SDKControlRequestSchema
+StdinMessage:SDKControlResponseSchema
+StdinMessage:SDKKeepAliveMessageSchema
+StdinMessage:SDKUpdateEnvironmentVariablesMessageSchema
+StdinMessage:SDKCapabilityRecommendationResponseSchema
+
+# =====================================================================
+# Section E — Protocol anchor literals (must remain in CLI source)
+# 任何一项缺失 = 协议入口被破坏, smoke fail.
+# =====================================================================
+anchor:main.tsx:--output-format
+anchor:main.tsx:--input-format
+anchor:main.tsx:input-format=stream-json requires output-format=stream-json
+anchor:cli/print.ts:--output-format=stream-json requires --verbose
+anchor:cli/print.ts:export async function runHeadless
+anchor:cli/print.ts:function getStructuredIO
+anchor:cli/structuredIO.ts:export class StructuredIO
+anchor:cli/structuredIO.ts:control_request
+anchor:cli/structuredIO.ts:keep_alive
+anchor:cli/ndjsonSafeStringify.ts:export function ndjsonSafeStringify
+
+# =====================================================================
+# Section F — In-process SDK known blocker (推 CWB-D9)
+# 锚点: SDK type 层 stub / 缺失文件, 不允许悄悄修复
+# =====================================================================
+known_blocker:entrypoints/sdk/coreTypes.ts:./sdkUtilityTypes.js

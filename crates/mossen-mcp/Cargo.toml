@@ -1,0 +1,44 @@
+[package]
+name = "mossen-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen MCP 集成 — Model Context Protocol 客户端与服务端"
+
+[lib]
+name = "mossen_mcp"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+mossen-utils.workspace = true
+
+# 核心
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+# 网络
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+hyper.workspace = true
+tower.workspace = true
+
+# 工具
+uuid.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+schemars.workspace = true
+regex.workspace = true
+sha2.workspace = true
+url.workspace = true
+once_cell.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true

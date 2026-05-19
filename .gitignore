@@ -1,0 +1,17 @@
+node_modules/
+target/
+.DS_Store
+.mossen/
+.*/worktrees/
+.mossensrc/*
+!.mossensrc/feature-flags.env.example
+.claude/
+coverage/
+dist/
+tmp/
+*.log
+*.tmp
+*.pid
+*.bak-*
+__pycache__/
+*.pyc
