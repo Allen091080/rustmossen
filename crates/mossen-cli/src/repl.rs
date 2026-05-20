@@ -17,6 +17,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tracing::{info, warn};
+use mossen_types::hooks::HookEvent;
 
 use mossen_agent::engine::{submit_prompt, SessionOrchestrator};
 use mossen_agent::types::{
@@ -53,6 +54,15 @@ pub struct ReplConfig {
     pub shutdown_flag: Arc<AtomicBool>,
 }
 
+/// 返回 oneshot / exec 路径的默认 model id。
+/// 优先级：MOSSEN_CODE_CUSTOM_MODEL → "custom-backend-model"
+fn default_model_for_unset_cli() -> String {
+    std::env::var("MOSSEN_CODE_CUSTOM_MODEL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "custom-backend-model".to_string())
+}
+
 /// 启动交互式 REPL 循环 — 对应 TS 的 launchRepl()。
 ///
 /// 初始化 TUI、创建 Agent 会话、启动事件循环。
@@ -78,11 +88,21 @@ pub async fn launch_repl(
             .model_override
             .clone()
             .or_else(|| config.model_override.clone())
-            .unwrap_or_else(|| "MiniMax-M2".to_string());
+            .unwrap_or_else(default_model_for_unset_cli);
         let cwd_path = s.cwd.clone();
         let cwd = s.cwd.to_string_lossy().to_string();
         (model, cwd, cwd_path, config.system_prompt.clone())
     };
+
+    // SessionStart hook stub：通知 watcher 交互式 REPL 会话已启动。
+    // 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
+    info!(
+        target: "mossen_agent::hooks",
+        hook_event = ?HookEvent::SessionStart,
+        cwd = %cwd,
+        is_interactive = true,
+        "Session-start hook: interactive REPL session about to start"
+    );
 
     // Assemble the layered system prompt once per session. If the caller
     // supplied a `--system-prompt` override on `ReplConfig` we honour that
@@ -272,7 +292,7 @@ pub async fn run_oneshot(
         let m = s
             .model_override
             .clone()
-            .unwrap_or_else(|| "claude-opus-4-5".to_string());
+            .unwrap_or_else(default_model_for_unset_cli);
         (m, s.cwd.to_string_lossy().to_string())
     };
 
@@ -460,7 +480,7 @@ pub async fn submit_once(
     model: Option<String>,
     cwd: Option<String>,
 ) -> Result<String> {
-    let model = model.unwrap_or_else(|| "claude-opus-4-5".to_string());
+    let model = model.unwrap_or_else(default_model_for_unset_cli);
     let cwd = cwd.unwrap_or_else(|| {
         std::env::current_dir()
             .ok()

@@ -147,6 +147,14 @@ pub async fn call_streaming(
     // Custom-backend (MiniMax / Qwen / GLM …) → OpenAI /chat/completions.
     // 这些后端没有 Anthropic 兼容 `/v1/messages`；用 OpenAI 适配 + 合成流。
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
+        let base_url = std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL")
+            .unwrap_or_else(|_| "<unset>".to_string());
+        tracing::info!(
+            target: "mossen_agent::api_client",
+            base_url = %base_url,
+            model = %params.model,
+            "custom backend routing: OpenAI-compat /chat/completions"
+        );
         return call_streaming_openai_compat(params, cancel).await;
     }
 

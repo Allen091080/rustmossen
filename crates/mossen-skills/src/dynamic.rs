@@ -522,7 +522,10 @@ fn matches_patterns_with_negation(patterns: &[String], candidate: &str) -> bool 
             Some(rest) => (true, rest),
             None => (false, raw.as_str()),
         };
-        let Ok(glob) = globset::Glob::new(pat) else { continue };
+        let Ok(glob) = globset::GlobBuilder::new(pat)
+            .literal_separator(true)
+            .build()
+        else { continue };
         if glob.compile_matcher().is_match(candidate) {
             included = !negate;
         }

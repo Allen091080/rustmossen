@@ -376,6 +376,8 @@ pub enum TerminalReason {
     HookStopped,
     /// Stop hook 阻止。
     StopHookPrevented,
+    /// 需要重试（fallback 触发但无 handler，用当前 model 再试）。
+    Retry,
 }
 
 // ---------------------------------------------------------------------------

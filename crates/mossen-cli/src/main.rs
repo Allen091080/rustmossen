@@ -59,6 +59,7 @@ use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::bootstrap::{new_shared_state, SharedBootstrapState};
+use mossen_types::hooks::HookEvent;
 use crate::cli::{BridgesSubCmd, Cli, EmitFormat, PluginSubCmd, SubCmd};
 use crate::commands_registry::DirectiveRegistry;
 use crate::exit::{cli_error, cli_ok};
@@ -183,6 +184,7 @@ async fn run(cli: Cli) -> Result<()> {
     info!(cwd = %cwd.display(), "working directory resolved");
 
     // 2. 创建共享启动状态
+    let cwd_path = cwd.clone();
     let state = new_shared_state(cwd);
 
     // 3. 安装信号处理器
@@ -210,6 +212,47 @@ async fn run(cli: Cli) -> Result<()> {
     setup::run_setup(&state, cli.bare)
         .await
         .context("setup failed")?;
+
+    // 7.5 SessionStart hook stub：通知 watcher 会话已启动。
+    // 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
+    info!(
+        target: "mossen_agent::hooks",
+        hook_event = ?HookEvent::SessionStart,
+        cwd = %cwd_path.display(),
+        is_interactive = !cli.is_non_interactive(),
+        "Session-start hook: session about to start"
+    );
+
+    // 7.6 Skill 动态发现：沿 cwd 向上查找 .mossen/skills 目录。
+    // Phase 2-2: wire discover_skill_dirs_for_paths
+    let cwd_str = cwd_path.to_string_lossy().to_string();
+    let cwd_path_clone = cwd_path.clone();
+    let discovered = mossen_skills::discover_skill_dirs_for_paths(
+        &[cwd_path_clone],
+        &cwd_path,
+        ".mossen",
+    ).await;
+    if !discovered.is_empty() {
+        info!(
+            target: "mossen_cli::skills",
+            count = discovered.len(),
+            "skill directories discovered during startup"
+        );
+    }
+
+    // 7.7 Conditional skill 激活：基于当前工作目录激活匹配的条件技能。
+    // Phase 2-3: wire activate_conditional_skills_for_paths
+    let activated = mossen_skills::activate_conditional_skills_for_paths(
+        &[cwd_str],
+        &cwd_path,
+    );
+    if !activated.is_empty() {
+        info!(
+            target: "mossen_cli::skills",
+            activated = ?activated,
+            "conditional skills activated during startup"
+        );
+    }
 
     // 8. 路由到对应模式
     let result = route_command(cli, state.clone(), shutdown).await;

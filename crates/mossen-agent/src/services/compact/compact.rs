@@ -390,10 +390,33 @@ pub struct CompactConversationResult {
 }
 
 /// `compact.ts` `compactConversation`.
+/// Pre-compact hook：通知 watcher 即将压缩。
+/// 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
+fn fire_pre_compact_hook(message_count: usize) {
+    tracing::info!(
+        target: "mossen_agent::compact",
+        message_count,
+        "Pre-compact hook: compaction about to start"
+    );
+}
+
+/// Post-compact hook：通知 watcher 压缩已完成。
+/// 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
+fn fire_post_compact_hook(result: &CompactConversationResult) {
+    tracing::info!(
+        target: "mossen_agent::compact",
+        boundary_token_count = result.remaining_token_count,
+        "Post-compact hook: compaction completed"
+    );
+}
+
 pub async fn compact_conversation(
     messages: &[Message],
     _file_read_tool_name: &str,
 ) -> CompactConversationResult {
+    // Pre-compact hook
+    fire_pre_compact_hook(messages.len());
+
     if messages.is_empty() {
         return CompactConversationResult {
             success: true,
@@ -402,13 +425,17 @@ pub async fn compact_conversation(
     }
     let half = messages.len() / 2;
     let kept = messages[half..].to_vec();
-    CompactConversationResult {
+    let result = CompactConversationResult {
         success: true,
         error: None,
         compacted_message_count: half,
         remaining_token_count: (kept.len() as u64) * 256,
         new_messages: kept,
-    }
+    };
+
+    // Post-compact hook
+    fire_post_compact_hook(&result);
+    result
 }
 
 /// `compact.ts` `partialCompactConversation`.

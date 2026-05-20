@@ -21,6 +21,7 @@ use crate::context::{
 };
 use crate::cost_tracker::{self, CostState};
 use crate::retry::{self, RetryConfig, RetryError, SystemApiErrorNotification};
+use crate::hooks::post_sampling::{PostInferenceContext, PostSamplingHookRegistry};
 use crate::stop_hooks::{StopHookContext, StopHookManager, StopHookResult};
 use crate::streaming::{StreamAccumulator, StreamEvent};
 use crate::tool_registry::ToolRegistry;
@@ -84,6 +85,7 @@ pub async fn initiate_dialogue(
     api_config: ApiClientConfig,
     tool_registry: Arc<ToolRegistry>,
     stop_hook_manager: Arc<StopHookManager>,
+    post_sampling_manager: Arc<PostSamplingHookRegistry>,
     tx: tokio::sync::mpsc::Sender<SdkMessage>,
 ) -> Result<TerminalReason, DialogueError> {
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -113,6 +115,7 @@ pub async fn initiate_dialogue(
         &api_config,
         &tool_registry,
         &stop_hook_manager,
+        &post_sampling_manager,
         &tx,
         &session_id,
     )
@@ -147,6 +150,7 @@ async fn execute_turn_cycle(
     api_config: &ApiClientConfig,
     tool_registry: &Arc<ToolRegistry>,
     stop_hook_manager: &Arc<StopHookManager>,
+    post_sampling_manager: &Arc<PostSamplingHookRegistry>,
     tx: &tokio::sync::mpsc::Sender<SdkMessage>,
     session_id: &str,
 ) -> Result<(TerminalReason, CostState), DialogueError> {
@@ -281,17 +285,11 @@ async fn execute_turn_cycle(
                 return Ok((TerminalReason::AbortedStreaming, cost_state));
             }
             Err(RetryError::FallbackTriggered { original, fallback }) => {
-                warn!(%original, %fallback, "Fallback model would be used (not yet wired)");
-                return Ok((
-                    TerminalReason::ModelError {
-                        error: anyhow::anyhow!(
-                            "Fallback triggered from {} to {} but no fallback handler installed",
-                            original,
-                            fallback
-                        ),
-                    },
-                    cost_state,
-                ));
+                warn!(
+                    %original, %fallback,
+                    "Fallback requested but no handler wired; will retry with the original model"
+                );
+                return Ok((TerminalReason::Retry, cost_state));
             }
             Err(RetryError::CannotRetry(e)) => {
                 return Ok((TerminalReason::ModelError { error: e }, cost_state));
@@ -338,6 +336,26 @@ async fn execute_turn_cycle(
                 }
             }
         }
+
+        // 8. Post-sampling hook：API 采样完成后通知注册的 watcher
+        let psh_ctx = PostInferenceContext {
+            messages_json: accumulator
+                .content_blocks
+                .iter()
+                .map(|b| format!("{:?}", b))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            system_prompt: spec
+                .system_prompt
+                .iter()
+                .map(|sb| sb.text.clone())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            user_context: std::collections::HashMap::new(),
+            system_context: std::collections::HashMap::new(),
+            query_source: Some(format!("{:?}", spec.origin_tag)),
+        };
+        post_sampling_manager.fire_post_inference_watchers(&psh_ctx);
 
         let call_duration = call_start.elapsed();
 

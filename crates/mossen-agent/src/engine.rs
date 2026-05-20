@@ -186,9 +186,18 @@ impl SessionOrchestrator {
 
         // 在后台任务中执行对话循环
         tokio::spawn(async move {
-            let result =
-                dialogue::initiate_dialogue(spec, api_config, tool_registry, stop_hook_manager, tx)
-                    .await;
+            let psm = std::sync::Arc::new(
+                crate::hooks::post_sampling::PostSamplingHookRegistry::new(),
+            );
+            let result = dialogue::initiate_dialogue(
+                spec,
+                api_config,
+                tool_registry,
+                stop_hook_manager,
+                psm,
+                tx,
+            )
+            .await;
 
             if let Err(e) = result {
                 tracing::error!(error = %e, "Dialogue error");

@@ -189,6 +189,77 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
 /// Inspired by TS `getNestedMemoryAttachmentsForFile` + the system prompt
 /// memory layer. We deliberately stay simple: project root, project's
 /// `.mossen/` folder, and the user's home `~/.mossen/MOSSEN.md`.
+/// 递归展开 `@<file>` import。语义：
+/// - 一行（前后允许空白）只包含 `@<path>` 就替换为该文件内容
+/// - path 是相对路径时，相对 `parent`（被 include 源文件的目录）解析
+/// - 防循环：`visited` 跟踪已展开的 canonical 路径，已访问的直接保留原行
+/// - 最大递归深度 5；超出后保留原文（防爆栈 + 防恶意构造）
+/// - 文件读不到也保留原文（保守，避免静默丢内容）
+async fn expand_at_includes(
+    raw: &str,
+    parent: &std::path::Path,
+    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+    depth: u8,
+) -> String {
+    if depth >= 5 {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len());
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        let include_target = trimmed.strip_prefix('@').and_then(|rest| {
+            if !rest.is_empty() && !rest.contains(char::is_whitespace) {
+                Some(rest)
+            } else {
+                None
+            }
+        });
+
+        if let Some(target) = include_target {
+            let candidate = if std::path::Path::new(target).is_absolute() {
+                std::path::PathBuf::from(target)
+            } else {
+                parent.join(target)
+            };
+            let canon = std::fs::canonicalize(&candidate).unwrap_or_else(|_| candidate.clone());
+            if visited.contains(&canon) {
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            visited.insert(canon.clone());
+
+            match tokio::fs::read_to_string(&candidate).await {
+                Ok(child_raw) => {
+                    let child_parent = candidate
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| parent.to_path_buf());
+                    let expanded = Box::pin(expand_at_includes(
+                        &child_raw,
+                        &child_parent,
+                        visited,
+                        depth + 1,
+                    ))
+                    .await;
+                    out.push_str(&expanded);
+                    if !expanded.ends_with('\n') {
+                        out.push('\n');
+                    }
+                }
+                Err(_) => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -199,7 +270,13 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
             home.join(".claude").join("CLAUDE.md"),
         ] {
             if let Ok(text) = tokio::fs::read_to_string(&path).await {
-                let trimmed = text.trim();
+                let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+                let mut visited = std::collections::HashSet::new();
+                if let Ok(canon) = std::fs::canonicalize(&path) {
+                    visited.insert(canon);
+                }
+                let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+                let trimmed = expanded.trim();
                 if !trimmed.is_empty() {
                     sections.push(format!(
                         "Contents of {} (user's private global instructions for all projects):\n\n{}",
@@ -216,7 +293,13 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
     for filename in ["MOSSEN.md", "MOSSEN.local.md", "CLAUDE.md", "CLAUDE.local.md"] {
         let p = cwd.join(filename);
         if let Ok(text) = tokio::fs::read_to_string(&p).await {
-            let trimmed = text.trim();
+            let parent = p.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let mut visited = std::collections::HashSet::new();
+            if let Ok(canon) = std::fs::canonicalize(&p) {
+                visited.insert(canon);
+            }
+            let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+            let trimmed = expanded.trim();
             if !trimmed.is_empty() {
                 sections.push(format!("Contents of {}:\n\n{}", p.display(), trimmed));
             }
@@ -230,7 +313,13 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
         cwd.join(".mossen").join("MOSSEN.local.md"),
     ] {
         if let Ok(text) = tokio::fs::read_to_string(&nested).await {
-            let trimmed = text.trim();
+            let parent = nested.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let mut visited = std::collections::HashSet::new();
+            if let Ok(canon) = std::fs::canonicalize(&nested) {
+                visited.insert(canon);
+            }
+            let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+            let trimmed = expanded.trim();
             if !trimmed.is_empty() {
                 sections.push(format!(
                     "Contents of {}:\n\n{}",
