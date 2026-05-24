@@ -411,6 +411,16 @@ pub struct UserPromptSubmitHookInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PostSamplingHookInput {
+    #[serde(flatten)]
+    pub base: BaseHookInput,
+    pub assistant_response: String,
+    pub system_prompt: String,
+    pub query_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionStartHookInput {
     #[serde(flatten)]
     pub base: BaseHookInput,
@@ -602,6 +612,7 @@ pub enum HookInput {
     PermissionRequest(PermissionRequestHookInput),
     Notification(NotificationHookInput),
     UserPromptSubmit(UserPromptSubmitHookInput),
+    PostSampling(PostSamplingHookInput),
     SessionStart(SessionStartHookInput),
     Setup(SetupHookInput),
     Stop(StopHookInput),
@@ -1726,6 +1737,7 @@ pub async fn query_async(prompt: &str, options: Value) -> Result<Value, String> 
         permission_gate: None,
         tool_registry: None,
         cancel_token: None,
+        hook_context: None,
     };
 
     let mut receiver = mossen_agent::engine::submit_prompt(params).await;

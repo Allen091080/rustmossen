@@ -30,6 +30,7 @@ pub enum HookEvent {
     PreToolUse,
     PostToolUse,
     PostToolUseFailure,
+    PostSampling,
     PermissionDenied,
     PermissionRequest,
     Notification,
@@ -62,6 +63,7 @@ impl std::fmt::Display for HookEvent {
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
             Self::PostToolUseFailure => "PostToolUseFailure",
+            Self::PostSampling => "PostSampling",
             Self::PermissionDenied => "PermissionDenied",
             Self::PermissionRequest => "PermissionRequest",
             Self::Notification => "Notification",
@@ -1409,6 +1411,10 @@ pub fn get_matching_hooks(
         | HookEvent::PermissionRequest
         | HookEvent::PermissionDenied => hook_input.extra.get("tool_name").and_then(|v| v.as_str()),
         HookEvent::SessionStart => hook_input.extra.get("source").and_then(|v| v.as_str()),
+        HookEvent::PostSampling => hook_input
+            .extra
+            .get("query_source")
+            .and_then(|v| v.as_str()),
         HookEvent::Setup | HookEvent::PreCompact | HookEvent::PostCompact => {
             hook_input.extra.get("trigger").and_then(|v| v.as_str())
         }

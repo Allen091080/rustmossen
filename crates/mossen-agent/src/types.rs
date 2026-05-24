@@ -138,6 +138,9 @@ pub struct DialogueSpec {
     /// shared across nested dialogue turns and child agent tasks without
     /// re-creating its UI channel.
     pub permission_gate: std::sync::Arc<dyn PermissionGate>,
+    /// Runtime hook context loaded from settings/plugin/session state. This is
+    /// optional so SDK/test callers can run without a CLI bootstrap context.
+    pub hook_context: Option<std::sync::Arc<mossen_utils::hooks_utils::HooksContext>>,
 }
 
 /// User decision on a tool-use permission request. `AllowAlways` is
@@ -944,6 +947,9 @@ pub struct OrchestratorConfig {
     /// in mossen-cli (where `mossen_tools::all_tools()` is available) and
     /// injected here to avoid a circular dependency with mossen-tools.
     pub tool_registry: Option<std::sync::Arc<crate::tool_registry::ToolRegistry>>,
+    /// Runtime hook context forwarded into dialogue so settings/plugin hooks
+    /// can fire from turn, sampling, and compaction lifecycle points.
+    pub hook_context: Option<std::sync::Arc<mossen_utils::hooks_utils::HooksContext>>,
 }
 
 /// 提交选项。
@@ -1012,6 +1018,8 @@ pub struct PromptParams {
     /// Optional executable tool registry — forwarded to
     /// `OrchestratorConfig::tool_registry`. See that field for the rationale.
     pub tool_registry: Option<std::sync::Arc<crate::tool_registry::ToolRegistry>>,
+    /// Runtime hook context forwarded to the orchestrator/dialogue.
+    pub hook_context: Option<std::sync::Arc<mossen_utils::hooks_utils::HooksContext>>,
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 //! # events — Hook 事件元数据
 //!
 //! 对应 TS `utils/hooks/hooksConfigManager.ts` 中的 `getHookEventMetadata()`。
-//! 提供 27 种 Hook 事件的描述信息和匹配器元数据。
+//! 提供 Hook 事件的描述信息和匹配器元数据。
 
 use mossen_types::hooks::HookEvent;
 
@@ -57,6 +57,21 @@ pub fn describe_event(event: HookEvent, tool_names: &[String]) -> HookEventMetad
             matcher_metadata: Some(MatcherMetadata {
                 field_to_match: "tool_name",
                 values: tool_names.to_vec(),
+            }),
+        },
+        HookEvent::PostSampling => HookEventMetadata {
+            summary: "After model response sampling completes",
+            description: "Input to command is JSON with assistant_response, system_prompt, and query_source. Hook output is observability-only and does not alter the turn.",
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "query_source",
+                values: vec![
+                    "repl".into(),
+                    "sdk".into(),
+                    "custom_backend".into(),
+                    "agent_task".into(),
+                    "background".into(),
+                    "pipeline".into(),
+                ],
             }),
         },
         HookEvent::PermissionDenied => HookEventMetadata {

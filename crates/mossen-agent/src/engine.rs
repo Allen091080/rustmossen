@@ -180,6 +180,7 @@ impl SessionOrchestrator {
                 .permission_gate
                 .clone()
                 .unwrap_or_else(|| std::sync::Arc::new(crate::types::AllowAllGate)),
+            hook_context: self.config.hook_context.clone(),
         };
 
         // 获取 API 配置
@@ -295,6 +296,7 @@ pub async fn submit_prompt(params: PromptParams) -> mpsc::Receiver<SdkMessage> {
         // round-trip through the modal.
         permission_gate: params.permission_gate,
         tool_registry: params.tool_registry,
+        hook_context: params.hook_context,
     };
 
     let mut orchestrator = SessionOrchestrator::new(config);

@@ -147,9 +147,8 @@ pub struct EngineConfig {
     /// Stored on EngineConfig so the picker can update it live and the
     /// next `handle_submit` reassembles the prompt automatically.
     pub output_style: Option<String>,
-    /// Hook runtime context used by `/compact` to execute PreCompact and
-    /// PostCompact hooks from the same session/plugin configuration as the
-    /// launcher.
+    /// Hook runtime context used by dialogue and `/compact` to execute hooks
+    /// from the same session/plugin configuration as the launcher.
     pub compact_hook_context: Option<Arc<mossen_utils::hooks_utils::HooksContext>>,
 }
 
@@ -7790,6 +7789,7 @@ impl App {
             permission_mode: PermissionMode::parse(self.current_permission_mode_code()),
             permission_gate: Some(gate),
             tool_registry: self.tool_registry.clone(),
+            hook_context: cfg.compact_hook_context.clone(),
         };
 
         // The stream emits MessageStart for each model turn. Create the

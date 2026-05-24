@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::permissions::{PermissionBehavior, PermissionUpdate};
 
-/// Hook 事件类型 — 27 种事件。
+/// Hook 事件类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HookEvent {
     // Pre hooks（前置拦截）
@@ -18,6 +18,7 @@ pub enum HookEvent {
     // Post hooks（后置通知）
     PostToolUse,
     PostToolUseFailure,
+    PostSampling,
     PostCompact,
 
     // Session lifecycle
@@ -67,6 +68,7 @@ impl HookEvent {
             Self::PreCompact => "PreCompact",
             Self::PostToolUse => "PostToolUse",
             Self::PostToolUseFailure => "PostToolUseFailure",
+            Self::PostSampling => "PostSampling",
             Self::PostCompact => "PostCompact",
             Self::SessionStart => "SessionStart",
             Self::SessionEnd => "SessionEnd",
@@ -108,6 +110,7 @@ impl std::str::FromStr for HookEvent {
             "PreCompact" => Ok(Self::PreCompact),
             "PostToolUse" => Ok(Self::PostToolUse),
             "PostToolUseFailure" => Ok(Self::PostToolUseFailure),
+            "PostSampling" => Ok(Self::PostSampling),
             "PostCompact" => Ok(Self::PostCompact),
             "SessionStart" => Ok(Self::SessionStart),
             "SessionEnd" => Ok(Self::SessionEnd),
@@ -136,12 +139,13 @@ impl std::str::FromStr for HookEvent {
     }
 }
 
-/// 全部 27 种 Hook 事件列表。
+/// 全部 Hook 事件列表。
 pub const HOOK_EVENTS: &[HookEvent] = &[
     HookEvent::PreToolUse,
     HookEvent::PreCompact,
     HookEvent::PostToolUse,
     HookEvent::PostToolUseFailure,
+    HookEvent::PostSampling,
     HookEvent::PostCompact,
     HookEvent::SessionStart,
     HookEvent::SessionEnd,

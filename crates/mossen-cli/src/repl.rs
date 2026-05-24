@@ -3337,6 +3337,17 @@ async fn build_oneshot_prompt_params(
             }));
         }
     }
+    let hook_context = match crate::session_hooks::build_hooks_context(&state, true) {
+        Ok(context) => Some(Arc::new(context)),
+        Err(err) => {
+            warn!(
+                target: "mossen_agent::hooks",
+                error = %err,
+                "Hook context unavailable; oneshot dialogue hooks will continue disabled"
+            );
+            None
+        }
+    };
 
     mossen_skills::init_bundled_skills();
 
@@ -3436,6 +3447,7 @@ async fn build_oneshot_prompt_params(
         // with — so leave the gate open.
         permission_gate: None,
         tool_registry: Some(oneshot_registry),
+        hook_context,
     };
 
     Ok((prompt_params, prompt))
@@ -3561,6 +3573,7 @@ pub async fn submit_once(
         // `AllowAllGate` default.
         permission_gate: None,
         tool_registry: None,
+        hook_context: None,
     };
 
     let mut orchestrator = SessionOrchestrator::new(config);

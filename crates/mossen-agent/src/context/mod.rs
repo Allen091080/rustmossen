@@ -317,6 +317,8 @@ pub async fn auto_compact_if_needed(
     context_window: u64,
     max_output_tokens: u32,
     tracking: &mut Option<AutoCompactTracking>,
+    hook_context: Option<&mossen_utils::hooks_utils::HooksContext>,
+    cancel_token: Option<&tokio_util::sync::CancellationToken>,
 ) -> AutoCompactResult {
     let threshold = auto_compact_threshold(context_window, max_output_tokens);
 
@@ -342,39 +344,56 @@ pub async fn auto_compact_if_needed(
     );
     crate::services::compact::compact_warning_state::clear_compact_warning_suppression();
 
-    if let Some(result) =
-        crate::services::compact::session_memory_compact::try_session_memory_compaction(
-            messages,
-            None,
-            Some(threshold as usize),
-        )
-        .await
-    {
-        let compacted_messages =
-            crate::services::compact::compact::build_post_compact_messages(&result);
-        let after_tokens = estimate_token_count(&compacted_messages);
-        let t = tracking.get_or_insert_with(AutoCompactTracking::default);
-        t.consecutive_failures = 0;
-        t.last_compact_token_count = Some(after_tokens);
-        t.last_compact_time = Some(chrono::Utc::now());
-        crate::services::compact::post_compact_cleanup::run_post_compact_cleanup(None);
-        return AutoCompactResult::Compacted {
-            before_tokens: estimated_tokens,
-            after_tokens,
-            summary: result.user_display_message.unwrap_or_else(|| {
-                format!(
-                    "Session-memory compacted context; kept {} (~{} tokens)",
-                    compacted_messages.len(),
-                    after_tokens
-                )
-            }),
-            messages: compacted_messages,
-        };
+    let compact_hooks_configured = hook_context
+        .map(|ctx| {
+            mossen_utils::hooks_utils::has_any_hook_for_events(ctx, &["PreCompact", "PostCompact"])
+        })
+        .unwrap_or(false);
+
+    if !compact_hooks_configured {
+        if let Some(result) =
+            crate::services::compact::session_memory_compact::try_session_memory_compaction(
+                messages,
+                None,
+                Some(threshold as usize),
+            )
+            .await
+        {
+            let compacted_messages =
+                crate::services::compact::compact::build_post_compact_messages(&result);
+            let after_tokens = estimate_token_count(&compacted_messages);
+            let t = tracking.get_or_insert_with(AutoCompactTracking::default);
+            t.consecutive_failures = 0;
+            t.last_compact_token_count = Some(after_tokens);
+            t.last_compact_time = Some(chrono::Utc::now());
+            crate::services::compact::post_compact_cleanup::run_post_compact_cleanup(None);
+            return AutoCompactResult::Compacted {
+                before_tokens: estimated_tokens,
+                after_tokens,
+                summary: result.user_display_message.unwrap_or_else(|| {
+                    format!(
+                        "Session-memory compacted context; kept {} (~{} tokens)",
+                        compacted_messages.len(),
+                        after_tokens
+                    )
+                }),
+                messages: compacted_messages,
+            };
+        }
     }
 
     // 调用 services::compact::compact_conversation 执行实际压缩。
-    // 该函数内部会通过 queryModelWithStreaming 调用 LLM 生成摘要。
-    let result = crate::services::compact::compact::compact_conversation(messages, "Read").await;
+    let mut compact_options =
+        crate::services::compact::compact::CompactConversationOptions::without_hooks();
+    compact_options.trigger = "auto";
+    compact_options.hook_context = hook_context;
+    compact_options.cancel_token = cancel_token;
+    let result = crate::services::compact::compact::compact_conversation_with_options(
+        messages,
+        "Read",
+        compact_options,
+    )
+    .await;
     if !result.success {
         let error = result.error.unwrap_or_else(|| "compaction failed".into());
         let t = tracking.get_or_insert_with(AutoCompactTracking::default);
@@ -418,6 +437,7 @@ pub async fn auto_compact_if_needed(
 mod tests {
     use super::*;
     use mossen_types::TextBlock;
+    use std::collections::HashSet;
 
     fn text_message(role: Role, text: &str) -> Message {
         Message {
@@ -440,6 +460,40 @@ mod tests {
         }
     }
 
+    fn test_hooks_context(
+        cwd: &std::path::Path,
+        registered_hooks: HashMap<String, Vec<mossen_utils::hooks_utils::HookMatcher>>,
+    ) -> mossen_utils::hooks_utils::HooksContext {
+        mossen_utils::hooks_utils::HooksContext {
+            session_id: "test-session".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: std::sync::Arc::new(|session_id| {
+                format!("/tmp/{session_id}.jsonl")
+            }),
+            get_agent_transcript_path: std::sync::Arc::new(|agent_id| {
+                format!("/tmp/agent-{agent_id}.jsonl")
+            }),
+            log_debug: std::sync::Arc::new(|_| {}),
+            log_error: std::sync::Arc::new(|_| {}),
+            log_event: std::sync::Arc::new(|_, _| {}),
+            get_settings: std::sync::Arc::new(|| None),
+            get_settings_for_source: std::sync::Arc::new(|_| None),
+            invalidate_session_env_cache: std::sync::Arc::new(|| {}),
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
+        }
+    }
+
     #[tokio::test]
     async fn auto_compact_returns_compacted_messages_and_updates_tracking() {
         let messages = vec![
@@ -450,7 +504,7 @@ mod tests {
         ];
         let mut tracking = None;
 
-        let result = auto_compact_if_needed(&messages, 1, 1, 0, &mut tracking).await;
+        let result = auto_compact_if_needed(&messages, 1, 1, 0, &mut tracking, None, None).await;
 
         let AutoCompactResult::Compacted {
             before_tokens,
@@ -483,6 +537,56 @@ mod tests {
         assert_eq!(tracking.consecutive_failures, 0);
         assert!(tracking.last_compact_token_count.is_some());
         assert!(tracking.last_compact_time.is_some());
+    }
+
+    #[tokio::test]
+    async fn auto_compact_forwards_hook_context_with_auto_trigger() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PreCompact".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("auto".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": "printf 'auto hook instruction'",
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = test_hooks_context(cwd.path(), registered_hooks);
+        let messages = vec![
+            text_message(Role::User, "remember project alpha"),
+            text_message(Role::Assistant, "stored"),
+            text_message(Role::User, "continue with current task"),
+            text_message(Role::Assistant, "working"),
+        ];
+        let mut tracking = None;
+
+        let result = auto_compact_if_needed(
+            &messages,
+            1,
+            1,
+            0,
+            &mut tracking,
+            Some(&hooks_context),
+            None,
+        )
+        .await;
+
+        let AutoCompactResult::Compacted {
+            messages: compacted,
+            ..
+        } = result
+        else {
+            panic!("expected auto-compact to trigger");
+        };
+        assert!(first_text(&compacted[1]).contains("auto hook instruction"));
     }
 }
 

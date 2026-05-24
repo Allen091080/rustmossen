@@ -45,6 +45,7 @@ use crate::types::*;
 use mossen_types::{
     ContentBlock, Message, Role, TextBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
 };
+use mossen_utils::hooks_utils::{execute_post_sampling_hooks, TOOL_HOOK_EXECUTION_TIMEOUT_MS};
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -61,6 +62,17 @@ const ESCALATED_MAX_OUTPUT_TOKENS: u32 = 64_000;
 const PERMISSION_MODE_ENV: &str = "MOSSEN_PERMISSION_MODE";
 const PERMISSION_ALLOW_RULES_ENV: &str = "MOSSEN_PERMISSION_ALLOW_RULES";
 const PERMISSION_DENY_RULES_ENV: &str = "MOSSEN_PERMISSION_DENY_RULES";
+
+fn origin_tag_hook_source(origin_tag: &OriginTag) -> &'static str {
+    match origin_tag {
+        OriginTag::Repl => "repl",
+        OriginTag::Sdk => "sdk",
+        OriginTag::CustomBackend => "custom_backend",
+        OriginTag::AgentTask => "agent_task",
+        OriginTag::Background => "background",
+        OriginTag::Pipeline => "pipeline",
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreflightPermissionDecision {
@@ -429,7 +441,9 @@ async fn execute_turn_cycle(
         }
 
         let _ = execute_pending_clear_request(&mut state, tx).await;
-        let _ = execute_pending_compact_request(&mut state, tx).await;
+        let _ =
+            execute_pending_compact_request(&mut state, tx, spec.hook_context.as_deref(), cancel)
+                .await;
 
         // 1. 消息预处理管线（含 microcompact）
         let env = snapshot_turn_env(spec, &state);
@@ -455,6 +469,8 @@ async fn execute_turn_cycle(
             env.context_window,
             env.max_output_tokens,
             &mut state.auto_compact_tracking,
+            spec.hook_context.as_deref(),
+            Some(cancel),
         )
         .await;
 
@@ -617,25 +633,46 @@ async fn execute_turn_cycle(
             }
         }
 
-        // 8. Post-sampling hook：API 采样完成后通知注册的 watcher
+        // 8. Post-sampling hook：API 采样完成后通知 watcher 和 settings hook
+        let query_source = origin_tag_hook_source(&spec.origin_tag);
+        let system_prompt_text = spec
+            .system_prompt
+            .iter()
+            .map(|sb| sb.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let assistant_response = accumulator
+            .content_blocks
+            .iter()
+            .map(|b| format!("{:?}", b))
+            .collect::<Vec<_>>()
+            .join("\n");
         let psh_ctx = PostInferenceContext {
-            messages_json: accumulator
-                .content_blocks
-                .iter()
-                .map(|b| format!("{:?}", b))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            system_prompt: spec
-                .system_prompt
-                .iter()
-                .map(|sb| sb.text.clone())
-                .collect::<Vec<_>>()
-                .join("\n"),
+            messages_json: assistant_response.clone(),
+            system_prompt: system_prompt_text.clone(),
             user_context: std::collections::HashMap::new(),
             system_context: std::collections::HashMap::new(),
-            query_source: Some(format!("{:?}", spec.origin_tag)),
+            query_source: Some(query_source.to_string()),
         };
         post_sampling_manager.fire_post_inference_watchers(&psh_ctx);
+        if let Some(ctx) = spec.hook_context.as_deref() {
+            if let Some(display_message) = execute_post_sampling_hooks(
+                ctx,
+                &assistant_response,
+                &system_prompt_text,
+                Some(query_source),
+                Some(cancel),
+                TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+            )
+            .await
+            {
+                debug!(
+                    target: "mossen_agent::hooks",
+                    message = %display_message,
+                    "PostSampling hooks processed"
+                );
+            }
+        }
 
         let call_duration = call_start.elapsed();
 
@@ -1287,18 +1324,22 @@ async fn execute_clear_request_at_safe_point(
 async fn execute_pending_compact_request(
     state: &mut TurnLedger,
     tx: &tokio::sync::mpsc::Sender<SdkMessage>,
+    hook_context: Option<&mossen_utils::hooks_utils::HooksContext>,
+    cancel_token: &tokio_util::sync::CancellationToken,
 ) -> PendingCompactExecutionOutcome {
     let Some(request) = dequeue_pending_compact_request() else {
         return PendingCompactExecutionOutcome::NoRequest;
     };
 
-    execute_compact_request_at_safe_point(state, tx, request).await
+    execute_compact_request_at_safe_point(state, tx, request, hook_context, cancel_token).await
 }
 
 async fn execute_compact_request_at_safe_point(
     state: &mut TurnLedger,
     tx: &tokio::sync::mpsc::Sender<SdkMessage>,
     request: PendingCompactRequest,
+    hook_context: Option<&mossen_utils::hooks_utils::HooksContext>,
+    cancel_token: &tokio_util::sync::CancellationToken,
 ) -> PendingCompactExecutionOutcome {
     if request.enqueued_at.elapsed() > COMPACT_REQUEST_TIMEOUT {
         warn!(
@@ -1360,6 +1401,8 @@ async fn execute_compact_request_at_safe_point(
     let mut options = CompactConversationOptions::without_hooks();
     options.trigger = "manual";
     options.custom_instructions = request.custom_instructions.as_deref();
+    options.hook_context = hook_context;
+    options.cancel_token = Some(cancel_token);
 
     let compact_result = compact_conversation_with_options(&state.messages, "Read", options).await;
     if !compact_result.success {
@@ -1697,7 +1740,7 @@ mod tests {
         TurnLedger,
     };
     use mossen_types::{ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolInputSchema};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -1711,6 +1754,13 @@ mod tests {
     }
 
     async fn pending_request_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
+    }
+
+    async fn custom_backend_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
             .lock()
@@ -1765,6 +1815,36 @@ mod tests {
             stop_hook_active: None,
             turn_count: 0,
             transition: None,
+        }
+    }
+
+    fn test_hooks_context(
+        cwd: &std::path::Path,
+        registered_hooks: HashMap<String, Vec<mossen_utils::hooks_utils::HookMatcher>>,
+    ) -> mossen_utils::hooks_utils::HooksContext {
+        mossen_utils::hooks_utils::HooksContext {
+            session_id: "test-session".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: Arc::new(|session_id| format!("/tmp/{session_id}.jsonl")),
+            get_agent_transcript_path: Arc::new(|agent_id| format!("/tmp/agent-{agent_id}.jsonl")),
+            log_debug: Arc::new(|_| {}),
+            log_error: Arc::new(|_| {}),
+            log_event: Arc::new(|_, _| {}),
+            get_settings: Arc::new(|| None),
+            get_settings_for_source: Arc::new(|_| None),
+            invalidate_session_env_cache: Arc::new(|| {}),
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
         }
     }
 
@@ -1964,8 +2044,110 @@ mod tests {
         (base_url, handle)
     }
 
+    async fn spawn_single_response_harness_server(
+        response: String,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind harness server");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept request");
+            let body = read_http_body(&mut stream).await;
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            vec![body]
+        });
+        (base_url, handle)
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_settings_post_sampling_hooks() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_single_response_harness_server(final_answer_sse_response()).await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("post_sampling_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PostSampling".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("sdk".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf post-sampled > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "sample once")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(1),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "post-sampling-session",
+        )
+        .await
+        .expect("post sampling harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("PostSampling hook should write marker");
+        assert_eq!(marker, "post-sampled");
+        let bodies = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        assert_eq!(bodies.len(), 1);
+    }
+
     #[tokio::test]
     async fn harness_executes_glob_and_continues_after_openai_compatible_tool_result() {
+        let _guard = custom_backend_test_lock().await;
         let (base_url, server) = spawn_openai_compatible_harness_server().await;
         let _env = EnvRestore::set_custom_backend(&base_url);
         let mut registry = ToolRegistry::new();
@@ -1997,6 +2179,7 @@ mod tests {
             pre_approved_permissions: Vec::new(),
             permission_mode: PermissionMode::Default,
             permission_gate: Arc::new(AllowAllGate),
+            hook_context: None,
         };
         let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
@@ -2244,6 +2427,25 @@ mod tests {
     async fn pending_compact_request_compacts_state_and_emits_boundary() {
         let _guard = pending_request_test_lock().await;
         clear_pending_compact_request();
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PreCompact".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("manual".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": "printf 'hook keep decisions'",
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = test_hooks_context(cwd.path(), registered_hooks);
         let mut state = test_turn_ledger(vec![
             test_message(Role::User, "one"),
             test_message(Role::Assistant, "two"),
@@ -2258,8 +2460,10 @@ mod tests {
         )
         .expect("enqueue compact request");
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let cancel = CancellationToken::new();
 
-        let outcome = execute_pending_compact_request(&mut state, &tx).await;
+        let outcome =
+            execute_pending_compact_request(&mut state, &tx, Some(&hooks_context), &cancel).await;
 
         match outcome {
             PendingCompactExecutionOutcome::Completed {
@@ -2290,6 +2494,7 @@ mod tests {
             other => panic!("expected summary text after boundary, got {other:?}"),
         };
         assert!(summary_text.contains("Compaction instructions applied: keep decisions"));
+        assert!(summary_text.contains("hook keep decisions"));
 
         match rx.recv().await.expect("compact boundary event") {
             crate::types::SdkMessage::CompactBoundary {
@@ -2343,8 +2548,9 @@ mod tests {
         )
         .expect("enqueue compact request");
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let cancel = CancellationToken::new();
 
-        let outcome = execute_pending_compact_request(&mut state, &tx).await;
+        let outcome = execute_pending_compact_request(&mut state, &tx, None, &cancel).await;
 
         match outcome {
             PendingCompactExecutionOutcome::DryRun {
@@ -2402,8 +2608,9 @@ mod tests {
         )
         .expect("enqueue compact request");
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let cancel = CancellationToken::new();
 
-        let outcome = execute_pending_compact_request(&mut state, &tx).await;
+        let outcome = execute_pending_compact_request(&mut state, &tx, None, &cancel).await;
 
         match outcome {
             PendingCompactExecutionOutcome::Skipped { request_id, reason } => {

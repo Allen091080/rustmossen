@@ -28,6 +28,7 @@ pub const HOOK_EVENTS: &[&str] = &[
     "PreToolUse",
     "PostToolUse",
     "PostToolUseFailure",
+    "PostSampling",
     "PermissionDenied",
     "Notification",
     "UserPromptSubmit",
@@ -650,6 +651,27 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
             matcher_metadata: Some(MatcherMetadata {
                 field_to_match: "tool_name".to_string(),
                 values: tool_names.to_vec(),
+            }),
+        },
+    );
+
+    metadata.insert(
+        "PostSampling".to_string(),
+        HookEventMetadata {
+            summary: "After model response sampling completes".to_string(),
+            description:
+                "Input to command is JSON with assistant_response, system_prompt, and query_source."
+                    .to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "query_source".to_string(),
+                values: vec![
+                    "repl".into(),
+                    "sdk".into(),
+                    "custom_backend".into(),
+                    "agent_task".into(),
+                    "background".into(),
+                    "pipeline".into(),
+                ],
             }),
         },
     );

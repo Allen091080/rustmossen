@@ -452,6 +452,36 @@ pub struct HooksContext {
     pub allowed_official_marketplace_names: HashSet<String>,
 }
 
+impl std::fmt::Debug for HooksContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HooksContext")
+            .field("session_id", &self.session_id)
+            .field("original_cwd", &self.original_cwd)
+            .field("project_root", &self.project_root)
+            .field("is_non_interactive", &self.is_non_interactive)
+            .field("trust_accepted", &self.trust_accepted)
+            .field(
+                "hooks_config_snapshot",
+                &self.hooks_config_snapshot.as_ref().map(|hooks| hooks.len()),
+            )
+            .field(
+                "registered_hooks",
+                &self.registered_hooks.as_ref().map(|hooks| hooks.len()),
+            )
+            .field("disable_all_hooks", &self.disable_all_hooks)
+            .field("managed_hooks_only", &self.managed_hooks_only)
+            .field("main_thread_agent_type", &self.main_thread_agent_type)
+            .field("custom_backend_enabled", &self.custom_backend_enabled)
+            .field("simple_mode", &self.simple_mode)
+            .field("subprocess_env_len", &self.subprocess_env.len())
+            .field(
+                "allowed_official_marketplace_names_len",
+                &self.allowed_official_marketplace_names.len(),
+            )
+            .finish()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
@@ -1158,6 +1188,13 @@ fn has_hook_for_event(ctx: &HooksContext, hook_event: &str) -> bool {
         }
     }
     false
+}
+
+/// Check whether any hook exists for one of the given events.
+pub fn has_any_hook_for_events(ctx: &HooksContext, hook_events: &[&str]) -> bool {
+    hook_events
+        .iter()
+        .any(|hook_event| has_hook_for_event(ctx, hook_event))
 }
 
 /// Get hook commands that match the given query.
@@ -2866,6 +2903,64 @@ pub async fn execute_stop_hooks(
         false,
     )
     .await
+}
+
+/// Execute post-sampling hooks after a model response has been fully sampled.
+pub async fn execute_post_sampling_hooks(
+    ctx: &HooksContext,
+    assistant_response: &str,
+    system_prompt: &str,
+    query_source: Option<&str>,
+    cancel_token: Option<&tokio_util::sync::CancellationToken>,
+    timeout_ms: u64,
+) -> Option<String> {
+    if !has_hook_for_event(ctx, "PostSampling") {
+        return None;
+    }
+
+    let base = create_base_hook_input(ctx, None, None, None);
+    let hook_input = serde_json::json!({
+        "session_id": base.session_id,
+        "transcript_path": base.transcript_path,
+        "cwd": base.cwd,
+        "hook_event_name": "PostSampling",
+        "assistant_response": assistant_response,
+        "system_prompt": system_prompt,
+        "query_source": query_source,
+    });
+
+    let results =
+        execute_hooks_outside_repl(ctx, &hook_input, query_source, cancel_token, timeout_ms).await;
+    if results.is_empty() {
+        return None;
+    }
+
+    let display_messages: Vec<String> = results
+        .iter()
+        .map(|r| {
+            if r.succeeded {
+                if r.output.trim().is_empty() {
+                    format!("PostSampling [{}] completed successfully", r.command)
+                } else {
+                    format!(
+                        "PostSampling [{}] completed successfully: {}",
+                        r.command,
+                        r.output.trim()
+                    )
+                }
+            } else if r.output.trim().is_empty() {
+                format!("PostSampling [{}] failed", r.command)
+            } else {
+                format!("PostSampling [{}] failed: {}", r.command, r.output.trim())
+            }
+        })
+        .collect();
+
+    if display_messages.is_empty() {
+        None
+    } else {
+        Some(display_messages.join("\n"))
+    }
 }
 
 /// Execute teammate idle hooks.
