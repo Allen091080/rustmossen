@@ -3,7 +3,7 @@ name = "mossen-commands"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Mossen 命令系统 — 80+ 斜杠命令与 CLI 子命令"
+description = "Mossen 命令系统 — 内置斜杠命令与 CLI 子命令"
 
 [lib]
 name = "mossen_commands"

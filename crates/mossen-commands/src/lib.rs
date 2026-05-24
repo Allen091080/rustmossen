@@ -1,7 +1,7 @@
 //! # mossen-commands
 //!
-//! Mossen 命令系统 — 实现 80+ 斜杠命令（/help、/compact、/model 等）
-//! 及 CLI 子命令的注册、解析和执行。
+//! Mossen 命令系统 — 注册并执行内置斜杠命令（/help、/compact、/model 等）
+//! 及 CLI 子命令。
 //!
 //! ## 模块结构
 //!
@@ -17,7 +17,7 @@
 )]
 
 pub mod command_extras;
-pub mod component_stubs;
+pub mod component_logic;
 pub mod context;
 pub mod plugin_helpers;
 
@@ -297,4 +297,70 @@ pub fn visible_directives<'a>(
         .filter(|d| d.is_enabled(ctx) && !d.is_hidden())
         .map(|d| d.as_ref())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+        }
+    }
+
+    #[test]
+    fn help_for_specific_command_uses_registered_metadata() {
+        let ctx = test_context();
+        let result = tokio_test::block_on(guide::GuideDirective.execute(&["model"], &ctx))
+            .expect("help command should execute");
+        let CommandResult::Text(text) = result else {
+            panic!("expected text help");
+        };
+
+        assert!(text.contains("Help for /model"));
+        assert!(text.contains("Usage: /model [profile-name]"));
+        assert!(text.contains("Description: List model options or switch session model"));
+        assert!(!text.contains("registry is fully connected"));
+    }
+
+    #[test]
+    fn representative_index_directives_execute_real_commands() {
+        let ctx = test_context();
+        let cases: Vec<(&str, BoxedDirective, Vec<&str>)> = vec![
+            ("model", Box::new(model_index::ModelIndexDirective), vec![]),
+            (
+                "config",
+                Box::new(config_index::ConfigIndexDirective),
+                vec!["list"],
+            ),
+            ("mcp", Box::new(mcp_index::McpDirective), vec!["help"]),
+            ("clear", Box::new(clear_index::ClearIndexDirective), vec![]),
+            (
+                "compact",
+                Box::new(compact_index::CompactIndexDirective),
+                vec![],
+            ),
+        ];
+
+        for (name, directive, args) in cases {
+            let result = tokio_test::block_on(directive.execute(&args, &ctx))
+                .unwrap_or_else(|error| panic!("/{name} failed: {error}"));
+            assert!(
+                !matches!(result, CommandResult::Empty),
+                "/{name} index directive returned Empty"
+            );
+        }
+    }
 }

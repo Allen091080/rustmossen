@@ -2,25 +2,13 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde_json::Value as JsonValue;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
 /// Config (settings) directive — opens the settings panel or modifies a specific
 /// configuration key-value pair directly from the command line.
 pub struct ConfigDirective;
-
-/// Known configuration keys that can be set via /config key=value.
-const KNOWN_KEYS: &[&str] = &[
-    "editorMode",
-    "fastMode",
-    "voiceEnabled",
-    "language",
-    "theme",
-    "outputStyle",
-    "copyFullResponse",
-    "autoCompact",
-    "verbose",
-];
 
 /// Parse a key=value assignment from args.
 fn parse_config_assignment(args: &[&str]) -> Option<(String, String)> {
@@ -33,6 +21,30 @@ fn parse_config_assignment(args: &[&str]) -> Option<(String, String)> {
         }
     }
     None
+}
+
+fn known_keys_display() -> String {
+    mossen_utils::config::GLOBAL_CONFIG_KEYS.join(", ")
+}
+
+fn parse_config_value(value: &str) -> JsonValue {
+    serde_json::from_str::<JsonValue>(value)
+        .unwrap_or_else(|_| JsonValue::String(value.to_string()))
+}
+
+fn read_config_value(key: &str) -> Option<JsonValue> {
+    let config = mossen_utils::config::get_global_config();
+    serde_json::to_value(config).ok()?.get(key).cloned()
+}
+
+fn persist_config_value(key: String, value: JsonValue) {
+    mossen_utils::config::save_global_config(move |current| {
+        let mut as_json = serde_json::to_value(current).unwrap_or(JsonValue::Null);
+        if let Some(object) = as_json.as_object_mut() {
+            object.insert(key.clone(), value.clone());
+        }
+        serde_json::from_value(as_json).unwrap_or_else(|_| current.clone())
+    });
 }
 
 #[async_trait]
@@ -64,15 +76,17 @@ impl Directive for ConfigDirective {
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         // No arguments: show current settings summary
         if args.is_empty() {
-            let keys_display = KNOWN_KEYS.join(", ");
+            let keys_display = known_keys_display();
             return Ok(CommandResult::Text(format!(
                 "Configuration Settings\n\
                  =====================\n\n\
+                 Path: {}\n\n\
                  Available keys: {}\n\n\
                  Usage:\n\
                  · /config list         — Show all available keys\n\
                  · /config <key>=<value> — Set a configuration value\n\
                  · /config <key>        — Show current value for key",
+                mossen_utils::config::get_global_mossen_file(),
                 keys_display
             )));
         }
@@ -80,7 +94,7 @@ impl Directive for ConfigDirective {
         // Check for help/list subcommand
         let first = args[0].to_lowercase();
         if first == "list" || first == "keys" || first == "--help" {
-            let keys_display = KNOWN_KEYS.join(", ");
+            let keys_display = known_keys_display();
             return Ok(CommandResult::Text(format!(
                 "Available configuration keys:\n{}\n\nUsage: /config <key>=<value>",
                 keys_display
@@ -90,8 +104,8 @@ impl Directive for ConfigDirective {
         // Try to parse as key=value assignment
         if let Some((key, value)) = parse_config_assignment(args) {
             // Validate the key
-            if !KNOWN_KEYS.contains(&key.as_str()) {
-                let suggestion = KNOWN_KEYS
+            if !mossen_utils::config::is_global_config_key(&key) {
+                let suggestion = mossen_utils::config::GLOBAL_CONFIG_KEYS
                     .iter()
                     .find(|k| k.to_lowercase().starts_with(&key.to_lowercase()));
                 let hint = suggestion
@@ -103,18 +117,24 @@ impl Directive for ConfigDirective {
                 )));
             }
 
-            // In full implementation: persist via saveGlobalConfig / updateSettingsForSource
+            let parsed_value = parse_config_value(&value);
+            persist_config_value(key.clone(), parsed_value.clone());
             return Ok(CommandResult::System(format!(
                 "Configuration updated: {} = {}",
-                key, value
+                key, parsed_value
             )));
         }
 
         // If arg doesn't match key=value, treat as a query for that key's current value
         let query = args.join(" ");
-        Ok(CommandResult::Text(format!(
-            "No value set for \"{}\". Use /config {}=<value> to set it.",
-            query, query
-        )))
+        if !mossen_utils::config::is_global_config_key(&query) {
+            return Ok(CommandResult::Error(format!(
+                "Unknown configuration key: \"{}\".\nRun /config list to see available keys.",
+                query
+            )));
+        }
+
+        let value = read_config_value(&query).unwrap_or(JsonValue::Null);
+        Ok(CommandResult::Text(format!("{} = {}", query, value)))
     }
 }

@@ -9221,6 +9221,15 @@ impl App {
                 self.active_modal = ActiveModal::StatusDialog;
                 return;
             }
+            "model" => {
+                let requested_model = args_raw.trim();
+                if requested_model.is_empty() {
+                    self.active_modal = ActiveModal::ModelPicker(self.build_model_picker_state());
+                } else {
+                    self.apply_model_picker_choice(requested_model);
+                }
+                return;
+            }
             "statusline" | "status-line" => {
                 match args.first().copied() {
                     Some("path" | "default-path") => {
@@ -14722,6 +14731,16 @@ mod engine_stream_tests {
             app.footer_config_persistence_status,
             FooterConfigPersistenceStatus::Saved
         );
+    }
+
+    #[test]
+    fn slash_model_argument_updates_active_engine_model() {
+        let mut app = App::new();
+
+        app.handle_command("model mossen-max-4-6");
+
+        assert_eq!(app.engine_config.model, "mossen-max-4-6");
+        assert_eq!(app.state.current_model.as_deref(), Some("mossen-max-4-6"));
     }
 
     #[test]

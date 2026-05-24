@@ -1,4 +1,4 @@
-//! # component_stubs — JSX 组件的业务逻辑入口
+//! # component_logic — JSX 组件的业务逻辑入口
 //!
 //! TS 中很多命令是 `*.tsx` 文件，每个文件导出一个 React 组件函数（如
 //! `PluginSettings`、`ManageMarketplaces`）。Rust 端 UI 由 mossen-tui 实现，
