@@ -816,6 +816,11 @@ async fn execute_turn_cycle(
         state.messages.push(assistant_message);
 
         let mut tool_results: Vec<ContentBlock> = Vec::new();
+        info!(
+            turn = state.turn_count,
+            tool_count = tool_uses.len(),
+            "Executing tool batch"
+        );
 
         for (tool_id, tool_name, input_json) in &tool_uses {
             if cancel.is_cancelled() {
@@ -1038,6 +1043,11 @@ async fn execute_turn_cycle(
 
         // 添加工具结果消息
         if !tool_results.is_empty() {
+            info!(
+                turn = state.turn_count,
+                tool_result_count = tool_results.len(),
+                "Tool batch complete; advancing with tool results"
+            );
             state.messages.push(Message {
                 role: Role::User,
                 content: tool_results,
@@ -1667,28 +1677,44 @@ async fn execute_mcp_tool(
 mod tests {
     use super::{
         effective_permission_mode, execute_pending_clear_request, execute_pending_compact_request,
-        permission_mode_decision, session_permission_rule_decision,
+        execute_turn_cycle, permission_mode_decision, session_permission_rule_decision,
         strip_synthetic_thinking_sections, PendingClearExecutionOutcome,
         PendingCompactExecutionOutcome,
     };
+    use crate::api_client::ApiClientConfig;
+    use crate::hooks::post_sampling::PostSamplingHookRegistry;
     use crate::services::compact::pending_compact_request::{
         clear_pending_compact_request, enqueue_pending_compact_request, CompactMode,
     };
     use crate::services::root::pending_clear_request::{
         clear_pending_clear_request, enqueue_pending_clear_request,
     };
+    use crate::stop_hooks::StopHookManager;
+    use crate::tool_registry::{Tool, ToolRegistry, ToolResult};
     use crate::types::{
-        ClearRequestStatus, CompactRequestStatus, ContinueReason, PermissionDecision,
-        PermissionMode, ToolUseContext, TurnLedger,
+        AllowAllGate, ClearRequestStatus, CompactRequestStatus, ContinueReason, DialogueSpec,
+        OriginTag, PermissionDecision, PermissionMode, SdkMessage, TerminalReason, ToolUseContext,
+        TurnLedger,
     };
-    use mossen_types::{ContentBlock, Message, Role, TextBlock};
+    use mossen_types::{ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolInputSchema};
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio_util::sync::CancellationToken;
 
     fn permission_env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .expect("permission env lock")
+    }
+
+    async fn pending_request_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
     }
 
     fn restore_permission_env(previous: Option<String>) {
@@ -1740,6 +1766,310 @@ mod tests {
             turn_count: 0,
             transition: None,
         }
+    }
+
+    #[derive(Debug)]
+    struct HarnessGlobTool;
+
+    #[async_trait::async_trait]
+    impl Tool for HarnessGlobTool {
+        fn name(&self) -> &str {
+            "Glob"
+        }
+
+        fn description(&self) -> &str {
+            "Find files by name pattern using glob matching"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            let mut properties = HashMap::new();
+            properties.insert("pattern".to_string(), serde_json::json!({"type": "string"}));
+            ToolDefinition {
+                name: self.name().to_string(),
+                description: self.description().to_string(),
+                input_schema: ToolInputSchema {
+                    schema_type: "object".to_string(),
+                    properties: Some(properties),
+                    required: Some(vec!["pattern".to_string()]),
+                    extra: HashMap::new(),
+                },
+                cache_control: None,
+            }
+        }
+
+        fn is_read_only(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            input: serde_json::Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            assert_eq!(input["pattern"], "**/*.md");
+            Ok(ToolResult {
+                output: "phases/01-harness.md".to_string(),
+                is_error: false,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
+    struct EnvRestore {
+        vars: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvRestore {
+        fn set_custom_backend(base_url: &str) -> Self {
+            const KEYS: &[&str] = &[
+                "MOSSEN_CODE_CUSTOM_BASE_URL",
+                "MOSSEN_CODE_CUSTOM_MODEL",
+                "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS",
+                "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS",
+                "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+            ];
+            let vars = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect();
+            std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", base_url);
+            std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", "harness-test");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS", "5");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS", "5");
+            std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+            Self { vars }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.vars.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
+    fn openai_sse_data(data: serde_json::Value) -> String {
+        format!("data: {data}\n\n")
+    }
+
+    fn http_sse_response(body: String) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    fn tool_call_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&openai_sse_data(serde_json::json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "toolu-glob",
+                        "type": "function",
+                        "function": {
+                            "name": "Glob",
+                            "arguments": "{\"pattern\":\"**/*.md\"}"
+                        }
+                    }]
+                }
+            }]
+        })));
+        body.push_str(&openai_sse_data(serde_json::json!({
+            "choices": [{
+                "finish_reason": "tool_calls"
+            }]
+        })));
+        body.push_str("data: [DONE]\n\n");
+        http_sse_response(body)
+    }
+
+    fn final_answer_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&openai_sse_data(serde_json::json!({
+            "choices": [{
+                "delta": {
+                    "content": "harness completed after glob"
+                }
+            }]
+        })));
+        body.push_str(&openai_sse_data(serde_json::json!({
+            "choices": [{
+                "finish_reason": "stop"
+            }]
+        })));
+        body.push_str("data: [DONE]\n\n");
+        http_sse_response(body)
+    }
+
+    fn find_header_end(bytes: &[u8]) -> Option<usize> {
+        bytes.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    async fn read_http_body(stream: &mut tokio::net::TcpStream) -> String {
+        let mut buf = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let header_end = loop {
+            let n = stream.read(&mut chunk).await.expect("read request");
+            assert!(n > 0, "connection closed before request headers");
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = find_header_end(&buf) {
+                break pos + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&buf[..header_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().expect("content length"))
+            })
+            .unwrap_or(0);
+        while buf.len() < header_end + content_length {
+            let n = stream.read(&mut chunk).await.expect("read body");
+            assert!(n > 0, "connection closed before request body");
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        String::from_utf8_lossy(&buf[header_end..header_end + content_length]).to_string()
+    }
+
+    async fn spawn_openai_compatible_harness_server(
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind harness server");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let handle = tokio::spawn(async move {
+            let responses = [tool_call_sse_response(), final_answer_sse_response()];
+            let mut bodies = Vec::new();
+            for response in responses {
+                let (mut stream, _) = listener.accept().await.expect("accept request");
+                bodies.push(read_http_body(&mut stream).await);
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+            }
+            bodies
+        });
+        (base_url, handle)
+    }
+
+    #[tokio::test]
+    async fn harness_executes_glob_and_continues_after_openai_compatible_tool_result() {
+        let (base_url, server) = spawn_openai_compatible_harness_server().await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessGlobTool));
+        let registry = Arc::new(registry);
+        let tools = registry.definitions();
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "audit harness with glob")],
+            tools,
+            tool_use_context: ToolUseContext {
+                cwd: ".".to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(4),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "harness-test-session",
+        )
+        .await
+        .expect("harness loop should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        drop(tx);
+        let mut saw_glob_summary = false;
+        let mut saw_final_answer = false;
+        while let Some(message) = rx.recv().await {
+            match message {
+                SdkMessage::ToolUseSummary {
+                    tool_name, summary, ..
+                } => {
+                    if tool_name == "Glob" && summary.contains("phases/01-harness.md") {
+                        saw_glob_summary = true;
+                    }
+                }
+                SdkMessage::Assistant { message, .. } => {
+                    let rendered = format!("{:?}", message.content);
+                    if rendered.contains("harness completed after glob") {
+                        saw_final_answer = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_glob_summary, "Glob result should be surfaced to the UI");
+        assert!(
+            saw_final_answer,
+            "model should receive the tool_result and continue to a final answer"
+        );
+
+        let bodies = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive both requests")
+            .expect("harness server should join");
+        assert_eq!(bodies.len(), 2);
+        let second_request: serde_json::Value =
+            serde_json::from_str(&bodies[1]).expect("second request should be JSON");
+        let messages = second_request["messages"]
+            .as_array()
+            .expect("second request should include messages");
+        let assistant_tool_call = messages
+            .iter()
+            .find(|message| message["role"] == "assistant" && message.get("tool_calls").is_some())
+            .expect("second request should replay assistant tool_call");
+        assert_eq!(
+            assistant_tool_call["content"], "",
+            "OpenAI-compatible tool-call-only assistant messages should use empty string content"
+        );
+        let tool_result = messages
+            .iter()
+            .find(|message| message["role"] == "tool")
+            .expect("second request should include OpenAI tool result message");
+        assert_eq!(tool_result["tool_call_id"], "toolu-glob");
+        assert!(
+            tool_result["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("phases/01-harness.md")),
+            "tool result content should include the Glob output"
+        );
     }
 
     #[test]
@@ -1912,6 +2242,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_compact_request_compacts_state_and_emits_boundary() {
+        let _guard = pending_request_test_lock().await;
         clear_pending_compact_request();
         let mut state = test_turn_ledger(vec![
             test_message(Role::User, "one"),
@@ -1997,6 +2328,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_compact_request_dry_run_does_not_mutate_or_emit_boundary() {
+        let _guard = pending_request_test_lock().await;
         clear_pending_compact_request();
         let messages = vec![
             test_message(Role::User, "one"),
@@ -2058,6 +2390,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_compact_request_skipped_emits_status_event() {
+        let _guard = pending_request_test_lock().await;
         clear_pending_compact_request();
         let messages = vec![test_message(Role::User, "one")];
         let mut state = test_turn_ledger(messages.clone());
@@ -2112,6 +2445,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_clear_request_clears_state_and_emits_event() {
+        let _guard = pending_request_test_lock().await;
         clear_pending_clear_request();
         let mut state = test_turn_ledger(vec![
             test_message(Role::User, "one"),
@@ -2174,6 +2508,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_clear_request_dry_run_emits_status_event() {
+        let _guard = pending_request_test_lock().await;
         clear_pending_clear_request();
         let messages = vec![
             test_message(Role::User, "one"),

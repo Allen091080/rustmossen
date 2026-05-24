@@ -28,16 +28,32 @@ const DEFAULT_API_BASE_URL: &str = "https://api.mossen.invalid/v1";
 const STREAM_TIMEOUT_SECS: u64 = 90;
 /// 默认 OpenAI-compatible 流式无语义进展超时（秒）。
 const OPENAI_COMPAT_STREAM_TIMEOUT_SECS: u64 = 300;
+/// 默认 OpenAI-compatible 响应头等待超时（秒）。
+const OPENAI_COMPAT_REQUEST_TIMEOUT_SECS: u64 = 90;
 /// SSE 心跳间隔（秒）。
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 
-fn openai_compat_stream_timeout() -> Duration {
-    std::env::var("MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS")
+fn duration_from_env_secs(key: &str, default_secs: u64) -> Duration {
+    std::env::var(key)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .filter(|secs| *secs > 0)
         .map(Duration::from_secs)
-        .unwrap_or_else(|| Duration::from_secs(OPENAI_COMPAT_STREAM_TIMEOUT_SECS))
+        .unwrap_or_else(|| Duration::from_secs(default_secs))
+}
+
+fn openai_compat_stream_timeout() -> Duration {
+    duration_from_env_secs(
+        "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS",
+        OPENAI_COMPAT_STREAM_TIMEOUT_SECS,
+    )
+}
+
+fn openai_compat_request_timeout() -> Duration {
+    duration_from_env_secs(
+        "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS",
+        OPENAI_COMPAT_REQUEST_TIMEOUT_SECS,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -437,8 +453,9 @@ async fn call_streaming_openai_compat(
         body["tool_choice"] = tc;
     }
 
+    let request_timeout = openai_compat_request_timeout();
     let mut req = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
+        .connect_timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| ApiError::Connection {
             message: format!("Failed to build HTTP client: {}", e),
@@ -457,24 +474,39 @@ async fn call_streaming_openai_compat(
         req = req.header(k, v);
     }
 
-    debug!(
+    tracing::info!(
+        target: "mossen_agent::api_client",
         url = %chat_url,
         model = %model,
         tool_count = params.tools.len(),
         msg_count = openai_messages.len(),
         body_has_tools = body.get("tools").is_some(),
-        "OpenAI-compat SSE stream open",
+        request_timeout_ms = request_timeout.as_millis() as u64,
+        "OpenAI-compat request dispatch",
     );
 
-    let response = req.send().await.map_err(|e| ApiError::Connection {
-        message: e.to_string(),
-    })?;
+    let response = tokio::time::timeout(request_timeout, req.send())
+        .await
+        .map_err(|_| ApiError::Connection {
+            message: format!(
+                "OpenAI-compatible backend did not return stream headers within {}s",
+                request_timeout.as_secs()
+            ),
+        })?
+        .map_err(|e| ApiError::Connection {
+            message: e.to_string(),
+        })?;
     let status = response.status();
     if !status.is_success() {
         let code = status.as_u16();
         let body = response.text().await.unwrap_or_default();
         return Err(classify_http_error(code, &body));
     }
+    tracing::info!(
+        target: "mossen_agent::api_client",
+        status = status.as_u16(),
+        "OpenAI-compat SSE response received",
+    );
 
     let model_str = model.clone();
     let semantic_timeout = openai_compat_stream_timeout();
@@ -855,7 +887,12 @@ fn build_openai_messages(
             if text_parts.is_empty() && tool_calls.is_empty() {
                 obj.insert("content".to_string(), json!(""));
             } else if text_parts.is_empty() {
-                obj.insert("content".to_string(), serde_json::Value::Null);
+                // OpenAI allows null content for tool-call-only assistant
+                // messages, but some OpenAI-compatible gateways stall or reject
+                // the next turn after tool results. Empty string keeps the
+                // assistant/tool_call pairing valid while maximizing backend
+                // compatibility.
+                obj.insert("content".to_string(), json!(""));
             } else {
                 obj.insert("content".to_string(), json!(text_parts.join("\n\n")));
             }
@@ -996,9 +1033,11 @@ fn build_openai_tool_choice(choice: Option<&ToolChoice>) -> Option<serde_json::V
 #[cfg(test)]
 mod tests {
     use super::{
-        openai_choice_content_text, openai_choice_tool_calls, openai_compat_chat_url,
-        openai_content_text, ToolCallAccum,
+        build_openai_messages, openai_choice_content_text, openai_choice_tool_calls,
+        openai_compat_chat_url, openai_content_text, ToolCallAccum,
     };
+    use crate::types::MessageParam;
+    use mossen_types::{ContentBlock, ToolUseBlock};
     use serde_json::json;
 
     #[test]
@@ -1067,5 +1106,26 @@ mod tests {
             openai_compat_chat_url("https://api.example.com/v1/"),
             "https://api.example.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn openai_messages_keep_tool_call_only_assistant_content_as_empty_string() {
+        let messages = vec![MessageParam {
+            role: "assistant".to_string(),
+            content: vec![ContentBlock::ToolUse(ToolUseBlock {
+                id: "call-glob".to_string(),
+                name: "Glob".to_string(),
+                input: json!({"pattern": "**/*.md"}),
+            })],
+        }];
+
+        let converted = build_openai_messages(&[], &messages);
+        let assistant = converted
+            .iter()
+            .find(|message| message["role"] == "assistant")
+            .expect("assistant message should be present");
+
+        assert_eq!(assistant["content"], "");
+        assert_eq!(assistant["tool_calls"][0]["id"], "call-glob");
     }
 }
