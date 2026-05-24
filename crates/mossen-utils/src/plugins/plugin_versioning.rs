@@ -64,7 +64,10 @@ pub async fn calculate_plugin_version(
                     return v;
                 }
             }
-            debug!("Using pre-resolved git SHA for {}: {}", plugin_id, short_sha);
+            debug!(
+                "Using pre-resolved git SHA for {}: {}",
+                plugin_id, short_sha
+            );
             return short_sha.to_string();
         }
     }
@@ -116,11 +119,13 @@ pub fn get_version_from_path(install_path: &str) -> Option<String> {
     // Find 'cache' index where the parent is 'plugins'
     let cache_index = parts.iter().position(|&part| {
         part == "cache"
-            && parts
-                .iter()
-                .position(|&p| p == part)
-                .and_then(|i| if i > 0 { Some(parts[i - 1]) } else { None })
-                == Some("plugins")
+            && parts.iter().position(|&p| p == part).and_then(|i| {
+                if i > 0 {
+                    Some(parts[i - 1])
+                } else {
+                    None
+                }
+            }) == Some("plugins")
     });
 
     let cache_index = cache_index?;

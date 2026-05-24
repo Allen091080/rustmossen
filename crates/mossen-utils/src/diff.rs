@@ -1,5 +1,3 @@
-use std::fmt;
-
 /// Number of context lines in diffs.
 pub const CONTEXT_LINES: usize = 3;
 
@@ -30,13 +28,11 @@ const AMPERSAND_TOKEN: &str = "<<:AMPERSAND_TOKEN:>>";
 const DOLLAR_TOKEN: &str = "<<:DOLLAR_TOKEN:>>";
 
 fn escape_for_diff(s: &str) -> String {
-    s.replace('&', AMPERSAND_TOKEN)
-        .replace('$', DOLLAR_TOKEN)
+    s.replace('&', AMPERSAND_TOKEN).replace('$', DOLLAR_TOKEN)
 }
 
 fn unescape_from_diff(s: &str) -> String {
-    s.replace(AMPERSAND_TOKEN, "&")
-        .replace(DOLLAR_TOKEN, "$")
+    s.replace(AMPERSAND_TOKEN, "&").replace(DOLLAR_TOKEN, "$")
 }
 
 /// Shifts hunk line numbers by offset.
@@ -60,7 +56,10 @@ pub fn adjust_hunk_line_numbers(
 }
 
 /// Count lines added and removed in a patch.
-pub fn count_lines_changed(patch: &[StructuredPatchHunk], new_file_content: Option<&str>) -> (usize, usize) {
+pub fn count_lines_changed(
+    patch: &[StructuredPatchHunk],
+    new_file_content: Option<&str>,
+) -> (usize, usize) {
     if patch.is_empty() {
         if let Some(content) = new_file_content {
             let num_additions = content.lines().count();
@@ -86,7 +85,7 @@ pub fn count_lines_changed(patch: &[StructuredPatchHunk], new_file_content: Opti
 
 /// Get a patch from old and new contents using the `similar` crate.
 pub fn get_patch_from_contents(
-    file_path: &str,
+    _file_path: &str,
     old_content: &str,
     new_content: &str,
     _ignore_whitespace: bool,
@@ -122,20 +121,29 @@ pub fn get_patch_from_contents(
             match op.tag() {
                 similar::DiffTag::Equal => {
                     for change in diff.iter_changes(op) {
-                        lines.push(format!(" {}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                        lines.push(format!(
+                            " {}",
+                            unescape_from_diff(change.value().trim_end_matches('\n'))
+                        ));
                         old_lines_count += 1;
                         new_lines_count += 1;
                     }
                 }
                 similar::DiffTag::Delete => {
                     for change in diff.iter_changes(op) {
-                        lines.push(format!("-{}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                        lines.push(format!(
+                            "-{}",
+                            unescape_from_diff(change.value().trim_end_matches('\n'))
+                        ));
                         old_lines_count += 1;
                     }
                 }
                 similar::DiffTag::Insert => {
                     for change in diff.iter_changes(op) {
-                        lines.push(format!("+{}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                        lines.push(format!(
+                            "+{}",
+                            unescape_from_diff(change.value().trim_end_matches('\n'))
+                        ));
                         new_lines_count += 1;
                     }
                 }
@@ -143,15 +151,24 @@ pub fn get_patch_from_contents(
                     for change in diff.iter_changes(op) {
                         match change.tag() {
                             similar::ChangeTag::Delete => {
-                                lines.push(format!("-{}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                                lines.push(format!(
+                                    "-{}",
+                                    unescape_from_diff(change.value().trim_end_matches('\n'))
+                                ));
                                 old_lines_count += 1;
                             }
                             similar::ChangeTag::Insert => {
-                                lines.push(format!("+{}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                                lines.push(format!(
+                                    "+{}",
+                                    unescape_from_diff(change.value().trim_end_matches('\n'))
+                                ));
                                 new_lines_count += 1;
                             }
                             similar::ChangeTag::Equal => {
-                                lines.push(format!(" {}", unescape_from_diff(change.value().trim_end_matches('\n'))));
+                                lines.push(format!(
+                                    " {}",
+                                    unescape_from_diff(change.value().trim_end_matches('\n'))
+                                ));
                                 old_lines_count += 1;
                                 new_lines_count += 1;
                             }
@@ -215,5 +232,11 @@ pub fn get_patch_for_display(
     let unescaped_old = unescape_from_diff(&prepared);
     let unescaped_new = unescape_from_diff(&new_content);
 
-    get_patch_from_contents(file_path, &unescaped_old, &unescaped_new, ignore_whitespace, false)
+    get_patch_from_contents(
+        file_path,
+        &unescaped_old,
+        &unescaped_new,
+        ignore_whitespace,
+        false,
+    )
 }

@@ -18,8 +18,8 @@ pub enum QuotaStatus {
 pub enum RateLimitType {
     FiveHour,
     SevenDay,
-    SevenDayOpus,
-    SevenDaySonnet,
+    SevenDayMax,
+    SevenDayBalanced,
     Overage,
 }
 
@@ -150,15 +150,15 @@ pub async fn check_quota_status() {
 /// `hostedLimits.ts` `extractQuotaStatusFromHeaders`.
 pub fn extract_quota_status_from_headers(headers: &std::collections::HashMap<String, String>) {
     let mut util = UTILIZATION.write();
-    if let Some(v) = headers.get("anthropic-priority-input-tokens-utilization") {
+    if let Some(v) = headers.get("provider-priority-input-tokens-utilization") {
         if let Ok(p) = v.parse::<f64>() {
             util.utilization_percent = p;
         }
     }
-    if let Some(v) = headers.get("anthropic-priority-input-tokens-overage-eligible") {
+    if let Some(v) = headers.get("provider-priority-input-tokens-overage-eligible") {
         util.overage_eligible = matches!(v.as_str(), "true" | "1");
     }
-    if let Some(v) = headers.get("anthropic-model-tier") {
+    if let Some(v) = headers.get("provider-model-tier") {
         util.model_tier = v.clone();
     }
 }
@@ -186,8 +186,8 @@ pub fn get_rate_limit_display_name(rate_limit_type: &RateLimitType) -> &'static 
     match rate_limit_type {
         RateLimitType::FiveHour => "5-hour rate limit",
         RateLimitType::SevenDay => "7-day rate limit",
-        RateLimitType::SevenDayOpus => "7-day Opus rate limit",
-        RateLimitType::SevenDaySonnet => "7-day Sonnet rate limit",
+        RateLimitType::SevenDayMax => "7-day Max rate limit",
+        RateLimitType::SevenDayBalanced => "7-day Balanced rate limit",
         RateLimitType::Overage => "overage rate limit",
     }
 }

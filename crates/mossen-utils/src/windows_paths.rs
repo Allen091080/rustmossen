@@ -38,8 +38,7 @@ pub fn posix_path_to_windows_path(posix_path: &str) -> String {
         return format!("{}:{}", drive_letter, rest_win.replace('/', "\\"));
     }
     // Handle /c/... format (MSYS2/Git Bash)
-    static DRIVE_MATCH_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^/([A-Za-z])(/|$)").unwrap());
+    static DRIVE_MATCH_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^/([A-Za-z])(/|$)").unwrap());
     if let Some(caps) = DRIVE_MATCH_RE.captures(posix_path) {
         let drive_letter = caps[1].to_uppercase();
         let rest = &posix_path[2..];
@@ -125,10 +124,7 @@ mod tests {
 
     #[test]
     fn test_windows_to_posix() {
-        assert_eq!(
-            windows_path_to_posix_path(r"C:\Users\foo"),
-            "/c/Users/foo"
-        );
+        assert_eq!(windows_path_to_posix_path(r"C:\Users\foo"), "/c/Users/foo");
         assert_eq!(
             windows_path_to_posix_path(r"\\server\share\file"),
             "//server/share/file"
@@ -141,10 +137,7 @@ mod tests {
 
     #[test]
     fn test_posix_to_windows() {
-        assert_eq!(
-            posix_path_to_windows_path("/c/Users/foo"),
-            r"C:\Users\foo"
-        );
+        assert_eq!(posix_path_to_windows_path("/c/Users/foo"), r"C:\Users\foo");
         assert_eq!(
             posix_path_to_windows_path("//server/share"),
             r"\\server\share"

@@ -137,8 +137,13 @@ impl DatadogClient {
         if events.is_empty() {
             return;
         }
-        if let Err(e) =
-            flush_batch(&self.client, &self.base_url, self.api_key.as_deref(), &events).await
+        if let Err(e) = flush_batch(
+            &self.client,
+            &self.base_url,
+            self.api_key.as_deref(),
+            &events,
+        )
+        .await
         {
             debug!("Datadog flush error: {}", e);
         }

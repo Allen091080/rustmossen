@@ -3,7 +3,7 @@
 
 Verifies that MOSSEN_ONLY_SAFE_ENV_VARS in tools/BashTool/bashPermissions.ts
 has been C-2 缩 from 30 → 6 OS-level safe env vars, removing the 24 high-risk
-or anthropic-internal env vars that previously could be passed through unchecked
+or provider-internal env vars that previously could be passed through unchecked
 when USER_TYPE === 'mossen'.
 
 Why static-only (not runtime):
@@ -68,7 +68,7 @@ DELETE = {
     "CLUSTER",
     "FIRESTORE_EMULATOR_HOST",
     "MONOREPO_ROOT_DIR",
-    # 10 anthropic 内部
+    # 10 provider 内部
     "COO_CLUSTER",
     "COO_CLUSTER_NAME",
     "COO_NAMESPACE",

@@ -13,32 +13,62 @@ pub struct VirtualScrollState {
 
 impl VirtualScrollState {
     pub fn new(viewport_height: usize) -> Self {
-        Self { total_items: 0, viewport_height, scroll_offset: 0, item_heights: Vec::new(), total_height: 0, anchor_index: None }
+        Self {
+            total_items: 0,
+            viewport_height,
+            scroll_offset: 0,
+            item_heights: Vec::new(),
+            total_height: 0,
+            anchor_index: None,
+        }
     }
     pub fn set_items(&mut self, count: usize, heights: Vec<u16>) {
-        self.total_items = count; self.total_height = heights.iter().map(|h| *h as u64).sum();
+        self.total_items = count;
+        self.total_height = heights.iter().map(|h| *h as u64).sum();
         self.item_heights = heights;
     }
-    pub fn scroll_to(&mut self, offset: usize) { self.scroll_offset = offset.min(self.max_scroll()); }
+    pub fn scroll_to(&mut self, offset: usize) {
+        self.scroll_offset = offset.min(self.max_scroll());
+    }
     pub fn scroll_by(&mut self, delta: i32) {
         let new = (self.scroll_offset as i32 + delta).max(0) as usize;
         self.scroll_to(new);
     }
-    pub fn scroll_to_bottom(&mut self) { self.scroll_offset = self.max_scroll(); }
-    pub fn scroll_to_top(&mut self) { self.scroll_offset = 0; }
-    pub fn max_scroll(&self) -> usize { self.total_height.saturating_sub(self.viewport_height as u64) as usize }
+    pub fn scroll_to_bottom(&mut self) {
+        self.scroll_offset = self.max_scroll();
+    }
+    pub fn scroll_to_top(&mut self) {
+        self.scroll_offset = 0;
+    }
+    pub fn max_scroll(&self) -> usize {
+        self.total_height
+            .saturating_sub(self.viewport_height as u64) as usize
+    }
     pub fn visible_range(&self) -> (usize, usize) {
-        let mut acc = 0u64; let mut start = 0; let mut end = self.total_items;
+        let mut acc = 0u64;
+        let mut start = 0;
+        let mut end = self.total_items;
         for (i, h) in self.item_heights.iter().enumerate() {
-            if acc + *h as u64 > self.scroll_offset as u64 && start == 0 && i > 0 { start = i; }
-            if acc > (self.scroll_offset + self.viewport_height) as u64 { end = i; break; }
+            if acc + *h as u64 > self.scroll_offset as u64 && start == 0 && i > 0 {
+                start = i;
+            }
+            if acc > (self.scroll_offset + self.viewport_height) as u64 {
+                end = i;
+                break;
+            }
             acc += *h as u64;
         }
         (start, end.min(self.total_items))
     }
-    pub fn is_at_bottom(&self) -> bool { self.scroll_offset >= self.max_scroll().saturating_sub(5) }
+    pub fn is_at_bottom(&self) -> bool {
+        self.scroll_offset >= self.max_scroll().saturating_sub(5)
+    }
 }
-impl Default for VirtualScrollState { fn default() -> Self { Self::new(24) } }
+impl Default for VirtualScrollState {
+    fn default() -> Self {
+        Self::new(24)
+    }
+}
 
 /// Result returned by the virtual scroll computation.
 ///
@@ -77,7 +107,11 @@ impl VirtualScrollResult {
 
     /// Read offset for item at `index`, returning total height past the end.
     pub fn get_item_top(&self, index: usize) -> i32 {
-        self.offsets.get(index).copied().map(|v| v as i32).unwrap_or(-1)
+        self.offsets
+            .get(index)
+            .copied()
+            .map(|v| v as i32)
+            .unwrap_or(-1)
     }
 
     /// Measured Yoga height for item; `None` if not measured.

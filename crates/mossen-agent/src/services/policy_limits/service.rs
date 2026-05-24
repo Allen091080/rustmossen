@@ -20,12 +20,11 @@ const POLLING_INTERVAL_MS: u64 = 60 * 60 * 1000; // 1 hour
 const LOADING_PROMISE_TIMEOUT_MS: u64 = 30_000;
 
 /// Policies that fail closed when essential-traffic-only mode is active.
-static ESSENTIAL_TRAFFIC_DENY_ON_MISS: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| {
-        let mut s = HashSet::new();
-        s.insert("allow_product_feedback");
-        s
-    });
+static ESSENTIAL_TRAFFIC_DENY_ON_MISS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    let mut s = HashSet::new();
+    s.insert("allow_product_feedback");
+    s
+});
 
 struct PolicyLimitsState {
     session_cache: Option<HashMap<String, PolicyRestriction>>,
@@ -57,8 +56,7 @@ pub trait PolicyLimitsContext: Send + Sync {
     fn get_user_agent(&self) -> String;
 }
 
-static CONTEXT: Lazy<Mutex<Option<Arc<dyn PolicyLimitsContext>>>> =
-    Lazy::new(|| Mutex::new(None));
+static CONTEXT: Lazy<Mutex<Option<Arc<dyn PolicyLimitsContext>>>> = Lazy::new(|| Mutex::new(None));
 
 /// Set the policy limits context (call during initialization).
 pub fn set_policy_limits_context(ctx: Arc<dyn PolicyLimitsContext>) {
@@ -189,9 +187,7 @@ fn get_retry_delay(attempt: u32) -> Duration {
 }
 
 /// Fetch policy limits from the API (single attempt).
-async fn fetch_policy_limits_once(
-    cached_checksum: Option<&str>,
-) -> PolicyLimitsFetchResult {
+async fn fetch_policy_limits_once(cached_checksum: Option<&str>) -> PolicyLimitsFetchResult {
     let ctx = match get_context() {
         Some(c) => c,
         None => return PolicyLimitsFetchResult::failure("No context".to_string(), true),
@@ -271,9 +267,7 @@ async fn fetch_policy_limits_once(
 }
 
 /// Fetch with retry logic and exponential backoff.
-async fn fetch_with_retry(
-    cached_checksum: Option<&str>,
-) -> PolicyLimitsFetchResult {
+async fn fetch_with_retry(cached_checksum: Option<&str>) -> PolicyLimitsFetchResult {
     let mut last_result = PolicyLimitsFetchResult::failure("No attempts".to_string(), false);
 
     for attempt in 1..=(DEFAULT_MAX_RETRIES + 1) {

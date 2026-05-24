@@ -35,10 +35,21 @@ pub struct Key {
 impl Key {
     pub fn char(ch: char) -> Self {
         Self {
-            input: ch.to_string(), modifiers: KeyModifiers::default(),
-            escape: false, return_key: false, backspace: false, delete: false, tab: false,
-            up_arrow: false, down_arrow: false, left_arrow: false, right_arrow: false,
-            home: false, end: false, page_up: false, page_down: false,
+            input: ch.to_string(),
+            modifiers: KeyModifiers::default(),
+            escape: false,
+            return_key: false,
+            backspace: false,
+            delete: false,
+            tab: false,
+            up_arrow: false,
+            down_arrow: false,
+            left_arrow: false,
+            right_arrow: false,
+            home: false,
+            end: false,
+            page_up: false,
+            page_down: false,
         }
     }
 }
@@ -61,20 +72,38 @@ pub struct KillRing {
 }
 
 impl KillRing {
-    pub fn new() -> Self { Self { entries: Vec::new(), current_index: None, accumulating: false, yank_start: None, yank_length: None } }
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            current_index: None,
+            accumulating: false,
+            yank_start: None,
+            yank_length: None,
+        }
+    }
     pub fn push(&mut self, text: String, prepend: bool) {
         if self.accumulating && !self.entries.is_empty() {
             let last = self.entries.last_mut().unwrap();
-            if prepend { *last = format!("{}{}", text, last); } else { last.push_str(&text); }
+            if prepend {
+                *last = format!("{}{}", text, last);
+            } else {
+                last.push_str(&text);
+            }
         } else {
             self.entries.push(text);
-            if self.entries.len() > 60 { self.entries.remove(0); }
+            if self.entries.len() > 60 {
+                self.entries.remove(0);
+            }
         }
         self.accumulating = true;
     }
-    pub fn last(&self) -> &str { self.entries.last().map(|s| s.as_str()).unwrap_or("") }
+    pub fn last(&self) -> &str {
+        self.entries.last().map(|s| s.as_str()).unwrap_or("")
+    }
     pub fn yank_pop(&mut self) -> Option<&str> {
-        if self.entries.len() < 2 { return None; }
+        if self.entries.len() < 2 {
+            return None;
+        }
         let idx = match self.current_index {
             Some(i) if i > 0 => i - 1,
             Some(_) => self.entries.len() - 1,
@@ -83,11 +112,24 @@ impl KillRing {
         self.current_index = Some(idx);
         self.entries.get(idx).map(|s| s.as_str())
     }
-    pub fn reset_accumulation(&mut self) { self.accumulating = false; }
-    pub fn reset_yank(&mut self) { self.yank_start = None; self.yank_length = None; self.current_index = None; }
-    pub fn record_yank(&mut self, start: usize, length: usize) { self.yank_start = Some(start); self.yank_length = Some(length); }
+    pub fn reset_accumulation(&mut self) {
+        self.accumulating = false;
+    }
+    pub fn reset_yank(&mut self) {
+        self.yank_start = None;
+        self.yank_length = None;
+        self.current_index = None;
+    }
+    pub fn record_yank(&mut self, start: usize, length: usize) {
+        self.yank_start = Some(start);
+        self.yank_length = Some(length);
+    }
 }
-impl Default for KillRing { fn default() -> Self { Self::new() } }
+impl Default for KillRing {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Text cursor with editing operations.
 #[derive(Debug, Clone)]
@@ -99,31 +141,60 @@ pub struct TextCursor {
 
 impl TextCursor {
     pub fn new(text: &str, columns: usize, offset: usize) -> Self {
-        Self { text: text.to_string(), offset: offset.min(text.len()), columns }
+        Self {
+            text: text.to_string(),
+            offset: clamp_char_boundary(text, offset),
+            columns,
+        }
     }
-    pub fn left(&mut self) { if self.offset > 0 { self.offset -= 1; } }
-    pub fn right(&mut self) { if self.offset < self.text.len() { self.offset += 1; } }
+    pub fn left(&mut self) {
+        self.offset = previous_char_boundary(&self.text, self.offset);
+    }
+    pub fn right(&mut self) {
+        self.offset = next_char_boundary(&self.text, self.offset);
+    }
     pub fn start_of_line(&mut self) {
+        self.offset = clamp_char_boundary(&self.text, self.offset);
         let line_start = self.text[..self.offset].rfind('\n').map_or(0, |p| p + 1);
         self.offset = line_start;
     }
     pub fn end_of_line(&mut self) {
-        let line_end = self.text[self.offset..].find('\n').map_or(self.text.len(), |p| self.offset + p);
+        self.offset = clamp_char_boundary(&self.text, self.offset);
+        let line_end = self.text[self.offset..]
+            .find('\n')
+            .map_or(self.text.len(), |p| self.offset + p);
         self.offset = line_end;
     }
     pub fn backspace(&mut self) {
-        if self.offset > 0 { self.offset -= 1; self.text.remove(self.offset); }
+        self.offset = clamp_char_boundary(&self.text, self.offset);
+        let previous = previous_char_boundary(&self.text, self.offset);
+        if previous < self.offset {
+            self.text.drain(previous..self.offset);
+            self.offset = previous;
+        }
     }
     pub fn delete_forward(&mut self) {
-        if self.offset < self.text.len() { self.text.remove(self.offset); }
+        self.offset = clamp_char_boundary(&self.text, self.offset);
+        let next = next_char_boundary(&self.text, self.offset);
+        if next > self.offset {
+            self.text.drain(self.offset..next);
+        }
     }
-    pub fn insert(&mut self, text: &str) { self.text.insert_str(self.offset, text); self.offset += text.len(); }
+    pub fn insert(&mut self, text: &str) {
+        self.offset = clamp_char_boundary(&self.text, self.offset);
+        self.text.insert_str(self.offset, text);
+        self.offset += text.len();
+    }
     pub fn delete_to_line_end(&mut self) -> String {
-        let end = self.text[self.offset..].find('\n').map_or(self.text.len(), |p| self.offset + p);
+        self.offset = clamp_char_boundary(&self.text, self.offset);
+        let end = self.text[self.offset..]
+            .find('\n')
+            .map_or(self.text.len(), |p| self.offset + p);
         let killed: String = self.text.drain(self.offset..end).collect();
         killed
     }
     pub fn delete_to_line_start(&mut self) -> String {
+        self.offset = clamp_char_boundary(&self.text, self.offset);
         let start = self.text[..self.offset].rfind('\n').map_or(0, |p| p + 1);
         let killed: String = self.text.drain(start..self.offset).collect();
         self.offset = start;
@@ -140,31 +211,83 @@ impl TextCursor {
         let killed: String = self.text.drain(self.offset..end).collect();
         killed
     }
-    pub fn prev_word(&mut self) { self.offset = self.prev_word_boundary(); }
-    pub fn next_word(&mut self) { self.offset = self.next_word_boundary(); }
+    pub fn prev_word(&mut self) {
+        self.offset = self.prev_word_boundary();
+    }
+    pub fn next_word(&mut self) {
+        self.offset = self.next_word_boundary();
+    }
     fn prev_word_boundary(&self) -> usize {
-        if self.offset == 0 { return 0; }
-        let bytes = self.text.as_bytes();
-        let mut i = self.offset - 1;
-        while i > 0 && !bytes[i].is_ascii_alphanumeric() { i -= 1; }
-        while i > 0 && bytes[i - 1].is_ascii_alphanumeric() { i -= 1; }
-        i
+        let offset = clamp_char_boundary(&self.text, self.offset);
+        if offset == 0 {
+            return 0;
+        }
+        let mut in_word = false;
+        for (idx, ch) in self.text[..offset].char_indices().rev() {
+            if is_word_char(ch) {
+                in_word = true;
+            } else if in_word {
+                return idx + ch.len_utf8();
+            }
+        }
+        0
     }
     fn next_word_boundary(&self) -> usize {
-        let bytes = self.text.as_bytes();
-        let mut i = self.offset;
-        while i < bytes.len() && !bytes[i].is_ascii_alphanumeric() { i += 1; }
-        while i < bytes.len() && bytes[i].is_ascii_alphanumeric() { i += 1; }
-        i
+        let offset = clamp_char_boundary(&self.text, self.offset);
+        if offset >= self.text.len() {
+            return self.text.len();
+        }
+        let mut seen_word = false;
+        for (relative, ch) in self.text[offset..].char_indices() {
+            if is_word_char(ch) {
+                seen_word = true;
+            } else if seen_word {
+                return offset + relative;
+            }
+        }
+        self.text.len()
     }
     pub fn position(&self) -> CursorPosition {
-        let before = &self.text[..self.offset];
+        let offset = clamp_char_boundary(&self.text, self.offset);
+        let before = &self.text[..offset];
         let line = before.matches('\n').count();
-        let col = before.rfind('\n').map_or(self.offset, |p| self.offset - p - 1);
+        let col = before.rfind('\n').map_or(offset, |p| offset - p - 1);
         CursorPosition { line, column: col }
     }
-    pub fn is_at_start(&self) -> bool { self.offset == 0 }
-    pub fn is_at_end(&self) -> bool { self.offset >= self.text.len() }
+    pub fn is_at_start(&self) -> bool {
+        self.offset == 0
+    }
+    pub fn is_at_end(&self) -> bool {
+        self.offset >= self.text.len()
+    }
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch == '_' || ch.is_alphanumeric()
+}
+
+fn clamp_char_boundary(text: &str, offset: usize) -> usize {
+    let mut offset = offset.min(text.len());
+    while offset > 0 && !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn previous_char_boundary(text: &str, offset: usize) -> usize {
+    let offset = clamp_char_boundary(text, offset);
+    text[..offset]
+        .char_indices()
+        .next_back()
+        .map_or(0, |(idx, _)| idx)
+}
+
+fn next_char_boundary(text: &str, offset: usize) -> usize {
+    let offset = clamp_char_boundary(text, offset);
+    if offset >= text.len() {
+        return text.len();
+    }
+    offset + text[offset..].chars().next().map_or(0, char::len_utf8)
 }
 
 /// Full text input state.
@@ -186,13 +309,21 @@ impl TextInputState {
             kill_ring: KillRing::new(),
             ctrl_c_handler: DoublePressState::new(),
             escape_handler: DoublePressState::new(),
-            multiline, offset: 0, rendered_value: String::new(),
+            multiline,
+            offset: 0,
+            rendered_value: String::new(),
         }
     }
     pub fn set_value(&mut self, value: &str) {
-        self.cursor = TextCursor::new(value, self.cursor.columns, self.cursor.offset.min(value.len()));
+        self.cursor = TextCursor::new(
+            value,
+            self.cursor.columns,
+            self.cursor.offset.min(value.len()),
+        );
     }
-    pub fn value(&self) -> &str { &self.cursor.text }
+    pub fn value(&self) -> &str {
+        &self.cursor.text
+    }
     pub fn handle_key(&mut self, key: &Key) {
         if key.modifiers.ctrl {
             match key.input.as_str() {
@@ -200,38 +331,112 @@ impl TextInputState {
                 "e" => self.cursor.end_of_line(),
                 "b" => self.cursor.left(),
                 "f" => self.cursor.right(),
-                "k" => { let k = self.cursor.delete_to_line_end(); self.kill_ring.push(k, false); }
-                "u" => { let k = self.cursor.delete_to_line_start(); self.kill_ring.push(k, true); }
-                "w" => { let k = self.cursor.delete_word_before(); self.kill_ring.push(k, true); }
-                "y" => { let t = self.kill_ring.last().to_string(); let start = self.cursor.offset; self.cursor.insert(&t); self.kill_ring.record_yank(start, t.len()); }
+                "k" => {
+                    let k = self.cursor.delete_to_line_end();
+                    self.kill_ring.push(k, false);
+                }
+                "u" => {
+                    let k = self.cursor.delete_to_line_start();
+                    self.kill_ring.push(k, true);
+                }
+                "w" => {
+                    let k = self.cursor.delete_word_before();
+                    self.kill_ring.push(k, true);
+                }
+                "y" => {
+                    let t = self.kill_ring.last().to_string();
+                    let start = self.cursor.offset;
+                    self.cursor.insert(&t);
+                    self.kill_ring.record_yank(start, t.len());
+                }
                 "d" => self.cursor.delete_forward(),
                 "h" => self.cursor.backspace(),
                 _ => {}
             }
-            if !matches!(key.input.as_str(), "k" | "u" | "w") { self.kill_ring.reset_accumulation(); }
-            if key.input != "y" { self.kill_ring.reset_yank(); }
+            if !matches!(key.input.as_str(), "k" | "u" | "w") {
+                self.kill_ring.reset_accumulation();
+            }
+            if key.input != "y" {
+                self.kill_ring.reset_yank();
+            }
         } else if key.modifiers.meta {
             match key.input.as_str() {
                 "b" => self.cursor.prev_word(),
                 "f" => self.cursor.next_word(),
-                "d" => { let k = self.cursor.delete_word_after(); self.kill_ring.push(k, false); }
+                "d" => {
+                    let k = self.cursor.delete_word_after();
+                    self.kill_ring.push(k, false);
+                }
                 _ => {}
             }
         } else if key.backspace {
-            self.cursor.backspace(); self.kill_ring.reset_accumulation(); self.kill_ring.reset_yank();
+            self.cursor.backspace();
+            self.kill_ring.reset_accumulation();
+            self.kill_ring.reset_yank();
         } else if key.delete {
             self.cursor.delete_forward();
-        } else if key.left_arrow { self.cursor.left();
-        } else if key.right_arrow { self.cursor.right();
-        } else if key.home { self.cursor.start_of_line();
-        } else if key.end { self.cursor.end_of_line();
+        } else if key.left_arrow {
+            self.cursor.left();
+        } else if key.right_arrow {
+            self.cursor.right();
+        } else if key.home {
+            self.cursor.start_of_line();
+        } else if key.end {
+            self.cursor.end_of_line();
         } else if !key.input.is_empty() && !key.escape && !key.return_key && !key.tab {
-            self.cursor.insert(&key.input); self.kill_ring.reset_accumulation(); self.kill_ring.reset_yank();
+            self.cursor.insert(&key.input);
+            self.kill_ring.reset_accumulation();
+            self.kill_ring.reset_yank();
         }
         self.offset = self.cursor.offset;
     }
 }
-impl Default for TextInputState { fn default() -> Self { Self::new(80, false) } }
+impl Default for TextInputState {
+    fn default() -> Self {
+        Self::new(80, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Key, TextCursor, TextInputState};
+
+    #[test]
+    fn text_cursor_edits_multibyte_text_on_char_boundaries() {
+        let mut cursor = TextCursor::new("逐行阅读代码", 80, "逐行阅读代码".len());
+
+        cursor.left();
+        cursor.backspace();
+        assert_eq!(cursor.text, "逐行阅读码");
+
+        cursor.insert("代");
+        assert_eq!(cursor.text, "逐行阅读代码");
+
+        cursor.offset = 1;
+        cursor.delete_forward();
+        assert_eq!(cursor.text, "行阅读代码");
+
+        cursor.offset = cursor.text.len();
+        cursor.delete_word_before();
+        assert!(cursor.text.is_empty());
+    }
+
+    #[test]
+    fn text_input_ctrl_commands_keep_unicode_offsets_valid() {
+        let mut input = TextInputState::new(80, false);
+        input.set_value("逐行 阅读 代码");
+        input.cursor.offset = input.value().len();
+        input.offset = input.cursor.offset;
+
+        let mut ctrl_w = Key::char('w');
+        ctrl_w.modifiers.ctrl = true;
+        input.handle_key(&ctrl_w);
+
+        assert_eq!(input.value(), "逐行 阅读 ");
+        input.handle_key(&Key::char('码'));
+        assert_eq!(input.value(), "逐行 阅读 码");
+    }
+}
 
 /// Configuration props passed to a `useTextInput`-equivalent text input
 /// hook. Translated from TS `UseTextInputProps` — Rust uses owned data

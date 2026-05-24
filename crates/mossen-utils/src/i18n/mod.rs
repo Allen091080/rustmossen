@@ -6,9 +6,9 @@ mod strings_zh;
 pub use strings_en::STRINGS_EN;
 pub use strings_zh::STRINGS_ZH;
 
-use std::collections::HashMap;
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
+use std::collections::HashMap;
 
 /// Supported interactive language tags
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,16 +20,19 @@ pub enum InteractiveLanguageTag {
 /// All valid i18n key strings (derived from STRINGS_EN keys)
 pub type I18nKey = &'static str;
 
-static PLACEHOLDER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\{(\w+)\}").unwrap()
-});
+static PLACEHOLDER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\{(\w+)\}").unwrap());
 
 /// Format a template string by replacing `{name}` placeholders with values
 fn format_template(template: &str, params: &HashMap<String, String>) -> String {
-    PLACEHOLDER_RE.replace_all(template, |caps: &regex::Captures| {
-        let name = &caps[1];
-        params.get(name).cloned().unwrap_or_else(|| caps[0].to_string())
-    }).to_string()
+    PLACEHOLDER_RE
+        .replace_all(template, |caps: &regex::Captures| {
+            let name = &caps[1];
+            params
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| caps[0].to_string())
+        })
+        .to_string()
 }
 
 /// Get the current interactive language tag (stub - should be connected to config)
@@ -44,15 +47,18 @@ fn get_interactive_language_tag() -> InteractiveLanguageTag {
 
 /// Localized lookup; falls back to en, then to key string itself.
 /// Missing keys appear as the literal key in UI.
-pub fn t(key: I18nKey, params: Option<&HashMap<String, String>>, lang_override: Option<InteractiveLanguageTag>) -> String {
+pub fn t(
+    key: I18nKey,
+    params: Option<&HashMap<String, String>>,
+    lang_override: Option<InteractiveLanguageTag>,
+) -> String {
     let tag = lang_override.unwrap_or_else(get_interactive_language_tag);
     let tmpl = match tag {
-        InteractiveLanguageTag::Zh => {
-            STRINGS_ZH.get(key).copied().or_else(|| STRINGS_EN.get(key).copied())
-        }
-        InteractiveLanguageTag::En => {
-            STRINGS_EN.get(key).copied()
-        }
+        InteractiveLanguageTag::Zh => STRINGS_ZH
+            .get(key)
+            .copied()
+            .or_else(|| STRINGS_EN.get(key).copied()),
+        InteractiveLanguageTag::En => STRINGS_EN.get(key).copied(),
     };
 
     match tmpl {
@@ -82,17 +88,22 @@ pub fn get_missing_i18n_keys() -> MissingKeys {
     let en_keys: Vec<&str> = STRINGS_EN.keys().copied().collect();
     let zh_keys: Vec<&str> = STRINGS_ZH.keys().copied().collect();
 
-    let missing_in_zh: Vec<String> = en_keys.iter()
+    let missing_in_zh: Vec<String> = en_keys
+        .iter()
         .filter(|k| !STRINGS_ZH.contains_key(**k))
         .map(|k| k.to_string())
         .collect();
 
-    let missing_in_en: Vec<String> = zh_keys.iter()
+    let missing_in_en: Vec<String> = zh_keys
+        .iter()
         .filter(|k| !STRINGS_EN.contains_key(**k))
         .map(|k| k.to_string())
         .collect();
 
-    MissingKeys { missing_in_zh, missing_in_en }
+    MissingKeys {
+        missing_in_zh,
+        missing_in_en,
+    }
 }
 
 /// Result of missing key diagnostic

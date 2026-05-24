@@ -351,9 +351,7 @@ pub fn classify_axios_error(error: &reqwest::Error) -> &'static str {
         if status.is_server_error() {
             return "server";
         }
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return "auth";
         }
     }
@@ -371,7 +369,10 @@ pub struct TelemetrySafeError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS {
 
 impl TelemetrySafeError_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS {
     pub fn new(message: impl Into<String>, kind: impl Into<String>) -> Self {
-        Self { message: message.into(), kind: kind.into() }
+        Self {
+            message: message.into(),
+            kind: kind.into(),
+        }
     }
 }
 

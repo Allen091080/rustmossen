@@ -11,7 +11,8 @@ pub struct FeedbackDirective;
 
 /// Check if feedback endpoints are configured.
 fn has_configured_feedback_urls(ctx: &CommandContext) -> bool {
-    ctx.env_vars.contains_key("MOSSEN_CODE_PLATFORM_FEEDBACK_URL")
+    ctx.env_vars
+        .contains_key("MOSSEN_CODE_PLATFORM_FEEDBACK_URL")
         || ctx.env_vars.contains_key("MOSSEN_CODE_PLATFORM_ISSUES_URL")
 }
 

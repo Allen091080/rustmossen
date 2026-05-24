@@ -49,7 +49,7 @@ from harness_fixture import make_fixture, write_assertions, write_command_log
 
 
 OAI_KEY = "sk-fake-oai-test-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-ANTHROPIC_KEY = "sk-fake-ant-test-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+PROVIDER_KEY = "sk-fake-internal-test-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 USER_BEARER = "user-supplied-bearer-CCCCCCCCCCCCCCCCCCCCCCCCC"
 USER_XAPIKEY = "user-supplied-xkey-DDDDDDDDDDDDDDDDDDDDDDDDD"
 AUTH_TOKEN = "sk-fake-token-test-EEEEEEEEEEEEEEEEEEEEEEEEEE"
@@ -146,9 +146,9 @@ def case_2_mossen_compatible_uses_x_api_key(ctx) -> dict:
         (home / "settings.json").unlink()
     env = _make_env(ctx, extra={
         "MOSSEN_CODE_USE_CUSTOM_BACKEND": "1",
-        "MOSSEN_CODE_CUSTOM_BASE_URL": "https://fake-anthropic.example/v1",
-        "MOSSEN_CODE_CUSTOM_API_KEY": ANTHROPIC_KEY,
-        "MOSSEN_CODE_CUSTOM_MODEL": "claude-fake",
+        "MOSSEN_CODE_CUSTOM_BASE_URL": "https://fake-provider.example/v1",
+        "MOSSEN_CODE_CUSTOM_API_KEY": PROVIDER_KEY,
+        "MOSSEN_CODE_CUSTOM_MODEL": "mossen-fake",
         "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL": "mossen-compatible",
     })
     rc, out, err = _dump_headers(env)
@@ -165,7 +165,7 @@ def case_2_mossen_compatible_uses_x_api_key(ctx) -> dict:
         "name": "case2_mossen_compatible_uses_x_api_key",
         "ok": (
             rc == 0
-            and headers.get("x-api-key") == ANTHROPIC_KEY
+            and headers.get("x-api-key") == PROVIDER_KEY
             and "Authorization" not in headers
             and data.get("protocol") == "mossen-compatible"
         ),

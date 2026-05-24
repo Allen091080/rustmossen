@@ -31,6 +31,7 @@ use crate::client::{
     ServerResource,
 };
 use crate::config::{McpServerConfig, ScopedMcpServerConfig};
+use crate::normalization::normalize_name_for_mcp;
 use crate::protocol::Implementation;
 use crate::transport::{HttpTransport, SseTransport, StdioTransport, WsTransport};
 
@@ -204,6 +205,20 @@ impl McpServerManager {
         self.clients.get(name).map(|entry| entry.value().clone())
     }
 
+    /// Resolve a client by the normalized server name embedded in a
+    /// model-visible MCP tool name (`mcp__<server>__<tool>`).
+    pub fn get_client_by_normalized_name(
+        &self,
+        normalized_name: &str,
+    ) -> Option<(String, Arc<McpClient>)> {
+        for entry in self.clients.iter() {
+            if normalize_name_for_mcp(entry.key()) == normalized_name {
+                return Some((entry.key().clone(), entry.value().clone()));
+            }
+        }
+        None
+    }
+
     /// 获取所有连接状态
     pub fn get_all_connections(&self) -> Vec<McpServerConnection> {
         self.connections
@@ -241,6 +256,19 @@ impl McpServerManager {
                     })
                     .collect();
                 results.insert(name, server_resources);
+            }
+        }
+        results
+    }
+
+    /// 获取所有已连接服务器的 Prompt。
+    pub async fn get_all_prompts(&self) -> Vec<(String, Vec<crate::protocol::PromptDefinition>)> {
+        let mut results = Vec::new();
+        for entry in self.clients.iter() {
+            let name = entry.key().clone();
+            let client = entry.value().clone();
+            if let Ok(prompts_result) = client.list_prompts().await {
+                results.push((name, prompts_result.prompts));
             }
         }
         results

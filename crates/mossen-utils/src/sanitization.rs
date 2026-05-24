@@ -2,8 +2,8 @@
 //!
 //! 对应 TypeScript `utils/sanitization.ts`。
 
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
 /// 最大迭代次数，防止无限循环

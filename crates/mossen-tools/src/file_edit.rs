@@ -114,6 +114,17 @@ async fn atomic_write(path: &str, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn team_memory_secret_error(path: &str, content: &str) -> Option<ToolResult> {
+    mossen_agent::services::team_memory_sync::check_team_mem_secrets(path, content).map(|message| {
+        ToolResult {
+            output: message,
+            is_error: true,
+            duration_ms: 0,
+            metadata: HashMap::new(),
+        }
+    })
+}
+
 #[async_trait]
 impl Tool for SourcePatcher {
     fn name(&self) -> &str {
@@ -137,8 +148,9 @@ impl Tool for SourcePatcher {
         false
     }
 
-    async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
+    async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
         let inp: SourcePatcherInput = serde_json::from_value(input)?;
+        let observed_file_path = inp.file_path.clone();
         let full_path = expand_path(&inp.file_path);
 
         // 1. 校验：old_string == new_string → 无变更。
@@ -171,7 +183,14 @@ impl Tool for SourcePatcher {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 // 文件不存在：如果 old_string 为空则是新建文件。
                 if inp.old_string.is_empty() {
+                    if let Some(result) = team_memory_secret_error(&full_path, &inp.new_string) {
+                        return Ok(result);
+                    }
                     atomic_write(&full_path, &inp.new_string).await?;
+                    mossen_agent::services::team_memory_sync::notify_team_memory_file_write(
+                        &full_path,
+                    )
+                    .await;
                     info!(path = %full_path, "SourcePatcher: created new file");
                     let output = SourcePatcherOutput {
                         file_path: inp.file_path,
@@ -179,11 +198,17 @@ impl Tool for SourcePatcher {
                         new_string: Some(inp.new_string),
                         replace_all: inp.replace_all,
                     };
+                    let metadata = crate::skill_discovery::observe_tool_file_paths(
+                        [observed_file_path.as_str()],
+                        &context.cwd,
+                    )
+                    .await
+                    .to_metadata();
                     return Ok(ToolResult {
                         output: serde_json::to_string(&output)?,
                         is_error: false,
                         duration_ms: 0,
-                        metadata: HashMap::new(),
+                        metadata,
                     });
                 }
                 return Ok(ToolResult {
@@ -203,18 +228,29 @@ impl Tool for SourcePatcher {
         if inp.old_string.is_empty() {
             if content.trim().is_empty() {
                 // 空文件，可以写入。
+                if let Some(result) = team_memory_secret_error(&full_path, &inp.new_string) {
+                    return Ok(result);
+                }
                 atomic_write(&full_path, &inp.new_string).await?;
+                mossen_agent::services::team_memory_sync::notify_team_memory_file_write(&full_path)
+                    .await;
                 let output = SourcePatcherOutput {
                     file_path: inp.file_path,
                     old_string: None,
                     new_string: Some(inp.new_string),
                     replace_all: inp.replace_all,
                 };
+                let metadata = crate::skill_discovery::observe_tool_file_paths(
+                    [observed_file_path.as_str()],
+                    &context.cwd,
+                )
+                .await
+                .to_metadata();
                 return Ok(ToolResult {
                     output: serde_json::to_string(&output)?,
                     is_error: false,
                     duration_ms: 0,
-                    metadata: HashMap::new(),
+                    metadata,
                 });
             }
             return Ok(ToolResult {
@@ -258,9 +294,13 @@ impl Tool for SourcePatcher {
         } else {
             content.replacen(&inp.old_string, &inp.new_string, 1)
         };
+        if let Some(result) = team_memory_secret_error(&full_path, &updated) {
+            return Ok(result);
+        }
 
         // 8. 原子写入。
         atomic_write(&full_path, &updated).await?;
+        mossen_agent::services::team_memory_sync::notify_team_memory_file_write(&full_path).await;
 
         info!(
             path = %full_path,
@@ -275,12 +315,18 @@ impl Tool for SourcePatcher {
             new_string: Some(inp.new_string),
             replace_all: inp.replace_all,
         };
+        let metadata = crate::skill_discovery::observe_tool_file_paths(
+            [observed_file_path.as_str()],
+            &context.cwd,
+        )
+        .await
+        .to_metadata();
 
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
             duration_ms: 0,
-            metadata: HashMap::new(),
+            metadata,
         })
     }
 }

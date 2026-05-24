@@ -3,18 +3,19 @@
 //! 对应 TS `context.ts` + `context/` 目录，负责消息预处理管线、
 //! 自动压缩、微压缩、上下文窗口计算等。
 
+pub mod fps_metrics;
+pub mod mailbox;
+pub mod modal;
 pub mod notifications;
-pub mod stats;
 pub mod overlay;
 pub mod prompt_overlay;
-pub mod voice_state;
 pub mod queued_message;
-pub mod modal;
-pub mod mailbox;
-pub mod fps_metrics;
+pub mod stats;
+pub mod voice_state;
 
 use std::collections::HashMap;
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
 use tracing::{debug, warn};
 
 use crate::types::{AutoCompactTracking, MicrocompactStrategy, TurnEnvironment};
@@ -135,11 +136,8 @@ pub async fn prepare_messages_async(
 
     // 2. Microcompact: 基于时间间隔触发；命中时把旧的 tool_result 内容
     //    替换为占位摘要，释放 token。失败/未触发时 messages 原样返回。
-    let mc = crate::services::compact::micro_compact::microcompact_messages(
-        &result,
-        query_source,
-    )
-    .await;
+    let mc =
+        crate::services::compact::micro_compact::microcompact_messages(&result, query_source).await;
     let micro_compacted = mc.compaction_info.is_some();
     result = mc.messages;
     if let Some(info) = mc.compaction_info {
@@ -173,24 +171,28 @@ fn snip_long_tool_results(messages: &mut [Message]) {
             if let ContentBlock::ToolResult(ref mut result) = block {
                 match &mut result.content {
                     mossen_types::ToolResultContent::Text(ref mut text) => {
-                        if text.len() > MAX_TOOL_RESULT_CHARS {
-                            let truncated = &text[..MAX_TOOL_RESULT_CHARS];
+                        let original_chars = text.chars().count();
+                        if original_chars > MAX_TOOL_RESULT_CHARS {
                             *text = format!(
-                                "{}...\n[truncated {} chars]",
-                                truncated,
-                                text.len() - MAX_TOOL_RESULT_CHARS
+                                "{}\n[truncated {} chars]",
+                                truncate_chars_with_suffix(text, MAX_TOOL_RESULT_CHARS, "..."),
+                                original_chars - MAX_TOOL_RESULT_CHARS
                             );
                         }
                     }
                     mossen_types::ToolResultContent::Blocks(ref mut blocks) => {
                         for block in blocks.iter_mut() {
                             if let ContentBlock::Text(ref mut text_block) = block {
-                                if text_block.text.len() > MAX_TOOL_RESULT_CHARS {
-                                    let original_len = text_block.text.len();
+                                let original_chars = text_block.text.chars().count();
+                                if original_chars > MAX_TOOL_RESULT_CHARS {
                                     text_block.text = format!(
-                                        "{}...\n[truncated {} chars]",
-                                        &text_block.text[..MAX_TOOL_RESULT_CHARS],
-                                        original_len - MAX_TOOL_RESULT_CHARS
+                                        "{}\n[truncated {} chars]",
+                                        truncate_chars_with_suffix(
+                                            &text_block.text,
+                                            MAX_TOOL_RESULT_CHARS,
+                                            "..."
+                                        ),
+                                        original_chars - MAX_TOOL_RESULT_CHARS
                                     );
                                 }
                             }
@@ -234,6 +236,58 @@ pub fn estimate_token_count(messages: &[Message]) -> u64 {
     (total_chars as u64) / 4
 }
 
+fn build_auto_compact_boundary_message(
+    compacted_message_count: usize,
+    before_tokens: u64,
+    after_tokens: u64,
+) -> Message {
+    let mut extra = HashMap::new();
+    extra.insert(
+        "compact_metadata".to_string(),
+        serde_json::json!({
+            "trigger": "auto",
+            "pre_compact_token_count": before_tokens,
+            "post_compact_token_count": after_tokens,
+            "compacted_message_count": compacted_message_count,
+        }),
+    );
+
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(mossen_types::TextBlock {
+            text: format!(
+                "[auto-compact boundary: {} message(s) compacted]",
+                compacted_message_count
+            ),
+        })],
+        uuid: None,
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra,
+    }
+}
+
+fn prepend_auto_compact_boundary(
+    compacted_messages: Vec<Message>,
+    compacted_message_count: usize,
+    before_tokens: u64,
+) -> (Vec<Message>, u64) {
+    let mut messages = Vec::with_capacity(compacted_messages.len().saturating_add(1));
+    messages.push(build_auto_compact_boundary_message(
+        compacted_message_count,
+        before_tokens,
+        0,
+    ));
+    messages.extend(compacted_messages);
+
+    let after_tokens = estimate_token_count(&messages);
+    messages[0] =
+        build_auto_compact_boundary_message(compacted_message_count, before_tokens, after_tokens);
+
+    (messages, after_tokens)
+}
+
 // ---------------------------------------------------------------------------
 // 自动压缩
 // ---------------------------------------------------------------------------
@@ -250,6 +304,7 @@ pub enum AutoCompactResult {
         before_tokens: u64,
         after_tokens: u64,
         summary: String,
+        messages: Vec<Message>,
     },
     /// 压缩失败。
     Failed { error: String },
@@ -285,32 +340,149 @@ pub async fn auto_compact_if_needed(
         estimated_tokens,
         threshold, "Auto-compact threshold reached, compaction needed"
     );
+    crate::services::compact::compact_warning_state::clear_compact_warning_suppression();
+
+    if let Some(result) =
+        crate::services::compact::session_memory_compact::try_session_memory_compaction(
+            messages,
+            None,
+            Some(threshold as usize),
+        )
+        .await
+    {
+        let compacted_messages =
+            crate::services::compact::compact::build_post_compact_messages(&result);
+        let after_tokens = estimate_token_count(&compacted_messages);
+        let t = tracking.get_or_insert_with(AutoCompactTracking::default);
+        t.consecutive_failures = 0;
+        t.last_compact_token_count = Some(after_tokens);
+        t.last_compact_time = Some(chrono::Utc::now());
+        crate::services::compact::post_compact_cleanup::run_post_compact_cleanup(None);
+        return AutoCompactResult::Compacted {
+            before_tokens: estimated_tokens,
+            after_tokens,
+            summary: result.user_display_message.unwrap_or_else(|| {
+                format!(
+                    "Session-memory compacted context; kept {} (~{} tokens)",
+                    compacted_messages.len(),
+                    after_tokens
+                )
+            }),
+            messages: compacted_messages,
+        };
+    }
 
     // 调用 services::compact::compact_conversation 执行实际压缩。
     // 该函数内部会通过 queryModelWithStreaming 调用 LLM 生成摘要。
     let result = crate::services::compact::compact::compact_conversation(messages, "Read").await;
     if !result.success {
         let error = result.error.unwrap_or_else(|| "compaction failed".into());
-        if let Some(t) = tracking.as_mut() {
-            t.consecutive_failures = t.consecutive_failures.saturating_add(1);
-        }
+        let t = tracking.get_or_insert_with(AutoCompactTracking::default);
+        t.consecutive_failures = t.consecutive_failures.saturating_add(1);
         return AutoCompactResult::Failed { error };
     }
-
-    if let Some(t) = tracking.as_mut() {
-        t.consecutive_failures = 0;
+    if result.compacted_message_count == 0 {
+        let t = tracking.get_or_insert_with(AutoCompactTracking::default);
+        t.consecutive_failures = t.consecutive_failures.saturating_add(1);
+        return AutoCompactResult::Failed {
+            error: crate::services::compact::compact::ERROR_MESSAGE_NOT_ENOUGH_MESSAGES.to_string(),
+        };
     }
 
-    let after_tokens = estimate_token_count(&result.new_messages);
+    let compacted_message_count = result.compacted_message_count;
+    let (compacted_messages, after_tokens) = prepend_auto_compact_boundary(
+        result.new_messages,
+        compacted_message_count,
+        estimated_tokens,
+    );
+    let t = tracking.get_or_insert_with(AutoCompactTracking::default);
+    t.consecutive_failures = 0;
+    t.last_compact_token_count = Some(after_tokens);
+    t.last_compact_time = Some(chrono::Utc::now());
+    crate::services::compact::post_compact_cleanup::run_post_compact_cleanup(None);
+
     AutoCompactResult::Compacted {
         before_tokens: estimated_tokens,
         after_tokens,
         summary: format!(
             "Compacted {} message(s); kept {} (~{} tokens)",
-            result.compacted_message_count,
-            result.new_messages.len(),
+            compacted_message_count,
+            compacted_messages.len(),
             after_tokens
         ),
+        messages: compacted_messages,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mossen_types::TextBlock;
+
+    fn text_message(role: Role, text: &str) -> Message {
+        Message {
+            role,
+            content: vec![ContentBlock::Text(TextBlock {
+                text: text.to_string(),
+            })],
+            uuid: None,
+            is_meta: None,
+            origin: None,
+            timestamp: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    fn first_text(message: &Message) -> &str {
+        match message.content.first() {
+            Some(ContentBlock::Text(block)) => block.text.as_str(),
+            _ => panic!("expected text block"),
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_compact_returns_compacted_messages_and_updates_tracking() {
+        let messages = vec![
+            text_message(Role::User, "remember project alpha"),
+            text_message(Role::Assistant, "stored"),
+            text_message(Role::User, "continue with current task"),
+            text_message(Role::Assistant, "working"),
+        ];
+        let mut tracking = None;
+
+        let result = auto_compact_if_needed(&messages, 1, 1, 0, &mut tracking).await;
+
+        let AutoCompactResult::Compacted {
+            before_tokens,
+            messages: compacted,
+            summary,
+            ..
+        } = result
+        else {
+            panic!("expected auto-compact to trigger");
+        };
+
+        assert_eq!(before_tokens, 1);
+        assert_eq!(compacted.len(), 4);
+        assert_eq!(compacted[0].role, Role::User);
+        assert_eq!(compacted[0].is_meta, Some(true));
+        assert!(first_text(&compacted[0]).contains("[auto-compact boundary"));
+        let metadata = compacted[0]
+            .extra
+            .get("compact_metadata")
+            .expect("auto compact boundary should carry metadata");
+        assert_eq!(metadata["trigger"], "auto");
+        assert_eq!(metadata["pre_compact_token_count"], 1);
+        assert_eq!(metadata["compacted_message_count"], 2);
+        assert_eq!(compacted[1].role, Role::User);
+        assert_eq!(compacted[1].is_meta, Some(true));
+        assert!(first_text(&compacted[1]).contains("remember project alpha"));
+        assert!(summary.contains("Compacted 2 message(s)"));
+
+        let tracking = tracking.expect("tracking should be initialized");
+        assert_eq!(tracking.consecutive_failures, 0);
+        assert!(tracking.last_compact_token_count.is_some());
+        assert!(tracking.last_compact_time.is_some());
     }
 }
 

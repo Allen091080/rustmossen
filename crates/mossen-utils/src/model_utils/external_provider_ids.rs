@@ -1,8 +1,8 @@
 //! External-provider model ID helpers.
 //!
 //! Direct translation of `utils/model/externalProviderIds.ts`. The TS file uses
-//! `String.fromCharCode(...)` to construct the literal strings "anthropic" and
-//! "claude" at runtime to avoid embedding the literal vendor strings into the
+//! `String.fromCharCode(...)` to construct the literal strings "provider" and
+//! "mossen" at runtime to avoid embedding the literal vendor strings into the
 //! source code. We mirror that obfuscation pattern in Rust.
 
 use once_cell::sync::Lazy;

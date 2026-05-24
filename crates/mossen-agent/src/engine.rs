@@ -104,9 +104,18 @@ impl SessionOrchestrator {
         let options = options.unwrap_or_default();
         let (tx, rx) = mpsc::channel(256);
 
+        // Restore prior conversation context before adding the current
+        // user message. `submit_prompt` constructs a fresh orchestrator per
+        // turn, so callers that want multi-turn behavior pass the visible
+        // transcript here.
+        for msg in options.additional_messages {
+            self.messages.push(msg);
+        }
+
         // 构建用户消息：text block + 任何附加 block（图片等）。
-        let mut user_content: Vec<ContentBlock> =
-            vec![ContentBlock::Text(TextBlock { text: prompt.to_string() })];
+        let mut user_content: Vec<ContentBlock> = vec![ContentBlock::Text(TextBlock {
+            text: prompt.to_string(),
+        })];
         user_content.extend(options.additional_user_blocks.clone());
         let user_message = Message {
             role: Role::User,
@@ -129,18 +138,17 @@ impl SessionOrchestrator {
                     origin: None,
                     extra: HashMap::new(),
                 },
+                task_id: None,
             })
             .await;
 
         self.messages.push(user_message);
 
-        // 追加额外消息
-        for msg in options.additional_messages {
-            self.messages.push(msg);
-        }
-
-        // 创建新的取消令牌
-        self.cancel = CancellationToken::new();
+        // 创建新的取消令牌，或复用调用方提供的 turn-scoped token。
+        self.cancel = options
+            .cancel_token
+            .clone()
+            .unwrap_or_else(CancellationToken::new);
 
         // 构建对话规格
         let spec = DialogueSpec {
@@ -166,6 +174,7 @@ impl SessionOrchestrator {
             effort: None,
             auto_mode: self.config.auto_mode,
             pre_approved_permissions: Vec::new(),
+            permission_mode: self.config.permission_mode,
             permission_gate: self
                 .config
                 .permission_gate
@@ -186,9 +195,8 @@ impl SessionOrchestrator {
 
         // 在后台任务中执行对话循环
         tokio::spawn(async move {
-            let psm = std::sync::Arc::new(
-                crate::hooks::post_sampling::PostSamplingHookRegistry::new(),
-            );
+            let psm =
+                std::sync::Arc::new(crate::hooks::post_sampling::PostSamplingHookRegistry::new());
             let result = dialogue::initiate_dialogue(
                 spec,
                 api_config,
@@ -279,6 +287,7 @@ pub async fn submit_prompt(params: PromptParams) -> mpsc::Receiver<SdkMessage> {
         skip_stop_hooks: true,
         auto_mode: false,
         extra_body: params.extra_body,
+        permission_mode: params.permission_mode,
         // Forward the gate provided by the caller. Most non-interactive
         // entry points leave this `None`, which `SessionOrchestrator` then
         // resolves to `AllowAllGate`. The TUI passes an `InteractiveGate`
@@ -291,12 +300,15 @@ pub async fn submit_prompt(params: PromptParams) -> mpsc::Receiver<SdkMessage> {
     let mut orchestrator = SessionOrchestrator::new(config);
     let max_turns = params.max_turns;
     let additional_blocks = params.additional_blocks;
+    let history_messages = params.history_messages;
 
     orchestrator
         .dispatch_turn(
             &params.prompt,
             Some(SubmitOptions {
                 max_turns,
+                cancel_token: params.cancel_token,
+                additional_messages: history_messages,
                 additional_user_blocks: additional_blocks,
                 ..Default::default()
             }),

@@ -56,9 +56,8 @@ impl Directive for PrivacyDirective {
 
         let setting = args[0].to_lowercase();
         if matches!(setting.as_str(), "help" | "-h" | "--help") {
-            let mut help = String::from(
-                "Usage: /privacy-settings [setting] [on|off]\n\nSettings:\n",
-            );
+            let mut help =
+                String::from("Usage: /privacy-settings [setting] [on|off]\n\nSettings:\n");
             for (name, desc) in PRIVACY_SETTINGS {
                 help.push_str(&format!("  {:12} {}\n", name, desc));
             }
@@ -68,7 +67,8 @@ impl Directive for PrivacyDirective {
         let valid_settings: Vec<&str> = PRIVACY_SETTINGS.iter().map(|(s, _)| *s).collect();
         if !valid_settings.contains(&setting.as_str()) {
             return Ok(CommandResult::Error(format!(
-                "Unknown setting: \"{}\". Use /privacy-settings help.", setting
+                "Unknown setting: \"{}\". Use /privacy-settings help.",
+                setting
             )));
         }
 
@@ -80,14 +80,11 @@ impl Directive for PrivacyDirective {
             Some("off" | "disable" | "false") => {
                 Ok(CommandResult::System(format!("{} disabled.", setting)))
             }
-            None => {
-                Ok(CommandResult::Text(format!("{}: enabled", setting)))
-            }
-            Some(v) => {
-                Ok(CommandResult::Error(format!(
-                    "Invalid value: \"{}\". Use on/off.", v
-                )))
-            }
+            None => Ok(CommandResult::Text(format!("{}: enabled", setting))),
+            Some(v) => Ok(CommandResult::Error(format!(
+                "Invalid value: \"{}\". Use on/off.",
+                v
+            ))),
         }
     }
 }

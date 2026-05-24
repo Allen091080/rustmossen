@@ -9,9 +9,8 @@ static NEGATIVE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(wtf|wth|ffs|omfg|shit(ty|tiest)?|dumbass|horrible|awful|piss(ed|ing)? off|piece of (shit|crap|junk)|what the (fuck|hell)|fucking? (broken|useless|terrible|awful|horrible)|fuck you|screw (this|you)|so frustrating|this sucks|damn it)\b").unwrap()
 });
 
-static KEEP_GOING_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(keep going|go on)\b").unwrap()
-});
+static KEEP_GOING_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(keep going|go on)\b").unwrap());
 
 /// 检查输入是否匹配负面关键词模式。
 pub fn matches_negative_keyword(input: &str) -> bool {

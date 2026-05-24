@@ -27,7 +27,11 @@ pub async fn generate_docs_for_file(
     let path_str = file_path.to_string_lossy().to_string();
     let prompt = build_magic_docs_prompt(&path_str, &content, context);
 
-    debug!("Generating docs for: {} (prompt len: {})", path_str, prompt.len());
+    debug!(
+        "Generating docs for: {} (prompt len: {})",
+        path_str,
+        prompt.len()
+    );
 
     // In full implementation: run forked agent with the prompt
     tokio::select! {
@@ -91,8 +95,8 @@ pub async fn generate_docs_for_directory(
 // TS-mirror — `services/MagicDocs/magicDocs.ts` exports.
 // ---------------------------------------------------------------------------
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 static TRACKED_MAGIC_DOCS: Lazy<Mutex<std::collections::HashSet<String>>> =
     Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
@@ -116,7 +120,10 @@ pub fn detect_magic_doc_header(content: &str) -> Option<String> {
 
 /// `magicDocs.ts` `registerMagicDoc`.
 pub fn register_magic_doc(file_path: &str) {
-    TRACKED_MAGIC_DOCS.lock().unwrap().insert(file_path.to_string());
+    TRACKED_MAGIC_DOCS
+        .lock()
+        .unwrap()
+        .insert(file_path.to_string());
 }
 
 /// `magicDocs.ts` `initMagicDocs`.

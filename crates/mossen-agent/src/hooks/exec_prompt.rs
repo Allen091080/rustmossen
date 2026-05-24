@@ -54,7 +54,7 @@ pub struct PromptHookResult {
 
 /// 执行 Prompt Hook。
 ///
-/// 对应 TS `execPromptHook()`。使用 Haiku（或 hook.model 指定的模型）发起
+/// 对应 TS `execPromptHook()`。使用 Fast（或 hook.model 指定的模型）发起
 /// 单次非流式查询，要求模型按 `hookResponseSchema` 返回 JSON：
 /// `{"ok": true}` 或 `{"ok": false, "reason": "..."}`。
 ///
@@ -119,27 +119,27 @@ pub async fn exec_prompt_hook(
     )
     .await
     {
-            Ok(resp) => resp,
-            Err(err) => {
-                warn!(error = %err, "Prompt hook LLM query failed");
-                if cancel.is_cancelled() {
-                    return PromptHookResult {
-                        outcome: HookOutcome::Cancelled,
-                        blocking_error: None,
-                        prevent_continuation: false,
-                        stop_reason: None,
-                        response_text: None,
-                    };
-                }
+        Ok(resp) => resp,
+        Err(err) => {
+            warn!(error = %err, "Prompt hook LLM query failed");
+            if cancel.is_cancelled() {
                 return PromptHookResult {
-                    outcome: HookOutcome::NonBlockingError,
+                    outcome: HookOutcome::Cancelled,
                     blocking_error: None,
                     prevent_continuation: false,
                     stop_reason: None,
-                    response_text: Some(format!("Error executing prompt hook: {err}")),
+                    response_text: None,
                 };
             }
-        };
+            return PromptHookResult {
+                outcome: HookOutcome::NonBlockingError,
+                blocking_error: None,
+                prevent_continuation: false,
+                stop_reason: None,
+                response_text: Some(format!("Error executing prompt hook: {err}")),
+            };
+        }
+    };
 
     let text = extract_text_content_from_value(&response.message.content);
     let trimmed = text.trim().to_string();
@@ -184,7 +184,7 @@ pub async fn exec_prompt_hook(
 /// 默认 small/fast 模型——与 `mossen_api::get_small_fast_model` 一致。
 fn small_fast_model() -> String {
     std::env::var("MOSSEN_SMALL_FAST_MODEL")
-        .unwrap_or_else(|_| "claude-3-5-haiku-latest".to_string())
+        .unwrap_or_else(|_| "mossen-3-5-fast-latest".to_string())
 }
 
 /// 提取 assistant 消息中的文本内容（拼接所有 text 块）。

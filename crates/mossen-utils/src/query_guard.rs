@@ -157,7 +157,11 @@ impl QueryGuard {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        self.inner.lock().unwrap().subscribers.push(Arc::new(callback));
+        self.inner
+            .lock()
+            .unwrap()
+            .subscribers
+            .push(Arc::new(callback));
     }
 
     /// 获取快照（用于 useSyncExternalStore）。

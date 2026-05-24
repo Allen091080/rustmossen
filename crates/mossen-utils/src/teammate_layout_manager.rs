@@ -54,15 +54,15 @@ lazy_static::lazy_static! {
 pub fn assign_teammate_color(teammate_id: &str) -> AgentColorName {
     let mut assignments = TEAMMATE_COLOR_ASSIGNMENTS.lock().unwrap();
     let mut color_index = COLOR_INDEX.lock().unwrap();
-    
+
     if let Some(color) = assignments.get(teammate_id) {
         return *color;
     }
-    
+
     let color = AGENT_COLORS[*color_index % AGENT_COLORS.len()];
     assignments.insert(teammate_id.to_string(), color);
     *color_index += 1;
-    
+
     color
 }
 
@@ -150,10 +150,10 @@ mod tests {
     #[test]
     fn test_assign_teammate_color() {
         clear_teammate_colors();
-        
+
         let color1 = assign_teammate_color("teammate1");
         let color2 = assign_teammate_color("teammate2");
-        
+
         assert_eq!(color1, AgentColorName::Blue);
         assert_eq!(color2, AgentColorName::Green);
     }
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn test_get_teammate_color() {
         clear_teammate_colors();
-        
+
         let color = assign_teammate_color("teammate1");
         assert_eq!(get_teammate_color("teammate1"), Some(color));
         assert_eq!(get_teammate_color("unknown"), None);

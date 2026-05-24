@@ -36,5 +36,4 @@ impl std::fmt::Display for MossenAgentPermissionMode {
 
 /// TS `type MossenStream` — opaque streaming-response handle returned by the
 /// SDK; the Rust port models it as an async-stream of JSON values.
-pub type MossenStream =
-    std::pin::Pin<Box<dyn futures::Stream<Item = serde_json::Value> + Send>>;
+pub type MossenStream = std::pin::Pin<Box<dyn futures::Stream<Item = serde_json::Value> + Send>>;

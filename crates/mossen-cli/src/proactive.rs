@@ -98,7 +98,11 @@ pub fn is_proactive_paused() -> bool {
 
 pub fn get_next_tick_at() -> Option<i64> {
     let v = NEXT_TICK_AT.load(Ordering::SeqCst);
-    if v == 0 { None } else { Some(v) }
+    if v == 0 {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 pub fn activate_proactive(source: ProactiveSource) {

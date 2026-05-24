@@ -4,20 +4,16 @@
 //! Uses a forked agent to leverage prompt caching from the parent context
 //! while keeping the side question response separate from main conversation.
 
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// Pattern to detect "/btw" at start of input (case-insensitive).
-static BTW_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^/btw\b").expect("BTW_PATTERN regex should compile")
-});
+static BTW_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^/btw\b").expect("BTW_PATTERN regex should compile"));
 
 /// Legacy product name components, obfuscated via char codes.
 fn external_text(codes: &[u32]) -> String {
-    codes
-        .iter()
-        .filter_map(|&c| char::from_u32(c))
-        .collect()
+    codes.iter().filter_map(|&c| char::from_u32(c)).collect()
 }
 
 fn legacy_product_root() -> String {
@@ -139,9 +135,7 @@ pub fn normalize_side_question_branding(
         // Replace quoted variants
         let quoted_re = Regex::new(&format!(r#"[`"""]{}[`"""]"#, escaped))
             .unwrap_or_else(|_| Regex::new(r"(?!x)x").unwrap());
-        normalized = quoted_re
-            .replace_all(&normalized, runtime_name)
-            .to_string();
+        normalized = quoted_re.replace_all(&normalized, runtime_name).to_string();
 
         // Replace environment references (Chinese)
         let env_zh_re = Regex::new(&format!(r"{}\s*环境", escaped))
@@ -174,10 +168,7 @@ pub fn normalize_side_question_branding(
             &format!("I run in the {term} environment"),
             &format!("I run in the {runtime_name} environment"),
         );
-        normalized = normalized.replace(
-            &format!("我是 {term}"),
-            &format!("我是 {runtime_name}"),
-        );
+        normalized = normalized.replace(&format!("我是 {term}"), &format!("我是 {runtime_name}"));
         normalized = normalized.replace(&term, runtime_name);
     }
 
@@ -238,12 +229,8 @@ pub fn run_side_question(
     interactive_language_tag: &str,
 ) -> SideQuestionRunInputs {
     let is_chinese = interactive_language_tag == "zh";
-    let wrapped_prompt = build_side_question_prompt(
-        question,
-        is_chinese,
-        runtime_name,
-        assistant_name,
-    );
+    let wrapped_prompt =
+        build_side_question_prompt(question, is_chinese, runtime_name, assistant_name);
     SideQuestionRunInputs {
         wrapped_prompt,
         is_chinese,
@@ -283,10 +270,14 @@ pub fn extract_side_question_response(
         }
 
         // Check if the model tried to call a tool
-        let tool_use = assistant_blocks.iter().find(|b| matches!(b, ContentBlock::ToolUse { .. }));
+        let tool_use = assistant_blocks
+            .iter()
+            .find(|b| matches!(b, ContentBlock::ToolUse { .. }));
         if let Some(ContentBlock::ToolUse { name }) = tool_use {
             return Some(if is_chinese {
-                format!("（模型尝试调用 {name}，而不是直接回答。请换一种问法，或回到主对话里提问。）")
+                format!(
+                    "（模型尝试调用 {name}，而不是直接回答。请换一种问法，或回到主对话里提问。）"
+                )
             } else {
                 format!("(The model tried to call {name} instead of answering directly. Try rephrasing or ask in the main conversation.)")
             });

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -22,8 +22,7 @@ pub struct PluginHintRecommendation {
 }
 
 /// Session-scoped set of plugin IDs that have been tried.
-static TRIED_THIS_SESSION: Lazy<Mutex<HashSet<String>>> =
-    Lazy::new(|| Mutex::new(HashSet::new()));
+static TRIED_THIS_SESSION: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 /// Pre-store gate called by shell tools when a `type="plugin"` hint is detected.
 /// Returns true if the hint should be stored (pending), false if dropped.
@@ -57,7 +56,7 @@ pub fn maybe_record_plugin_hint(
         _ => return false,
     };
     let parsed = parse_plugin_identifier(plugin_id);
-    let name = match parsed.name.as_str() {
+    let _name = match parsed.name.as_str() {
         "" => return false,
         n => n,
     };

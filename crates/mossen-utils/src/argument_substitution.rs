@@ -149,7 +149,11 @@ pub fn substitute_arguments(
     result = indexed_re
         .replace_all(&result, |caps: &regex::Captures| {
             let index: usize = caps[1].parse().unwrap_or(0);
-            parsed_args.get(index).map(|s| s.as_str()).unwrap_or("").to_string()
+            parsed_args
+                .get(index)
+                .map(|s| s.as_str())
+                .unwrap_or("")
+                .to_string()
         })
         .to_string();
 
@@ -158,7 +162,11 @@ pub fn substitute_arguments(
     result = shorthand_re
         .replace_all(&result, |caps: &regex::Captures| {
             let index: usize = caps[1].parse().unwrap_or(0);
-            parsed_args.get(index).map(|s| s.as_str()).unwrap_or("").to_string()
+            parsed_args
+                .get(index)
+                .map(|s| s.as_str())
+                .unwrap_or("")
+                .to_string()
         })
         .to_string();
 

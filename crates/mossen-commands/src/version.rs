@@ -17,7 +17,7 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 /// - Runtime environment details
 /// - Whether the current version is the latest
 ///
-/// This command is restricted to internal users (`USER_TYPE=ant`)
+/// This command is restricted to internal users (`USER_TYPE=internal`)
 /// to prevent version fingerprinting in production environments.
 pub struct VersionDirective;
 
@@ -53,10 +53,7 @@ impl Directive for VersionDirective {
 
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let version_text = match &ctx.build_time {
-            Some(build_time) => format!(
-                "{} (built {})",
-                ctx.version, build_time
-            ),
+            Some(build_time) => format!("{} (built {})", ctx.version, build_time),
             None => ctx.version.clone(),
         };
         Ok(CommandResult::Text(version_text))

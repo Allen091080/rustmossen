@@ -61,7 +61,12 @@ pub struct PendingUpdateDetail {
 
 /// Get the set of marketplaces that have autoUpdate enabled.
 pub async fn get_auto_update_enabled_marketplaces(
-    load_known_config: impl std::future::Future<Output = Result<std::collections::HashMap<String, super::source_status::KnownMarketplaceInfo>, anyhow::Error>>,
+    load_known_config: impl std::future::Future<
+        Output = Result<
+            std::collections::HashMap<String, super::source_status::KnownMarketplaceInfo>,
+            anyhow::Error,
+        >,
+    >,
     get_declared: impl Fn() -> std::collections::HashMap<String, super::reconciler::DeclaredMarketplace>,
     is_marketplace_auto_update: impl Fn(&str, &super::source_status::KnownMarketplaceInfo) -> bool,
 ) -> HashSet<String> {
@@ -90,7 +95,12 @@ pub async fn get_auto_update_enabled_marketplaces(
 pub async fn update_plugin(
     plugin_id: &str,
     installations: &[PluginInstallation],
-    update_plugin_op: impl Fn(&str, &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<UpdateResult, anyhow::Error>> + Send>>,
+    update_plugin_op: impl Fn(
+        &str,
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<UpdateResult, anyhow::Error>> + Send>,
+    >,
 ) -> Option<String> {
     let mut was_updated = false;
 
@@ -152,7 +162,12 @@ pub async fn update_plugins_for_marketplaces(
     marketplace_names: &HashSet<String>,
     load_installed_plugins: impl Fn() -> super::schemas::InstalledPluginsFileV2,
     is_installation_relevant: impl Fn(&super::schemas::PluginInstallationEntry) -> bool,
-    update_plugin_op: impl Fn(&str, &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<UpdateResult, anyhow::Error>> + Send>>,
+    update_plugin_op: impl Fn(
+        &str,
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<UpdateResult, anyhow::Error>> + Send>,
+    >,
 ) -> Vec<String> {
     let installed_plugins = load_installed_plugins();
     let plugin_ids: Vec<String> = installed_plugins.plugins.keys().cloned().collect();
@@ -202,7 +217,12 @@ pub async fn update_plugins_for_marketplaces(
 pub fn auto_update_marketplaces_and_plugins_in_background(
     should_skip: bool,
     get_auto_update_enabled: impl std::future::Future<Output = HashSet<String>> + Send + 'static,
-    refresh_marketplace: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>> + Send + 'static,
+    refresh_marketplace: impl Fn(
+            &str,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>>
+        + Send
+        + 'static,
     update_plugins_fn: impl std::future::Future<Output = Vec<String>> + Send + 'static,
 ) {
     if should_skip {

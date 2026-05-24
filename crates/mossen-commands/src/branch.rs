@@ -12,10 +12,7 @@ pub struct BranchDirective;
 
 /// Derive a title from the first user message text.
 fn derive_first_prompt(text: &str) -> String {
-    let collapsed = text
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.len() <= 100 {
         collapsed
     } else {
@@ -82,9 +79,7 @@ impl Directive for BranchDirective {
         // 8. Resume into the fork
         // 9. Log analytics event
 
-        let base_name = custom_title
-            .as_deref()
-            .unwrap_or("Current conversation");
+        let base_name = custom_title.as_deref().unwrap_or("Current conversation");
         let effective_title = generate_fork_name(base_name, 0);
         let _ = derive_first_prompt(""); // helper used in full implementation
 

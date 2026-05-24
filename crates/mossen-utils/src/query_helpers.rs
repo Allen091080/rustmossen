@@ -1,15 +1,12 @@
-use std::collections::{HashMap, HashSet};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 
 /// Check if the result should be considered successful based on the last message.
 /// Returns true if:
 /// - Last message is assistant with text/thinking content
 /// - Last message is user with only tool_result blocks
 /// - Last message is the user prompt but the API completed with end_turn
-pub fn is_result_successful(
-    message: Option<&Message>,
-    stop_reason: Option<&str>,
-) -> bool {
+pub fn is_result_successful(message: Option<&Message>, stop_reason: Option<&str>) -> bool {
     let Some(msg) = message else {
         return false;
     };
@@ -53,12 +50,26 @@ pub enum MessageType {
 /// Content block within a message.
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum ContentBlock {
-    Text { text: String },
-    Thinking { thinking: String },
+    Text {
+        text: String,
+    },
+    Thinking {
+        thinking: String,
+    },
     RedactedThinking,
-    ToolUse { id: String, name: String, input: serde_json::Value },
-    ToolResult { tool_use_id: String, content: String, is_error: bool },
-    Image { source: ImageSource },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+        is_error: bool,
+    },
+    Image {
+        source: ImageSource,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -137,7 +148,10 @@ pub fn normalize_message(
                 .as_millis() as u64;
 
             let tracking_key = message.uuid.clone();
-            let last_sent = tool_progress_last_sent.get(&tracking_key).copied().unwrap_or(0);
+            let last_sent = tool_progress_last_sent
+                .get(&tracking_key)
+                .copied()
+                .unwrap_or(0);
             let time_since_last = now - last_sent;
 
             if time_since_last >= TOOL_PROGRESS_THROTTLE_MS {

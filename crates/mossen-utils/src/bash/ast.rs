@@ -2,12 +2,12 @@
 //!
 //! Translated from `ast.ts` (2679 lines) — types and entry point.
 
-use std::collections::{HashMap, HashSet};
 use regex::Regex;
+use std::collections::{HashMap, HashSet};
 
-use crate::bash::types::{TsNode, ParseRawResult};
 use crate::bash::parser_interface::parse_command_raw;
 use crate::bash::tree_sitter_analysis::TreeSitterAnalysis;
+use crate::bash::types::{ParseRawResult, TsNode};
 
 /// Security analysis result.
 #[derive(Debug, Clone)]
@@ -217,5 +217,8 @@ pub struct SemanticCheckResult {
 
 /// 对应 TS `parseForSecurityFromAst`：从已构建的 AST 提取安全相关信息。
 pub fn parse_for_security_from_ast(_ast: &serde_json::Value) -> SemanticCheckResult {
-    SemanticCheckResult { ok: true, reasons: Vec::new() }
+    SemanticCheckResult {
+        ok: true,
+        reasons: Vec::new(),
+    }
 }

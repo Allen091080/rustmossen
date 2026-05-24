@@ -3,9 +3,9 @@
 //! 翻译自 `services/api/firstTokenDate.ts` (66行)
 //! 获取并存储用户首次使用 token 的日期。
 
+use chrono::NaiveDateTime;
 use reqwest::Client;
 use tracing::error;
-use chrono::NaiveDateTime;
 
 /// Configuration callback interface for fetching/saving first token date.
 pub struct FirstTokenDateConfig {
@@ -59,10 +59,7 @@ pub async fn fetch_and_store_mossen_first_token_date(
             if NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S").is_err()
                 && NaiveDateTime::parse_from_str(date_str, "%Y-%m-%d").is_err()
             {
-                error!(
-                    "Received invalid first_token_date from API: {}",
-                    date_str
-                );
+                error!("Received invalid first_token_date from API: {}", date_str);
                 return Ok(None);
             }
         }

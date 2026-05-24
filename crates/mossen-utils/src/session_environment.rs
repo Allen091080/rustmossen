@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -10,7 +9,10 @@ use tokio::fs;
 static SESSION_ENV_SCRIPT: Lazy<Mutex<Option<Option<String>>>> = Lazy::new(|| Mutex::new(None));
 
 /// Get the session environment directory path.
-pub async fn get_session_env_dir_path(config_home: &Path, session_id: &str) -> std::io::Result<PathBuf> {
+pub async fn get_session_env_dir_path(
+    config_home: &Path,
+    session_id: &str,
+) -> std::io::Result<PathBuf> {
     let session_env_dir = config_home.join("session-env").join(session_id);
     fs::create_dir_all(&session_env_dir).await?;
     Ok(session_env_dir)
@@ -28,8 +30,9 @@ pub async fn get_hook_env_file_path(
     Ok(dir.join(format!("{}-hook-{}.sh", prefix, hook_index)))
 }
 
-static HOOK_ENV_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^(setup|sessionstart|cwdchanged|filechanged)-hook-(\d+)\.sh$").unwrap());
+static HOOK_ENV_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^(setup|sessionstart|cwdchanged|filechanged)-hook-(\d+)\.sh$").unwrap()
+});
 
 /// Clear CWD-related environment files.
 pub async fn clear_cwd_env_files(config_home: &Path, session_id: &str) {
@@ -75,8 +78,16 @@ fn sort_hook_env_files(a: &str, b: &str) -> std::cmp::Ordering {
     let a_match = HOOK_ENV_REGEX.captures(a);
     let b_match = HOOK_ENV_REGEX.captures(b);
 
-    let a_type = a_match.as_ref().and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("");
-    let b_type = b_match.as_ref().and_then(|c| c.get(1)).map(|m| m.as_str()).unwrap_or("");
+    let a_type = a_match
+        .as_ref()
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or("");
+    let b_type = b_match
+        .as_ref()
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or("");
 
     if a_type != b_type {
         return hook_env_priority(a_type).cmp(&hook_env_priority(b_type));
@@ -130,7 +141,11 @@ pub async fn get_session_environment_script(
     let session_env_dir = match get_session_env_dir_path(config_home, session_id).await {
         Ok(d) => d,
         Err(_) => {
-            let result = if scripts.is_empty() { None } else { Some(scripts.join("\n")) };
+            let result = if scripts.is_empty() {
+                None
+            } else {
+                Some(scripts.join("\n"))
+            };
             let mut cache = SESSION_ENV_SCRIPT.lock().unwrap();
             *cache = Some(result.clone());
             return result;

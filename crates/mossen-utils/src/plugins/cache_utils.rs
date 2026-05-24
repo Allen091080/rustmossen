@@ -118,7 +118,10 @@ async fn process_orphaned_plugin_version(version_path: &Path, now: u64) {
     if let Some(at) = orphaned_at {
         if now - at > CLEANUP_AGE_MS {
             if let Err(e) = fs::remove_dir_all(version_path).await {
-                debug!("Failed to delete orphaned version: {:?}: {}", version_path, e);
+                debug!(
+                    "Failed to delete orphaned version: {:?}: {}",
+                    version_path, e
+                );
             }
         }
     }
@@ -225,7 +228,8 @@ pub async fn get_plugin_prune_plan(
                 let plugin_path = marketplace_path.join(&plugin);
                 for version in read_subdirs(&plugin_path).await {
                     let version_path = plugin_path.join(&version);
-                    let entry = build_plan_entry(&version_path, &marketplace, &plugin, &version, now).await;
+                    let entry =
+                        build_plan_entry(&version_path, &marketplace, &plugin, &version, now).await;
 
                     if installed_paths.contains(&version_path) {
                         installed_skipped.push(entry);
@@ -362,31 +366,33 @@ async fn build_plan_entry(
     }
 }
 
-fn compute_dir_size_bytes(dir_path: &Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = i64> + Send + '_>> {
+fn compute_dir_size_bytes(
+    dir_path: &Path,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = i64> + Send + '_>> {
     Box::pin(async move {
-    let mut total: i64 = 0;
-    let mut entries = match fs::read_dir(dir_path).await {
-        Ok(e) => e,
-        Err(_) => return -1,
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        if let Ok(ft) = entry.file_type().await {
-            let child = entry.path();
-            if ft.is_dir() {
-                let sub = compute_dir_size_bytes(&child).await;
-                if sub < 0 {
-                    return -1;
-                }
-                total += sub;
-            } else if ft.is_file() {
-                match fs::metadata(&child).await {
-                    Ok(m) => total += m.len() as i64,
-                    Err(_) => return -1,
+        let mut total: i64 = 0;
+        let mut entries = match fs::read_dir(dir_path).await {
+            Ok(e) => e,
+            Err(_) => return -1,
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(ft) = entry.file_type().await {
+                let child = entry.path();
+                if ft.is_dir() {
+                    let sub = compute_dir_size_bytes(&child).await;
+                    if sub < 0 {
+                        return -1;
+                    }
+                    total += sub;
+                } else if ft.is_file() {
+                    match fs::metadata(&child).await {
+                        Ok(m) => total += m.len() as i64,
+                        Err(_) => return -1,
+                    }
                 }
             }
         }
-    }
-    total
+        total
     })
 }
 

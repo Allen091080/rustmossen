@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::schemas::{
-    KnownMarketplace, KnownMarketplacesFile, MarketplaceSource,
-    PluginMarketplace, PluginMarketplaceEntry,
+    KnownMarketplace, KnownMarketplacesFile, MarketplaceSource, PluginMarketplace,
+    PluginMarketplaceEntry,
 };
 
 /// Result of loading and caching a marketplace
@@ -73,18 +73,9 @@ pub trait MarketplaceEnv: Send + Sync {
 
     // Settings
     fn get_initial_settings_enabled_plugins(&self) -> HashMap<String, serde_json::Value>;
-    fn get_initial_settings_extra_marketplaces(
-        &self,
-    ) -> HashMap<String, DeclaredMarketplace>;
-    fn get_settings_for_source(
-        &self,
-        source: &str,
-    ) -> Option<HashMap<String, serde_json::Value>>;
-    fn update_settings_for_source(
-        &self,
-        source: &str,
-        updates: serde_json::Value,
-    ) -> Result<()>;
+    fn get_initial_settings_extra_marketplaces(&self) -> HashMap<String, DeclaredMarketplace>;
+    fn get_settings_for_source(&self, source: &str) -> Option<HashMap<String, serde_json::Value>>;
+    fn update_settings_for_source(&self, source: &str, updates: serde_json::Value) -> Result<()>;
     fn get_add_dir_enabled_plugins(&self) -> HashMap<String, serde_json::Value>;
     fn get_add_dir_extra_marketplaces(&self) -> HashMap<String, DeclaredMarketplace>;
     fn parse_plugin_identifier(&self, plugin_id: &str) -> (Option<String>, Option<String>);
@@ -130,10 +121,7 @@ pub trait MarketplaceEnv: Send + Sync {
     ) -> Result<serde_json::Value>;
 
     // Installed plugins manager
-    fn remove_all_plugins_for_marketplace(
-        &self,
-        name: &str,
-    ) -> (Vec<String>, Vec<String>);
+    fn remove_all_plugins_for_marketplace(&self, name: &str) -> (Vec<String>, Vec<String>);
     async fn mark_plugin_version_orphaned(&self, install_path: &str) -> Result<()>;
     fn delete_plugin_options(&self, plugin_id: &str);
     async fn delete_plugin_data_dir(&self, plugin_id: &str) -> Result<()>;
@@ -177,9 +165,7 @@ pub fn clear_marketplaces_cache() {
 }
 
 /// Get declared marketplace intent from merged settings and --add-dir sources.
-pub fn get_declared_marketplaces(
-    env: &dyn MarketplaceEnv,
-) -> HashMap<String, DeclaredMarketplace> {
+pub fn get_declared_marketplaces(env: &dyn MarketplaceEnv) -> HashMap<String, DeclaredMarketplace> {
     let mut implicit: HashMap<String, DeclaredMarketplace> = HashMap::new();
 
     // Only official marketplace can be implicitly declared
@@ -272,7 +258,9 @@ pub async fn load_known_marketplaces_config(
 pub async fn load_known_marketplaces_config_safe(
     env: &dyn MarketplaceEnv,
 ) -> KnownMarketplacesFile {
-    load_known_marketplaces_config(env).await.unwrap_or_default()
+    load_known_marketplaces_config(env)
+        .await
+        .unwrap_or_default()
 }
 
 /// Save known marketplaces configuration to disk
@@ -310,17 +298,17 @@ pub async fn register_seed_marketplaces(env: &dyn MarketplaceEnv) -> Result<bool
                 continue;
             }
 
-            let resolved_location =
-                match find_seed_marketplace_location(env, seed_dir, name).await {
-                    Some(loc) => loc,
-                    None => {
-                        debug!(
-                            "Seed marketplace '{}' not found under {:?}/marketplaces/, skipping",
-                            name, seed_dir
-                        );
-                        continue;
-                    }
-                };
+            let resolved_location = match find_seed_marketplace_location(env, seed_dir, name).await
+            {
+                Some(loc) => loc,
+                None => {
+                    debug!(
+                        "Seed marketplace '{}' not found under {:?}/marketplaces/, skipping",
+                        name, seed_dir
+                    );
+                    continue;
+                }
+            };
             claimed.insert(name.clone());
 
             let desired = KnownMarketplace {
@@ -362,9 +350,7 @@ async fn find_seed_marketplace_location(
     name: &str,
 ) -> Option<String> {
     let dir_candidate = seed_dir.join("marketplaces").join(name);
-    let json_candidate = seed_dir
-        .join("marketplaces")
-        .join(format!("{}.json", name));
+    let json_candidate = seed_dir.join("marketplaces").join(format!("{}.json", name));
 
     for candidate in &[&dir_candidate, &json_candidate] {
         if read_cached_marketplace(env, candidate).await.is_ok() {
@@ -378,8 +364,7 @@ async fn find_seed_marketplace_location(
 fn seed_dir_for(env: &dyn MarketplaceEnv, install_location: &str) -> Option<PathBuf> {
     env.get_plugin_seed_dirs().into_iter().find(|d| {
         let d_str = d.to_string_lossy();
-        install_location == d_str.as_ref()
-            || install_location.starts_with(&format!("{}/", d_str))
+        install_location == d_str.as_ref() || install_location.starts_with(&format!("{}/", d_str))
     })
 }
 
@@ -404,7 +389,10 @@ pub async fn git_pull(
     let cwd_path = Path::new(cwd);
 
     let mut credential_args: Vec<&str> = Vec::new();
-    if options.map(|o| o.disable_credential_helper).unwrap_or(false) {
+    if options
+        .map(|o| o.disable_credential_helper)
+        .unwrap_or(false)
+    {
         credential_args.extend_from_slice(&["-c", "credential.helper="]);
     }
 
@@ -432,7 +420,13 @@ pub async fn git_pull(
         if pull_result.code != 0 {
             return enhance_git_pull_error_messages(pull_result);
         }
-        git_submodule_update(env, cwd, &credential_args, options.and_then(|o| o.sparse_paths.as_deref())).await;
+        git_submodule_update(
+            env,
+            cwd,
+            &credential_args,
+            options.and_then(|o| o.sparse_paths.as_deref()),
+        )
+        .await;
         return pull_result;
     }
 
@@ -442,7 +436,13 @@ pub async fn git_pull(
     if result.code != 0 {
         return enhance_git_pull_error_messages(result);
     }
-    git_submodule_update(env, cwd, &credential_args, options.and_then(|o| o.sparse_paths.as_deref())).await;
+    git_submodule_update(
+        env,
+        cwd,
+        &credential_args,
+        options.and_then(|o| o.sparse_paths.as_deref()),
+    )
+    .await;
     result
 }
 
@@ -472,17 +472,19 @@ async fn git_submodule_update(
     ];
     args.extend_from_slice(credential_args);
     args.extend_from_slice(&[
-        "submodule", "update", "--init", "--recursive", "--depth", "1",
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+        "--depth",
+        "1",
     ]);
 
     let result = env
         .exec_git(&args, Some(Path::new(cwd)), get_plugin_git_timeout_ms())
         .await;
     if result.code != 0 {
-        debug!(
-            "git submodule update failed (non-fatal): {}",
-            result.stderr
-        );
+        debug!("git submodule update failed (non-fatal): {}", result.stderr);
     }
 }
 
@@ -502,7 +504,10 @@ fn enhance_git_pull_error_messages(result: GitResult) -> GitResult {
         };
     }
 
-    if result.stderr.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
+    if result
+        .stderr
+        .contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+    {
         return GitResult {
             stderr: format!(
                 "SSH host key for this marketplace's git host has changed (server key rotation or possible MITM). Remove the stale entry with: ssh-keygen -R <host>\nThen connect once manually to accept the new key.\n\nOriginal error: {}",
@@ -522,7 +527,9 @@ fn enhance_git_pull_error_messages(result: GitResult) -> GitResult {
     }
 
     if result.stderr.contains("Permission denied (publickey)")
-        || result.stderr.contains("Could not read from remote repository")
+        || result
+            .stderr
+            .contains("Could not read from remote repository")
     {
         return GitResult {
             stderr: format!(
@@ -551,8 +558,14 @@ async fn is_github_ssh_likely_configured(env: &dyn MarketplaceEnv) -> bool {
     let result = env
         .exec_ssh_test(
             &[
-                "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", "-o",
-                "StrictHostKeyChecking=yes", "git@github.com",
+                "-T",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=2",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "git@github.com",
             ],
             3000,
         )
@@ -658,10 +671,7 @@ pub async fn git_clone(
             if sparse_result.code != 0 {
                 return GitResult {
                     code: sparse_result.code,
-                    stderr: format!(
-                        "git sparse-checkout set failed: {}",
-                        sparse_result.stderr
-                    ),
+                    stderr: format!("git sparse-checkout set failed: {}", sparse_result.stderr),
                     error: None,
                     stdout: None,
                 };
@@ -709,7 +719,10 @@ pub async fn git_clone(
         };
     }
 
-    if result.stderr.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
+    if result
+        .stderr
+        .contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+    {
         let host = extract_ssh_host(git_url);
         let remove_hint = host
             .as_ref()
@@ -740,7 +753,9 @@ pub async fn git_clone(
     }
 
     if result.stderr.contains("Permission denied (publickey)")
-        || result.stderr.contains("Could not read from remote repository")
+        || result
+            .stderr
+            .contains("Could not read from remote repository")
     {
         return GitResult {
             stderr: format!(
@@ -821,14 +836,7 @@ pub async fn reconcile_sparse_checkout(
             timeout,
         )
         .await;
-    if check.code == 0
-        && check
-            .stdout
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            == "true"
-    {
+    if check.code == 0 && check.stdout.as_deref().unwrap_or("").trim() == "true" {
         return GitResult {
             code: 1,
             stderr: "sparsePaths removed from config but repository is sparse; re-cloning for full checkout".to_string(),
@@ -866,22 +874,22 @@ async fn cache_marketplace_from_git(
     let timeout_sec = get_plugin_git_timeout_ms() / 1000;
     safe_call_progress(
         on_progress,
-        &format!("Refreshing marketplace cache (timeout: {}s)...", timeout_sec),
+        &format!(
+            "Refreshing marketplace cache (timeout: {}s)...",
+            timeout_sec
+        ),
     );
 
-    let reconcile_result =
-        reconcile_sparse_checkout(env, cache_path, sparse_paths).await;
+    let reconcile_result = reconcile_sparse_checkout(env, cache_path, sparse_paths).await;
     if reconcile_result.code == 0 {
         let pull_started = Instant::now();
-        let pull_result = git_pull(
-            env,
-            cache_path,
-            git_ref,
-            options,
-        )
-        .await;
+        let pull_result = git_pull(env, cache_path, git_ref, options).await;
         let duration = pull_started.elapsed().as_millis() as f64;
-        let status = if pull_result.code == 0 { "success" } else { "failure" };
+        let status = if pull_result.code == 0 {
+            "success"
+        } else {
+            "failure"
+        };
         let error_class = if pull_result.code != 0 {
             Some(env.classify_fetch_error(&pull_result.stderr))
         } else {
@@ -938,7 +946,11 @@ async fn cache_marketplace_from_git(
     let clone_started = Instant::now();
     let result = git_clone(env, git_url, cache_path, git_ref, sparse_paths).await;
     let duration = clone_started.elapsed().as_millis() as f64;
-    let status = if result.code == 0 { "success" } else { "failure" };
+    let status = if result.code == 0 {
+        "success"
+    } else {
+        "failure"
+    };
     let error_class = if result.code != 0 {
         Some(env.classify_fetch_error(&result.stderr))
     } else {
@@ -1030,18 +1042,17 @@ async fn cache_marketplace_from_url(
 
     safe_call_progress(on_progress, "Validating marketplace data");
     // Validate marketplace schema
-    let marketplace: PluginMarketplace = serde_json::from_value(response.clone())
-        .map_err(|e| {
-            let duration = fetch_started.elapsed().as_millis() as f64;
-            env.log_plugin_fetch(
-                "marketplace_url",
-                url,
-                "failure",
-                duration,
-                Some("invalid_schema"),
-            );
-            anyhow!("Invalid marketplace schema from URL: {}", e)
-        })?;
+    let marketplace: PluginMarketplace = serde_json::from_value(response.clone()).map_err(|e| {
+        let duration = fetch_started.elapsed().as_millis() as f64;
+        env.log_plugin_fetch(
+            "marketplace_url",
+            url,
+            "failure",
+            duration,
+            Some("invalid_schema"),
+        );
+        anyhow!("Invalid marketplace schema from URL: {}", e)
+    })?;
 
     let duration = fetch_started.elapsed().as_millis() as f64;
     env.log_plugin_fetch("marketplace_url", url, "success", duration, None);
@@ -1059,23 +1070,17 @@ async fn cache_marketplace_from_url(
 fn get_cache_path_for_source(source: &MarketplaceSource) -> String {
     match source {
         MarketplaceSource::GitHub { repo, .. } => repo.replace('/', "-"),
-        MarketplaceSource::Npm { package, .. } => {
-            package.replace('@', "").replace('/', "-")
-        }
-        MarketplaceSource::File { path, .. } => {
-            Path::new(path)
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        }
-        MarketplaceSource::Directory { path, .. } => {
-            Path::new(path)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        }
+        MarketplaceSource::Npm { package, .. } => package.replace('@', "").replace('/', "-"),
+        MarketplaceSource::File { path, .. } => Path::new(path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        MarketplaceSource::Directory { path, .. } => Path::new(path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
         MarketplaceSource::Url { .. } => format!("temp_{}", chrono::Utc::now().timestamp()),
         MarketplaceSource::Git { .. } => format!("temp_{}", chrono::Utc::now().timestamp()),
         MarketplaceSource::Settings { name, .. } => name.clone(),
@@ -1113,7 +1118,13 @@ async fn load_and_cache_marketplace(
             .await?;
             marketplace_path = temporary_cache_path.clone();
         }
-        MarketplaceSource::GitHub { repo, git_ref, sparse_paths, path, .. } => {
+        MarketplaceSource::GitHub {
+            repo,
+            git_ref,
+            sparse_paths,
+            path,
+            ..
+        } => {
             let ssh_url = format!("git@github.com:{}.git", repo);
             let https_url = format!("https://github.com/{}.git", repo);
             temporary_cache_path = cache_dir.join(&temp_name);
@@ -1125,38 +1136,75 @@ async fn load_and_cache_marketplace(
             if ssh_configured {
                 safe_call_progress(on_progress, &format!("Cloning via SSH: {}", ssh_url));
                 match cache_marketplace_from_git(
-                    env, &ssh_url, &temporary_cache_path.to_string_lossy(),
-                    git_ref.as_deref(), sparse_paths.as_deref(), on_progress, None,
-                ).await {
+                    env,
+                    &ssh_url,
+                    &temporary_cache_path.to_string_lossy(),
+                    git_ref.as_deref(),
+                    sparse_paths.as_deref(),
+                    on_progress,
+                    None,
+                )
+                .await
+                {
                     Ok(()) => {}
                     Err(e) => {
                         last_error = Some(e);
-                        safe_call_progress(on_progress, &format!("SSH clone failed, retrying with HTTPS: {}", https_url));
+                        safe_call_progress(
+                            on_progress,
+                            &format!("SSH clone failed, retrying with HTTPS: {}", https_url),
+                        );
                         let _ = env.rm(&temporary_cache_path).await;
                         match cache_marketplace_from_git(
-                            env, &https_url, &temporary_cache_path.to_string_lossy(),
-                            git_ref.as_deref(), sparse_paths.as_deref(), on_progress, None,
-                        ).await {
+                            env,
+                            &https_url,
+                            &temporary_cache_path.to_string_lossy(),
+                            git_ref.as_deref(),
+                            sparse_paths.as_deref(),
+                            on_progress,
+                            None,
+                        )
+                        .await
+                        {
                             Ok(()) => last_error = None,
                             Err(e) => last_error = Some(e),
                         }
                     }
                 }
             } else {
-                safe_call_progress(on_progress, &format!("SSH not configured, cloning via HTTPS: {}", https_url));
+                safe_call_progress(
+                    on_progress,
+                    &format!("SSH not configured, cloning via HTTPS: {}", https_url),
+                );
                 match cache_marketplace_from_git(
-                    env, &https_url, &temporary_cache_path.to_string_lossy(),
-                    git_ref.as_deref(), sparse_paths.as_deref(), on_progress, None,
-                ).await {
+                    env,
+                    &https_url,
+                    &temporary_cache_path.to_string_lossy(),
+                    git_ref.as_deref(),
+                    sparse_paths.as_deref(),
+                    on_progress,
+                    None,
+                )
+                .await
+                {
                     Ok(()) => {}
                     Err(e) => {
                         last_error = Some(e);
-                        safe_call_progress(on_progress, &format!("HTTPS clone failed, retrying with SSH: {}", ssh_url));
+                        safe_call_progress(
+                            on_progress,
+                            &format!("HTTPS clone failed, retrying with SSH: {}", ssh_url),
+                        );
                         let _ = env.rm(&temporary_cache_path).await;
                         match cache_marketplace_from_git(
-                            env, &ssh_url, &temporary_cache_path.to_string_lossy(),
-                            git_ref.as_deref(), sparse_paths.as_deref(), on_progress, None,
-                        ).await {
+                            env,
+                            &ssh_url,
+                            &temporary_cache_path.to_string_lossy(),
+                            git_ref.as_deref(),
+                            sparse_paths.as_deref(),
+                            on_progress,
+                            None,
+                        )
+                        .await
+                        {
                             Ok(()) => last_error = None,
                             Err(e) => last_error = Some(e),
                         }
@@ -1168,20 +1216,30 @@ async fn load_and_cache_marketplace(
                 return Err(err);
             }
 
-            marketplace_path = temporary_cache_path.join(
-                path.as_deref().unwrap_or(".mossen-plugin/marketplace.json"),
-            );
+            marketplace_path = temporary_cache_path
+                .join(path.as_deref().unwrap_or(".mossen-plugin/marketplace.json"));
         }
-        MarketplaceSource::Git { url, git_ref, sparse_paths, path, .. } => {
+        MarketplaceSource::Git {
+            url,
+            git_ref,
+            sparse_paths,
+            path,
+            ..
+        } => {
             temporary_cache_path = cache_dir.join(&temp_name);
             cleanup_needed = true;
             cache_marketplace_from_git(
-                env, url, &temporary_cache_path.to_string_lossy(),
-                git_ref.as_deref(), sparse_paths.as_deref(), on_progress, None,
-            ).await?;
-            marketplace_path = temporary_cache_path.join(
-                path.as_deref().unwrap_or(".mossen-plugin/marketplace.json"),
-            );
+                env,
+                url,
+                &temporary_cache_path.to_string_lossy(),
+                git_ref.as_deref(),
+                sparse_paths.as_deref(),
+                on_progress,
+                None,
+            )
+            .await?;
+            marketplace_path = temporary_cache_path
+                .join(path.as_deref().unwrap_or(".mossen-plugin/marketplace.json"));
         }
         MarketplaceSource::Npm { package } => {
             // NPM source: shell out to `npm pack`, which streams a
@@ -1220,9 +1278,7 @@ async fn load_and_cache_marketplace(
                     String::from_utf8_lossy(&pack.stderr).trim()
                 ));
             }
-            let tarball = String::from_utf8_lossy(&pack.stdout)
-                .trim()
-                .to_string();
+            let tarball = String::from_utf8_lossy(&pack.stdout).trim().to_string();
             if tarball.is_empty() {
                 return Err(anyhow!(
                     "npm pack returned no tarball filename for `{}`",
@@ -1238,10 +1294,7 @@ async fn load_and_cache_marketplace(
                 .status()
                 .map_err(|e| anyhow!("tar not available on PATH: {}", e))?;
             if !untar.success() {
-                return Err(anyhow!(
-                    "tar -xf failed on `{}` from npm pack",
-                    tarball
-                ));
+                return Err(anyhow!("tar -xf failed on `{}` from npm pack", tarball));
             }
 
             // 3. Resolve marketplace.json under the unpacked `package/`
@@ -1283,13 +1336,21 @@ async fn load_and_cache_marketplace(
             temporary_cache_path = abs_path;
             cleanup_needed = false;
         }
-        MarketplaceSource::Settings { name, owner, plugins, .. } => {
+        MarketplaceSource::Settings {
+            name,
+            owner,
+            plugins,
+            ..
+        } => {
             temporary_cache_path = cache_dir.join(name);
-            marketplace_path = temporary_cache_path.join(".mossen-plugin").join("marketplace.json");
+            marketplace_path = temporary_cache_path
+                .join(".mossen-plugin")
+                .join("marketplace.json");
             cleanup_needed = false;
             let mp_dir = temporary_cache_path.join(".mossen-plugin");
             env.mkdir(&mp_dir).await?;
-            let owner_val = owner.as_ref()
+            let owner_val = owner
+                .as_ref()
                 .map(|o| serde_json::to_value(o).unwrap_or_default())
                 .unwrap_or_else(|| serde_json::json!({"name": "settings"}));
             let content = serde_json::json!({
@@ -1297,7 +1358,8 @@ async fn load_and_cache_marketplace(
                 "owner": owner_val,
                 "plugins": plugins,
             });
-            env.write_file(&marketplace_path, &serde_json::to_string_pretty(&content)?).await?;
+            env.write_file(&marketplace_path, &serde_json::to_string_pretty(&content)?)
+                .await?;
         }
         MarketplaceSource::HostPattern { .. } | MarketplaceSource::PathPattern { .. } => {
             return Err(anyhow!("Cannot load marketplace from pattern source"));
@@ -1322,10 +1384,10 @@ async fn load_and_cache_marketplace(
 
     // Rename cache path to marketplace's actual name
     let final_cache_path = cache_dir.join(&marketplace.name);
-    let resolved_final = std::fs::canonicalize(&final_cache_path)
-        .unwrap_or_else(|_| final_cache_path.clone());
-    let resolved_cache_dir = std::fs::canonicalize(&cache_dir)
-        .unwrap_or_else(|_| cache_dir.clone());
+    let resolved_final =
+        std::fs::canonicalize(&final_cache_path).unwrap_or_else(|_| final_cache_path.clone());
+    let resolved_cache_dir =
+        std::fs::canonicalize(&cache_dir).unwrap_or_else(|_| cache_dir.clone());
 
     if !resolved_final
         .to_string_lossy()
@@ -1483,8 +1545,7 @@ pub async fn remove_marketplace_source(env: &dyn MarketplaceEnv, name: &str) -> 
     }
 
     // Remove plugins from installed_plugins.json
-    let (orphaned_paths, removed_plugin_ids) =
-        env.remove_all_plugins_for_marketplace(name);
+    let (orphaned_paths, removed_plugin_ids) = env.remove_all_plugins_for_marketplace(name);
     for install_path in &orphaned_paths {
         let _ = env.mark_plugin_version_orphaned(install_path).await;
     }
@@ -1503,7 +1564,9 @@ async fn read_cached_marketplace(
     install_location: &Path,
 ) -> Result<PluginMarketplace> {
     // Try nested path first
-    let nested_path = install_location.join(".mossen-plugin").join("marketplace.json");
+    let nested_path = install_location
+        .join(".mossen-plugin")
+        .join("marketplace.json");
     if let Ok(content) = env.read_file(&nested_path).await {
         let marketplace: PluginMarketplace = serde_json::from_str(&content)?;
         return Ok(marketplace);
@@ -1529,10 +1592,7 @@ pub async fn get_marketplace_cache_only(
 }
 
 /// Get a specific marketplace by name (cache-first, then fetch)
-pub async fn get_marketplace(
-    env: &dyn MarketplaceEnv,
-    name: &str,
-) -> Result<PluginMarketplace> {
+pub async fn get_marketplace(env: &dyn MarketplaceEnv, name: &str) -> Result<PluginMarketplace> {
     // Check memory cache
     {
         let cache = MARKETPLACE_CACHE.lock().unwrap();
@@ -1542,15 +1602,13 @@ pub async fn get_marketplace(
     }
 
     let config = load_known_marketplaces_config(env).await?;
-    let entry = config
-        .get(name)
-        .ok_or_else(|| {
-            anyhow!(
-                "Marketplace '{}' not found in configuration. Available marketplaces: {}",
-                name,
-                config.keys().cloned().collect::<Vec<_>>().join(", ")
-            )
-        })?;
+    let entry = config.get(name).ok_or_else(|| {
+        anyhow!(
+            "Marketplace '{}' not found in configuration. Available marketplaces: {}",
+            name,
+            config.keys().cloned().collect::<Vec<_>>().join(", ")
+        )
+    })?;
 
     // Try to read from disk cache
     match read_cached_marketplace(env, Path::new(&entry.install_location)).await {
@@ -1594,10 +1652,7 @@ pub async fn get_plugin_by_id_cache_only(
     let marketplace_config = config.get(&marketplace_name)?;
 
     let marketplace = get_marketplace_cache_only(env, &marketplace_name).await?;
-    let plugin = marketplace
-        .plugins
-        .iter()
-        .find(|p| p.name == plugin_name)?;
+    let plugin = marketplace.plugins.iter().find(|p| p.name == plugin_name)?;
 
     Some(PluginLookupResult {
         entry: plugin.clone(),
@@ -1629,10 +1684,7 @@ pub async fn get_plugin_by_id(
     let marketplace_config = config.get(&marketplace_name)?;
 
     let marketplace = get_marketplace(env, &marketplace_name).await.ok()?;
-    let plugin = marketplace
-        .plugins
-        .iter()
-        .find(|p| p.name == plugin_name)?;
+    let plugin = marketplace.plugins.iter().find(|p| p.name == plugin_name)?;
 
     Some(PluginLookupResult {
         entry: plugin.clone(),
@@ -1646,7 +1698,10 @@ pub async fn refresh_all_marketplaces(env: &dyn MarketplaceEnv) -> Result<()> {
 
     for (name, entry) in config.clone().iter() {
         if seed_dir_for(env, &entry.install_location).is_some() {
-            debug!("Skipping seed-managed marketplace '{}' in bulk refresh", name);
+            debug!(
+                "Skipping seed-managed marketplace '{}' in bulk refresh",
+                name
+            );
             continue;
         }
         if matches!(entry.source, MarketplaceSource::Settings { .. }) {
@@ -1668,8 +1723,10 @@ pub async fn refresh_all_marketplaces(env: &dyn MarketplaceEnv) -> Result<()> {
                 }
                 continue;
             }
-            if !env.get_feature_value_cached("tengu_plugin_official_mkt_git_fallback", true) {
-                debug!("Skipping official marketplace bulk refresh: GCS failed, git fallback disabled");
+            if !env.get_feature_value_cached("mossen_plugin_official_mkt_git_fallback", true) {
+                debug!(
+                    "Skipping official marketplace bulk refresh: GCS failed, git fallback disabled"
+                );
                 continue;
             }
         }
@@ -1746,7 +1803,7 @@ pub async fn refresh_marketplace(
             save_known_marketplaces_config(env, &config).await?;
             return Ok(());
         }
-        if !env.get_feature_value_cached("tengu_plugin_official_mkt_git_fallback", true) {
+        if !env.get_feature_value_cached("mossen_plugin_official_mkt_git_fallback", true) {
             return Err(anyhow!(
                 "Official marketplace GCS fetch failed and git fallback is disabled"
             ));
@@ -1756,8 +1813,18 @@ pub async fn refresh_marketplace(
 
     // Update based on source type
     match &entry.source {
-        MarketplaceSource::GitHub { repo, git_ref, sparse_paths, .. }
-        | MarketplaceSource::Git { url: repo, git_ref, sparse_paths, .. } => {
+        MarketplaceSource::GitHub {
+            repo: _,
+            git_ref,
+            sparse_paths,
+            ..
+        }
+        | MarketplaceSource::Git {
+            url: _,
+            git_ref,
+            sparse_paths,
+            ..
+        } => {
             let install_location = &entry.install_location;
 
             if let MarketplaceSource::GitHub { repo, .. } = &entry.source {
@@ -1766,34 +1833,56 @@ pub async fn refresh_marketplace(
 
                 if env.is_env_truthy("MOSSEN_CODE_REMOTE") {
                     cache_marketplace_from_git(
-                        env, &https_url, install_location,
-                        git_ref.as_deref(), sparse_paths.as_deref(),
-                        on_progress, options,
-                    ).await?;
+                        env,
+                        &https_url,
+                        install_location,
+                        git_ref.as_deref(),
+                        sparse_paths.as_deref(),
+                        on_progress,
+                        options,
+                    )
+                    .await?;
                 } else {
                     let ssh_configured = is_github_ssh_likely_configured(env).await;
                     let primary_url = if ssh_configured { &ssh_url } else { &https_url };
                     let fallback_url = if ssh_configured { &https_url } else { &ssh_url };
 
                     if cache_marketplace_from_git(
-                        env, primary_url, install_location,
-                        git_ref.as_deref(), sparse_paths.as_deref(),
-                        on_progress, options,
-                    ).await.is_err() {
+                        env,
+                        primary_url,
+                        install_location,
+                        git_ref.as_deref(),
+                        sparse_paths.as_deref(),
+                        on_progress,
+                        options,
+                    )
+                    .await
+                    .is_err()
+                    {
                         debug!("Marketplace refresh failed with primary, falling back");
                         cache_marketplace_from_git(
-                            env, fallback_url, install_location,
-                            git_ref.as_deref(), sparse_paths.as_deref(),
-                            on_progress, options,
-                        ).await?;
+                            env,
+                            fallback_url,
+                            install_location,
+                            git_ref.as_deref(),
+                            sparse_paths.as_deref(),
+                            on_progress,
+                            options,
+                        )
+                        .await?;
                     }
                 }
             } else if let MarketplaceSource::Git { url, .. } = &entry.source {
                 cache_marketplace_from_git(
-                    env, url, &entry.install_location,
-                    git_ref.as_deref(), sparse_paths.as_deref(),
-                    on_progress, options,
-                ).await?;
+                    env,
+                    url,
+                    &entry.install_location,
+                    git_ref.as_deref(),
+                    sparse_paths.as_deref(),
+                    on_progress,
+                    options,
+                )
+                .await?;
             }
 
             // Validate marketplace still exists after update
@@ -1808,9 +1897,13 @@ pub async fn refresh_marketplace(
         }
         MarketplaceSource::Url { url, headers, .. } => {
             cache_marketplace_from_url(
-                env, url, &entry.install_location,
-                headers.as_ref(), on_progress,
-            ).await?;
+                env,
+                url,
+                &entry.install_location,
+                headers.as_ref(),
+                on_progress,
+            )
+            .await?;
         }
         MarketplaceSource::File { .. } | MarketplaceSource::Directory { .. } => {
             safe_call_progress(on_progress, "Validating local marketplace");
@@ -1851,7 +1944,8 @@ pub async fn set_marketplace_auto_update(
     if let Some(seed_dir) = seed_dir_for(env, &entry.install_location) {
         return Err(anyhow!(
             "Marketplace '{}' is seed-managed ({:?}) and auto-update is always disabled.",
-            name, seed_dir
+            name,
+            seed_dir
         ));
     }
 

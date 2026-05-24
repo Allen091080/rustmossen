@@ -43,10 +43,7 @@ static STATE: Lazy<Mutex<SessionActivityState>> = Lazy::new(|| {
 });
 
 /// Register the session activity callback (keep-alive sender)
-pub fn register_session_activity_callback(
-    cb: Arc<dyn Fn() + Send + Sync>,
-    send_keepalives: bool,
-) {
+pub fn register_session_activity_callback(cb: Arc<dyn Fn() + Send + Sync>, send_keepalives: bool) {
     let mut state = STATE.lock().unwrap();
     state.activity_callback = Some(cb);
     state.send_keepalives = send_keepalives;

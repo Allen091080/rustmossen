@@ -109,10 +109,7 @@ pub async fn try_acquire_scheduler_lock(
     opts: &SchedulerLockOptions,
 ) -> bool {
     let dir = opts.dir.as_deref().unwrap_or(project_root);
-    let identity = opts
-        .lock_identity
-        .as_deref()
-        .unwrap_or(session_id);
+    let identity = opts.lock_identity.as_deref().unwrap_or(session_id);
     let pid = std::process::id();
 
     let lock = SchedulerLock {
@@ -127,10 +124,7 @@ pub async fn try_acquire_scheduler_lock(
     match try_create_exclusive(&lock, dir).await {
         Ok(true) => {
             *LAST_BLOCKED_BY.lock().unwrap() = None;
-            tracing::debug!(
-                "[ScheduledTasks] acquired scheduler lock (PID {})",
-                pid
-            );
+            tracing::debug!("[ScheduledTasks] acquired scheduler lock (PID {})", pid);
             return true;
         }
         Ok(false) => {}
@@ -197,10 +191,7 @@ pub async fn release_scheduler_lock(
     *LAST_BLOCKED_BY.lock().unwrap() = None;
 
     let dir = opts.dir.as_deref().unwrap_or(project_root);
-    let identity = opts
-        .lock_identity
-        .as_deref()
-        .unwrap_or(session_id);
+    let identity = opts.lock_identity.as_deref().unwrap_or(session_id);
 
     let existing = read_lock(dir).await;
     if let Some(ref ex) = existing {

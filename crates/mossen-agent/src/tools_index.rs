@@ -78,9 +78,9 @@ pub fn get_tools_for_default_preset() -> Vec<String> {
 
 /// `tools.ts` `getAllBaseTools` — the canonical list of built-in tools.
 /// The Rust port enumerates the static names; runtime gating (feature flags,
-/// USER_TYPE=ant) is applied via `enabled`.
+/// USER_TYPE=internal) is applied via `enabled`.
 pub fn get_all_base_tools() -> Vec<ToolDescriptor> {
-    let user_type_ant = std::env::var("USER_TYPE").as_deref() == Ok("ant");
+    let user_type_internal = std::env::var("USER_TYPE").as_deref() == Ok("internal");
     let has_embedded = std::env::var("MOSSEN_EMBEDDED_SEARCH").as_deref() == Ok("1");
     let lsp_enabled = matches!(
         std::env::var("ENABLE_LSP_TOOL").as_deref(),
@@ -92,7 +92,7 @@ pub fn get_all_base_tools() -> Vec<ToolDescriptor> {
     );
 
     let mut tools: Vec<ToolDescriptor> = vec![
-        ToolDescriptor::new("Task"),       // AgentTool
+        ToolDescriptor::new("Task"), // AgentTool
         ToolDescriptor::new("TaskOutput"),
         ToolDescriptor::new("Bash"),
     ];
@@ -114,7 +114,7 @@ pub fn get_all_base_tools() -> Vec<ToolDescriptor> {
         ToolDescriptor::new("Skill"),
         ToolDescriptor::new("EnterPlanMode"),
     ]);
-    if user_type_ant {
+    if user_type_internal {
         tools.push(ToolDescriptor::new("Config"));
         tools.push(ToolDescriptor::new("Tungsten"));
     }
@@ -163,13 +163,9 @@ pub fn get_tools(deny_names: &HashSet<String>, simple_mode: bool) -> Vec<ToolDes
         ];
         return filter_tools_by_deny_rules(&simple, |t| &t.name, deny_names);
     }
-    let special: HashSet<&str> = [
-        "ListMcpResources",
-        "ReadMcpResource",
-        "synthetic_output",
-    ]
-    .into_iter()
-    .collect();
+    let special: HashSet<&str> = ["ListMcpResources", "ReadMcpResource", "synthetic_output"]
+        .into_iter()
+        .collect();
     let base: Vec<ToolDescriptor> = get_all_base_tools()
         .into_iter()
         .filter(|t| !special.contains(t.name.as_str()))
@@ -213,23 +209,20 @@ pub fn get_merged_tools(
 }
 
 /// `tools.ts` `ALL_AGENT_DISALLOWED_TOOLS`.
-pub const ALL_AGENT_DISALLOWED_TOOLS: &[&str] = &[
-    "Task",
-    "ExitPlanMode",
-    "EnterPlanMode",
-    "TodoWrite",
-];
+pub const ALL_AGENT_DISALLOWED_TOOLS: &[&str] =
+    &["Task", "ExitPlanMode", "EnterPlanMode", "TodoWrite"];
 
 /// `tools.ts` `CUSTOM_AGENT_DISALLOWED_TOOLS`.
-pub const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] = &[
-    "Task",
-    "EnterPlanMode",
-    "ExitPlanMode",
-];
+pub const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] = &["Task", "EnterPlanMode", "ExitPlanMode"];
 
 /// `tools.ts` `ASYNC_AGENT_ALLOWED_TOOLS`.
 pub const ASYNC_AGENT_ALLOWED_TOOLS: &[&str] = &[
-    "Read", "Glob", "Grep", "WebFetch", "WebSearch", "TaskOutput",
+    "Read",
+    "Glob",
+    "Grep",
+    "WebFetch",
+    "WebSearch",
+    "TaskOutput",
 ];
 
 /// `tools.ts` `COORDINATOR_MODE_ALLOWED_TOOLS`.

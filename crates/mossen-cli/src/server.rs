@@ -113,12 +113,19 @@ pub async fn create_direct_connect_session(
     }
 
     let resp = request.send().await.map_err(|e| DirectConnectError {
-        message: format!("Failed to connect to server at {}: {}", params.server_url, e),
+        message: format!(
+            "Failed to connect to server at {}: {}",
+            params.server_url, e
+        ),
     })?;
 
     if !resp.status().is_success() {
         return Err(DirectConnectError {
-            message: format!("Failed to create session: {} {}", resp.status().as_u16(), resp.status().canonical_reason().unwrap_or("")),
+            message: format!(
+                "Failed to create session: {} {}",
+                resp.status().as_u16(),
+                resp.status().canonical_reason().unwrap_or("")
+            ),
         });
     }
 
@@ -194,13 +201,18 @@ impl DirectConnectSessionManager {
     pub async fn connect(&self) {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-        let mut request = self.config.ws_url.clone().into_client_request().unwrap_or_else(|_| {
-            use tokio_tungstenite::tungstenite::http;
-            http::Request::builder()
-                .uri(&self.config.ws_url)
-                .body(())
-                .unwrap()
-        });
+        let mut request = self
+            .config
+            .ws_url
+            .clone()
+            .into_client_request()
+            .unwrap_or_else(|_| {
+                use tokio_tungstenite::tungstenite::http;
+                http::Request::builder()
+                    .uri(&self.config.ws_url)
+                    .body(())
+                    .unwrap()
+            });
         if let Some(ref token) = self.config.auth_token {
             request.headers_mut().insert(
                 "authorization",
@@ -219,7 +231,8 @@ impl DirectConnectSessionManager {
                     let mut sender = self.ws_sender.lock().await;
                     *sender = Some(tx);
                 }
-                self.connected.store(true, std::sync::atomic::Ordering::SeqCst);
+                self.connected
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
 
                 if let Some(ref on_connected) = self.callbacks.on_connected {
                     on_connected();
@@ -234,21 +247,32 @@ impl DirectConnectSessionManager {
                         match msg {
                             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                                 for line in text.split('\n').filter(|l| !l.trim().is_empty()) {
-                                    if let Ok(raw) = serde_json::from_str::<serde_json::Value>(line) {
-                                        let msg_type = raw.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                    if let Ok(raw) = serde_json::from_str::<serde_json::Value>(line)
+                                    {
+                                        let msg_type =
+                                            raw.get("type").and_then(|t| t.as_str()).unwrap_or("");
                                         match msg_type {
                                             "control_request" => {
-                                                let request_id = raw.get("request_id")
+                                                let request_id = raw
+                                                    .get("request_id")
                                                     .and_then(|r| r.as_str())
                                                     .unwrap_or("")
                                                     .to_string();
-                                                let request = raw.get("request").cloned().unwrap_or_default();
-                                                let subtype = request.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
+                                                let request =
+                                                    raw.get("request").cloned().unwrap_or_default();
+                                                let subtype = request
+                                                    .get("subtype")
+                                                    .and_then(|s| s.as_str())
+                                                    .unwrap_or("");
                                                 if subtype == "can_use_tool" {
-                                                    (callbacks.on_permission_request)(request, request_id);
+                                                    (callbacks.on_permission_request)(
+                                                        request, request_id,
+                                                    );
                                                 }
                                             }
-                                            "control_response" | "keep_alive" | "control_cancel_request" => {}
+                                            "control_response"
+                                            | "keep_alive"
+                                            | "control_cancel_request" => {}
                                             _ => {
                                                 (callbacks.on_message)(raw);
                                             }
@@ -270,7 +294,11 @@ impl DirectConnectSessionManager {
                 // Write task
                 tokio::spawn(async move {
                     while let Some(msg) = rx.recv().await {
-                        if write.send(tokio_tungstenite::tungstenite::Message::Text(msg)).await.is_err() {
+                        if write
+                            .send(tokio_tungstenite::tungstenite::Message::Text(msg))
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -298,7 +326,8 @@ impl DirectConnectSessionManager {
                 "parent_tool_use_id": null,
                 "session_id": "",
             });
-            tx.send(serde_json::to_string(&message).unwrap_or_default()).is_ok()
+            tx.send(serde_json::to_string(&message).unwrap_or_default())
+                .is_ok()
         } else {
             false
         }
@@ -352,7 +381,8 @@ impl DirectConnectSessionManager {
     pub async fn disconnect(&self) {
         let mut sender = self.ws_sender.lock().await;
         *sender = None;
-        self.connected.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.connected
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn is_connected(&self) -> bool {

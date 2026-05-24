@@ -112,7 +112,12 @@ fn format_uri(uri: &str, cwd: Option<&str>) -> String {
     }
     let mut file_path = uri.replace("file://", "");
     // Windows drive letter paths.
-    if file_path.starts_with('/') && file_path.chars().nth(1).map(|c| c.is_ascii_alphabetic()).unwrap_or(false)
+    if file_path.starts_with('/')
+        && file_path
+            .chars()
+            .nth(1)
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false)
         && file_path.chars().nth(2) == Some(':')
     {
         file_path = file_path[1..].to_string();
@@ -137,10 +142,7 @@ fn uri_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (
-                hex_val(bytes[i + 1]),
-                hex_val(bytes[i + 2]),
-            ) {
+            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
                 result.push((hi << 4 | lo) as char);
                 i += 3;
                 continue;
@@ -194,7 +196,10 @@ pub fn format_go_to_definition_result(locations: &[Location], cwd: Option<&str>)
     if valid.len() == 1 {
         return format!("Defined in {}", format_location(valid[0], cwd));
     }
-    let list: Vec<String> = valid.iter().map(|l| format!("  {}", format_location(l, cwd))).collect();
+    let list: Vec<String> = valid
+        .iter()
+        .map(|l| format!("  {}", format_location(l, cwd)))
+        .collect();
     format!("Found {} definitions:\n{}", valid.len(), list.join("\n"))
 }
 
@@ -282,7 +287,10 @@ pub fn format_workspace_symbol_result(symbols: &[SymbolInformation], cwd: Option
     if symbols.is_empty() {
         return "No symbols found in workspace.".to_string();
     }
-    let valid: Vec<&SymbolInformation> = symbols.iter().filter(|s| !s.location.uri.is_empty()).collect();
+    let valid: Vec<&SymbolInformation> = symbols
+        .iter()
+        .filter(|s| !s.location.uri.is_empty())
+        .collect();
     if valid.is_empty() {
         return "No symbols found in workspace.".to_string();
     }
@@ -312,12 +320,18 @@ pub fn format_workspace_symbol_result(symbols: &[SymbolInformation], cwd: Option
 }
 
 /// Format prepare-call-hierarchy result.
-pub fn format_prepare_call_hierarchy_result(items: &[CallHierarchyItem], cwd: Option<&str>) -> String {
+pub fn format_prepare_call_hierarchy_result(
+    items: &[CallHierarchyItem],
+    cwd: Option<&str>,
+) -> String {
     if items.is_empty() {
         return "No call hierarchy item found at this position".to_string();
     }
     if items.len() == 1 {
-        return format!("Call hierarchy item: {}", format_call_hierarchy_item(&items[0], cwd));
+        return format!(
+            "Call hierarchy item: {}",
+            format_call_hierarchy_item(&items[0], cwd)
+        );
     }
     let mut lines = vec![format!("Found {} call hierarchy items:", items.len())];
     for item in items {
@@ -328,7 +342,11 @@ pub fn format_prepare_call_hierarchy_result(items: &[CallHierarchyItem], cwd: Op
 
 fn format_call_hierarchy_item(item: &CallHierarchyItem, cwd: Option<&str>) -> String {
     if item.uri.is_empty() {
-        return format!("{} ({}) - <unknown location>", item.name, symbol_kind_to_string(item.kind));
+        return format!(
+            "{} ({}) - <unknown location>",
+            item.name,
+            symbol_kind_to_string(item.kind)
+        );
     }
     let file_path = format_uri(&item.uri, cwd);
     let line = item.range.start.line + 1;

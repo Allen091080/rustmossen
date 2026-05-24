@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::common_parameters::COMMON_PARAMETERS;
+use mossen_utils::string_utils::truncate_chars_with_suffix;
 
 /// Result of read-only validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,23 +24,47 @@ pub enum ReadOnlyResult {
 static READ_ONLY_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         // Get-* cmdlets (information retrieval)
-        "get-childitem", "gci", "ls", "dir",
-        "get-content", "gc", "cat", "type",
-        "get-item", "gi",
-        "get-itemproperty", "gp",
-        "get-location", "gl", "pwd",
-        "get-process", "gps", "ps",
-        "get-service", "gsv",
+        "get-childitem",
+        "gci",
+        "ls",
+        "dir",
+        "get-content",
+        "gc",
+        "cat",
+        "type",
+        "get-item",
+        "gi",
+        "get-itemproperty",
+        "gp",
+        "get-location",
+        "gl",
+        "pwd",
+        "get-process",
+        "gps",
+        "ps",
+        "get-service",
+        "gsv",
         "get-date",
-        "get-help", "help", "man",
-        "get-command", "gcm",
-        "get-module", "gmo",
-        "get-variable", "gv",
-        "get-alias", "gal",
-        "get-member", "gm",
-        "get-history", "h", "history",
-        "get-psdrive", "gdr",
-        "get-eventlog", "gel",
+        "get-help",
+        "help",
+        "man",
+        "get-command",
+        "gcm",
+        "get-module",
+        "gmo",
+        "get-variable",
+        "gv",
+        "get-alias",
+        "gal",
+        "get-member",
+        "gm",
+        "get-history",
+        "h",
+        "history",
+        "get-psdrive",
+        "gdr",
+        "get-eventlog",
+        "gel",
         "get-winevent",
         "get-counter",
         "get-hotfix",
@@ -47,7 +72,8 @@ static READ_ONLY_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "get-culture",
         "get-uiculture",
         "get-timezone",
-        "get-clipboard", "gcb",
+        "get-clipboard",
+        "gcb",
         "get-filehash",
         "get-acl",
         // Test-* cmdlets (boolean checks)
@@ -56,22 +82,38 @@ static READ_ONLY_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "test-netconnection",
         "test-computersecurechannel",
         // Measure/Count
-        "measure-object", "measure",
+        "measure-object",
+        "measure",
         "measure-command",
         // Format/Select/Sort (pipeline operators - read-only)
-        "format-table", "ft",
-        "format-list", "fl",
-        "format-wide", "fw",
-        "format-custom", "fc",
-        "select-object", "select",
-        "sort-object", "sort",
-        "where-object", "where", "?",
-        "foreach-object", "foreach", "%",
-        "group-object", "group",
-        "compare-object", "diff", "compare",
-        "tee-object", "tee",
+        "format-table",
+        "ft",
+        "format-list",
+        "fl",
+        "format-wide",
+        "fw",
+        "format-custom",
+        "fc",
+        "select-object",
+        "select",
+        "sort-object",
+        "sort",
+        "where-object",
+        "where",
+        "?",
+        "foreach-object",
+        "foreach",
+        "%",
+        "group-object",
+        "group",
+        "compare-object",
+        "diff",
+        "compare",
+        "tee-object",
+        "tee",
         // String operations
-        "select-string", "sls",
+        "select-string",
+        "sls",
         "convertfrom-json",
         "convertto-json",
         "convertfrom-csv",
@@ -80,21 +122,27 @@ static READ_ONLY_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         "convertto-xml",
         "convertfrom-stringdata",
         // Output (display only, no file write)
-        "write-output", "echo", "write",
+        "write-output",
+        "echo",
+        "write",
         "write-host",
         "write-verbose",
         "write-debug",
         "write-information",
         "write-warning",
         "write-error",
-        "out-string", "oss",
-        "out-host", "oh",
+        "out-string",
+        "oss",
+        "out-host",
+        "oh",
         "out-null",
         // Resolve/Split (path operations, read-only)
-        "resolve-path", "rvpa",
+        "resolve-path",
+        "rvpa",
         "split-path",
         "join-path",
-        "convert-path", "cvpa",
+        "convert-path",
+        "cvpa",
         // Environment reading
         "get-childitem env:",
     ]
@@ -106,25 +154,64 @@ static READ_ONLY_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 /// Known read-only external commands.
 static READ_ONLY_EXTERNALS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "git status", "git log", "git diff", "git show", "git branch",
-        "git tag", "git remote", "git rev-parse", "git describe",
-        "git ls-files", "git ls-tree", "git blame", "git shortlog",
-        "git stash list", "git reflog", "git config --get",
-        "git config --list", "git config -l",
-        "node --version", "node -v",
-        "npm --version", "npm -v", "npm list", "npm ls",
-        "python --version", "python -V", "python3 --version",
-        "pip list", "pip3 list", "pip show", "pip3 show",
-        "rustc --version", "cargo --version",
-        "dotnet --version", "dotnet --list-sdks", "dotnet --list-runtimes",
-        "java --version", "java -version", "javac --version",
-        "go version", "go env",
-        "docker --version", "docker ps", "docker images",
-        "kubectl version", "kubectl get",
-        "terraform --version", "terraform plan",
-        "az --version", "aws --version",
-        "which", "where.exe", "whoami", "hostname", "ipconfig",
-        "systeminfo", "ver", "winver",
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "git branch",
+        "git tag",
+        "git remote",
+        "git rev-parse",
+        "git describe",
+        "git ls-files",
+        "git ls-tree",
+        "git blame",
+        "git shortlog",
+        "git stash list",
+        "git reflog",
+        "git config --get",
+        "git config --list",
+        "git config -l",
+        "node --version",
+        "node -v",
+        "npm --version",
+        "npm -v",
+        "npm list",
+        "npm ls",
+        "python --version",
+        "python -V",
+        "python3 --version",
+        "pip list",
+        "pip3 list",
+        "pip show",
+        "pip3 show",
+        "rustc --version",
+        "cargo --version",
+        "dotnet --version",
+        "dotnet --list-sdks",
+        "dotnet --list-runtimes",
+        "java --version",
+        "java -version",
+        "javac --version",
+        "go version",
+        "go env",
+        "docker --version",
+        "docker ps",
+        "docker images",
+        "kubectl version",
+        "kubectl get",
+        "terraform --version",
+        "terraform plan",
+        "az --version",
+        "aws --version",
+        "which",
+        "where.exe",
+        "whoami",
+        "hostname",
+        "ipconfig",
+        "systeminfo",
+        "ver",
+        "winver",
     ]
     .iter()
     .copied()
@@ -188,7 +275,11 @@ fn is_single_statement_read_only(stmt: &str) -> bool {
             let rhs = &lower[rhs_start + 1..];
             // If RHS is a simple expression or read cmdlet, it's safe
             let rhs_first = rhs.trim().split_whitespace().next().unwrap_or("");
-            if READ_ONLY_CMDLETS.contains(rhs_first) || rhs_first.starts_with('$') || rhs_first.starts_with('"') || rhs_first.starts_with('\'') {
+            if READ_ONLY_CMDLETS.contains(rhs_first)
+                || rhs_first.starts_with('$')
+                || rhs_first.starts_with('"')
+                || rhs_first.starts_with('\'')
+            {
                 return true;
             }
         }
@@ -217,11 +308,7 @@ fn is_single_statement_read_only(stmt: &str) -> bool {
 
 /// Truncate a string for display.
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max])
-    }
+    truncate_chars_with_suffix(s, max, "...")
 }
 
 // ---------------------------------------------------------------------------
@@ -300,12 +387,16 @@ pub fn arg_leaks_value(arg: &str) -> bool {
 
 /// `readOnlyValidation.ts` `isCwdChangingCmdlet`.
 pub fn is_cwd_changing_cmdlet(name: &str) -> bool {
-    cmdlet_allowlist(name).map(|c| c.cwd_changing).unwrap_or(false)
+    cmdlet_allowlist(name)
+        .map(|c| c.cwd_changing)
+        .unwrap_or(false)
 }
 
 /// `readOnlyValidation.ts` `isSafeOutputCommand`.
 pub fn is_safe_output_command(name: &str) -> bool {
-    cmdlet_allowlist(name).map(|c| c.safe_output).unwrap_or(false)
+    cmdlet_allowlist(name)
+        .map(|c| c.safe_output)
+        .unwrap_or(false)
 }
 
 /// `readOnlyValidation.ts` `isAllowlistedPipelineTail` — pipelines that end

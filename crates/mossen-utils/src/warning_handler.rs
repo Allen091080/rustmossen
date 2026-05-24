@@ -36,10 +36,10 @@ fn is_running_from_build_directory() -> bool {
 
     let paths_to_check = [&invoked_path, &exec_path];
     let build_dirs = [
-        "/build-ant/",
+        "/build-internal/",
         "/build-external/",
         "/build-external-native/",
-        "/build-ant-native/",
+        "/build-internal-native/",
     ];
 
     paths_to_check

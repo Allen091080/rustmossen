@@ -114,9 +114,7 @@ pub async fn launch_invalid_settings_dialog(
 ///
 /// 对应 TS 的 launchAssistantSessionChooser。
 /// 显示可用会话列表，用户选择一个会话 ID。
-pub async fn launch_assistant_session_chooser(
-    sessions: &[AssistantSession],
-) -> Option<String> {
+pub async fn launch_assistant_session_chooser(sessions: &[AssistantSession]) -> Option<String> {
     if sessions.is_empty() {
         return None;
     }

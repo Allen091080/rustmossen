@@ -14,8 +14,7 @@ use super::metadata::EventMetadata;
 
 /// 全局已注册的 1P 事件 exporter。`log_event_to_1p` 在没有 exporter 时退化到
 /// tracing；agent 在 bootstrap 中调用 [`set_global_exporter`] 绑定真正的实例。
-static GLOBAL_EXPORTER: OnceLock<RwLock<Option<Arc<FirstPartyEventExporter>>>> =
-    OnceLock::new();
+static GLOBAL_EXPORTER: OnceLock<RwLock<Option<Arc<FirstPartyEventExporter>>>> = OnceLock::new();
 
 fn global_cell() -> &'static RwLock<Option<Arc<FirstPartyEventExporter>>> {
     GLOBAL_EXPORTER.get_or_init(|| RwLock::new(None))

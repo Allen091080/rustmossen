@@ -3,12 +3,9 @@
 //! Handles path expansion, glob patterns, dangerous removal paths,
 //! and comprehensive path validation for read/write/create operations.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::permission_result::{
-    PermissionBehavior, PermissionDecisionReason, PermissionRule, PermissionUpdate,
-    ToolPermissionContext,
-};
+use super::permission_result::{PermissionDecisionReason, ToolPermissionContext};
 
 const MAX_DIRS_TO_LIST: usize = 5;
 
@@ -94,18 +91,16 @@ pub fn expand_tilde(path: &str) -> String {
 /// Checks if a resolved path is dangerous for removal operations (rm/rmdir).
 pub fn is_dangerous_removal_path(resolved_path: &str) -> bool {
     // Collapse runs of slashes
-    let forward_slashed: String = resolved_path
-        .chars()
-        .fold(String::new(), |mut acc, c| {
-            if c == '\\' || c == '/' {
-                if !acc.ends_with('/') {
-                    acc.push('/');
-                }
-            } else {
-                acc.push(c);
+    let forward_slashed: String = resolved_path.chars().fold(String::new(), |mut acc, c| {
+        if c == '\\' || c == '/' {
+            if !acc.ends_with('/') {
+                acc.push('/');
             }
-            acc
-        });
+        } else {
+            acc.push(c);
+        }
+        acc
+    });
 
     if forward_slashed == "*" || forward_slashed.ends_with("/*") {
         return true;
@@ -161,7 +156,7 @@ pub fn validate_path(
     tool_permission_context: &ToolPermissionContext,
     operation_type: FileOperationType,
     // Functions that the caller provides for path resolution and permission checking
-    contains_path_traversal: impl Fn(&str) -> bool,
+    _contains_path_traversal: impl Fn(&str) -> bool,
     contains_vulnerable_unc_path: impl Fn(&str) -> bool,
     safe_resolve_path: impl Fn(&str) -> (String, bool),
     is_path_allowed: impl Fn(&str, &ToolPermissionContext, FileOperationType) -> PathCheckResult,

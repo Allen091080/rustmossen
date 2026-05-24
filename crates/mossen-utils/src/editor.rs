@@ -8,7 +8,15 @@ use regex::Regex;
 
 /// GUI editors that open in a separate window.
 const GUI_EDITORS: &[&str] = &[
-    "code", "cursor", "windsurf", "codium", "subl", "atom", "gedit", "notepad++", "notepad",
+    "code",
+    "cursor",
+    "windsurf",
+    "codium",
+    "subl",
+    "atom",
+    "gedit",
+    "notepad++",
+    "notepad",
 ];
 
 /// Editors that accept +N as a goto-line argument.
@@ -69,7 +77,7 @@ pub fn open_file_in_external_editor(file_path: &str, line: Option<u32>) -> bool 
         cmd.stderr(Stdio::null());
 
         match cmd.spawn() {
-            Ok(mut child) => {
+            Ok(child) => {
                 // Detach — don't wait for it
                 let _ = child.id();
                 return true;

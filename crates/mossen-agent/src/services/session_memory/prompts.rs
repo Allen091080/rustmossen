@@ -109,10 +109,10 @@ pub async fn build_session_memory_update_prompt_async(
 /// `prompts.ts` `truncateSessionMemoryForCompact` — `(truncated_text, was_truncated)`.
 pub fn truncate_session_memory_for_compact(content: &str) -> (String, bool) {
     const MAX_CHARS: usize = 16_384;
-    if content.len() <= MAX_CHARS {
+    if content.chars().count() <= MAX_CHARS {
         return (content.to_string(), false);
     }
-    let mut truncated = content[..MAX_CHARS].to_string();
+    let mut truncated = mossen_utils::string_utils::prefix_chars(content, MAX_CHARS);
     truncated.push_str("\n\n[…session memory truncated for compaction]");
     (truncated, true)
 }
@@ -130,4 +130,20 @@ pub fn build_extract_combined_prompt(
         - You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.",
         base
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_session_memory_for_compact;
+
+    #[test]
+    fn compact_memory_truncates_multibyte_on_char_boundary() {
+        let content = "逐行阅读代码".repeat(4096);
+
+        let (truncated, was_truncated) = truncate_session_memory_for_compact(&content);
+
+        assert!(was_truncated);
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert!(truncated.contains("session memory truncated"));
+    }
 }

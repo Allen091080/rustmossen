@@ -2,10 +2,9 @@
 //!
 //! Error logging with in-memory buffer, MCP logging, and error log file management.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use parking_lot::Mutex;
-use once_cell::sync::Lazy;
 use chrono::Utc;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 
 const MAX_IN_MEMORY_ERRORS: usize = 100;
 
@@ -32,8 +31,14 @@ pub trait ErrorLogSink: Send + Sync {
 #[derive(Debug, Clone)]
 enum QueuedErrorEvent {
     Error(String),
-    McpError { server_name: String, error: String },
-    McpDebug { server_name: String, message: String },
+    McpError {
+        server_name: String,
+        error: String,
+    },
+    McpDebug {
+        server_name: String,
+        message: String,
+    },
 }
 
 static ERROR_QUEUE: Lazy<Mutex<Vec<QueuedErrorEvent>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -69,7 +74,10 @@ pub fn attach_error_log_sink(sink: Box<dyn ErrorLogSink>) {
             QueuedErrorEvent::McpError { server_name, error } => {
                 sink_ref.log_mcp_error(&server_name, &error);
             }
-            QueuedErrorEvent::McpDebug { server_name, message } => {
+            QueuedErrorEvent::McpDebug {
+                server_name,
+                message,
+            } => {
                 sink_ref.log_mcp_debug(&server_name, &message);
             }
         }
@@ -184,7 +192,7 @@ pub fn parse_iso_string(s: &str) -> Option<chrono::DateTime<Utc>> {
                 let sec: u32 = parts[5].parse().ok()?;
                 let ms: u32 = parts[6].parse().ok()?;
 
-                use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
+                use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
                 let date = NaiveDate::from_ymd_opt(year, month, day)?;
                 let time = NaiveTime::from_hms_milli_opt(hour, min, sec, ms)?;
                 let dt = NaiveDateTime::new(date, time);

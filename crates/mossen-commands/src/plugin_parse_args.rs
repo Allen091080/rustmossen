@@ -65,7 +65,9 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
 
         "install" | "i" => {
             if parts.len() > 1 && parts[1] == "--dry-run" {
-                let scope = parts.iter().position(|&p| p == "--scope")
+                let scope = parts
+                    .iter()
+                    .position(|&p| p == "--scope")
                     .and_then(|idx| parts.get(idx + 1).map(|s| s.to_string()));
                 let plugin = parts[2..]
                     .iter()
@@ -78,7 +80,11 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
                     .collect::<Vec<_>>()
                     .join(" ");
                 ParsedCommand::InstallPlan {
-                    plugin: if plugin.is_empty() { None } else { Some(plugin) },
+                    plugin: if plugin.is_empty() {
+                        None
+                    } else {
+                        Some(plugin)
+                    },
                     scope,
                     confirm_token: None,
                 }
@@ -97,8 +103,12 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
                             plugin: parts.first().map(|s| s.to_string()),
                             marketplace: parts.get(1).map(|s| s.to_string()),
                         }
-                    } else if t.starts_with("http://") || t.starts_with("https://") 
-                        || t.starts_with("file://") || t.contains('/') || t.contains('\\') {
+                    } else if t.starts_with("http://")
+                        || t.starts_with("https://")
+                        || t.starts_with("file://")
+                        || t.contains('/')
+                        || t.contains('\\')
+                    {
                         ParsedCommand::Install {
                             plugin: None,
                             marketplace: target,
@@ -110,7 +120,10 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
                         }
                     }
                 } else {
-                    ParsedCommand::Install { plugin: None, marketplace: None }
+                    ParsedCommand::Install {
+                        plugin: None,
+                        marketplace: None,
+                    }
                 }
             }
         }
@@ -140,7 +153,9 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
         "paths" | "path" => ParsedCommand::Paths,
 
         "prune" => {
-            let confirm_token = parts.iter().position(|&p| p == "--confirm")
+            let confirm_token = parts
+                .iter()
+                .position(|&p| p == "--confirm")
                 .and_then(|idx| parts.get(idx + 1).map(|s| s.to_string()));
             ParsedCommand::Prune { confirm_token }
         }
@@ -148,7 +163,11 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
         "marketplace" | "market" => {
             let action = parts.get(1).map(|s| s.to_lowercase());
             let rest: Vec<&str> = parts[2..].to_vec();
-            let target = if rest.is_empty() { None } else { Some(rest.join(" ")) };
+            let target = if rest.is_empty() {
+                None
+            } else {
+                Some(rest.join(" "))
+            };
 
             match action.as_deref() {
                 Some("add") => {
@@ -181,7 +200,10 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
                     action: Some("list".to_string()),
                     target: None,
                 },
-                _ => ParsedCommand::Marketplace { action: None, target: None },
+                _ => ParsedCommand::Marketplace {
+                    action: None,
+                    target: None,
+                },
             }
         }
 
@@ -208,7 +230,10 @@ mod tests {
     fn test_install_command() {
         let result = parse_plugin_args(Some("install my-plugin"));
         match result {
-            ParsedCommand::Install { plugin, marketplace: _ } => {
+            ParsedCommand::Install {
+                plugin,
+                marketplace: _,
+            } => {
                 assert_eq!(plugin, Some("my-plugin".to_string()));
             }
             _ => panic!("Expected Install command"),
@@ -219,7 +244,10 @@ mod tests {
     fn test_install_with_marketplace() {
         let result = parse_plugin_args(Some("install my-plugin@npm"));
         match result {
-            ParsedCommand::Install { plugin, marketplace } => {
+            ParsedCommand::Install {
+                plugin,
+                marketplace,
+            } => {
                 assert_eq!(plugin, Some("my-plugin".to_string()));
                 assert_eq!(marketplace, Some("npm".to_string()));
             }

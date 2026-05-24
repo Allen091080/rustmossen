@@ -1,6 +1,6 @@
 //! # command_extras — commands/*.tsx 中尚未翻译的纯逻辑
 //!
-//! 对应 TypeScript 中那些 .tsx / .ts 文件里跟 React/Ink UI 无关的导出。
+//! 对应 TypeScript 中那些 .tsx / .ts 文件里跟终端 UI 无关的导出。
 //! 每个子模块对应一个原 TS 文件，只翻译可独立测试的纯函数与数据类型。
 //! UI 部分（Picker/Dialog/Form）在 mossen-tui 中实现。
 
@@ -455,7 +455,10 @@ pub struct McpXaaIdpCommandSpec {
 
 /// `PluginErrors.tsx` `formatErrorMessage`。
 pub fn format_error_message(error: &JsonValue) -> String {
-    let kind = error.get("kind").and_then(|v| v.as_str()).unwrap_or("error");
+    let kind = error
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("error");
     let msg = error
         .get("message")
         .and_then(|v| v.as_str())

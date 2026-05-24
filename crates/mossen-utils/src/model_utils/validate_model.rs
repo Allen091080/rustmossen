@@ -157,14 +157,14 @@ fn get_3p_fallback_suggestion(model: &str) -> Option<String> {
     }
     let canonical = get_canonical_name(&model.to_lowercase().replace('_', "-"));
     let ms = get_model_strings();
-    if canonical.contains("mossen-opus-4-6") {
-        return Some(ms.opus41);
+    if canonical.contains("mossen-max-4-6") {
+        return Some(ms.max41);
     }
-    if canonical.contains("mossen-sonnet-4-6") {
-        return Some(ms.sonnet45);
+    if canonical.contains("mossen-balanced-4-6") {
+        return Some(ms.balanced45);
     }
-    if canonical.contains("mossen-sonnet-4-5") {
-        return Some(ms.sonnet40);
+    if canonical.contains("mossen-balanced-4-5") {
+        return Some(ms.balanced40);
     }
     None
 }

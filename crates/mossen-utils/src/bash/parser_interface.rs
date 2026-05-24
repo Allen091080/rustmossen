@@ -4,7 +4,9 @@
 
 use std::collections::HashSet;
 
-use crate::bash::types::{ParsedCommandData, ParseAborted, ParseRawResult, TsNode, MAX_COMMAND_LENGTH, PARSE_TIMEOUT_MS};
+use crate::bash::types::{
+    ParseRawResult, ParsedCommandData, TsNode, MAX_COMMAND_LENGTH, PARSE_TIMEOUT_MS,
+};
 
 lazy_static::lazy_static! {
     static ref DECLARATION_COMMANDS: HashSet<&'static str> = {
@@ -79,7 +81,9 @@ fn find_command_node(node: &TsNode, parent: Option<&TsNode>) -> Option<TsNode> {
             return parent_node
                 .children
                 .iter()
-                .find(|c| COMMAND_TYPES.contains(c.node_type.as_str()) && c.start_index > node.start_index)
+                .find(|c| {
+                    COMMAND_TYPES.contains(c.node_type.as_str()) && c.start_index > node.start_index
+                })
                 .cloned();
         }
     }
@@ -97,7 +101,8 @@ fn find_command_node(node: &TsNode, parent: Option<&TsNode>) -> Option<TsNode> {
 
     // Redirected statement: find the command inside
     if node_type == "redirected_statement" {
-        return node.children
+        return node
+            .children
             .iter()
             .find(|c| COMMAND_TYPES.contains(c.node_type.as_str()))
             .cloned();

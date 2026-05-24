@@ -10,8 +10,7 @@ pub const DEFAULT_PREFIX: &str =
     "You are Mossen, a software engineering assistant running in the Mossen CLI.";
 pub const MOSSEN_AGENT_SDK_PRESET_PREFIX: &str =
     "You are Mossen, a software engineering assistant running within the Mossen Agent SDK.";
-pub const MOSSEN_AGENT_SDK_PREFIX: &str =
-    "You are a Mossen agent, built on the Mossen Agent SDK.";
+pub const MOSSEN_AGENT_SDK_PREFIX: &str = "You are a Mossen agent, built on the Mossen Agent SDK.";
 
 /// Custom backend default prefix template.
 /// In TS: ``You are ${getProductAssistantName()}, a software engineering assistant running in a local ${getProductDisplayName()} environment.``
@@ -89,7 +88,7 @@ pub fn get_cli_sysprompt_prefix(
 
 /// Check if attribution header is enabled.
 /// `env_falsy`: whether MOSSEN_CODE_ATTRIBUTION_HEADER env var is defined and falsy.
-/// `growthbook_value`: the GrowthBook `tengu_attribution_header` value (default true).
+/// `growthbook_value`: the GrowthBook `mossen_attribution_header` value (default true).
 pub fn is_attribution_header_enabled(env_falsy: bool, growthbook_value: bool) -> bool {
     if env_falsy {
         return false;

@@ -118,7 +118,9 @@ pub async fn get_my_admin_requests(
 ) -> Result<Option<Vec<AdminRequest>>, anyhow::Error> {
     let mut url = format!(
         "{}/api/oauth/organizations/{}/admin_requests/me?request_type={}",
-        base_api_url, org_uuid, request_type.as_str()
+        base_api_url,
+        org_uuid,
+        request_type.as_str()
     );
     for status in statuses {
         url.push_str(&format!("&statuses={}", status.as_str()));
@@ -145,7 +147,9 @@ pub async fn check_admin_request_eligibility(
 ) -> Result<AdminRequestEligibilityResponse, anyhow::Error> {
     let url = format!(
         "{}/api/oauth/organizations/{}/admin_requests/eligibility?request_type={}",
-        base_api_url, org_uuid, request_type.as_str()
+        base_api_url,
+        org_uuid,
+        request_type.as_str()
     );
 
     let response = client

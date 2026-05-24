@@ -45,7 +45,11 @@ impl Directive for MetricsDirective {
     }
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /stats\n\n                 Show performance metrics for this session.\n                 Available to internal users only."
                     .to_string(),

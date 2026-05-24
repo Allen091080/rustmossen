@@ -72,10 +72,7 @@ pub fn log_for_diagnostics_no_pii(
 }
 
 fn append_to_file(path: &str, content: &str) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     file.write_all(content.as_bytes())
 }
 
@@ -107,9 +104,9 @@ where
             };
             additional_data.insert(
                 "duration_ms".to_string(),
-                serde_json::Value::Number(
-                    serde_json::Number::from(start_time.elapsed().as_millis() as u64),
-                ),
+                serde_json::Value::Number(serde_json::Number::from(
+                    start_time.elapsed().as_millis() as u64,
+                )),
             );
             log_for_diagnostics_no_pii(
                 DiagnosticLogLevel::Info,
@@ -122,9 +119,9 @@ where
             let mut data = HashMap::new();
             data.insert(
                 "duration_ms".to_string(),
-                serde_json::Value::Number(
-                    serde_json::Number::from(start_time.elapsed().as_millis() as u64),
-                ),
+                serde_json::Value::Number(serde_json::Number::from(
+                    start_time.elapsed().as_millis() as u64,
+                )),
             );
             log_for_diagnostics_no_pii(
                 DiagnosticLogLevel::Error,

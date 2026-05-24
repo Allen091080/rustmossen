@@ -22,16 +22,16 @@ fn is_voice_mode_available(ctx: &CommandContext) -> bool {
 fn is_voice_stream_available(ctx: &CommandContext) -> bool {
     // Check if VOICE_STREAM_BASE_URL or equivalent is set
     ctx.env_vars.contains_key("VOICE_STREAM_BASE_URL")
-        || ctx.env_vars.contains_key("MOSSEN_CODE_CUSTOM_VOICE_BASE_URL")
+        || ctx
+            .env_vars
+            .contains_key("MOSSEN_CODE_CUSTOM_VOICE_BASE_URL")
         || !ctx.is_custom_backend
 }
 
 /// Check for recording tool availability.
 fn check_voice_dependencies() -> (bool, Option<String>) {
     // Check for sox/rec on the system
-    let sox_check = std::process::Command::new("which")
-        .arg("sox")
-        .output();
+    let sox_check = std::process::Command::new("which").arg("sox").output();
 
     match sox_check {
         Ok(output) if output.status.success() => (true, None),
@@ -83,8 +83,7 @@ impl Directive for VoiceDirective {
     }
 
     fn is_enabled(&self, ctx: &CommandContext) -> bool {
-        ctx.is_env_truthy("MOSSEN_DEFERRED_SLASH_VOICE")
-            && is_voice_mode_available(ctx)
+        ctx.is_env_truthy("MOSSEN_DEFERRED_SLASH_VOICE") && is_voice_mode_available(ctx)
     }
 
     fn is_hidden(&self) -> bool {
@@ -111,9 +110,7 @@ impl Directive for VoiceDirective {
         // Toggle OFF — no checks needed
         if currently_enabled {
             // In production: updateSettingsForSource('userSettings', { voiceEnabled: false })
-            return Ok(CommandResult::Text(
-                "Voice mode disabled.".to_string(),
-            ));
+            return Ok(CommandResult::Text("Voice mode disabled.".to_string()));
         }
 
         // Toggle ON — run pre-flight checks first

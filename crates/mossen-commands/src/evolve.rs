@@ -41,14 +41,22 @@ impl Directive for EvolveDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         // Handle flags
-        if args.first().map(|a| matches!(*a, "--check" | "-c")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "--check" | "-c"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(format!(
                 "Current version: {}\nChecking for updates... You are up to date.",
                 ctx.version
             )));
         }
 
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /upgrade [options]\n\n                 Check for and install product updates.\n\n                 Options:\n                   --check, -c    Only check, don't install\n                   --force, -f    Force reinstall current version"
                     .to_string(),

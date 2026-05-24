@@ -91,7 +91,7 @@ pub fn log_api_query(params: &LogApiQueryParams) {
         messages_length = params.messages_length,
         temperature = params.temperature,
         query_source = %params.query_source,
-        "tengu_api_query"
+        "mossen_api_query"
     );
 }
 
@@ -118,10 +118,7 @@ pub struct LogApiErrorParams {
 
 /// Log an API error event.
 pub fn log_api_error(params: &LogApiErrorParams) {
-    let gateway = detect_gateway(
-        params.headers.as_ref(),
-        params.base_url.as_deref(),
-    );
+    let gateway = detect_gateway(params.headers.as_ref(), params.base_url.as_deref());
 
     let err_str = get_error_message(&params.error);
     let status = match &params.error {
@@ -139,7 +136,11 @@ pub fn log_api_error(params: &LogApiErrorParams) {
         _ => None,
     };
     if let Some(details) = connection_details {
-        let ssl_label = if details.is_ssl_error { " (SSL error)" } else { "" };
+        let ssl_label = if details.is_ssl_error {
+            " (SSL error)"
+        } else {
+            ""
+        };
         debug!(
             "Connection error details: code={}{}, message={}",
             details.code, ssl_label, details.message
@@ -162,7 +163,7 @@ pub fn log_api_error(params: &LogApiErrorParams) {
         duration_ms = params.duration_ms,
         attempt = params.attempt,
         gateway = ?gateway.as_ref().map(|g| g.as_str()),
-        "tengu_api_error"
+        "mossen_api_error"
     );
 }
 
@@ -208,7 +209,7 @@ fn log_api_success(params: &LogApiSuccessParams) {
         ttft_ms = ?params.ttft_ms,
         stop_reason = ?params.stop_reason,
         query_source = %params.query_source,
-        "tengu_api_success"
+        "mossen_api_success"
     );
 }
 

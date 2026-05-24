@@ -44,6 +44,8 @@ impl Directive for AuthDirective {
 
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let product_name = &ctx.product_name;
-        Ok(CommandResult::System(get_hosted_auth_disabled_message(product_name)))
+        Ok(CommandResult::System(get_hosted_auth_disabled_message(
+            product_name,
+        )))
     }
 }

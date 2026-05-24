@@ -102,17 +102,35 @@ const CUBE_LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
 
 fn ansi256_from_rgb(r: u8, g: u8, b: u8) -> u8 {
     let q = |c: u8| -> u8 {
-        if c < 48 { 0 } else if c < 115 { 1 } else if c < 155 { 2 }
-        else if c < 195 { 3 } else if c < 235 { 4 } else { 5 }
+        if c < 48 {
+            0
+        } else if c < 115 {
+            1
+        } else if c < 155 {
+            2
+        } else if c < 195 {
+            3
+        } else if c < 235 {
+            4
+        } else {
+            5
+        }
     };
     let qr = q(r);
     let qg = q(g);
     let qb = q(b);
     let cube_idx = 16 + 36 * qr + 6 * qg + qb;
     let grey = ((r as u16 + g as u16 + b as u16) / 3) as u8;
-    if grey < 5 { return 16; }
-    if grey > 244 && qr == qg && qg == qb { return cube_idx; }
-    let grey_level = ((grey.saturating_sub(8)) as f32 / 10.0).round().max(0.0).min(23.0) as u8;
+    if grey < 5 {
+        return 16;
+    }
+    if grey > 244 && qr == qg && qg == qb {
+        return cube_idx;
+    }
+    let grey_level = ((grey.saturating_sub(8)) as f32 / 10.0)
+        .round()
+        .max(0.0)
+        .min(23.0) as u8;
     let grey_idx = 232 + grey_level;
     let grey_rgb = 8 + grey_level * 10;
     let cr = CUBE_LEVELS[qr as usize];
@@ -124,7 +142,11 @@ fn ansi256_from_rgb(r: u8, g: u8, b: u8) -> u8 {
     let d_grey = (r as i32 - grey_rgb as i32).pow(2)
         + (g as i32 - grey_rgb as i32).pow(2)
         + (b as i32 - grey_rgb as i32).pow(2);
-    if d_grey < d_cube { grey_idx } else { cube_idx }
+    if d_grey < d_cube {
+        grey_idx
+    } else {
+        cube_idx
+    }
 }
 
 fn color_to_escape(c: Color, fg: bool, mode: ColorMode) -> String {
@@ -139,7 +161,11 @@ fn color_to_escape(c: Color, fg: bool, mode: ColorMode) -> String {
         return format!("\x1b[{};5;{}m", if fg { 38 } else { 48 }, idx);
     }
     if c.a == 1 {
-        return if fg { "\x1b[39m".to_string() } else { "\x1b[49m".to_string() };
+        return if fg {
+            "\x1b[39m".to_string()
+        } else {
+            "\x1b[49m".to_string()
+        };
     }
     let code_type = if fg { 38 } else { 48 };
     if mode == ColorMode::TrueColor {
@@ -275,11 +301,14 @@ fn build_theme(theme_name: &str, mode: ColorMode) -> Theme {
 
     if is_ansi {
         return Theme {
-            add_line: DEFAULT_BG, add_word: DEFAULT_BG,
+            add_line: DEFAULT_BG,
+            add_word: DEFAULT_BG,
             add_decoration: ansi_idx(10),
-            delete_line: DEFAULT_BG, delete_word: DEFAULT_BG,
+            delete_line: DEFAULT_BG,
+            delete_word: DEFAULT_BG,
             delete_decoration: ansi_idx(9),
-            foreground: ansi_idx(7), background: DEFAULT_BG,
+            foreground: ansi_idx(7),
+            background: DEFAULT_BG,
             scopes: build_ansi_scopes(),
         };
     }
@@ -293,8 +322,11 @@ fn build_theme(theme_name: &str, mode: ColorMode) -> Theme {
                 add_line: if tc { rgb(0, 27, 41) } else { ansi_idx(17) },
                 add_word: if tc { rgb(0, 48, 71) } else { ansi_idx(24) },
                 add_decoration: rgb(81, 160, 200),
-                delete_line: dl, delete_word: dw, delete_decoration: dd,
-                foreground: fg, background: DEFAULT_BG,
+                delete_line: dl,
+                delete_word: dw,
+                delete_decoration: dd,
+                foreground: fg,
+                background: DEFAULT_BG,
                 scopes: build_monokai_scopes(),
             };
         }
@@ -302,8 +334,11 @@ fn build_theme(theme_name: &str, mode: ColorMode) -> Theme {
             add_line: if tc { rgb(2, 40, 0) } else { ansi_idx(22) },
             add_word: if tc { rgb(4, 71, 0) } else { ansi_idx(28) },
             add_decoration: rgb(80, 200, 80),
-            delete_line: dl, delete_word: dw, delete_decoration: dd,
-            foreground: fg, background: DEFAULT_BG,
+            delete_line: dl,
+            delete_word: dw,
+            delete_decoration: dd,
+            foreground: fg,
+            background: DEFAULT_BG,
             scopes: build_monokai_scopes(),
         };
     }
@@ -314,24 +349,35 @@ fn build_theme(theme_name: &str, mode: ColorMode) -> Theme {
     let dd = rgb(207, 34, 46);
     if is_daltonized {
         return Theme {
-            add_line: rgb(219, 237, 255), add_word: rgb(179, 217, 255),
+            add_line: rgb(219, 237, 255),
+            add_word: rgb(179, 217, 255),
             add_decoration: rgb(36, 87, 138),
-            delete_line: dl, delete_word: dw, delete_decoration: dd,
-            foreground: fg, background: DEFAULT_BG,
+            delete_line: dl,
+            delete_word: dw,
+            delete_decoration: dd,
+            foreground: fg,
+            background: DEFAULT_BG,
             scopes: build_github_scopes(),
         };
     }
     Theme {
-        add_line: rgb(220, 255, 220), add_word: rgb(178, 255, 178),
+        add_line: rgb(220, 255, 220),
+        add_word: rgb(178, 255, 178),
         add_decoration: rgb(36, 138, 61),
-        delete_line: dl, delete_word: dw, delete_decoration: dd,
-        foreground: fg, background: DEFAULT_BG,
+        delete_line: dl,
+        delete_word: dw,
+        delete_decoration: dd,
+        foreground: fg,
+        background: DEFAULT_BG,
         scopes: build_github_scopes(),
     }
 }
 
 fn default_style(theme: &Theme) -> Style {
-    Style { foreground: theme.foreground, background: theme.background }
+    Style {
+        foreground: theme.foreground,
+        background: theme.background,
+    }
 }
 
 fn line_background(marker: Marker, theme: &Theme) -> Color {
@@ -379,12 +425,16 @@ fn tokenize(text: &str) -> Vec<String> {
         let ch = chars[i];
         if ch.is_alphanumeric() || ch == '_' {
             let mut j = i + 1;
-            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') { j += 1; }
+            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                j += 1;
+            }
             tokens.push(chars[i..j].iter().collect());
             i = j;
         } else if ch.is_whitespace() {
             let mut j = i + 1;
-            while j < chars.len() && chars[j].is_whitespace() { j += 1; }
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
             tokens.push(chars[i..j].iter().collect());
             i = j;
         } else {
@@ -402,9 +452,13 @@ fn find_adjacent_pairs(markers: &[Marker]) -> Vec<(usize, usize)> {
         if markers[i] == Marker::Delete {
             let del_start = i;
             let mut del_end = i;
-            while del_end < markers.len() && markers[del_end] == Marker::Delete { del_end += 1; }
+            while del_end < markers.len() && markers[del_end] == Marker::Delete {
+                del_end += 1;
+            }
             let mut add_end = del_end;
-            while add_end < markers.len() && markers[add_end] == Marker::Add { add_end += 1; }
+            while add_end < markers.len() && markers[add_end] == Marker::Add {
+                add_end += 1;
+            }
             let del_count = del_end - del_start;
             let add_count = add_end - del_end;
             if del_count > 0 && add_count > 0 {
@@ -456,7 +510,8 @@ fn word_diff_strings(old_str: &str, new_str: &str) -> (Vec<Range>, Vec<Range>) {
             // 尝试在后续找到共同 token
             let mut found = false;
             for look in 1..10 {
-                if oi + look < old_tokens.len() && ni < new_tokens.len()
+                if oi + look < old_tokens.len()
+                    && ni < new_tokens.len()
                     && old_tokens[oi + look] == new_tokens[ni]
                 {
                     // 旧文本有 `look` 个额外 token
@@ -464,19 +519,26 @@ fn word_diff_strings(old_str: &str, new_str: &str) -> (Vec<Range>, Vec<Range>) {
                         old_off += old_tokens[oi + k].len();
                         changed_len += old_tokens[oi + k].len();
                     }
-                    old_ranges.push(Range { start: old_start, end: old_off });
+                    old_ranges.push(Range {
+                        start: old_start,
+                        end: old_off,
+                    });
                     oi += look;
                     found = true;
                     break;
                 }
-                if ni + look < new_tokens.len() && oi < old_tokens.len()
+                if ni + look < new_tokens.len()
+                    && oi < old_tokens.len()
                     && new_tokens[ni + look] == old_tokens[oi]
                 {
                     for k in 0..look {
                         new_off += new_tokens[ni + k].len();
                         changed_len += new_tokens[ni + k].len();
                     }
-                    new_ranges.push(Range { start: new_start, end: new_off });
+                    new_ranges.push(Range {
+                        start: new_start,
+                        end: new_off,
+                    });
                     ni += look;
                     found = true;
                     break;
@@ -486,8 +548,14 @@ fn word_diff_strings(old_str: &str, new_str: &str) -> (Vec<Range>, Vec<Range>) {
                 old_off += old_tokens[oi].len();
                 new_off += new_tokens[ni].len();
                 changed_len += old_tokens[oi].len() + new_tokens[ni].len();
-                old_ranges.push(Range { start: old_start, end: old_off });
-                new_ranges.push(Range { start: new_start, end: new_off });
+                old_ranges.push(Range {
+                    start: old_start,
+                    end: old_off,
+                });
+                new_ranges.push(Range {
+                    start: new_start,
+                    end: new_off,
+                });
                 oi += 1;
                 ni += 1;
             }
@@ -499,14 +567,20 @@ fn word_diff_strings(old_str: &str, new_str: &str) -> (Vec<Range>, Vec<Range>) {
         let start = old_off;
         old_off += old_tokens[oi].len();
         changed_len += old_tokens[oi].len();
-        old_ranges.push(Range { start, end: old_off });
+        old_ranges.push(Range {
+            start,
+            end: old_off,
+        });
         oi += 1;
     }
     while ni < new_tokens.len() {
         let start = new_off;
         new_off += new_tokens[ni].len();
         changed_len += new_tokens[ni].len();
-        new_ranges.push(Range { start, end: new_off });
+        new_ranges.push(Range {
+            start,
+            end: new_off,
+        });
         ni += 1;
     }
 
@@ -528,17 +602,21 @@ struct Highlight {
 }
 
 fn remove_newlines(h: &mut Highlight) {
-    h.lines = h.lines.iter().map(|line| {
-        let mut result = Vec::new();
-        for (style, text) in line {
-            for part in text.split('\n') {
-                if !part.is_empty() {
-                    result.push((*style, part.to_string()));
+    h.lines = h
+        .lines
+        .iter()
+        .map(|line| {
+            let mut result = Vec::new();
+            for (style, text) in line {
+                for part in text.split('\n') {
+                    if !part.is_empty() {
+                        result.push((*style, part.to_string()));
+                    }
                 }
             }
-        }
-        result
-    }).collect();
+            result
+        })
+        .collect();
 }
 
 fn wrap_text(h: &mut Highlight, width: usize, theme: &Theme) {
@@ -560,7 +638,9 @@ fn wrap_text(h: &mut Highlight, width: usize, theme: &Theme) {
                 let mut acc_w = 0;
                 for ch in text.chars() {
                     let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
-                    if acc_w + cw > remaining { break; }
+                    if acc_w + cw > remaining {
+                        break;
+                    }
                     acc_w += cw;
                     byte_pos += ch.len_utf8();
                 }
@@ -590,9 +670,15 @@ fn wrap_text(h: &mut Highlight, width: usize, theme: &Theme) {
     if let Some(marker) = h.marker {
         if marker != Marker::Context {
             let bg = line_background(marker, theme);
-            let pad_style = Style { foreground: theme.foreground, background: bg };
+            let pad_style = Style {
+                foreground: theme.foreground,
+                background: bg,
+            };
             for line in &mut h.lines {
-                let cur_w: usize = line.iter().map(|(_, t)| UnicodeWidthStr::width(t.as_str())).sum();
+                let cur_w: usize = line
+                    .iter()
+                    .map(|(_, t)| UnicodeWidthStr::width(t.as_str()))
+                    .sum();
                 if cur_w < width {
                     line.push((pad_style, " ".repeat(width - cur_w)));
                 }
@@ -603,8 +689,16 @@ fn wrap_text(h: &mut Highlight, width: usize, theme: &Theme) {
 
 fn add_line_number(h: &mut Highlight, theme: &Theme, max_digits: usize, full_dim: bool) {
     let style = Style {
-        foreground: if let Some(m) = h.marker { decoration_color(m, theme) } else { theme.foreground },
-        background: if let Some(m) = h.marker { line_background(m, theme) } else { theme.background },
+        foreground: if let Some(m) = h.marker {
+            decoration_color(m, theme)
+        } else {
+            theme.foreground
+        },
+        background: if let Some(m) = h.marker {
+            line_background(m, theme)
+        } else {
+            theme.background
+        },
     };
     let should_dim = h.marker.is_none() || h.marker == Some(Marker::Context);
     for (i, line) in h.lines.iter_mut().enumerate() {
@@ -662,7 +756,13 @@ fn apply_background(h: &mut Highlight, theme: &Theme, ranges: &[Range]) {
                 range_idx += 1;
             }
             if range_idx >= ranges.len() {
-                new_line.push((Style { background: line_bg, ..*style }, text.clone()));
+                new_line.push((
+                    Style {
+                        background: line_bg,
+                        ..*style
+                    },
+                    text.clone(),
+                ));
                 byte_off = text_end;
                 continue;
             }
@@ -681,15 +781,26 @@ fn apply_background(h: &mut Highlight, theme: &Theme, ranges: &[Range]) {
                 let seg_len = next - pos;
                 let seg = &remaining[..seg_len];
                 new_line.push((
-                    Style { background: if in_range { word_bg } else { line_bg }, ..*style },
+                    Style {
+                        background: if in_range { word_bg } else { line_bg },
+                        ..*style
+                    },
                     seg.to_string(),
                 ));
                 remaining = &remaining[seg_len..];
                 pos = next;
-                if pos >= r.end { range_idx += 1; }
+                if pos >= r.end {
+                    range_idx += 1;
+                }
             }
             if !remaining.is_empty() {
-                new_line.push((Style { background: line_bg, ..*style }, remaining.to_string()));
+                new_line.push((
+                    Style {
+                        background: line_bg,
+                        ..*style
+                    },
+                    remaining.to_string(),
+                ));
             }
             byte_off = text_end;
         }
@@ -719,8 +830,14 @@ fn detect_language(file_path: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 fn max_line_number(hunk: &Hunk) -> usize {
-    let old_end = hunk.old_start.saturating_add(hunk.old_lines).saturating_sub(1);
-    let new_end = hunk.new_start.saturating_add(hunk.new_lines).saturating_sub(1);
+    let old_end = hunk
+        .old_start
+        .saturating_add(hunk.old_lines)
+        .saturating_sub(1);
+    let new_end = hunk
+        .new_start
+        .saturating_add(hunk.new_lines)
+        .saturating_sub(1);
     old_end.max(new_end)
 }
 
@@ -765,28 +882,55 @@ impl ColorDiff {
         let mut new_line = self.hunk.new_start;
         let effective_width = width.saturating_sub(max_digits + 3).max(1);
 
-        struct Entry { line_number: usize, marker: Marker, code: String }
-        let entries: Vec<Entry> = self.hunk.lines.iter().map(|raw_line| {
-            let (marker_str, code) = if raw_line.is_empty() {
-                (" ", String::new())
-            } else {
-                (&raw_line[..1], raw_line[1..].to_string())
-            };
-            let marker = parse_marker(marker_str);
-            let line_number = match marker {
-                Marker::Add => { let n = new_line; new_line += 1; n }
-                Marker::Delete => { let n = old_line; old_line += 1; n }
-                Marker::Context => { let n = new_line; old_line += 1; new_line += 1; n }
-            };
-            Entry { line_number, marker, code }
-        }).collect();
+        struct Entry {
+            line_number: usize,
+            marker: Marker,
+            code: String,
+        }
+        let entries: Vec<Entry> = self
+            .hunk
+            .lines
+            .iter()
+            .map(|raw_line| {
+                let (marker_str, code) = if raw_line.is_empty() {
+                    (" ", String::new())
+                } else {
+                    (&raw_line[..1], raw_line[1..].to_string())
+                };
+                let marker = parse_marker(marker_str);
+                let line_number = match marker {
+                    Marker::Add => {
+                        let n = new_line;
+                        new_line += 1;
+                        n
+                    }
+                    Marker::Delete => {
+                        let n = old_line;
+                        old_line += 1;
+                        n
+                    }
+                    Marker::Context => {
+                        let n = new_line;
+                        old_line += 1;
+                        new_line += 1;
+                        n
+                    }
+                };
+                Entry {
+                    line_number,
+                    marker,
+                    code,
+                }
+            })
+            .collect();
 
         // Word-diff ranges
         let mut ranges: Vec<Vec<Range>> = entries.iter().map(|_| Vec::new()).collect();
         if !dim {
             let markers: Vec<Marker> = entries.iter().map(|e| e.marker).collect();
             for (del_idx, add_idx) in find_adjacent_pairs(&markers) {
-                let (del_r, add_r) = word_diff_strings(&entries[del_idx].code, &entries[add_idx].code);
+                let (del_r, add_r) =
+                    word_diff_strings(&entries[del_idx].code, &entries[add_idx].code);
                 ranges[del_idx] = del_r;
                 ranges[add_idx] = add_r;
             }
@@ -826,7 +970,9 @@ impl ColorFile {
         let mode = detect_color_mode(theme_name);
         let theme = build_theme(theme_name, mode);
         let mut lines: Vec<&str> = self.code.split('\n').collect();
-        if lines.last() == Some(&"") { lines.pop(); }
+        if lines.last() == Some(&"") {
+            lines.pop();
+        }
         let _lang = detect_language(&self.file_path);
 
         let max_digits = lines.len().to_string().len();

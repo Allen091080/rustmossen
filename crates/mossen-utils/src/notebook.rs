@@ -3,7 +3,6 @@
 //! Reads .ipynb files, processes cells with outputs, and maps them to
 //! tool result block parameters for the API.
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -172,9 +171,10 @@ fn process_output(output: &NotebookCellOutput) -> Option<NotebookCellSourceOutpu
             })
         }
         "execute_result" | "display_data" => {
-            let text = output.data.as_ref().and_then(|d| {
-                d.get("text/plain").map(|v| process_output_text(v))
-            });
+            let text = output
+                .data
+                .as_ref()
+                .and_then(|d| d.get("text/plain").map(|v| process_output_text(v)));
             let image = output.data.as_ref().and_then(|d| extract_image(d));
             Some(NotebookCellSourceOutput {
                 output_type: output.output_type.clone(),
@@ -221,10 +221,7 @@ fn process_cell(
     bash_tool_name: &str,
     notebook_path: &str,
 ) -> NotebookCellSource {
-    let cell_id = cell
-        .id
-        .clone()
-        .unwrap_or_else(|| format!("cell-{index}"));
+    let cell_id = cell.id.clone().unwrap_or_else(|| format!("cell-{index}"));
 
     let mut cell_data = NotebookCellSource {
         cell_type: cell.cell_type.clone(),
@@ -258,8 +255,7 @@ fn process_cell(
                         image: None,
                     }]);
                 } else {
-                    cell_data.outputs =
-                        Some(processed.into_iter().flatten().collect());
+                    cell_data.outputs = Some(processed.into_iter().flatten().collect());
                 }
             }
         }
@@ -345,9 +341,7 @@ pub async fn read_notebook(
             .iter()
             .enumerate()
             .find(|(_, c)| c.id.as_deref() == Some(cid))
-            .ok_or_else(|| {
-                anyhow::anyhow!("Cell with ID \"{}\" not found in notebook", cid)
-            })?;
+            .ok_or_else(|| anyhow::anyhow!("Cell with ID \"{}\" not found in notebook", cid))?;
         return Ok(vec![process_cell(
             cell,
             idx,
@@ -371,13 +365,15 @@ pub fn map_notebook_cells_to_tool_result(
     data: &[NotebookCellSource],
     tool_use_id: &str,
 ) -> ToolResultBlockParam {
-    let all_results: Vec<ToolResultBlock> =
-        data.iter().flat_map(|c| get_tool_result_from_cell(c)).collect();
+    let all_results: Vec<ToolResultBlock> = data
+        .iter()
+        .flat_map(|c| get_tool_result_from_cell(c))
+        .collect();
 
     // Merge adjacent text blocks
-    let merged = all_results.into_iter().fold(
-        Vec::<ToolResultBlock>::new(),
-        |mut acc, curr| {
+    let merged = all_results
+        .into_iter()
+        .fold(Vec::<ToolResultBlock>::new(), |mut acc, curr| {
             if acc.is_empty() {
                 acc.push(curr);
                 return acc;
@@ -392,8 +388,7 @@ pub fn map_notebook_cells_to_tool_result(
                 }
             }
             acc
-        },
-    );
+        });
 
     ToolResultBlockParam {
         tool_use_id: tool_use_id.to_string(),

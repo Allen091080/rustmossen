@@ -129,7 +129,7 @@ pub fn get_hosted_base_url(
 /// Get the full session URL for a remote session.
 ///
 /// The cse_→session_ translation is a temporary shim gated by
-/// tengu_bridge_repl_v2_cse_shim_enabled. Worker endpoints want `cse_*`
+/// mossen_bridge_repl_v2_cse_shim_enabled. Worker endpoints want `cse_*`
 /// but the hosted frontend currently routes on `session_*`.
 pub fn get_remote_session_url(
     session_id: &str,
@@ -137,6 +137,11 @@ pub fn get_remote_session_url(
     remote_base_url: &str,
     ingress_url: Option<&str>,
 ) -> String {
-    let base_url = get_hosted_base_url(is_custom_backend, remote_base_url, Some(session_id), ingress_url);
+    let base_url = get_hosted_base_url(
+        is_custom_backend,
+        remote_base_url,
+        Some(session_id),
+        ingress_url,
+    );
     format!("{}/code/{}", base_url, session_id)
 }

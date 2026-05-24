@@ -11,13 +11,30 @@ pub struct SwarmPermissionPollerState {
 }
 
 impl SwarmPermissionPollerState {
-    pub fn new() -> Self { Self { active: false, initialized: false } }
-    pub fn initialize(&mut self) { self.initialized = true; }
-    pub fn activate(&mut self) { self.active = true; }
-    pub fn deactivate(&mut self) { self.active = false; }
-    pub fn is_active(&self) -> bool { self.active }
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            initialized: false,
+        }
+    }
+    pub fn initialize(&mut self) {
+        self.initialized = true;
+    }
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
 }
-impl Default for SwarmPermissionPollerState { fn default() -> Self { Self::new() } }
+impl Default for SwarmPermissionPollerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ============================================================================
 // Module-level permission/sandbox callback registries.
@@ -83,19 +100,28 @@ impl std::fmt::Debug for SandboxPermissionResponseCallback {
 }
 
 /// Registries (module-level — persist across React renders in TS).
-static PENDING_CALLBACKS: Mutex<Option<HashMap<String, PermissionResponseCallback>>> = Mutex::new(None);
-static PENDING_SANDBOX_CALLBACKS: Mutex<Option<HashMap<String, SandboxPermissionResponseCallback>>> = Mutex::new(None);
+static PENDING_CALLBACKS: Mutex<Option<HashMap<String, PermissionResponseCallback>>> =
+    Mutex::new(None);
+static PENDING_SANDBOX_CALLBACKS: Mutex<
+    Option<HashMap<String, SandboxPermissionResponseCallback>>,
+> = Mutex::new(None);
 
 fn with_pending<R>(f: impl FnOnce(&mut HashMap<String, PermissionResponseCallback>) -> R) -> R {
-    let mut guard = PENDING_CALLBACKS.lock().expect("PENDING_CALLBACKS poisoned");
+    let mut guard = PENDING_CALLBACKS
+        .lock()
+        .expect("PENDING_CALLBACKS poisoned");
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
     f(guard.as_mut().unwrap())
 }
 
-fn with_pending_sandbox<R>(f: impl FnOnce(&mut HashMap<String, SandboxPermissionResponseCallback>) -> R) -> R {
-    let mut guard = PENDING_SANDBOX_CALLBACKS.lock().expect("PENDING_SANDBOX_CALLBACKS poisoned");
+fn with_pending_sandbox<R>(
+    f: impl FnOnce(&mut HashMap<String, SandboxPermissionResponseCallback>) -> R,
+) -> R {
+    let mut guard = PENDING_SANDBOX_CALLBACKS
+        .lock()
+        .expect("PENDING_SANDBOX_CALLBACKS poisoned");
     if guard.is_none() {
         *guard = Some(HashMap::new());
     }
@@ -230,11 +256,14 @@ pub fn process_sandbox_permission_response(params: SandboxPermissionResponsePara
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn register_and_resolve() {
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
         clear_all_pending_callbacks();
         let allow_called = Arc::new(AtomicU32::new(0));
         let reject_called = Arc::new(AtomicU32::new(0));
@@ -243,8 +272,12 @@ mod tests {
         register_permission_callback(PermissionResponseCallback {
             request_id: "r-1".to_string(),
             tool_use_id: "t-1".to_string(),
-            on_allow: Box::new(move |_p| { a_clone.fetch_add(1, Ordering::SeqCst); }),
-            on_reject: Box::new(move |_| { r_clone.fetch_add(1, Ordering::SeqCst); }),
+            on_allow: Box::new(move |_p| {
+                a_clone.fetch_add(1, Ordering::SeqCst);
+            }),
+            on_reject: Box::new(move |_| {
+                r_clone.fetch_add(1, Ordering::SeqCst);
+            }),
         });
         assert!(has_permission_callback("r-1"));
         let ok = process_mailbox_permission_response(MailboxPermissionResponseParams {
@@ -261,6 +294,7 @@ mod tests {
 
     #[test]
     fn unregister_works() {
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
         clear_all_pending_callbacks();
         register_permission_callback(PermissionResponseCallback {
             request_id: "r-2".to_string(),
@@ -275,13 +309,16 @@ mod tests {
 
     #[test]
     fn sandbox_response_resolves() {
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
         clear_all_pending_callbacks();
         let resolved = Arc::new(AtomicBool::new(false));
         let clone = Arc::clone(&resolved);
         register_sandbox_permission_callback(SandboxPermissionResponseCallback {
             request_id: "sb-1".to_string(),
             host: "example.com".to_string(),
-            resolve: Box::new(move |allow| { clone.store(allow, Ordering::SeqCst); }),
+            resolve: Box::new(move |allow| {
+                clone.store(allow, Ordering::SeqCst);
+            }),
         });
         assert!(has_sandbox_permission_callback("sb-1"));
         let ok = process_sandbox_permission_response(SandboxPermissionResponseParams {
@@ -295,7 +332,12 @@ mod tests {
 
     #[test]
     fn parse_permission_updates_filters_garbage() {
-        let raw = vec!["{\"a\":1}".to_string(), "not-json".to_string(), "{\"b\":2}".to_string()];
+        let _guard = TEST_LOCK.lock().expect("test lock poisoned");
+        let raw = vec![
+            "{\"a\":1}".to_string(),
+            "not-json".to_string(),
+            "{\"b\":2}".to_string(),
+        ];
         let p = parse_permission_updates(&raw);
         assert_eq!(p.len(), 2);
     }

@@ -2,7 +2,6 @@
 //!
 //! 对应 TypeScript `utils/cwd.ts`。
 
-use std::path::PathBuf;
 use std::sync::Mutex;
 use tokio::task_local;
 
@@ -55,16 +54,22 @@ pub fn get_cwd() -> String {
 
 fn get_cwd_state() -> String {
     let global = GLOBAL_CWD.lock().unwrap();
-    global
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string())
+    global.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+    })
 }
 
 fn get_original_cwd() -> String {
     let original = ORIGINAL_CWD.lock().unwrap();
-    original
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string())
+    original.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+    })
 }
 
 /// Restore the working directory from the `MOSSENSRC_LAUNCH_CWD` env var if it

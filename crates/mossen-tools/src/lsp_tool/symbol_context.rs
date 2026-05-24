@@ -11,15 +11,17 @@ use std::sync::LazyLock;
 const MAX_READ_BYTES: usize = 64 * 1024;
 const MAX_SYMBOL_LEN: usize = 30;
 
-static SYMBOL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\w$'!]+|[+\-*/%&|^~<>=]+").unwrap()
-});
+static SYMBOL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[\w$'!]+|[+\-*/%&|^~<>=]+").unwrap());
 
 /// Expand `~` to the user's home directory at the start of a path.
 fn expand_path(p: &str) -> String {
     if let Some(stripped) = p.strip_prefix("~/") {
         if let Some(home) = std::env::var_os("HOME") {
-            return Path::new(&home).join(stripped).to_string_lossy().into_owned();
+            return Path::new(&home)
+                .join(stripped)
+                .to_string_lossy()
+                .into_owned();
         }
     } else if p == "~" {
         if let Some(home) = std::env::var_os("HOME") {
@@ -50,11 +52,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// * `file_path` — file path (absolute or `~`-relative)
 /// * `line` — 0-indexed line number
 /// * `character` — 0-indexed character position on the line
-pub fn get_symbol_at_position(
-    file_path: &str,
-    line: usize,
-    character: usize,
-) -> Option<String> {
+pub fn get_symbol_at_position(file_path: &str, line: usize, character: usize) -> Option<String> {
     let abs = expand_path(file_path);
     let mut file = File::open(&abs).ok()?;
     let mut buf = vec![0u8; MAX_READ_BYTES];
@@ -92,10 +90,6 @@ pub fn get_symbol_at_position(
 
 /// Alias matching the TS export name.
 #[allow(non_snake_case)]
-pub fn getSymbolAtPosition(
-    file_path: &str,
-    line: usize,
-    character: usize,
-) -> Option<String> {
+pub fn getSymbolAtPosition(file_path: &str, line: usize, character: usize) -> Option<String> {
     get_symbol_at_position(file_path, line, character)
 }

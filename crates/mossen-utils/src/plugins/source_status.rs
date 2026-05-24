@@ -1,6 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use std::collections::{HashMap, HashSet};
 
 use super::official_marketplace::OFFICIAL_MARKETPLACE_NAME;
 use super::schemas::MarketplaceSource;
@@ -52,7 +51,7 @@ pub async fn describe_plugin_sources(
     let declared = get_declared_marketplaces();
     let known = load_known_marketplaces.await;
 
-    let mut names: Vec<String> = {
+    let names: Vec<String> = {
         let mut set = HashSet::new();
         set.insert(OFFICIAL_MARKETPLACE_NAME.to_string());
         for k in declared.keys() {

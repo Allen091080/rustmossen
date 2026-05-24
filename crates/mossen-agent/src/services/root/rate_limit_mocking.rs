@@ -1,6 +1,5 @@
 /// Facade for rate limit header processing.
 /// This isolates mock logic from production code.
-
 use super::mock_rate_limits::{
     apply_mock_headers, check_mock_fast_mode_rate_limit, get_mock_headerless_429_message,
     get_mock_headers, is_mock_fast_mode_rate_limit_scenario, should_process_mock_limits,
@@ -11,12 +10,10 @@ pub trait RateLimitMockingContext: Send + Sync {
     fn get_canonical_name(&self, model: &str) -> String;
 }
 
-fn is_frontier_model(ctx: &dyn RateLimitMockingContext, model: &str) -> bool {
+fn is_max_model(ctx: &dyn RateLimitMockingContext, model: &str) -> bool {
     let normalized = model.to_lowercase();
     let canonical = ctx.get_canonical_name(&normalized);
-    canonical.contains("mossen-opus")
-        || normalized == "opus"
-        || normalized.starts_with("opus[")
+    canonical.contains("mossen-max") || normalized == "max" || normalized.starts_with("max[")
 }
 
 /// Process headers, applying mocks if /mock-limits command is active
@@ -55,7 +52,9 @@ pub fn check_mock_rate_limit_error(
 
     let mock_headers = get_mock_headers()?;
 
-    let status = mock_headers.get("mossen-ratelimit-unified-status").map(|s| s.as_str());
+    let status = mock_headers
+        .get("mossen-ratelimit-unified-status")
+        .map(|s| s.as_str());
     let overage_status = mock_headers
         .get("mossen-ratelimit-unified-overage-status")
         .map(|s| s.as_str());
@@ -63,10 +62,10 @@ pub fn check_mock_rate_limit_error(
         .get("mossen-ratelimit-unified-representative-claim")
         .map(|s| s.as_str());
 
-    let is_frontier_limit = rate_limit_type == Some("seven_day_opus");
-    let is_using_frontier = is_frontier_model(ctx, current_model);
+    let is_max_limit = rate_limit_type == Some("seven_day_max");
+    let is_using_max = is_max_model(ctx, current_model);
 
-    if is_frontier_limit && !is_using_frontier {
+    if is_max_limit && !is_using_max {
         return None;
     }
 
@@ -82,8 +81,8 @@ pub fn check_mock_rate_limit_error(
         return None;
     }
 
-    let should_throw_429 =
-        status == Some("rejected") && (overage_status.is_none() || overage_status == Some("rejected"));
+    let should_throw_429 = status == Some("rejected")
+        && (overage_status.is_none() || overage_status == Some("rejected"));
 
     if should_throw_429 {
         return Some(MockRateLimitError {

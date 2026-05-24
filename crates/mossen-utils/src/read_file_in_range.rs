@@ -92,7 +92,15 @@ pub async fn read_file_in_range(
         ));
     }
 
-    read_file_in_range_streaming(file_path, mtime_ms, offset, max_lines, max_bytes, truncate_on_byte_limit).await
+    read_file_in_range_streaming(
+        file_path,
+        mtime_ms,
+        offset,
+        max_lines,
+        max_bytes,
+        truncate_on_byte_limit,
+    )
+    .await
 }
 
 /// Fast path — in-memory split.

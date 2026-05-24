@@ -4,7 +4,7 @@
 //!
 //! ## 当前状态
 //!
-//! Rust 端尚未具备进程内 Agent 运行时所需的依赖：`runAgent()`、Ink/React
+//! Rust 端尚未具备进程内 Agent 运行时所需的依赖：`runAgent()`、
 //! AppState 桥、AsyncLocalStorage 等待中。本模块刻意保持为空导出，作为
 //! "存在但无功能" 的稳定 API 边界 —— 调用方在拼装阶段（main 二进制）使用
 //! 替代实现或拒绝进程内队友功能。后续把以下依赖落地后即可恢复同名 API：
@@ -51,9 +51,7 @@ pub struct InProcessTeammateOptions {
 /// 启动进程内队友 —— Rust 端尚未集成 `run_agent`，因此恒返回
 /// [`InProcessRunnerStatus::Unsupported`]。调用方对此结果应表现得与
 /// TS 端 "leader 拒绝/忙碌" 相同：透明回退到外部 spawn。
-pub async fn run_in_process_teammate(
-    _options: InProcessTeammateOptions,
-) -> InProcessRunnerStatus {
+pub async fn run_in_process_teammate(_options: InProcessTeammateOptions) -> InProcessRunnerStatus {
     InProcessRunnerStatus::Unsupported
 }
 

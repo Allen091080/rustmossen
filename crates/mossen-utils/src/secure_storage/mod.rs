@@ -1,13 +1,11 @@
 // Translated from utils/secureStorage/*.ts (6 files)
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use anyhow::Result;
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 
 // ============================================================================
 // types (implicit from usage)
@@ -20,7 +18,9 @@ pub type SecureStorageData = HashMap<String, serde_json::Value>;
 pub trait SecureStorage: Send + Sync {
     fn name(&self) -> &str;
     fn read(&self) -> Option<SecureStorageData>;
-    fn read_async(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>>;
+    fn read_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>>;
     fn update(&self, data: &SecureStorageData) -> UpdateResult;
     fn delete(&self) -> bool;
 }
@@ -61,7 +61,11 @@ pub struct FallbackStorage {
 impl FallbackStorage {
     pub fn new(primary: Box<dyn SecureStorage>, secondary: Box<dyn SecureStorage>) -> Self {
         let name_str = format!("{}-with-{}-fallback", primary.name(), secondary.name());
-        Self { primary, secondary, name_str }
+        Self {
+            primary,
+            secondary,
+            name_str,
+        }
     }
 }
 
@@ -78,7 +82,10 @@ impl SecureStorage for FallbackStorage {
         self.secondary.read().or_else(|| Some(HashMap::new()))
     }
 
-    fn read_async(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>> {
+    fn read_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>>
+    {
         Box::pin(async move {
             let result = self.primary.read();
             if result.is_some() {
@@ -110,7 +117,10 @@ impl SecureStorage for FallbackStorage {
             };
         }
 
-        UpdateResult { success: false, warning: None }
+        UpdateResult {
+            success: false,
+            warning: None,
+        }
     }
 
     fn delete(&self) -> bool {
@@ -150,20 +160,29 @@ impl SecureStorage for PlainTextStorage {
         serde_json::from_str(&data).ok()
     }
 
-    fn read_async(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>> {
-        Box::pin(async move {
-            self.read()
-        })
+    fn read_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>>
+    {
+        Box::pin(async move { self.read() })
     }
 
     fn update(&self, data: &SecureStorageData) -> UpdateResult {
         let (storage_dir, storage_path) = Self::get_storage_path();
         if let Err(_) = fs::create_dir_all(&storage_dir) {
-            return UpdateResult { success: false, warning: None };
+            return UpdateResult {
+                success: false,
+                warning: None,
+            };
         }
         let json = match serde_json::to_string_pretty(data) {
             Ok(j) => j,
-            Err(_) => return UpdateResult { success: false, warning: None },
+            Err(_) => {
+                return UpdateResult {
+                    success: false,
+                    warning: None,
+                }
+            }
         };
         match fs::write(&storage_path, &json) {
             Ok(_) => {
@@ -178,7 +197,10 @@ impl SecureStorage for PlainTextStorage {
                     warning: Some("Warning: Storing credentials in plaintext.".to_string()),
                 }
             }
-            Err(_) => UpdateResult { success: false, warning: None },
+            Err(_) => UpdateResult {
+                success: false,
+                warning: None,
+            },
         }
     }
 
@@ -216,7 +238,10 @@ pub fn get_mac_os_keychain_storage_service_name(service_suffix: &str) -> String 
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         config_dir.to_string_lossy().hash(&mut hasher);
-        format!("-{:016x}", hasher.finish()).chars().take(9).collect::<String>()
+        format!("-{:016x}", hasher.finish())
+            .chars()
+            .take(9)
+            .collect::<String>()
     };
 
     format!("Mossen{}{}", service_suffix, dir_hash)
@@ -258,8 +283,7 @@ pub fn prime_keychain_cache_from_prefetch(stdout: Option<&str>) {
     if state.cached_at.is_some() {
         return;
     }
-    let data: Option<SecureStorageData> = stdout
-        .and_then(|s| serde_json::from_str(s).ok());
+    let data: Option<SecureStorageData> = stdout.and_then(|s| serde_json::from_str(s).ok());
     state.data = data;
     state.cached_at = Some(Instant::now());
 }
@@ -279,7 +303,14 @@ pub fn start_keychain_prefetch() {
 
     std::thread::spawn(move || {
         let output = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", &service, "-a", &account, "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                &service,
+                "-a",
+                &account,
+                "-w",
+            ])
             .output();
 
         if let Ok(output) = output {
@@ -323,7 +354,14 @@ impl MacOsKeychainStorage {
         }
 
         let output = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", &self.service, "-a", &self.account, "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                &self.service,
+                "-a",
+                &self.account,
+                "-w",
+            ])
             .output()
             .ok()?;
 
@@ -352,15 +390,24 @@ impl MacOsKeychainStorage {
 
         // Delete existing entry first
         let _ = std::process::Command::new("security")
-            .args(["delete-generic-password", "-s", &self.service, "-a", &self.account])
+            .args([
+                "delete-generic-password",
+                "-s",
+                &self.service,
+                "-a",
+                &self.account,
+            ])
             .output();
 
         let output = std::process::Command::new("security")
             .args([
                 "add-generic-password",
-                "-s", &self.service,
-                "-a", &self.account,
-                "-w", &json,
+                "-s",
+                &self.service,
+                "-a",
+                &self.account,
+                "-w",
+                &json,
                 "-U",
             ])
             .output();
@@ -383,7 +430,13 @@ impl MacOsKeychainStorage {
 
     fn delete_from_keychain(&self) -> bool {
         let output = std::process::Command::new("security")
-            .args(["delete-generic-password", "-s", &self.service, "-a", &self.account])
+            .args([
+                "delete-generic-password",
+                "-s",
+                &self.service,
+                "-a",
+                &self.account,
+            ])
             .output();
 
         clear_keychain_cache();
@@ -403,17 +456,24 @@ impl SecureStorage for MacOsKeychainStorage {
         self.read_from_keychain()
     }
 
-    fn read_async(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>> {
-        Box::pin(async move {
-            self.read_from_keychain()
-        })
+    fn read_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<SecureStorageData>> + Send + '_>>
+    {
+        Box::pin(async move { self.read_from_keychain() })
     }
 
     fn update(&self, data: &SecureStorageData) -> UpdateResult {
         if self.write_to_keychain(data) {
-            UpdateResult { success: true, warning: None }
+            UpdateResult {
+                success: true,
+                warning: None,
+            }
         } else {
-            UpdateResult { success: false, warning: None }
+            UpdateResult {
+                success: false,
+                warning: None,
+            }
         }
     }
 

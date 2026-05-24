@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-个人版 token 计数路径契约（[Wave2历史兼容] 已彻底去 Anthropic-hosted countTokens API）。
+个人版 token 计数路径契约（[Wave2历史兼容] 已彻底去 Provider-hosted countTokens API）。
 
 设计变化（2026-04-25 优化前 vs 后）:
   Before: countMessagesTokensWithAPI 调 mossenClient.beta.messages.countTokens →
@@ -13,7 +13,7 @@
 
 契约（3 case）:
   1. tokenEstimation.ts NOT export countMessagesTokensWithAPI / countTokensWithAPI
-     (彻底清除 anthropic-hosted countTokens path)
+     (彻底清除 provider-hosted countTokens path)
   2. countTokensViaSmallFastFallback 存在且会 throw on invalid URL
      (proof of life: 真在调 .create on user-configured model)
   3. utils/analyzeContext.ts countTokensWithFallback wrap → 不再产生
@@ -65,32 +65,32 @@ def _extract_json(out: str) -> dict | None:
     return None
 
 
-def case_anthropic_path_purged() -> dict:
-    """tokenEstimation.ts 不再 export anthropic-hosted countTokens 路径相关函数。"""
+def case_provider_path_purged() -> dict:
+    """tokenEstimation.ts 不再 export provider-hosted countTokens 路径相关函数。"""
     snippet = (
         "const mod: any = await import('./services/tokenEstimation.ts');"
         "process.stdout.write(JSON.stringify({"
         "  has_countTokensWithAPI: typeof mod.countTokensWithAPI === 'function',"
         "  has_countMessagesTokensWithAPI: typeof mod.countMessagesTokensWithAPI === 'function',"
-        "  has_countTokensViaHaikuFallback: typeof mod.countTokensViaHaikuFallback === 'function',"
+        "  has_countTokensViaFastFallback: typeof mod.countTokensViaFastFallback === 'function',"
         "  has_countTokensViaSmallFastFallback: typeof mod.countTokensViaSmallFastFallback === 'function',"
         "  has_roughTokenCountEstimation: typeof mod.roughTokenCountEstimation === 'function',"
         "}) + '\\n');"
     )
     r = _bun(snippet)
     if r["returncode"] != 0:
-        return {"name": "anthropic_path_purged", "ok": False,
+        return {"name": "provider_path_purged", "ok": False,
                 "stderr": r["stderr"][:500]}
     parsed = _extract_json(r["stdout"])
     if parsed is None:
-        return {"name": "anthropic_path_purged", "ok": False,
+        return {"name": "provider_path_purged", "ok": False,
                 "raw": r["stdout"][:300]}
     return {
-        "name": "anthropic_path_purged",
+        "name": "provider_path_purged",
         "ok": (
             parsed.get("has_countTokensWithAPI") is False
             and parsed.get("has_countMessagesTokensWithAPI") is False
-            and parsed.get("has_countTokensViaHaikuFallback") is False
+            and parsed.get("has_countTokensViaFastFallback") is False
             and parsed.get("has_countTokensViaSmallFastFallback") is True
             and parsed.get("has_roughTokenCountEstimation") is True
         ),
@@ -150,14 +150,14 @@ def case_analyzecontext_uses_smallfast_only() -> dict:
       c. 私有 countTokensWithFallback 函数体真调 countTokensViaSmallFastFallback
 
     Mutation 信号:
-      - 加回 anthropic countTokens import → a fail
+      - 加回 provider countTokens import → a fail
       - 重命名/删 fallback → b fail
       - 函数体回退到旧 try-then-fallback 逻辑 → c fail
     """
     import re
     src = (ROOT / "utils" / "analyzeContext.ts").read_text(encoding="utf-8")
 
-    has_anthropic_api_ref = "countMessagesTokensWithAPI" in src or "countTokensWithAPI" in src
+    has_provider_api_ref = "countMessagesTokensWithAPI" in src or "countTokensWithAPI" in src
     has_smallfast_import = bool(
         re.search(r"countTokensViaSmallFastFallback.*from\s+['\"].*tokenEstimation", src, re.S)
         or re.search(
@@ -172,20 +172,20 @@ def case_analyzecontext_uses_smallfast_only() -> dict:
     )
     body = body_match.group(0) if body_match else ""
     body_calls_smallfast = "countTokensViaSmallFastFallback" in body
-    body_no_anthropic = "countMessagesTokensWithAPI" not in body
+    body_no_provider = "countMessagesTokensWithAPI" not in body
 
     return {
         "name": "analyzecontext_uses_smallfast_only",
         "ok": (
-            not has_anthropic_api_ref
+            not has_provider_api_ref
             and has_smallfast_import
             and body_calls_smallfast
-            and body_no_anthropic
+            and body_no_provider
         ),
-        "has_anthropic_api_ref": has_anthropic_api_ref,
+        "has_provider_api_ref": has_provider_api_ref,
         "has_smallfast_import": has_smallfast_import,
         "body_calls_smallfast": body_calls_smallfast,
-        "body_no_anthropic": body_no_anthropic,
+        "body_no_provider": body_no_provider,
         "body_excerpt": body[:300] if body else "(no match)",
     }
 
@@ -208,7 +208,7 @@ def case_filereadtool_no_api_call() -> dict:
 
 def main() -> int:
     results = [
-        case_anthropic_path_purged(),
+        case_provider_path_purged(),
         case_smallfast_fallback_uses_configured_backend(),
         case_analyzecontext_uses_smallfast_only(),
         case_filereadtool_no_api_call(),
@@ -219,7 +219,7 @@ def main() -> int:
         "total": len(results),
         "design_note": (
             "个人版 token 计数现仅一条路径：getSmallFastModel() 配置模型的 .create + "
-            "max_tokens=1, 读 usage.input_tokens. 上游 anthropic countTokens API/Bedrock "
+            "max_tokens=1, 读 usage.input_tokens. 上游 provider countTokens API/Bedrock "
             "CountTokens 路径已彻底清除（-149 行 services/tokenEstimation.ts）。"
         ),
     }

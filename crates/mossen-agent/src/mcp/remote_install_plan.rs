@@ -26,14 +26,29 @@ pub struct McpRemoteInstallPlan {
 #[derive(Debug, Clone)]
 pub enum McpRemotePlanError {
     MissingSource,
-    InvalidScope { scope: Option<String> },
-    InvalidSource { reason: String },
-    MultipleServers { available_servers: Vec<String> },
+    InvalidScope {
+        scope: Option<String>,
+    },
+    InvalidSource {
+        reason: String,
+    },
+    MultipleServers {
+        available_servers: Vec<String>,
+    },
     MissingServerName,
-    ServerNotFound { server_name: String, available_servers: Vec<String> },
-    UnknownToken { token: String },
-    ExpiredToken { token: String },
-    InstallFailed { message: String },
+    ServerNotFound {
+        server_name: String,
+        available_servers: Vec<String>,
+    },
+    UnknownToken {
+        token: String,
+    },
+    ExpiredToken {
+        token: String,
+    },
+    InstallFailed {
+        message: String,
+    },
 }
 
 pub enum McpRemoteInstallResult {
@@ -46,7 +61,10 @@ lazy_static::lazy_static! {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn prune_expired_plans(store: &mut HashMap<String, McpRemoteInstallPlan>) {
@@ -89,7 +107,10 @@ fn to_fetchable_url(source: &str) -> String {
                 let path_parts = &parts[4..];
                 return format!(
                     "https://raw.githubusercontent.com/{}/{}/{}/{}",
-                    owner, repo, ref_name, path_parts.join("/")
+                    owner,
+                    repo,
+                    ref_name,
+                    path_parts.join("/")
                 );
             }
             source.to_string()
@@ -136,8 +157,7 @@ async fn load_remote_json(source: &str) -> Result<serde_json::Value, String> {
         .await
         .map_err(|e| format!("Failed to read response: {}", e))?;
 
-    serde_json::from_str(&text)
-        .map_err(|e| format!("Remote config is not valid JSON: {}", e))
+    serde_json::from_str(&text).map_err(|e| format!("Remote config is not valid JSON: {}", e))
 }
 
 /// Select a server config from the parsed JSON.
@@ -173,9 +193,11 @@ fn select_server_config(
                     }
                 };
 
-                let config: McpServerConfig = serde_json::from_value(config_val.clone())
-                    .map_err(|e| McpRemotePlanError::InvalidSource {
-                        reason: e.to_string(),
+                let config: McpServerConfig =
+                    serde_json::from_value(config_val.clone()).map_err(|e| {
+                        McpRemotePlanError::InvalidSource {
+                            reason: e.to_string(),
+                        }
                     })?;
 
                 return Ok((server_name, config, available));
@@ -272,21 +294,30 @@ pub async fn execute_mcp_remote_install_plan(
         Some(p) => p,
         None => {
             return McpRemoteInstallResult::Err {
-                error: McpRemotePlanError::UnknownToken { token: token.to_string() },
+                error: McpRemotePlanError::UnknownToken {
+                    token: token.to_string(),
+                },
             };
         }
     };
 
     if now_ms() - plan.created_at > MCP_REMOTE_PLAN_TOKEN_TTL_MS {
         return McpRemoteInstallResult::Err {
-            error: McpRemotePlanError::ExpiredToken { token: token.to_string() },
+            error: McpRemotePlanError::ExpiredToken {
+                token: token.to_string(),
+            },
         };
     }
 
-    match add_mcp_config.add_config(&plan.server_name, &plan.config, plan.scope).await {
+    match add_mcp_config
+        .add_config(&plan.server_name, &plan.config, plan.scope)
+        .await
+    {
         Ok(()) => McpRemoteInstallResult::Ok { plan },
         Err(e) => McpRemoteInstallResult::Err {
-            error: McpRemotePlanError::InstallFailed { message: e.to_string() },
+            error: McpRemotePlanError::InstallFailed {
+                message: e.to_string(),
+            },
         },
     }
 }

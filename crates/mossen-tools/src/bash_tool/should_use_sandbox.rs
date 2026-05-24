@@ -4,8 +4,8 @@
 //! user overrides, and excluded-command patterns.
 
 use crate::bash_tool::bash_permissions::{
-    bash_permission_rule, match_wildcard_pattern, strip_all_leading_env_vars,
-    strip_safe_wrappers, BashPermissionRule, BINARY_HIJACK_VARS,
+    bash_permission_rule, match_wildcard_pattern, strip_all_leading_env_vars, strip_safe_wrappers,
+    BashPermissionRule, BINARY_HIJACK_VARS,
 };
 use std::collections::HashSet;
 
@@ -184,7 +184,7 @@ fn contains_excluded_command(command: &str, config: &dyn SandboxConfig) -> bool 
                         }
                     }
                     BashPermissionRule::Exact { command } => {
-                        if cand == command {
+                        if cand == command || cand.starts_with(&format!("{} ", command)) {
                             return true;
                         }
                     }

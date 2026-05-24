@@ -114,10 +114,7 @@ pub fn validate_profile(value: &Value) -> Result<ProfileSchema, String> {
         None => return Err("profile must be an object".to_string()),
     };
 
-    let provider = obj
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let provider = obj.get("provider").and_then(|v| v.as_str()).unwrap_or("");
     if !PROFILE_PROVIDER_VALUES.contains(&provider) {
         return Err(format!(
             "provider must be one of {}, got \"{}\"",
@@ -368,10 +365,7 @@ pub fn set_profile(
 }
 
 /// Delete a profile.
-pub fn delete_profile(
-    name: &str,
-    scope: ConfigOverrideScope,
-) -> (bool, bool, ProfilesMap) {
+pub fn delete_profile(name: &str, scope: ConfigOverrideScope) -> (bool, bool, ProfilesMap) {
     let mut current = get_profiles();
     if !current.contains_key(name) {
         return (false, false, current);
@@ -398,7 +392,11 @@ pub fn set_active_profile(
 ) -> Result<(String, ProfileSchema, ProfileSource), String> {
     let validated_name = validate_profile_name(name)?;
     if let Some(real) = get_profile_by_name(&validated_name) {
-        set_mossen_config_override(ACTIVE_PROFILE_KEY, Value::String(validated_name.clone()), scope);
+        set_mossen_config_override(
+            ACTIVE_PROFILE_KEY,
+            Value::String(validated_name.clone()),
+            scope,
+        );
         return Ok((validated_name, real, ProfileSource::Settings));
     }
     if let Some(fallback) = get_fallback_profile() {
@@ -454,10 +452,7 @@ pub struct ProfileTestResult {
 }
 
 /// Test profile connectivity (GET baseURL/models).
-pub async fn test_profile(
-    profile: &ProfileSchema,
-    timeout_ms: Option<u64>,
-) -> ProfileTestResult {
+pub async fn test_profile(profile: &ProfileSchema, timeout_ms: Option<u64>) -> ProfileTestResult {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(5000));
     let base_trimmed = profile.base_url.trim_end_matches('/');
     let url = format!("{}/models", base_trimmed);

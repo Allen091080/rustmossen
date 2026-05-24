@@ -132,9 +132,9 @@ impl NotificationManager {
             state.current = None;
         }
 
-        state.queue.retain(|n| {
-            n.priority != Priority::Immediate && !notif.invalidates.contains(&n.key)
-        });
+        state
+            .queue
+            .retain(|n| n.priority != Priority::Immediate && !notif.invalidates.contains(&n.key));
         state.queue.push(notif);
         drop(state);
 
@@ -202,10 +202,9 @@ impl NotificationManager {
     }
 
     fn notify_change(&self) {
-        let _ = self.change_tx.send(
-            self.seq
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        );
+        let _ = self
+            .change_tx
+            .send(self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     }
 }
 
@@ -220,10 +219,7 @@ pub fn get_next(queue: &[Notification]) -> Option<Notification> {
     if queue.is_empty() {
         return None;
     }
-    queue
-        .iter()
-        .min_by_key(|n| n.priority.rank())
-        .cloned()
+    queue.iter().min_by_key(|n| n.priority.rank()).cloned()
 }
 
 /// React `useNotifications()` snapshot of the notifications manager. Returns

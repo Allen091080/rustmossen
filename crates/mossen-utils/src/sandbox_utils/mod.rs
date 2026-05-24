@@ -1,11 +1,10 @@
 // Translated from utils/sandbox/*.ts (3 files: sandbox-adapter.ts, sandbox-ui-utils.ts, sandboxRuntimeAdapter.ts)
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Mutex;
 
 // ============================================================================
 // sandboxRuntimeAdapter.ts — Types
@@ -204,7 +203,10 @@ pub struct PermissionRuleValue {
 pub fn permission_rule_value_from_string(rule_string: &str) -> PermissionRuleValue {
     let re = regex::Regex::new(r"^([^(]+)\(([^)]+)\)$").unwrap();
     if let Some(caps) = re.captures(rule_string) {
-        let tool_name = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let tool_name = caps
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         let rule_content = caps.get(2).map(|m| m.as_str().to_string());
         if tool_name.is_empty() {
             return PermissionRuleValue {
@@ -212,7 +214,10 @@ pub fn permission_rule_value_from_string(rule_string: &str) -> PermissionRuleVal
                 rule_content: None,
             };
         }
-        PermissionRuleValue { tool_name, rule_content }
+        PermissionRuleValue {
+            tool_name,
+            rule_content,
+        }
     } else {
         PermissionRuleValue {
             tool_name: rule_string.to_string(),
@@ -361,12 +366,15 @@ pub async fn detect_worktree_main_repo_path(cwd: &str) -> Option<String> {
     let caps = re.captures(&content)?;
     let gitdir_raw = caps.get(1)?.as_str().trim();
     let gitdir = if Path::new(gitdir_raw).is_relative() {
-        Path::new(cwd).join(gitdir_raw).to_string_lossy().to_string()
+        Path::new(cwd)
+            .join(gitdir_raw)
+            .to_string_lossy()
+            .to_string()
     } else {
         gitdir_raw.to_string()
     };
 
-    let marker = format!("{}/.git/worktrees/", std::path::MAIN_SEPARATOR);
+    let _marker = format!("{}/.git/worktrees/", std::path::MAIN_SEPARATOR);
     let marker_alt = "/.git/worktrees/";
     if let Some(idx) = gitdir.rfind(marker_alt) {
         Some(gitdir[..idx].to_string())
@@ -408,9 +416,7 @@ pub mod sandbox_trait_aliases {
 
 /// 对应 TS `convertToMossenSandboxRuntimeConfig`：把通用 sandbox 配置转换为
 /// Mossen 内部的运行时配置 JSON。当前实现透传 raw。
-pub fn convert_to_mossen_sandbox_runtime_config(
-    raw: serde_json::Value,
-) -> serde_json::Value {
+pub fn convert_to_mossen_sandbox_runtime_config(raw: serde_json::Value) -> serde_json::Value {
     raw
 }
 

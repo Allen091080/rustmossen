@@ -70,7 +70,7 @@ pub fn generate_temp_file_path(
     };
 
     let temp_dir = temp_dir();
-    let file_name = format!("{}-{}-{}{}", prefix, id, id, extension);
+    let _file_name = format!("{}-{}-{}{}", prefix, id, id, extension);
 
     // Actually we want just the id without duplication
     let file_name = format!("{}-{}{}", prefix, id, extension);

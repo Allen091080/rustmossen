@@ -4,10 +4,8 @@
 //! system prompt assembly, 2-stage XML classifier, and the main
 //! `classify_yolo_action` entry point.
 
-use std::collections::HashMap;
-
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 use super::permission_result::ToolPermissionContext;
 
@@ -17,8 +15,13 @@ use super::permission_result::ToolPermissionContext;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TranscriptBlock {
-    Text { text: String },
-    ToolUse { name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        name: String,
+        input: serde_json::Value,
+    },
 }
 
 /// A single entry in the classifier transcript.
@@ -124,9 +127,16 @@ pub const POWERSHELL_DENY_GUIDANCE: &[&str] = &[
 /// Message type for building transcripts.
 #[derive(Debug, Clone)]
 pub enum Message {
-    User { content: MessageContent },
-    Assistant { content: Vec<AssistantBlock> },
-    Attachment { attachment_type: String, prompt: MessageContent },
+    User {
+        content: MessageContent,
+    },
+    Assistant {
+        content: Vec<AssistantBlock>,
+    },
+    Attachment {
+        attachment_type: String,
+        prompt: MessageContent,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +153,13 @@ pub struct ContentBlock {
 
 #[derive(Debug, Clone)]
 pub enum AssistantBlock {
-    Text { text: String },
-    ToolUse { name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        name: String,
+        input: serde_json::Value,
+    },
 }
 
 /// Build transcript entries from messages for the classifier.
@@ -153,7 +168,10 @@ pub fn build_transcript_entries(messages: &[Message]) -> Vec<TranscriptEntry> {
 
     for msg in messages {
         match msg {
-            Message::Attachment { attachment_type, prompt } if attachment_type == "queued_command" => {
+            Message::Attachment {
+                attachment_type,
+                prompt,
+            } if attachment_type == "queued_command" => {
                 let text = match prompt {
                     MessageContent::Text(s) => Some(s.clone()),
                     MessageContent::Blocks(blocks) => {
@@ -199,12 +217,10 @@ pub fn build_transcript_entries(messages: &[Message]) -> Vec<TranscriptEntry> {
                 let blocks: Vec<TranscriptBlock> = content
                     .iter()
                     .filter_map(|b| match b {
-                        AssistantBlock::ToolUse { name, input } => {
-                            Some(TranscriptBlock::ToolUse {
-                                name: name.clone(),
-                                input: input.clone(),
-                            })
-                        }
+                        AssistantBlock::ToolUse { name, input } => Some(TranscriptBlock::ToolUse {
+                            name: name.clone(),
+                            input: input.clone(),
+                        }),
                         _ => None,
                     })
                     .collect();
@@ -235,7 +251,11 @@ pub fn to_compact_block(
                 Some(s) if s.is_empty() => String::new(),
                 Some(s) => {
                     if jsonl {
-                        format!("{{{:?}:{}}}\n", name, serde_json::to_string(&s).unwrap_or_default())
+                        format!(
+                            "{{{:?}:{}}}\n",
+                            name,
+                            serde_json::to_string(&s).unwrap_or_default()
+                        )
                     } else {
                         format!("{} {}\n", name, s)
                     }
@@ -252,7 +272,10 @@ pub fn to_compact_block(
         }
         TranscriptBlock::Text { text } if role == "user" => {
             if jsonl {
-                format!("{{\"user\":{}}}\n", serde_json::to_string(text).unwrap_or_default())
+                format!(
+                    "{{\"user\":{}}}\n",
+                    serde_json::to_string(text).unwrap_or_default()
+                )
             } else {
                 format!("User: {}\n", text)
             }
@@ -292,8 +315,7 @@ pub fn build_transcript_for_classifier(
 fn strip_thinking(text: &str) -> String {
     static THINKING_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?s)<thinking>.*?</thinking>").unwrap());
-    static THINKING_OPEN: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?s)<thinking>.*$").unwrap());
+    static THINKING_OPEN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)<thinking>.*$").unwrap());
     let s = THINKING_RE.replace_all(text, "");
     THINKING_OPEN.replace_all(&s, "").to_string()
 }
@@ -303,9 +325,9 @@ pub fn parse_xml_block(text: &str) -> Option<bool> {
     static BLOCK_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?i)<block>(yes|no)\b(</block>)?").unwrap());
     let cleaned = strip_thinking(text);
-    BLOCK_RE.captures(&cleaned).map(|cap| {
-        cap.get(1).unwrap().as_str().to_lowercase() == "yes"
-    })
+    BLOCK_RE
+        .captures(&cleaned)
+        .map(|cap| cap.get(1).unwrap().as_str().to_lowercase() == "yes")
 }
 
 /// Parse XML reason: <reason>...</reason>.
@@ -377,7 +399,7 @@ pub fn build_yolo_system_prompt(
     _context: &ToolPermissionContext,
     config: &SystemPromptConfig,
 ) -> String {
-    let using_external = config.user_type != "ant" || config.force_external_permissions;
+    let using_external = config.user_type != "internal" || config.force_external_permissions;
 
     let permissions_template = if using_external {
         &config.external_permissions_template
@@ -532,9 +554,8 @@ pub struct ClassifierConfig {
 }
 
 /// Side query function type for making API calls.
-pub type SideQueryFn = Box<
-    dyn Fn(SideQueryRequest) -> Result<SideQueryResponse, ClassifierError> + Send + Sync,
->;
+pub type SideQueryFn =
+    Box<dyn Fn(SideQueryRequest) -> Result<SideQueryResponse, ClassifierError> + Send + Sync>;
 
 pub struct SideQueryRequest {
     pub model: String,
@@ -557,7 +578,10 @@ pub struct SideQueryResponse {
 #[derive(Debug)]
 pub enum ClassifierError {
     Aborted,
-    PromptTooLong { actual_tokens: u64, limit_tokens: u64 },
+    PromptTooLong {
+        actual_tokens: u64,
+        limit_tokens: u64,
+    },
     ApiError(String),
 }
 
@@ -671,7 +695,7 @@ pub fn classify_yolo_action(
 fn classify_yolo_action_xml(
     system_prompt: &str,
     user_prompt: &str,
-    action_compact: &str,
+    _action_compact: &str,
     model: &str,
     prompt_lengths: &PromptLengths,
     mode: TwoStageMode,
@@ -828,7 +852,8 @@ fn classify_yolo_action_xml(
 
             YoloClassifierResult {
                 should_block: block.unwrap(),
-                reason: parse_xml_reason(&response.content).unwrap_or_else(|| "No reason provided".to_string()),
+                reason: parse_xml_reason(&response.content)
+                    .unwrap_or_else(|| "No reason provided".to_string()),
                 model: Some(model.to_string()),
                 unavailable: false,
                 transcript_too_long: false,
@@ -856,7 +881,7 @@ fn classify_yolo_action_xml(
 fn classify_yolo_action_tool_use(
     system_prompt: &str,
     user_prompt: &str,
-    action_compact: &str,
+    _action_compact: &str,
     model: &str,
     prompt_lengths: &PromptLengths,
     side_query: &SideQueryFn,
@@ -896,9 +921,19 @@ fn classify_yolo_action_tool_use(
             let parsed: Option<serde_json::Value> = serde_json::from_str(&response.content).ok();
             match parsed {
                 Some(value) => {
-                    let should_block = value.get("shouldBlock").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let reason = value.get("reason").and_then(|v| v.as_str()).unwrap_or("No reason provided").to_string();
-                    let thinking = value.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let should_block = value
+                        .get("shouldBlock")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    let reason = value
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("No reason provided")
+                        .to_string();
+                    let thinking = value
+                        .get("thinking")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     YoloClassifierResult {
                         should_block,
                         reason,
@@ -988,7 +1023,11 @@ fn handle_classifier_error(
             duration_ms: None,
             error_dump_path: None,
             prompt_lengths: Some(prompt_lengths.clone()),
-            stage: if stage1_usage.is_some() { Some("thinking".to_string()) } else { None },
+            stage: if stage1_usage.is_some() {
+                Some("thinking".to_string())
+            } else {
+                None
+            },
             stage1_usage: None,
             stage1_duration_ms: None,
             stage1_request_id: None,
@@ -1013,7 +1052,11 @@ fn handle_classifier_error(
             duration_ms: None,
             error_dump_path: None,
             prompt_lengths: Some(prompt_lengths.clone()),
-            stage: if stage1_usage.is_some() { Some("thinking".to_string()) } else { None },
+            stage: if stage1_usage.is_some() {
+                Some("thinking".to_string())
+            } else {
+                None
+            },
             stage1_usage: None,
             stage1_duration_ms: None,
             stage1_request_id: None,
@@ -1029,7 +1072,11 @@ fn handle_classifier_error(
 /// 对应 TS `getAutoModeClassifierErrorDumpPath`：classifier 出错时的 dump 路径。
 pub fn get_auto_mode_classifier_error_dump_path() -> std::path::PathBuf {
     dirs::home_dir()
-        .map(|h| h.join(".mossen").join("logs").join("auto-mode-classifier-error.json"))
+        .map(|h| {
+            h.join(".mossen")
+                .join("logs")
+                .join("auto-mode-classifier-error.json")
+        })
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp/auto-mode-classifier-error.json"))
 }
 

@@ -46,7 +46,10 @@ pub struct SecureStorageResult {
 /// Trait abstracting settings read/write.
 pub trait SettingsProvider: Send + Sync {
     fn get_plugin_configs(&self) -> HashMap<String, PluginConfigEntry>;
-    fn update_plugin_configs(&self, configs: HashMap<String, PluginConfigEntry>) -> Result<(), anyhow::Error>;
+    fn update_plugin_configs(
+        &self,
+        configs: HashMap<String, PluginConfigEntry>,
+    ) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -134,8 +137,10 @@ pub fn save_plugin_options(
         }
     }
 
-    let sensitive_keys_in_save: std::collections::HashSet<String> = sensitive.keys().cloned().collect();
-    let non_sensitive_keys_in_save: std::collections::HashSet<String> = non_sensitive.keys().cloned().collect();
+    let sensitive_keys_in_save: std::collections::HashSet<String> =
+        sensitive.keys().cloned().collect();
+    let non_sensitive_keys_in_save: std::collections::HashSet<String> =
+        non_sensitive.keys().cloned().collect();
 
     // secureStorage FIRST — if keychain fails, throw before touching settings
     let existing_secure = secure_storage.read();
@@ -145,13 +150,14 @@ pub fn save_plugin_options(
         .and_then(|s| s.get(plugin_id))
         .cloned();
 
-    let secure_scrubbed: Option<HashMap<String, String>> = existing_in_secure.as_ref().map(|existing| {
-        existing
-            .iter()
-            .filter(|(k, _)| !non_sensitive_keys_in_save.contains(k.as_str()))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    });
+    let secure_scrubbed: Option<HashMap<String, String>> =
+        existing_in_secure.as_ref().map(|existing| {
+            existing
+                .iter()
+                .filter(|(k, _)| !non_sensitive_keys_in_save.contains(k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        });
 
     let need_secure_scrub = match (&secure_scrubbed, &existing_in_secure) {
         (Some(scrubbed), Some(existing)) => scrubbed.len() != existing.len(),
@@ -330,7 +336,10 @@ pub fn substitute_plugin_variables(
     let out = value.replace("${MOSSEN_PLUGIN_ROOT}", &normalize(plugin_path));
 
     if let Some(source) = plugin_source {
-        out.replace("${MOSSEN_PLUGIN_DATA}", &normalize(&get_plugin_data_dir(source)))
+        out.replace(
+            "${MOSSEN_PLUGIN_DATA}",
+            &normalize(&get_plugin_data_dir(source)),
+        )
     } else {
         out
     }

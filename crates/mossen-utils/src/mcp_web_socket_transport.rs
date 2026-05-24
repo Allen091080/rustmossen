@@ -132,9 +132,10 @@ impl WebSocketTransport {
         let json = serde_json::to_string(message)
             .map_err(|e| WebSocketTransportError::ParseError(e.to_string()))?;
 
-        self.ws.send_text(&json).await.map_err(|e| {
-            WebSocketTransportError::WebSocketError(e.to_string())
-        })?;
+        self.ws
+            .send_text(&json)
+            .await
+            .map_err(|e| WebSocketTransportError::WebSocketError(e.to_string()))?;
 
         Ok(())
     }

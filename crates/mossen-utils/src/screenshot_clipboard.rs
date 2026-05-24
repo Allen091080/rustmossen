@@ -4,7 +4,7 @@
 //! 将 ANSI 文本渲染为 PNG 并复制到系统剪贴板。
 //! 支持 macOS、Linux（xclip/xsel）和 Windows。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs;
 use tracing::error;
 
@@ -110,7 +110,14 @@ async fn copy_png_to_clipboard(png_path: &Path) -> ClipboardResult {
             // Linux: Try xclip first, then xsel
             let xclip_result = exec_file_no_throw_with_cwd(
                 "xclip",
-                &["-selection", "clipboard", "-t", "image/png", "-i", &png_path_str],
+                &[
+                    "-selection",
+                    "clipboard",
+                    "-t",
+                    "image/png",
+                    "-i",
+                    &png_path_str,
+                ],
                 ExecFileOptions {
                     timeout,
                     ..Default::default()

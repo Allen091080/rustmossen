@@ -2,11 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::{self, Duration, Interval};
+use tokio::time::{self, Duration};
 
-use crate::cron_tasks::{
-    CronJitterConfig, CronTask, DEFAULT_CRON_JITTER_CONFIG,
-};
+use crate::cron_tasks::{CronJitterConfig, CronTask, DEFAULT_CRON_JITTER_CONFIG};
 
 const CHECK_INTERVAL_MS: u64 = 1000;
 const FILE_STABILITY_MS: u64 = 300;
@@ -19,7 +17,9 @@ pub fn is_recurring_task_aged(task: &CronTask, now_ms: u64, max_age_ms: u64) -> 
     if max_age_ms == 0 {
         return false;
     }
-    task.recurring.unwrap_or(false) && !task.permanent.unwrap_or(false) && now_ms.saturating_sub(task.created_at) >= max_age_ms
+    task.recurring.unwrap_or(false)
+        && !task.permanent.unwrap_or(false)
+        && now_ms.saturating_sub(task.created_at) >= max_age_ms
 }
 
 /// Options for creating a cron scheduler.
@@ -78,7 +78,7 @@ impl CronScheduler {
         let is_owner = Arc::clone(&self.is_owner);
         let tasks = Arc::clone(&self.tasks);
         let next_fire_at = Arc::clone(&self.next_fire_at);
-        let missed_asked = Arc::clone(&self.missed_asked);
+        let _missed_asked = Arc::clone(&self.missed_asked);
         let in_flight = Arc::clone(&self.in_flight);
         let options = Arc::clone(&self.options);
 
@@ -116,15 +116,8 @@ impl CronScheduler {
                 // In a real implementation, would check getScheduledTasksEnabled()
                 // For now, enable immediately if assistant_mode
                 if options.assistant_mode {
-                    Self::enable_loop(
-                        stopped,
-                        is_owner,
-                        tasks,
-                        next_fire_at,
-                        in_flight,
-                        options,
-                    )
-                    .await;
+                    Self::enable_loop(stopped, is_owner, tasks, next_fire_at, in_flight, options)
+                        .await;
                     break;
                 }
             }
@@ -178,23 +171,16 @@ impl CronScheduler {
             if stopped.load(Ordering::SeqCst) {
                 break;
             }
-            Self::check(
-                &is_owner,
-                &tasks,
-                &next_fire_at,
-                &in_flight,
-                &options,
-            )
-            .await;
+            Self::check(&is_owner, &tasks, &next_fire_at, &in_flight, &options).await;
         }
     }
 
     async fn load_tasks(
         tasks: &Arc<Mutex<Vec<CronTask>>>,
-        options: &Arc<CronSchedulerOptions>,
-        initial: bool,
-        next_fire_at: &Arc<Mutex<HashMap<String, u64>>>,
-        in_flight: &Arc<Mutex<HashSet<String>>>,
+        _options: &Arc<CronSchedulerOptions>,
+        _initial: bool,
+        _next_fire_at: &Arc<Mutex<HashMap<String, u64>>>,
+        _in_flight: &Arc<Mutex<HashSet<String>>>,
     ) {
         // In a real implementation, would read from cronTasks file
         // For now, tasks are empty until populated externally
@@ -314,7 +300,11 @@ pub fn build_missed_task_notification(missed: &[CronTask]) -> String {
          Only execute if the user confirms.",
         if plural { "s were" } else { " was" },
         if plural { "They have" } else { "It has" },
-        if plural { "these prompts" } else { "this prompt" },
+        if plural {
+            "these prompts"
+        } else {
+            "this prompt"
+        },
         if plural { "each one" } else { "it" },
     );
 
@@ -327,10 +317,7 @@ pub fn build_missed_task_notification(missed: &[CronTask]) -> String {
                 format_timestamp(t.created_at)
             );
             // Use a fence one longer than any backtick run in the prompt
-            let longest_run = t
-                .prompt
-                .matches('`')
-                .fold(0usize, |max, _| max.max(1));
+            let _longest_run = t.prompt.matches('`').fold(0usize, |max, _| max.max(1));
             let mut run_length = 0usize;
             let mut current_run = 0usize;
             for ch in t.prompt.chars() {

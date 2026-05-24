@@ -9,10 +9,7 @@ use async_trait::async_trait;
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
 /// Supported language tags.
-const SUPPORTED_LANGUAGES: &[(&str, &str)] = &[
-    ("en", "English"),
-    ("zh", "中文"),
-];
+const SUPPORTED_LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("zh", "中文")];
 
 /// Resolve the language preference from user input.
 fn resolve_language_command(args: &str) -> Option<Option<&str>> {

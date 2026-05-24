@@ -5,6 +5,8 @@
 use regex::Regex;
 use std::path::Path;
 
+use mossen_utils::string_utils::{safe_prefix_by_bytes, truncate_chars_with_suffix};
+
 /// Maximum image file size to attempt reading (20 MB).
 const MAX_IMAGE_FILE_SIZE: u64 = 20 * 1024 * 1024;
 
@@ -61,10 +63,7 @@ pub fn parse_data_uri(s: &str) -> Option<DataUri> {
 
 /// Build an image tool_result block from shell stdout containing a data URI.
 /// Returns None if parse fails so callers can fall through to text handling.
-pub fn build_image_tool_result(
-    stdout: &str,
-    tool_use_id: &str,
-) -> Option<serde_json::Value> {
+pub fn build_image_tool_result(stdout: &str, tool_use_id: &str) -> Option<serde_json::Value> {
     let parsed = parse_data_uri(stdout)?;
     Some(serde_json::json!({
         "tool_use_id": tool_use_id,
@@ -116,7 +115,17 @@ pub struct FormattedOutput {
 
 /// Count occurrences of a character in a string, optionally starting from a byte offset.
 fn count_char_in_string(s: &str, ch: char, start_byte: usize) -> usize {
-    s[start_byte..].chars().filter(|&c| c == ch).count()
+    let start = if start_byte >= s.len() {
+        s.len()
+    } else if s.is_char_boundary(start_byte) {
+        start_byte
+    } else {
+        s.char_indices()
+            .map(|(idx, _)| idx)
+            .find(|idx| *idx > start_byte)
+            .unwrap_or(s.len())
+    };
+    s[start..].chars().filter(|&c| c == ch).count()
 }
 
 /// Format output with truncation if necessary.
@@ -139,8 +148,8 @@ pub fn format_output(content: &str) -> FormattedOutput {
         };
     }
 
-    let truncated_part = &content[..max_output_length];
-    let remaining_lines = count_char_in_string(content, '\n', max_output_length) + 1;
+    let truncated_part = safe_prefix_by_bytes(content, max_output_length);
+    let remaining_lines = count_char_in_string(content, '\n', truncated_part.len()) + 1;
     let truncated = format!(
         "{}\n\n... [{} lines truncated] ...",
         truncated_part, remaining_lines
@@ -188,11 +197,7 @@ pub fn create_content_summary(content: &[serde_json::Value]) -> String {
             "text" => {
                 text_count += 1;
                 if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                    let preview = if text.len() > 200 {
-                        format!("{}...", &text[..200])
-                    } else {
-                        text.to_string()
-                    };
+                    let preview = truncate_chars_with_suffix(text, 200, "...");
                     parts.push(preview);
                 }
             }

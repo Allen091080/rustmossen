@@ -80,8 +80,16 @@ pub fn use_plugin_installation_status(
         return None;
     }
     let Some(s) = status else { return None };
-    let failed_marketplaces = s.marketplace_statuses.iter().filter(|&&st| st == PluginInstallStatus::Failed).count();
-    let failed_plugins = s.plugin_statuses.iter().filter(|&&st| st == PluginInstallStatus::Failed).count();
+    let failed_marketplaces = s
+        .marketplace_statuses
+        .iter()
+        .filter(|&&st| st == PluginInstallStatus::Failed)
+        .count();
+    let failed_plugins = s
+        .plugin_statuses
+        .iter()
+        .filter(|&&st| st == PluginInstallStatus::Failed)
+        .count();
     let total = failed_marketplaces + failed_plugins;
     if total == 0 {
         return None;

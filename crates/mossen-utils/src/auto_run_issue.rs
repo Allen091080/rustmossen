@@ -30,14 +30,14 @@ impl AutoRunIssueReason {
     }
 }
 
-/// Build flavor — `"ant"` for internal builds, anything else (typically
+/// Build flavor — `"internal"` for internal builds, anything else (typically
 /// `"external"`) for public builds. The TS code compares against the
 /// literal `"external"` after a cast; the Rust port keeps the same gating
 /// signal via `USER_TYPE` env var, which is how the running flavor is
 /// already plumbed elsewhere.
-fn is_ant_build() -> bool {
+fn is_internal_build() -> bool {
     std::env::var("USER_TYPE")
-        .map(|v| v == "ant")
+        .map(|v| v == "internal")
         .unwrap_or(false)
 }
 
@@ -48,7 +48,7 @@ fn is_ant_build() -> bool {
 /// in place so build flavors that flip this on can do so by editing the
 /// table below rather than searching for call sites.
 pub fn should_auto_run_issue(reason: AutoRunIssueReason) -> bool {
-    if !is_ant_build() {
+    if !is_internal_build() {
         return false;
     }
     match reason {
@@ -59,10 +59,10 @@ pub fn should_auto_run_issue(reason: AutoRunIssueReason) -> bool {
 
 /// Returns the slash command to auto-run for the given reason.
 ///
-/// Ant builds get `/good-mossen` for "good" feedback; everything else
+/// Internal builds get `/good-mossen` for "good" feedback; everything else
 /// (and "bad" feedback in any build) gets `/issue`.
 pub fn get_auto_run_command(reason: AutoRunIssueReason) -> &'static str {
-    if is_ant_build() && matches!(reason, AutoRunIssueReason::FeedbackSurveyGood) {
+    if is_internal_build() && matches!(reason, AutoRunIssueReason::FeedbackSurveyGood) {
         "/good-mossen"
     } else {
         "/issue"

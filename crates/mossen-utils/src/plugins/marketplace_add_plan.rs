@@ -4,7 +4,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 
 use super::schemas::MarketplaceSource;
 
@@ -36,8 +35,12 @@ pub enum PluginMarketplaceAddPlanError {
 
 #[derive(Debug, Clone)]
 pub enum PluginMarketplaceAddPlanResult {
-    Ok { plan: PluginMarketplaceAddPlan },
-    Err { error: PluginMarketplaceAddPlanError },
+    Ok {
+        plan: PluginMarketplaceAddPlan,
+    },
+    Err {
+        error: PluginMarketplaceAddPlanError,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +80,7 @@ fn prune_expired_plans() {
 }
 
 fn create_token() -> String {
-    let mut store = PLAN_STORE.lock().unwrap();
+    let store = PLAN_STORE.lock().unwrap();
     loop {
         let token = hex::encode(rand::random::<[u8; 4]>());
         if !store.contains_key(&token) {
@@ -89,7 +92,9 @@ fn create_token() -> String {
 /// Create a marketplace add plan from user input.
 pub async fn get_plugin_marketplace_add_plan(
     input: Option<&str>,
-    parse_marketplace_input: impl std::future::Future<Output = Result<Option<MarketplaceSource>, String>>,
+    parse_marketplace_input: impl std::future::Future<
+        Output = Result<Option<MarketplaceSource>, String>,
+    >,
     get_marketplace_source_display: impl Fn(&MarketplaceSource) -> String,
 ) -> PluginMarketplaceAddPlanResult {
     prune_expired_plans();
@@ -109,7 +114,9 @@ pub async fn get_plugin_marketplace_add_plan(
         Ok(None) => {
             return PluginMarketplaceAddPlanResult::Err {
                 error: PluginMarketplaceAddPlanError::InvalidSource {
-                    message: "Invalid marketplace source format. Try: owner/repo, https://..., or ./path".to_string(),
+                    message:
+                        "Invalid marketplace source format. Try: owner/repo, https://..., or ./path"
+                            .to_string(),
                 },
             };
         }
@@ -136,7 +143,9 @@ pub async fn get_plugin_marketplace_add_plan(
 /// Execute a marketplace add plan by token.
 pub async fn execute_plugin_marketplace_add_plan(
     token: &str,
-    add_marketplace_source: impl std::future::Future<Output = Result<AddMarketplaceResult, anyhow::Error>>,
+    add_marketplace_source: impl std::future::Future<
+        Output = Result<AddMarketplaceResult, anyhow::Error>,
+    >,
     save_marketplace_to_settings: impl Fn(&str, &MarketplaceSource),
     clear_all_caches: impl Fn(),
 ) -> PluginMarketplaceAddExecuteResult {

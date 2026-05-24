@@ -20,7 +20,7 @@ pub fn get_next_permission_mode(
     match tool_permission_context.mode {
         PermissionMode::Default => {
             // Ants skip acceptEdits and plan — auto mode replaces them
-            if user_type == "ant" {
+            if user_type == "internal" {
                 if tool_permission_context.is_bypass_permissions_mode_available {
                     return PermissionMode::BypassPermissions;
                 }

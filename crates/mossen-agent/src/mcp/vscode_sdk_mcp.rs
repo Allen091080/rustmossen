@@ -17,11 +17,10 @@ pub enum AutoModeEnabledState {
 }
 
 /// Read auto mode enabled state from feature config.
-pub fn read_auto_mode_enabled_state(config: Option<&serde_json::Value>) -> Option<AutoModeEnabledState> {
-    let v = config?
-        .as_object()?
-        .get("enabled")?
-        .as_str()?;
+pub fn read_auto_mode_enabled_state(
+    config: Option<&serde_json::Value>,
+) -> Option<AutoModeEnabledState> {
+    let v = config?.as_object()?.get("enabled")?.as_str()?;
     match v {
         "enabled" => Some(AutoModeEnabledState::Enabled),
         "disabled" => Some(AutoModeEnabledState::Disabled),
@@ -65,9 +64,9 @@ impl VscodeSdkMcp {
         file_path: &str,
         old_content: Option<&str>,
         new_content: Option<&str>,
-        is_ant_user: bool,
+        is_internal_user: bool,
     ) {
-        if !is_ant_user {
+        if !is_internal_user {
             return;
         }
 
@@ -79,10 +78,7 @@ impl VscodeSdkMcp {
                 "newContent": new_content,
             });
             if let Err(e) = c.send_notification("file_updated", params).await {
-                tracing::debug!(
-                    "[VSCode] Failed to send file_updated notification: {}",
-                    e
-                );
+                tracing::debug!("[VSCode] Failed to send file_updated notification: {}", e);
             }
         }
     }
@@ -113,7 +109,7 @@ impl VscodeSdkMcp {
                 AutoModeEnabledState::OptIn => "opt-in",
             };
             gates.insert(
-                "tengu_auto_mode_state".to_string(),
+                "mossen_auto_mode_state".to_string(),
                 serde_json::Value::String(state_str.to_string()),
             );
         }

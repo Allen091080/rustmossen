@@ -134,8 +134,13 @@ pub fn tool_matches_name(name: &str, tool_name: &str, aliases: &[String]) -> boo
 }
 
 /// 从工具列表中按名称查找。
-pub fn find_tool_by_name<'a>(tools: &'a [ToolDefinition], name: &str) -> Option<&'a ToolDefinition> {
-    tools.iter().find(|t| tool_matches_name(name, &t.name, &t.aliases))
+pub fn find_tool_by_name<'a>(
+    tools: &'a [ToolDefinition],
+    name: &str,
+) -> Option<&'a ToolDefinition> {
+    tools
+        .iter()
+        .find(|t| tool_matches_name(name, &t.name, &t.aliases))
 }
 
 /// 工具定义。
@@ -174,9 +179,7 @@ pub struct McpToolInfo {
 }
 
 /// 过滤工具进度消息（排除 hook 进度）。
-pub fn filter_tool_progress_messages(
-    messages: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
+pub fn filter_tool_progress_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
     messages
         .iter()
         .filter(|msg| {
@@ -214,10 +217,7 @@ pub fn get_all_tool_names() -> Vec<&'static str> {
 
 /// 根据特性标志获取活跃工具名称。
 pub fn get_active_tool_names() -> Vec<String> {
-    let mut tools: Vec<String> = get_all_tool_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut tools: Vec<String> = get_all_tool_names().iter().map(|s| s.to_string()).collect();
 
     // 条件工具
     if std::env::var("MOSSEN_PROACTIVE").ok().as_deref() == Some("1") {
@@ -346,10 +346,7 @@ pub enum TokenWarningState {
 }
 
 /// 计算 token 警告状态。
-pub fn calculate_token_warning_state(
-    input_tokens: u64,
-    context_window: u64,
-) -> TokenWarningState {
+pub fn calculate_token_warning_state(input_tokens: u64, context_window: u64) -> TokenWarningState {
     let ratio = input_tokens as f64 / context_window as f64;
     if ratio > 0.9 {
         TokenWarningState::Critical
@@ -576,11 +573,7 @@ async fn find_git_root(cwd: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        Some(
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .to_string(),
-        )
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         None
     }
@@ -612,7 +605,10 @@ pub async fn pre_flight_checks() -> anyhow::Result<()> {
     // 检查终端大小
     if let Ok((cols, _rows)) = crossterm::terminal::size() {
         if cols < 40 {
-            tracing::warn!(cols = cols, "Terminal width very small, may cause display issues");
+            tracing::warn!(
+                cols = cols,
+                "Terminal width very small, may cause display issues"
+            );
         }
     }
 

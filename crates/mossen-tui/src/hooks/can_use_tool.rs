@@ -1,4 +1,4 @@
-//! Can-use-tool permission check (useCanUseTool.tsx).
+//! Can-use-tool permission check.
 //!
 //! Determines whether the current user/session can use a specific tool,
 //! checking feature flags, permission mode, and tool allowlists.

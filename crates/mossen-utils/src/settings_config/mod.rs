@@ -146,7 +146,7 @@ pub const EDITABLE_SOURCES: &[SettingSource] = &[
 
 /// The JSON Schema URL for Mossen settings.
 pub const MOSSEN_CODE_SETTINGS_SCHEMA_URL: &str =
-    "https://schemas.mossen.invalid/mossen-code-settings.json";
+    "https://schemas.mossen.invalid/cli-settings.json";
 
 // ============================================================================
 // types.ts
@@ -611,7 +611,7 @@ pub fn is_mcp_server_url_entry(entry: &AllowedMcpServerEntry) -> bool {
 /// Get the path to the managed settings directory based on the current platform.
 pub fn get_managed_file_path() -> PathBuf {
     if let Ok(path) = std::env::var("MOSSEN_CODE_MANAGED_SETTINGS_PATH") {
-        if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+        if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
             return PathBuf::from(path);
         }
     }
@@ -818,9 +818,7 @@ pub fn get_custom_validation(tool_name: &str, content: &str) -> Option<ToolValid
             if content.contains("://") || content.starts_with("http") {
                 Some(ToolValidationResult {
                     valid: false,
-                    error: Some(
-                        "WebFetch permissions use domain format, not URLs".to_string(),
-                    ),
+                    error: Some("WebFetch permissions use domain format, not URLs".to_string()),
                     suggestion: Some("Use \"domain:hostname\" format".to_string()),
                     examples: Some(vec![
                         "WebFetch(domain:example.com)".to_string(),
@@ -830,9 +828,7 @@ pub fn get_custom_validation(tool_name: &str, content: &str) -> Option<ToolValid
             } else if !content.starts_with("domain:") {
                 Some(ToolValidationResult {
                     valid: false,
-                    error: Some(
-                        "WebFetch permissions must use \"domain:\" prefix".to_string(),
-                    ),
+                    error: Some("WebFetch permissions must use \"domain:\" prefix".to_string()),
                     suggestion: Some("Use \"domain:hostname\" format".to_string()),
                     examples: Some(vec![
                         "WebFetch(domain:example.com)".to_string(),
@@ -949,7 +945,8 @@ pub fn get_validation_tip(ctx: &TipContext) -> Option<ValidationTip> {
     if ctx.code == "invalid_type" && ctx.expected.as_deref() == Some("boolean") {
         return Some(ValidationTip {
             suggestion: Some(
-                "Use true or false without quotes. Example: \"includeCoAuthoredBy\": true".to_string(),
+                "Use true or false without quotes. Example: \"includeCoAuthoredBy\": true"
+                    .to_string(),
             ),
             doc_link: None,
         });
@@ -1110,11 +1107,7 @@ pub fn validate_permission_rule(rule: &str) -> ToolValidationResult {
 
     // Check for empty parentheses (escape-aware)
     if has_unescaped_empty_parens(rule) {
-        let tool_name = rule
-            .find('(')
-            .map(|i| &rule[..i])
-            .unwrap_or("")
-            .to_string();
+        let tool_name = rule.find('(').map(|i| &rule[..i]).unwrap_or("").to_string();
         if tool_name.is_empty() {
             return ToolValidationResult {
                 valid: false,
@@ -1376,10 +1369,7 @@ pub fn validate_settings_file_content(content: &str) -> Result<(), (String, Stri
 }
 
 /// Filter invalid permission rules from raw parsed JSON data before schema validation.
-pub fn filter_invalid_permission_rules(
-    data: &mut Value,
-    file_path: &str,
-) -> Vec<ValidationError> {
+pub fn filter_invalid_permission_rules(data: &mut Value, file_path: &str) -> Vec<ValidationError> {
     let mut warnings = Vec::new();
     if let Some(obj) = data.as_object_mut() {
         if let Some(perms) = obj.get_mut("permissions") {
@@ -1490,7 +1480,7 @@ pub fn get_macos_plist_paths() -> Vec<(String, String)> {
         "device-level managed preferences".to_string(),
     ));
 
-    if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
         if let Some(home) = dirs::home_dir() {
             paths.push((
                 home.join("Library")
@@ -1498,7 +1488,7 @@ pub fn get_macos_plist_paths() -> Vec<(String, String)> {
                     .join(format!("{}.plist", MACOS_PREFERENCE_DOMAIN))
                     .to_string_lossy()
                     .to_string(),
-                "user preferences (ant-only)".to_string(),
+                "user preferences (internal-only)".to_string(),
             ));
         }
     }
@@ -1508,7 +1498,9 @@ pub fn get_macos_plist_paths() -> Vec<(String, String)> {
 
 /// Get the current username on Unix systems.
 fn nix_username() -> Result<String, String> {
-    std::env::var("USER").or_else(|_| std::env::var("LOGNAME")).map_err(|e| e.to_string())
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -1565,23 +1557,35 @@ pub async fn fire_raw_read() -> RawReadResult {
 
     if cfg!(target_os = "windows") {
         let hklm = tokio::process::Command::new("reg")
-            .args(["query", WINDOWS_REGISTRY_KEY_PATH_HKLM, "/v", WINDOWS_REGISTRY_VALUE_NAME])
+            .args([
+                "query",
+                WINDOWS_REGISTRY_KEY_PATH_HKLM,
+                "/v",
+                WINDOWS_REGISTRY_VALUE_NAME,
+            ])
             .output()
             .await;
 
         let hkcu = tokio::process::Command::new("reg")
-            .args(["query", WINDOWS_REGISTRY_KEY_PATH_HKCU, "/v", WINDOWS_REGISTRY_VALUE_NAME])
+            .args([
+                "query",
+                WINDOWS_REGISTRY_KEY_PATH_HKCU,
+                "/v",
+                WINDOWS_REGISTRY_VALUE_NAME,
+            ])
             .output()
             .await;
 
         return RawReadResult {
             plist_stdouts: None,
-            hklm_stdout: hklm.ok().filter(|o| o.status.success()).map(|o| {
-                String::from_utf8_lossy(&o.stdout).to_string()
-            }),
-            hkcu_stdout: hkcu.ok().filter(|o| o.status.success()).map(|o| {
-                String::from_utf8_lossy(&o.stdout).to_string()
-            }),
+            hklm_stdout: hklm
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
+            hkcu_stdout: hkcu
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string()),
         };
     }
 
@@ -1613,20 +1617,12 @@ static HKCU_CACHE: Lazy<Mutex<Option<MdmResult>>> = Lazy::new(|| Mutex::new(None
 
 /// Read admin-controlled MDM settings from the session cache.
 pub fn get_mdm_settings() -> MdmResult {
-    MDM_CACHE
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap_or_default()
+    MDM_CACHE.lock().unwrap().clone().unwrap_or_default()
 }
 
 /// Read HKCU registry settings.
 pub fn get_hkcu_settings() -> MdmResult {
-    HKCU_CACHE
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap_or_default()
+    HKCU_CACHE.lock().unwrap().clone().unwrap_or_default()
 }
 
 /// Clear MDM and HKCU settings caches.
@@ -1642,10 +1638,7 @@ pub fn set_mdm_settings_cache(mdm: MdmResult, hkcu: MdmResult) {
 }
 
 /// Parse command output as settings JSON.
-pub fn parse_command_output_as_settings(
-    stdout: &str,
-    source_path: &str,
-) -> MdmResult {
+pub fn parse_command_output_as_settings(stdout: &str, source_path: &str) -> MdmResult {
     let mut data: Value = match serde_json::from_str(stdout) {
         Ok(v) => v,
         Err(_) => return MdmResult::default(),
@@ -1685,11 +1678,7 @@ pub fn parse_command_output_as_settings(
 /// Parse reg query stdout to extract a registry string value.
 pub fn parse_reg_query_stdout(stdout: &str, value_name: &str) -> Option<String> {
     let escaped = regex::escape(value_name);
-    let re = Regex::new(&format!(
-        r"^\s+{}\s+REG_(?:EXPAND_)?SZ\s+(.*)$",
-        escaped
-    ))
-    .ok()?;
+    let re = Regex::new(&format!(r"^\s+{}\s+REG_(?:EXPAND_)?SZ\s+(.*)$", escaped)).ok()?;
 
     for line in stdout.lines() {
         if let Some(caps) = re.captures(line) {
@@ -1778,9 +1767,7 @@ fn has_managed_settings_file() -> bool {
             {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(data) = serde_json::from_str::<Value>(&content) {
-                        if data.is_object()
-                            && data.as_object().map_or(false, |o| !o.is_empty())
-                        {
+                        if data.is_object() && data.as_object().map_or(false, |o| !o.is_empty()) {
                             return true;
                         }
                     }
@@ -1806,10 +1793,7 @@ pub async fn refresh_mdm_settings() -> (MdmResult, MdmResult) {
 pub type CustomizationSurface = String;
 
 /// Check whether a customization surface is locked to plugin-only sources.
-pub fn is_restricted_to_plugin_only(
-    surface: &str,
-    policy_settings: Option<&SettingsJson>,
-) -> bool {
+pub fn is_restricted_to_plugin_only(surface: &str, policy_settings: Option<&SettingsJson>) -> bool {
     let policy = policy_settings.and_then(|s| s.strict_plugin_only_customization.as_ref());
     match policy {
         Some(Value::Bool(true)) => true,
@@ -2048,7 +2032,8 @@ pub fn get_settings_file_path_for_source(
 ) -> Option<String> {
     match source {
         SettingSource::UserSettings => {
-            let root = get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
+            let root =
+                get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
             let filename = if use_cowork {
                 "cowork_settings.json"
             } else {
@@ -2057,7 +2042,8 @@ pub fn get_settings_file_path_for_source(
             Some(root.join(filename).to_string_lossy().to_string())
         }
         SettingSource::ProjectSettings => {
-            let root = get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
+            let root =
+                get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
             Some(
                 root.join(".mossen")
                     .join("settings.json")
@@ -2066,7 +2052,8 @@ pub fn get_settings_file_path_for_source(
             )
         }
         SettingSource::LocalSettings => {
-            let root = get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
+            let root =
+                get_settings_root_path_for_source(source, config_home, cwd, flag_settings_path);
             Some(
                 root.join(".mossen")
                     .join("settings.local.json")
@@ -2074,9 +2061,11 @@ pub fn get_settings_file_path_for_source(
                     .to_string(),
             )
         }
-        SettingSource::PolicySettings => {
-            Some(get_managed_settings_file_path().to_string_lossy().to_string())
-        }
+        SettingSource::PolicySettings => Some(
+            get_managed_settings_file_path()
+                .to_string_lossy()
+                .to_string(),
+        ),
         SettingSource::FlagSettings => flag_settings_path.map(|p| p.to_string()),
     }
 }
@@ -2085,9 +2074,7 @@ pub fn get_settings_file_path_for_source(
 pub fn get_relative_settings_file_path_for_source(source: SettingSource) -> Option<PathBuf> {
     match source {
         SettingSource::ProjectSettings => Some(PathBuf::from(".mossen").join("settings.json")),
-        SettingSource::LocalSettings => {
-            Some(PathBuf::from(".mossen").join("settings.local.json"))
-        }
+        SettingSource::LocalSettings => Some(PathBuf::from(".mossen").join("settings.local.json")),
         _ => None,
     }
 }
@@ -2183,8 +2170,9 @@ pub fn update_settings_for_source(
                                     file_path
                                 ));
                             }
-                            Ok(raw) => serde_json::from_value::<SettingsJson>(raw)
-                                .unwrap_or_default(),
+                            Ok(raw) => {
+                                serde_json::from_value::<SettingsJson>(raw).unwrap_or_default()
+                            }
                         }
                     }
                 }
@@ -2217,7 +2205,10 @@ pub fn get_managed_settings_keys_for_logging(settings: &SettingsJson) -> Vec<Str
         None => return vec![],
     };
 
-    let keys_to_expand: HashSet<&str> = ["permissions", "sandbox", "hooks"].iter().copied().collect();
+    let keys_to_expand: HashSet<&str> = ["permissions", "sandbox", "hooks"]
+        .iter()
+        .copied()
+        .collect();
 
     let valid_nested_keys: HashMap<&str, HashSet<&str>> = {
         let mut m = HashMap::new();
@@ -2394,9 +2385,7 @@ pub fn has_skip_dangerous_mode_permission_prompt(
 }
 
 /// Returns true if any trusted settings source has accepted the auto mode opt-in.
-pub fn has_auto_mode_opt_in(
-    get_source: impl Fn(SettingSource) -> Option<SettingsJson>,
-) -> bool {
+pub fn has_auto_mode_opt_in(get_source: impl Fn(SettingSource) -> Option<SettingsJson>) -> bool {
     let sources = [
         SettingSource::UserSettings,
         SettingSource::LocalSettings,
@@ -2458,8 +2447,8 @@ pub fn get_auto_mode_config(
                     soft_deny.extend(sd.iter().cloned());
                 }
                 if let Some(d) = &auto_mode.deny {
-                    // ant back-compat
-                    if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+                    // internal back-compat
+                    if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
                         soft_deny.extend(d.iter().cloned());
                     }
                 }

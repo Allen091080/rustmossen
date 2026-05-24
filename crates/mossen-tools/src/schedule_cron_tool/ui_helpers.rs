@@ -1,5 +1,7 @@
 //! Text-mode mirror of `tools/ScheduleCronTool/UI.tsx`.
 
+use mossen_utils::string_utils::truncate_chars;
+
 /// `UI.tsx` `renderCreateToolUseMessage`.
 pub fn render_create_tool_use_message(schedule: Option<&str>, prompt: Option<&str>) -> String {
     let sched = schedule.unwrap_or("?");
@@ -36,14 +38,14 @@ pub fn render_list_tool_use_message() -> &'static str {
 
 /// `UI.tsx` `renderListResultMessage`.
 pub fn render_list_result_message(count: usize) -> String {
-    format!("Listed {} cron schedule{}", count, if count == 1 { "" } else { "s" })
+    format!(
+        "Listed {} cron schedule{}",
+        count,
+        if count == 1 { "" } else { "s" }
+    )
 }
 
 fn summarize(p: &str) -> String {
     const LIMIT: usize = 60;
-    if p.len() <= LIMIT {
-        p.to_string()
-    } else {
-        format!("{}…", &p[..LIMIT])
-    }
+    truncate_chars(p, LIMIT)
 }

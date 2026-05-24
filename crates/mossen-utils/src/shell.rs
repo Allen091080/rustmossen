@@ -55,8 +55,7 @@ pub fn is_executable(shell_path: &str) -> bool {
 pub async fn find_suitable_shell() -> Result<String, anyhow::Error> {
     // Check for explicit shell override
     if let Ok(shell_override) = std::env::var("MOSSEN_CODE_SHELL") {
-        let is_supported =
-            shell_override.contains("bash") || shell_override.contains("zsh");
+        let is_supported = shell_override.contains("bash") || shell_override.contains("zsh");
         if is_supported && is_executable(&shell_override) {
             return Ok(shell_override);
         }
@@ -120,7 +119,9 @@ pub async fn find_suitable_shell() -> Result<String, anyhow::Error> {
         }
     }
 
-    Err(anyhow!("No suitable shell found. Mossen requires a Posix shell environment."))
+    Err(anyhow!(
+        "No suitable shell found. Mossen requires a Posix shell environment."
+    ))
 }
 
 /// Execute a shell command.
@@ -244,17 +245,31 @@ pub struct BashShellProvider {
 
 impl Default for BashShellProvider {
     fn default() -> Self {
-        Self { shell_path: "/bin/bash".to_string() }
+        Self {
+            shell_path: "/bin/bash".to_string(),
+        }
     }
 }
 
 impl ShellProviderTrait for BashShellProvider {
-    fn shell_type(&self) -> ShellType { ShellType::Bash }
-    fn shell_path(&self) -> &str { &self.shell_path }
-    fn detached(&self) -> bool { false }
-    fn build_exec_command(&self, command: &str) -> String { command.to_string() }
+    fn shell_type(&self) -> ShellType {
+        ShellType::Bash
+    }
+    fn shell_path(&self) -> &str {
+        &self.shell_path
+    }
+    fn detached(&self) -> bool {
+        false
+    }
+    fn build_exec_command(&self, command: &str) -> String {
+        command.to_string()
+    }
     fn get_spawn_args(&self, command_string: &str) -> Vec<String> {
-        vec!["-c".to_string(), "-l".to_string(), command_string.to_string()]
+        vec![
+            "-c".to_string(),
+            "-l".to_string(),
+            command_string.to_string(),
+        ]
     }
 }
 
@@ -280,12 +295,24 @@ impl Default for PowerShellProvider {
 }
 
 impl ShellProviderTrait for PowerShellProvider {
-    fn shell_type(&self) -> ShellType { ShellType::PowerShell }
-    fn shell_path(&self) -> &str { &self.shell_path }
-    fn detached(&self) -> bool { false }
-    fn build_exec_command(&self, command: &str) -> String { command.to_string() }
+    fn shell_type(&self) -> ShellType {
+        ShellType::PowerShell
+    }
+    fn shell_path(&self) -> &str {
+        &self.shell_path
+    }
+    fn detached(&self) -> bool {
+        false
+    }
+    fn build_exec_command(&self, command: &str) -> String {
+        command.to_string()
+    }
     fn get_spawn_args(&self, command_string: &str) -> Vec<String> {
-        vec!["-NoProfile".to_string(), "-Command".to_string(), command_string.to_string()]
+        vec![
+            "-NoProfile".to_string(),
+            "-Command".to_string(),
+            command_string.to_string(),
+        ]
     }
 }
 
@@ -324,5 +351,8 @@ pub fn get_shell_config() -> ShellConfig {
     } else {
         ShellType::Bash
     };
-    ShellConfig { shell_path: path, shell_type }
+    ShellConfig {
+        shell_path: path,
+        shell_type,
+    }
 }

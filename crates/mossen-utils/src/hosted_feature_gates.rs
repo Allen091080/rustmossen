@@ -104,8 +104,12 @@ mod tests {
 
     #[test]
     fn test_placeholder_detection() {
-        assert!(is_placeholder_hosted_platform_url("https://platform.example"));
+        assert!(is_placeholder_hosted_platform_url(
+            "https://platform.example"
+        ));
         assert!(is_placeholder_hosted_platform_url("https://sub.example"));
-        assert!(!is_placeholder_hosted_platform_url("https://platform.mossen.invalid"));
+        assert!(!is_placeholder_hosted_platform_url(
+            "https://platform.mossen.invalid"
+        ));
     }
 }

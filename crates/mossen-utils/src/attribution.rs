@@ -36,11 +36,16 @@ const TERMINAL_OUTPUT_TAGS: &[&str] = &[
 /// Content block type for message analysis.
 #[derive(Debug, Clone)]
 pub enum ContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image,
     Document,
     ToolResult,
-    ToolUse { name: String, input: serde_json::Value },
+    ToolUse {
+        name: String,
+        input: serde_json::Value,
+    },
     Other,
 }
 
@@ -150,7 +155,7 @@ pub fn count_memory_file_access_from_entries(entries: &[MessageEntry]) -> usize 
 }
 
 /// Check if a tool use is a memory file access.
-fn is_memory_file_access(tool_name: &str, input: &serde_json::Value) -> bool {
+fn is_memory_file_access(_tool_name: &str, input: &serde_json::Value) -> bool {
     let file_path = input
         .get("file_path")
         .or_else(|| input.get("path"))
@@ -175,7 +180,7 @@ pub fn get_attribution_texts(
     custom_pr: Option<&str>,
     include_co_authored_by: Option<bool>,
 ) -> AttributionTexts {
-    if user_type == "ant" && is_undercover {
+    if user_type == "internal" && is_undercover {
         return AttributionTexts {
             commit: String::new(),
             pr: String::new(),
@@ -251,11 +256,11 @@ pub fn build_enhanced_pr_attribution(
 /// 对应 TS `getEnhancedPRAttribution`：根据用户类型、配置与 AppState 生成
 /// 增强版 PR 归属文本。
 ///
-/// Rust 端没有完整 `AppState`，调用方需预先聚合：是否 ant undercover、
+/// Rust 端没有完整 `AppState`，调用方需预先聚合：是否 internal undercover、
 /// 是否 remote、用户配置的 attribution（如果有）。函数按照 TS 优先级回退
 /// 到默认 `🤖 Generated with [Mossen](url)`。
 pub async fn get_enhanced_pr_attribution(
-    is_ant_undercover: bool,
+    is_internal_undercover: bool,
     is_remote: bool,
     remote_session_url: Option<String>,
     user_attribution: Option<String>,
@@ -263,7 +268,7 @@ pub async fn get_enhanced_pr_attribution(
     product_display_name: &str,
     product_url: &str,
 ) -> String {
-    if is_ant_undercover {
+    if is_internal_undercover {
         return String::new();
     }
     if is_remote {

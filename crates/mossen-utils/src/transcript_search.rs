@@ -21,17 +21,28 @@ fn rendered_as_sentinel() -> HashSet<&'static str> {
 /// Content block type for messages.
 #[derive(Debug, Clone)]
 pub enum ContentBlock {
-    Text { text: String },
-    ToolResult { content: serde_json::Value },
-    ToolUse { name: String, input: serde_json::Value },
-    Thinking { thinking: String },
+    Text {
+        text: String,
+    },
+    ToolResult {
+        content: serde_json::Value,
+    },
+    ToolUse {
+        name: String,
+        input: serde_json::Value,
+    },
+    Thinking {
+        thinking: String,
+    },
     Image,
 }
 
 /// Attachment data.
 #[derive(Debug, Clone)]
 pub enum AttachmentData {
-    RelevantMemories { memories: Vec<MemoryItem> },
+    RelevantMemories {
+        memories: Vec<MemoryItem>,
+    },
     QueuedCommand {
         prompt: PromptContent,
         command_mode: String,
@@ -131,9 +142,11 @@ fn compute_search_text(msg: &RenderableMessage) -> String {
             texts.join("\n")
         }
         RenderableMessage::Attachment { attachment } => match attachment {
-            AttachmentData::RelevantMemories { memories } => {
-                memories.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("\n")
-            }
+            AttachmentData::RelevantMemories { memories } => memories
+                .iter()
+                .map(|m| m.content.clone())
+                .collect::<Vec<_>>()
+                .join("\n"),
             AttachmentData::QueuedCommand {
                 prompt,
                 command_mode,
@@ -157,11 +170,13 @@ fn compute_search_text(msg: &RenderableMessage) -> String {
             }
             AttachmentData::Other => String::new(),
         },
-        RenderableMessage::CollapsedReadSearch {
-            relevant_memories,
-        } => {
+        RenderableMessage::CollapsedReadSearch { relevant_memories } => {
             if let Some(memories) = relevant_memories {
-                memories.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("\n")
+                memories
+                    .iter()
+                    .map(|m| m.content.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n")
             } else {
                 String::new()
             }
@@ -184,7 +199,11 @@ fn strip_system_reminders(text: &str) -> String {
             Some(pos) => open + pos,
             None => break,
         };
-        t = format!("{}{}", &t[..open], &t[close + SYSTEM_REMINDER_CLOSE.len()..]);
+        t = format!(
+            "{}{}",
+            &t[..open],
+            &t[close + SYSTEM_REMINDER_CLOSE.len()..]
+        );
     }
     t
 }
@@ -248,10 +267,7 @@ pub fn tool_result_search_text(r: &serde_json::Value) -> String {
 
     // Known shapes first
     if let Some(serde_json::Value::String(stdout)) = obj.get("stdout") {
-        let stderr = obj
-            .get("stderr")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let stderr = obj.get("stderr").and_then(|v| v.as_str()).unwrap_or("");
         return if stderr.is_empty() {
             stdout.clone()
         } else {

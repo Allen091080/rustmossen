@@ -1,7 +1,7 @@
 //! Mossen parity bridge — bridges canonical types to Mossen API format.
 
-use serde_json::Value;
 use super::canonical::{CanonicalStopReason, CanonicalStreamEvent, CanonicalUsage};
+use serde_json::Value;
 
 /// Convert a Mossen SSE stream event into a canonical stream event.
 pub fn map_mossen_sse_to_canonical(event_type: &str, data: &Value) -> Option<CanonicalStreamEvent> {

@@ -11,14 +11,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::schemas::{
-    InstalledPlugin, InstalledPluginsFileV1, InstalledPluginsFileV2,
-    PluginInstallationEntry, PluginScope,
+    InstalledPlugin, InstalledPluginsFileV1, InstalledPluginsFileV2, PluginInstallationEntry,
+    PluginScope,
 };
 
 /// Type alias for V2 plugins map
@@ -36,14 +35,8 @@ pub trait InstalledPluginsEnv: Send + Sync {
     fn get_cwd(&self) -> PathBuf;
     fn get_head_for_dir(&self, dir_path: &Path) -> Option<String>;
     fn get_settings_enabled_plugins(&self) -> HashMap<String, serde_json::Value>;
-    fn get_settings_for_source(
-        &self,
-        source: &str,
-    ) -> Option<HashMap<String, serde_json::Value>>;
-    fn get_plugin_by_id(
-        &self,
-        plugin_id: &str,
-    ) -> Option<MarketplacePluginInfo>;
+    fn get_settings_for_source(&self, source: &str) -> Option<HashMap<String, serde_json::Value>>;
+    fn get_plugin_by_id(&self, plugin_id: &str) -> Option<MarketplacePluginInfo>;
     fn parse_plugin_identifier(&self, plugin_id: &str) -> (Option<String>, Option<String>);
     fn setting_source_to_scope(&self, source: &str) -> PluginScope;
 
@@ -95,7 +88,8 @@ pub fn get_installed_plugins_file_path(env: &dyn InstalledPluginsEnv) -> PathBuf
 /// Get the path to the legacy installed_plugins_v2.json file.
 /// Used only during migration to consolidate into single file.
 pub fn get_installed_plugins_v2_file_path(env: &dyn InstalledPluginsEnv) -> PathBuf {
-    env.get_plugins_directory().join("installed_plugins_v2.json")
+    env.get_plugins_directory()
+        .join("installed_plugins_v2.json")
 }
 
 /// Clear the installed plugins cache.
@@ -162,12 +156,8 @@ pub fn migrate_to_single_plugin_file(env: &dyn InstalledPluginsEnv) {
                 match serde_json::from_value::<InstalledPluginsFileV1>(main_data) {
                     Ok(v1_data) => {
                         let v2_data = migrate_v1_to_v2(env, &v1_data);
-                        if let Ok(json_content) =
-                            serde_json::to_string_pretty(&v2_data)
-                        {
-                            if let Err(e) =
-                                env.write_file_sync(&main_file_path, &json_content)
-                            {
+                        if let Ok(json_content) = serde_json::to_string_pretty(&v2_data) {
+                            if let Err(e) = env.write_file_sync(&main_file_path, &json_content) {
                                 debug!("Failed to write V2 data: {}", e);
                             } else {
                                 debug!(
@@ -234,9 +224,7 @@ fn cleanup_legacy_cache(env: &dyn InstalledPluginsEnv, v2_data: &InstalledPlugin
             let sub_path = entry_path.join(&sub_dirent.name);
             // Check if subdir contains version directories
             match env.readdir_sync(&sub_path) {
-                Ok(version_entries) => {
-                    version_entries.iter().any(|v_dirent| v_dirent.is_directory)
-                }
+                Ok(version_entries) => version_entries.iter().any(|v_dirent| v_dirent.is_directory),
                 Err(_) => false,
             }
         });
@@ -272,10 +260,7 @@ fn read_installed_plugins_file_raw(
     let file_path = get_installed_plugins_file_path(env);
     let file_content = env.read_file_sync(&file_path).ok()?;
     let data: serde_json::Value = serde_json::from_str(&file_content).ok()?;
-    let version = data
-        .get("version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let version = data.get("version").and_then(|v| v.as_u64()).unwrap_or(1);
     Some((version, data))
 }
 
@@ -420,22 +405,16 @@ pub fn add_plugin_installation(
         .or_insert_with(Vec::new);
 
     // Find existing entry for this scope+projectPath
-    let existing_index = installations.iter().position(|entry| {
-        entry.scope == scope
-            && entry.project_path.as_deref() == project_path
-    });
+    let existing_index = installations
+        .iter()
+        .position(|entry| entry.scope == scope && entry.project_path.as_deref() == project_path);
 
     let now = chrono::Utc::now().to_rfc3339();
     let new_entry = PluginInstallationEntry {
         scope,
         install_path: install_path.to_string(),
         version: metadata.version.clone(),
-        installed_at: Some(
-            metadata
-                .installed_at
-                .clone()
-                .unwrap_or_else(|| now.clone()),
-        ),
+        installed_at: Some(metadata.installed_at.clone().unwrap_or_else(|| now.clone())),
         last_updated: Some(now),
         git_commit_sha: metadata.git_commit_sha.clone(),
         project_path: project_path.map(|s| s.to_string()),
@@ -443,7 +422,10 @@ pub fn add_plugin_installation(
 
     if let Some(idx) = existing_index {
         installations[idx] = new_entry;
-        debug!("Updated installation for {} at scope {:?}", plugin_id, scope);
+        debug!(
+            "Updated installation for {} at scope {:?}",
+            plugin_id, scope
+        );
     } else {
         installations.push(new_entry);
         debug!("Added installation for {} at scope {:?}", plugin_id, scope);
@@ -472,9 +454,8 @@ pub fn remove_plugin_installation(
         None => return Ok(()),
     };
 
-    installations.retain(|entry| {
-        !(entry.scope == scope && entry.project_path.as_deref() == project_path)
-    });
+    installations
+        .retain(|entry| !(entry.scope == scope && entry.project_path.as_deref() == project_path));
 
     // Remove plugin entirely if no installations left
     if installations.is_empty() {
@@ -482,14 +463,15 @@ pub fn remove_plugin_installation(
     }
 
     save_installed_plugins_v2(env, &data)?;
-    debug!("Removed installation for {} at scope {:?}", plugin_id, scope);
+    debug!(
+        "Removed installation for {} at scope {:?}",
+        plugin_id, scope
+    );
     Ok(())
 }
 
 /// Get the in-memory installed plugins (session state).
-pub fn get_in_memory_installed_plugins(
-    env: &dyn InstalledPluginsEnv,
-) -> InstalledPluginsFileV2 {
+pub fn get_in_memory_installed_plugins(env: &dyn InstalledPluginsEnv) -> InstalledPluginsFileV2 {
     let mut mem = IN_MEMORY_INSTALLED_PLUGINS.lock().unwrap();
     if mem.is_none() {
         *mem = Some(load_installed_plugins_v2(env));
@@ -498,9 +480,7 @@ pub fn get_in_memory_installed_plugins(
 }
 
 /// Load installed plugins directly from disk, bypassing all caches.
-pub fn load_installed_plugins_from_disk(
-    env: &dyn InstalledPluginsEnv,
-) -> InstalledPluginsFileV2 {
+pub fn load_installed_plugins_from_disk(env: &dyn InstalledPluginsEnv) -> InstalledPluginsFileV2 {
     match read_installed_plugins_file_raw(env) {
         Some((version, data)) => {
             if version == 2 {
@@ -549,9 +529,9 @@ pub fn update_installation_path_on_disk(
         }
     };
 
-    let entry = installations.iter_mut().find(|e| {
-        e.scope == scope && e.project_path.as_deref() == project_path
-    });
+    let entry = installations
+        .iter_mut()
+        .find(|e| e.scope == scope && e.project_path.as_deref() == project_path);
 
     if let Some(entry) = entry {
         entry.install_path = new_path.to_string();
@@ -593,10 +573,9 @@ pub fn has_pending_updates(env: &dyn InstalledPluginsEnv) -> bool {
         };
 
         for disk_entry in disk_installations {
-            let memory_entry = memory_installations.iter().find(|m| {
-                m.scope == disk_entry.scope
-                    && m.project_path == disk_entry.project_path
-            });
+            let memory_entry = memory_installations
+                .iter()
+                .find(|m| m.scope == disk_entry.scope && m.project_path == disk_entry.project_path);
             if let Some(mem) = memory_entry {
                 if mem.install_path != disk_entry.install_path {
                     return true;
@@ -621,10 +600,9 @@ pub fn get_pending_update_count(env: &dyn InstalledPluginsEnv) -> usize {
         };
 
         for disk_entry in disk_installations {
-            let memory_entry = memory_installations.iter().find(|m| {
-                m.scope == disk_entry.scope
-                    && m.project_path == disk_entry.project_path
-            });
+            let memory_entry = memory_installations
+                .iter()
+                .find(|m| m.scope == disk_entry.scope && m.project_path == disk_entry.project_path);
             if let Some(mem) = memory_entry {
                 if mem.install_path != disk_entry.install_path {
                     count += 1;
@@ -646,9 +624,7 @@ pub struct PendingUpdateDetail {
 }
 
 /// Get details about pending updates for display.
-pub fn get_pending_updates_details(
-    env: &dyn InstalledPluginsEnv,
-) -> Vec<PendingUpdateDetail> {
+pub fn get_pending_updates_details(env: &dyn InstalledPluginsEnv) -> Vec<PendingUpdateDetail> {
     let memory_state = get_in_memory_installed_plugins(env);
     let disk_state = load_installed_plugins_from_disk(env);
     let mut updates = Vec::new();
@@ -660,19 +636,15 @@ pub fn get_pending_updates_details(
         };
 
         for disk_entry in disk_installations {
-            let memory_entry = memory_installations.iter().find(|m| {
-                m.scope == disk_entry.scope
-                    && m.project_path == disk_entry.project_path
-            });
+            let memory_entry = memory_installations
+                .iter()
+                .find(|m| m.scope == disk_entry.scope && m.project_path == disk_entry.project_path);
             if let Some(mem) = memory_entry {
                 if mem.install_path != disk_entry.install_path {
                     updates.push(PendingUpdateDetail {
                         plugin_id: plugin_id.clone(),
                         scope: format!("{:?}", disk_entry.scope),
-                        old_version: mem
-                            .version
-                            .clone()
-                            .unwrap_or_else(|| "unknown".to_string()),
+                        old_version: mem.version.clone().unwrap_or_else(|| "unknown".to_string()),
                         new_version: disk_entry
                             .version
                             .clone()
@@ -760,7 +732,8 @@ pub fn is_installation_relevant_to_current_project(
 ) -> bool {
     inst.scope == PluginScope::User
         || inst.scope == PluginScope::Managed
-        || inst.project_path.as_deref() == Some(&env.get_original_cwd().to_string_lossy().to_string())
+        || inst.project_path.as_deref()
+            == Some(&env.get_original_cwd().to_string_lossy().to_string())
 }
 
 /// Check if a plugin is installed in a way relevant to the current project.
@@ -827,9 +800,9 @@ pub fn add_installed_plugin(
         .entry(plugin_id.to_string())
         .or_insert_with(Vec::new);
 
-    let existing_index = installations.iter().position(|entry| {
-        entry.scope == scope && entry.project_path.as_deref() == project_path
-    });
+    let existing_index = installations
+        .iter()
+        .position(|entry| entry.scope == scope && entry.project_path.as_deref() == project_path);
 
     let is_update = existing_index.is_some();
     if let Some(idx) = existing_index {
@@ -895,9 +868,7 @@ pub fn delete_plugin_cache(env: &dyn InstalledPluginsEnv, install_path: &str) ->
     if install_path.contains("/cache/") && install_path.starts_with(&cache_path_str) {
         if let Some(plugin_dir) = path.parent() {
             let plugin_dir_str = plugin_dir.to_string_lossy().to_string();
-            if plugin_dir_str != cache_path_str
-                && plugin_dir_str.starts_with(&cache_path_str)
-            {
+            if plugin_dir_str != cache_path_str && plugin_dir_str.starts_with(&cache_path_str) {
                 if let Ok(contents) = env.readdir_sync(plugin_dir) {
                     if contents.is_empty() {
                         let _ = env.rmdir_sync(plugin_dir);
@@ -925,19 +896,17 @@ fn get_plugin_version_from_manifest(
     let manifest_path = plugin_cache_path.join(".mossen-plugin").join("plugin.json");
 
     match env.read_file_sync(&manifest_path) {
-        Ok(content) => {
-            match serde_json::from_str::<serde_json::Value>(&content) {
-                Ok(manifest) => manifest
-                    .get("version")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string(),
-                Err(_) => {
-                    debug!("Could not read version from manifest for {}", plugin_id);
-                    "unknown".to_string()
-                }
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(manifest) => manifest
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            Err(_) => {
+                debug!("Could not read version from manifest for {}", plugin_id);
+                "unknown".to_string()
             }
-        }
+        },
         Err(_) => {
             debug!("Could not read version from manifest for {}", plugin_id);
             "unknown".to_string()
@@ -967,16 +936,17 @@ pub async fn migrate_from_enabled_plugins(env: &dyn InstalledPluginsEnv) -> Resu
             if let Ok(existing_data) =
                 serde_json::from_value::<InstalledPluginsFileV2>(data.clone())
             {
-                let all_plugins_exist = enabled_plugins
-                    .keys()
-                    .filter(|id| id.contains('@'))
-                    .all(|id| {
-                        existing_data
-                            .plugins
-                            .get(id)
-                            .map(|i| !i.is_empty())
-                            .unwrap_or(false)
-                    });
+                let all_plugins_exist =
+                    enabled_plugins
+                        .keys()
+                        .filter(|id| id.contains('@'))
+                        .all(|id| {
+                            existing_data
+                                .plugins
+                                .get(id)
+                                .map(|i| !i.is_empty())
+                                .unwrap_or(false)
+                        });
 
                 if all_plugins_exist {
                     debug!("All plugins already exist, skipping migration");
@@ -1039,8 +1009,7 @@ pub async fn migrate_from_enabled_plugins(env: &dyn InstalledPluginsEnv) -> Resu
             if !installations.is_empty() {
                 let existing_entry = &mut installations[0];
                 if existing_entry.scope != *scope
-                    || existing_entry.project_path.as_deref()
-                        != scope_project_path.as_deref()
+                    || existing_entry.project_path.as_deref() != scope_project_path.as_deref()
                 {
                     existing_entry.scope = *scope;
                     existing_entry.project_path = scope_project_path.clone();
@@ -1064,23 +1033,17 @@ pub async fn migrate_from_enabled_plugins(env: &dyn InstalledPluginsEnv) -> Resu
         };
 
         if let Some(plugin_info) = env.get_plugin_by_id(plugin_id) {
-            let (install_path, mut version, git_commit_sha) = match plugin_info.source {
+            let (_install_path, mut version, git_commit_sha) = match plugin_info.source {
                 MarketplaceSource::Path(ref source_path) => {
-                    let ip = plugin_info
-                        .marketplace_install_location
-                        .join(source_path);
+                    let ip = plugin_info.marketplace_install_location.join(source_path);
                     let v = get_plugin_version_from_manifest(env, &ip, plugin_id);
                     let sha = get_git_commit_sha(env, &ip);
-                    (
-                        ip.to_string_lossy().to_string(),
-                        v,
-                        sha,
-                    )
+                    (ip.to_string_lossy().to_string(), v, sha)
                 }
                 MarketplaceSource::External => {
                     let cache_path = env.get_plugin_cache_path();
-                    let sanitized_name =
-                        plugin_name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-");
+                    let sanitized_name = plugin_name
+                        .replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "-");
                     let plugin_cache_path = cache_path.join(&sanitized_name);
 
                     let dir_entries = match env.readdir_sync(&plugin_cache_path) {
@@ -1093,19 +1056,11 @@ pub async fn migrate_from_enabled_plugins(env: &dyn InstalledPluginsEnv) -> Resu
 
                     let mut v = "unknown".to_string();
                     if dir_entries.iter().any(|e| e.name == ".mossen-plugin") {
-                        v = get_plugin_version_from_manifest(
-                            env,
-                            &plugin_cache_path,
-                            plugin_id,
-                        );
+                        v = get_plugin_version_from_manifest(env, &plugin_cache_path, plugin_id);
                     }
 
                     let sha = get_git_commit_sha(env, &plugin_cache_path);
-                    (
-                        plugin_cache_path.to_string_lossy().to_string(),
-                        v,
-                        sha,
-                    )
+                    (plugin_cache_path.to_string_lossy().to_string(), v, sha)
                 }
             };
 
@@ -1141,7 +1096,10 @@ pub async fn migrate_from_enabled_plugins(env: &dyn InstalledPluginsEnv) -> Resu
             added_count += 1;
             debug!("Added {} with scope {:?}", plugin_id, scope);
         } else {
-            debug!("Plugin {} not found in any marketplace, skipping", plugin_id);
+            debug!(
+                "Plugin {} not found in any marketplace, skipping",
+                plugin_id
+            );
         }
     }
 

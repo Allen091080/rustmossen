@@ -6,13 +6,13 @@
 /// `/model`. Strings here are the raw TS string literals; capability semantics
 /// (e.g. the `[1m]` suffix) are handled by other modules.
 pub const MODEL_ALIASES: &[&str] = &[
-    "sonnet",
-    "opus",
-    "haiku",
+    "balanced",
+    "max",
+    "fast",
     "best",
-    "sonnet[1m]",
-    "opus[1m]",
-    "opusplan",
+    "balanced[1m]",
+    "max[1m]",
+    "maxplan",
 ];
 
 /// Strongly-typed representation of a model alias. The TS source uses a string
@@ -20,37 +20,37 @@ pub const MODEL_ALIASES: &[&str] = &[
 /// helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelAlias {
-    Sonnet,
-    Opus,
-    Haiku,
+    Balanced,
+    Max,
+    Fast,
     Best,
-    Sonnet1M,
-    Opus1M,
-    OpusPlan,
+    Balanced1M,
+    Max1M,
+    MaxPlan,
 }
 
 impl ModelAlias {
     pub fn as_str(self) -> &'static str {
         match self {
-            ModelAlias::Sonnet => "sonnet",
-            ModelAlias::Opus => "opus",
-            ModelAlias::Haiku => "haiku",
+            ModelAlias::Balanced => "balanced",
+            ModelAlias::Max => "max",
+            ModelAlias::Fast => "fast",
             ModelAlias::Best => "best",
-            ModelAlias::Sonnet1M => "sonnet[1m]",
-            ModelAlias::Opus1M => "opus[1m]",
-            ModelAlias::OpusPlan => "opusplan",
+            ModelAlias::Balanced1M => "balanced[1m]",
+            ModelAlias::Max1M => "max[1m]",
+            ModelAlias::MaxPlan => "maxplan",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "sonnet" => Some(ModelAlias::Sonnet),
-            "opus" => Some(ModelAlias::Opus),
-            "haiku" => Some(ModelAlias::Haiku),
+            "balanced" => Some(ModelAlias::Balanced),
+            "max" => Some(ModelAlias::Max),
+            "fast" => Some(ModelAlias::Fast),
             "best" => Some(ModelAlias::Best),
-            "sonnet[1m]" => Some(ModelAlias::Sonnet1M),
-            "opus[1m]" => Some(ModelAlias::Opus1M),
-            "opusplan" => Some(ModelAlias::OpusPlan),
+            "balanced[1m]" => Some(ModelAlias::Balanced1M),
+            "max[1m]" => Some(ModelAlias::Max1M),
+            "maxplan" => Some(ModelAlias::MaxPlan),
             _ => None,
         }
     }
@@ -62,9 +62,9 @@ pub fn is_model_alias(model_input: &str) -> bool {
 }
 
 /// Bare model family aliases that act as wildcards in the availableModels
-/// allowlist. When "opus" is in the allowlist, any opus model is allowed;
+/// allowlist. When "max" is in the allowlist, any max model is allowed;
 /// a specific model ID in the allowlist allows only that exact version.
-pub const MODEL_FAMILY_ALIASES: &[&str] = &["sonnet", "opus", "haiku"];
+pub const MODEL_FAMILY_ALIASES: &[&str] = &["balanced", "max", "fast"];
 
 /// `isModelFamilyAlias` — case-sensitive membership test.
 pub fn is_model_family_alias(model: &str) -> bool {

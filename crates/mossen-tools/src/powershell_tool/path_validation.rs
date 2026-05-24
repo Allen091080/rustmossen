@@ -13,11 +13,29 @@ use super::git_safety::is_git_internal_path_ps;
 /// Dangerous file names that should never be written to.
 static DANGEROUS_FILES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "autorun.inf", "desktop.ini", ".bashrc", ".bash_profile", ".zshrc",
-        ".profile", ".login", ".cshrc", ".tcshrc", ".kshrc",
-        ".bash_login", ".bash_logout", ".zlogin", ".zlogout", ".zprofile",
-        ".zshenv", ".xsession", ".xinitrc", ".xprofile",
-        "authorized_keys", "known_hosts", "id_rsa", "id_ed25519",
+        "autorun.inf",
+        "desktop.ini",
+        ".bashrc",
+        ".bash_profile",
+        ".zshrc",
+        ".profile",
+        ".login",
+        ".cshrc",
+        ".tcshrc",
+        ".kshrc",
+        ".bash_login",
+        ".bash_logout",
+        ".zlogin",
+        ".zlogout",
+        ".zprofile",
+        ".zshenv",
+        ".xsession",
+        ".xinitrc",
+        ".xprofile",
+        "authorized_keys",
+        "known_hosts",
+        "id_rsa",
+        "id_ed25519",
         "config", // SSH config
     ]
     .iter()
@@ -28,24 +46,56 @@ static DANGEROUS_FILES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 /// Dangerous directory patterns.
 static DANGEROUS_DIRECTORIES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     vec![
-        ".git", ".ssh", ".gnupg", ".config/systemd",
-        "system32", "syswow64", "windows",
-        "/etc", "/usr/bin", "/usr/sbin", "/bin", "/sbin",
-        "program files", "programdata",
+        ".git",
+        ".ssh",
+        ".gnupg",
+        ".config/systemd",
+        "system32",
+        "syswow64",
+        "windows",
+        "/etc",
+        "/usr/bin",
+        "/usr/sbin",
+        "/bin",
+        "/sbin",
+        "program files",
+        "programdata",
     ]
 });
 
 /// Write cmdlets and their aliases.
 static WRITE_CMDLETS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "set-content", "sc", "out-file", "add-content", "ac",
-        "new-item", "ni", "mkdir", "md",
-        "copy-item", "cp", "copy", "cpi",
-        "move-item", "mv", "move", "mi",
-        "rename-item", "ren", "rni",
-        "remove-item", "rm", "del", "rd", "rmdir", "ri",
-        "clear-content", "clc",
-        "invoke-webrequest", "iwr",
+        "set-content",
+        "sc",
+        "out-file",
+        "add-content",
+        "ac",
+        "new-item",
+        "ni",
+        "mkdir",
+        "md",
+        "copy-item",
+        "cp",
+        "copy",
+        "cpi",
+        "move-item",
+        "mv",
+        "move",
+        "mi",
+        "rename-item",
+        "ren",
+        "rni",
+        "remove-item",
+        "rm",
+        "del",
+        "rd",
+        "rmdir",
+        "ri",
+        "clear-content",
+        "clc",
+        "invoke-webrequest",
+        "iwr",
     ]
     .iter()
     .copied()
@@ -82,10 +132,7 @@ pub fn validate_paths(command: &str) -> PathValidationResult {
         for dir in DANGEROUS_DIRECTORIES.iter() {
             if normalized.contains(dir) {
                 return PathValidationResult::Dangerous {
-                    reason: format!(
-                        "Writing to sensitive directory '{}' is not allowed",
-                        dir
-                    ),
+                    reason: format!("Writing to sensitive directory '{}' is not allowed", dir),
                 };
             }
         }
@@ -93,7 +140,9 @@ pub fn validate_paths(command: &str) -> PathValidationResult {
         // Check for git-internal paths
         if is_git_internal_path_ps(path) {
             return PathValidationResult::Dangerous {
-                reason: "Writing to git-internal paths (.git/, hooks/, refs/, objects/) is not allowed".to_string(),
+                reason:
+                    "Writing to git-internal paths (.git/, hooks/, refs/, objects/) is not allowed"
+                        .to_string(),
             };
         }
 
@@ -125,8 +174,7 @@ fn extract_write_paths(command: &str) -> Vec<String> {
 
         // Check if this statement uses a write cmdlet
         let first_token = lower.split_whitespace().next().unwrap_or("");
-        let is_write = WRITE_CMDLETS.contains(first_token)
-            || first_token.starts_with("& ");
+        let is_write = WRITE_CMDLETS.contains(first_token) || first_token.starts_with("& ");
 
         if !is_write {
             // Check for redirection operators
@@ -149,9 +197,11 @@ fn extract_write_paths(command: &str) -> Vec<String> {
 fn extract_redirect_path(command: &str) -> Option<String> {
     // Look for > or >> followed by a path
     let re = Regex::new(r">{1,2}\s*([^\s;|]+)").ok()?;
-    re.captures(command)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().trim_matches(|c| c == '"' || c == '\'').to_string())
+    re.captures(command).and_then(|c| c.get(1)).map(|m| {
+        m.as_str()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string()
+    })
 }
 
 /// Extract the path argument from a write cmdlet invocation.
@@ -179,11 +229,7 @@ fn extract_cmdlet_path_arg(command: &str) -> Option<String> {
     // (skip parameters that start with -)
     for i in 1..parts.len() {
         if !parts[i].starts_with('-') {
-            return Some(
-                parts[i]
-                    .trim_matches(|c| c == '"' || c == '\'')
-                    .to_string(),
-            );
+            return Some(parts[i].trim_matches(|c| c == '"' || c == '\'').to_string());
         }
     }
 
@@ -218,8 +264,18 @@ fn has_dangerous_traversal(path: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 const DANGEROUS_REMOVAL_PATHS: &[&str] = &[
-    "/", "C:\\", "C:/", "/etc", "/usr", "/var", "/bin", "/sbin",
-    "/System", "/Library", "C:\\Windows", "C:\\Program Files",
+    "/",
+    "C:\\",
+    "C:/",
+    "/etc",
+    "/usr",
+    "/var",
+    "/bin",
+    "/sbin",
+    "/System",
+    "/Library",
+    "C:\\Windows",
+    "C:\\Program Files",
 ];
 
 /// `pathValidation.ts` `isDangerousRemovalRawPath`.

@@ -191,18 +191,25 @@ pub fn validate_hooks_settings(settings: &HooksSettings) -> Vec<String> {
         }
         for matcher in matchers {
             if matcher.hooks.is_empty() {
-                errors.push(format!("Hook matcher for event '{}' has empty hooks array", event_name));
+                errors.push(format!(
+                    "Hook matcher for event '{}' has empty hooks array",
+                    event_name
+                ));
             }
             for hook in &matcher.hooks {
                 match hook {
                     HookCommand::BashCommand { command, .. } => {
                         if command.is_empty() {
-                            errors.push(format!("BashCommand hook in '{}' has empty command", event_name));
+                            errors.push(format!(
+                                "BashCommand hook in '{}' has empty command",
+                                event_name
+                            ));
                         }
                     }
                     HookCommand::Prompt { prompt, .. } => {
                         if prompt.is_empty() {
-                            errors.push(format!("Prompt hook in '{}' has empty prompt", event_name));
+                            errors
+                                .push(format!("Prompt hook in '{}' has empty prompt", event_name));
                         }
                     }
                     HookCommand::Http { url, .. } => {

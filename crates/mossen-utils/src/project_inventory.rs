@@ -354,7 +354,11 @@ pub async fn describe_memory_state(candidate_in_project_dir: &str) -> MemoryStat
         status: MemoryLocationStatus::InProject,
         path: Some(mem_dir.to_string_lossy().to_string()),
         reason: "default-in-project".to_string(),
-        file_count: if file_count < 0 { 0 } else { file_count as usize },
+        file_count: if file_count < 0 {
+            0
+        } else {
+            file_count as usize
+        },
         total_bytes: if bytes < 0 { -1 } else { bytes },
     }
 }

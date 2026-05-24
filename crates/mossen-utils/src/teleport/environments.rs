@@ -62,7 +62,10 @@ pub async fn fetch_environments(
     access_token: &str,
     org_uuid: &str,
 ) -> Result<Vec<EnvironmentResource>> {
-    let url = format!("{}/v1/environment_providers", base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/environment_providers",
+        base_url.trim_end_matches('/')
+    );
     let mut request = client.get(&url).timeout(Duration::from_secs(15));
     for (key, value) in get_oauth_headers(access_token) {
         request = request.header(key.as_str(), value.as_str());

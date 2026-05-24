@@ -18,19 +18,19 @@ use crate::custom_backend::{
     get_custom_backend_model, is_custom_backend_enabled,
 };
 use crate::env::is_env_truthy;
-use crate::model_cost::{format_model_pricing, get_opus_46_cost_tier};
+use crate::model_cost::{format_model_pricing, get_max_46_cost_tier};
 use crate::settings::get_session_settings_cache;
 use crate::string_utils::capitalize;
 
 use super::aliases::{is_model_alias, ModelAlias};
-use super::ant_models::{get_internal_model_override_config, resolve_internal_model};
+use super::internal_models::{get_internal_model_override_config, resolve_internal_model};
 use super::external_provider_ids::{
     external_provider_model_prefix, external_provider_model_stem_from_mossen_id,
     external_provider_model_stem_pattern,
 };
 use super::model_allowlist::is_model_allowed;
 use super::model_strings::{get_model_strings, resolve_overridden_model};
-use super::mossen_catalog::LEGACY_OPUS_FIRSTPARTY_MODEL_IDS;
+use super::mossen_catalog::LEGACY_MAX_FIRSTPARTY_MODEL_IDS;
 use super::providers::{get_api_provider, APIProvider};
 
 pub type ModelShortName = String;
@@ -78,12 +78,12 @@ pub fn get_small_fast_model() -> ModelName {
     if let Some(m) = get_custom_backend_default_model() {
         return m;
     }
-    get_default_haiku_model()
+    get_default_fast_model()
 }
 
-pub fn is_non_custom_opus_model(model: &str) -> bool {
+pub fn is_non_custom_max_model(model: &str) -> bool {
     let ms = get_model_strings();
-    model == ms.opus40 || model == ms.opus41 || model == ms.opus45 || model == ms.opus46
+    model == ms.max40 || model == ms.max41 || model == ms.max45 || model == ms.max46
 }
 
 /// Settings-derived helpers
@@ -133,53 +133,53 @@ pub fn get_main_loop_model() -> ModelName {
 }
 
 pub fn get_best_model() -> ModelName {
-    get_default_opus_model()
+    get_default_max_model()
 }
 
-/// `getDefaultOpusModel` — default Frontier model for the active provider.
-pub fn get_default_opus_model() -> ModelName {
+/// `getDefaultMaxModel` — default Max model for the active provider.
+pub fn get_default_max_model() -> ModelName {
     if let Some(custom) = get_custom_backend_default_model() {
         return custom;
     }
-    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_OPUS_MODEL") {
+    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_MAX_MODEL") {
         if !env_model.is_empty() {
             return env_model;
         }
     }
     let ms = get_model_strings();
     if is_custom_backend_enabled() || get_api_provider() != APIProvider::FirstParty {
-        return ms.opus46.clone();
+        return ms.max46.clone();
     }
-    ms.opus46.clone()
+    ms.max46.clone()
 }
 
-pub fn get_default_sonnet_model() -> ModelName {
+pub fn get_default_balanced_model() -> ModelName {
     if let Some(custom) = get_custom_backend_default_model() {
         return custom;
     }
-    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_SONNET_MODEL") {
+    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_BALANCED_MODEL") {
         if !env_model.is_empty() {
             return env_model;
         }
     }
     let ms = get_model_strings();
     if is_custom_backend_enabled() || get_api_provider() != APIProvider::FirstParty {
-        return ms.sonnet45.clone();
+        return ms.balanced45.clone();
     }
-    ms.sonnet46.clone()
+    ms.balanced46.clone()
 }
 
-pub fn get_default_haiku_model() -> ModelName {
+pub fn get_default_fast_model() -> ModelName {
     if let Some(custom) = get_custom_backend_default_model() {
         return custom;
     }
-    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_HAIKU_MODEL") {
+    if let Ok(env_model) = std::env::var("MOSSEN_CODE_DEFAULT_FAST_MODEL") {
         if !env_model.is_empty() {
             return env_model;
         }
     }
     let ms = get_model_strings();
-    ms.haiku45.clone()
+    ms.fast45.clone()
 }
 
 /// Subset of the runtime context needed to decide the active main-loop model.
@@ -196,43 +196,43 @@ pub fn get_runtime_main_loop_model(params: RuntimeMainLoopModelParams<'_>) -> Mo
 
     let is_plan = params.permission_mode == "plan";
 
-    if matches!(user_setting, Some(Some(ref s)) if s == "opusplan")
+    if matches!(user_setting, Some(Some(ref s)) if s == "maxplan")
         && is_plan
         && !params.exceeds_200k_tokens
     {
-        return get_default_opus_model();
+        return get_default_max_model();
     }
 
-    if matches!(user_setting, Some(Some(ref s)) if s == "haiku") && is_plan {
-        return get_default_sonnet_model();
+    if matches!(user_setting, Some(Some(ref s)) if s == "fast") && is_plan {
+        return get_default_balanced_model();
     }
 
     params.main_loop_model.to_string()
 }
 
 /// `getDefaultMainLoopModelSetting` — built-in default. May return a model
-/// alias string (e.g. `opus[1m]`) rather than a canonical ID.
+/// alias string (e.g. `max[1m]`) rather than a canonical ID.
 pub fn get_default_main_loop_model_setting() -> String {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         if let Some(cfg) = get_internal_model_override_config() {
             if let Some(default) = cfg.default_model {
                 return default;
             }
         }
-        return get_default_opus_model() + "[1m]";
+        return get_default_max_model() + "[1m]";
     }
 
     if is_max_subscriber() {
-        let suffix = if is_opus_1m_merge_enabled() { "[1m]" } else { "" };
-        return get_default_opus_model() + suffix;
+        let suffix = if is_max_1m_merge_enabled() { "[1m]" } else { "" };
+        return get_default_max_model() + suffix;
     }
 
     if is_team_premium_subscriber() {
-        let suffix = if is_opus_1m_merge_enabled() { "[1m]" } else { "" };
-        return get_default_opus_model() + suffix;
+        let suffix = if is_max_1m_merge_enabled() { "[1m]" } else { "" };
+        return get_default_max_model() + suffix;
     }
 
-    get_default_sonnet_model()
+    get_default_balanced_model()
 }
 
 pub fn get_default_main_loop_model() -> ModelName {
@@ -247,20 +247,20 @@ struct CanonicalPattern {
 
 fn get_canonical_model_patterns() -> Vec<CanonicalPattern> {
     let canonicals = [
-        "mossen-opus-4-6",
-        "mossen-opus-4-5",
-        "mossen-opus-4-1",
-        "mossen-opus-4",
-        "mossen-sonnet-4-6",
-        "mossen-sonnet-4-5",
-        "mossen-sonnet-4",
-        "mossen-haiku-4-5",
-        "mossen-3-7-sonnet",
-        "mossen-3-5-sonnet",
-        "mossen-3-5-haiku",
-        "mossen-3-opus",
-        "mossen-3-sonnet",
-        "mossen-3-haiku",
+        "mossen-max-4-6",
+        "mossen-max-4-5",
+        "mossen-max-4-1",
+        "mossen-max-4",
+        "mossen-balanced-4-6",
+        "mossen-balanced-4-5",
+        "mossen-balanced-4",
+        "mossen-fast-4-5",
+        "mossen-3-7-balanced",
+        "mossen-3-5-balanced",
+        "mossen-3-5-fast",
+        "mossen-3-max",
+        "mossen-3-balanced",
+        "mossen-3-fast",
     ];
     canonicals
         .iter()
@@ -310,33 +310,33 @@ pub fn get_canonical_name(full_model_name: &str) -> ModelShortName {
 pub fn get_hosted_user_default_model_description(fast_mode: bool) -> String {
     if is_max_subscriber() || is_team_premium_subscriber() {
         let suffix = if fast_mode {
-            get_opus46_pricing_suffix(true)
+            get_max46_pricing_suffix(true)
         } else {
             String::new()
         };
-        if is_opus_1m_merge_enabled() {
+        if is_max_1m_merge_enabled() {
             return format!(
-                "Mossen Frontier 4.6 with 1M context · Most capable for complex work{}",
+                "Mossen Max 4.6 with 1M context · Most capable for complex work{}",
                 suffix
             );
         }
-        return format!("Mossen Frontier 4.6 · Most capable for complex work{}", suffix);
+        return format!("Mossen Max 4.6 · Most capable for complex work{}", suffix);
     }
     "Mossen Balanced 4.6 · Best for everyday tasks".to_string()
 }
 
 pub fn render_default_model_setting(setting: &str) -> String {
-    if setting == "opusplan" {
-        return "Mossen Frontier 4.6 in plan mode, else Mossen Balanced 4.6".to_string();
+    if setting == "maxplan" {
+        return "Mossen Max 4.6 in plan mode, else Mossen Balanced 4.6".to_string();
     }
     render_model_name(&parse_user_specified_model(setting))
 }
 
-pub fn get_opus46_pricing_suffix(fast_mode: bool) -> String {
+pub fn get_max46_pricing_suffix(fast_mode: bool) -> String {
     if get_api_provider() != APIProvider::FirstParty {
         return String::new();
     }
-    let costs = get_opus_46_cost_tier(fast_mode);
+    let costs = get_max_46_cost_tier(fast_mode);
     let pricing = format_model_pricing(&costs);
     let fast_indicator = if fast_mode {
         format!(" ({})", LIGHTNING_BOLT)
@@ -346,7 +346,7 @@ pub fn get_opus46_pricing_suffix(fast_mode: bool) -> String {
     format!(" ·{} {}", fast_indicator, pricing)
 }
 
-pub fn is_opus_1m_merge_enabled() -> bool {
+pub fn is_max_1m_merge_enabled() -> bool {
     if is_1m_context_disabled()
         || is_pro_subscriber()
         || get_api_provider() != APIProvider::FirstParty
@@ -361,10 +361,10 @@ pub fn is_opus_1m_merge_enabled() -> bool {
 
 pub fn render_model_setting(setting: &str) -> String {
     match setting {
-        "opusplan" => "Mossen Plan".to_string(),
-        "opus" => "Mossen Frontier".to_string(),
-        "sonnet" => "Mossen Balanced".to_string(),
-        "haiku" => "Mossen Fast".to_string(),
+        "maxplan" => "Mossen Plan".to_string(),
+        "max" => "Mossen Max".to_string(),
+        "balanced" => "Mossen Balanced".to_string(),
+        "fast" => "Mossen Fast".to_string(),
         s if is_model_alias(s) => capitalize(s),
         s => render_model_name(s),
     }
@@ -373,21 +373,21 @@ pub fn render_model_setting(setting: &str) -> String {
 pub fn get_public_model_display_name(model: &str) -> Option<String> {
     let ms = get_model_strings();
     let name = match model {
-        m if m == ms.opus46 => "Mossen Frontier 4.6",
-        m if m == format!("{}[1m]", ms.opus46) => "Mossen Frontier 4.6 (1M context)",
-        m if m == ms.opus45 => "Mossen Frontier 4.5",
-        m if m == ms.opus41 => "Mossen Frontier 4.1",
-        m if m == ms.opus40 => "Mossen Frontier 4",
-        m if m == format!("{}[1m]", ms.sonnet46) => "Mossen Balanced 4.6 (1M context)",
-        m if m == ms.sonnet46 => "Mossen Balanced 4.6",
-        m if m == format!("{}[1m]", ms.sonnet45) => "Mossen Balanced 4.5 (1M context)",
-        m if m == ms.sonnet45 => "Mossen Balanced 4.5",
-        m if m == ms.sonnet40 => "Mossen Balanced 4",
-        m if m == format!("{}[1m]", ms.sonnet40) => "Mossen Balanced 4 (1M context)",
-        m if m == ms.sonnet37 => "Mossen Balanced 3.7",
-        m if m == ms.sonnet35 => "Mossen Balanced 3.5",
-        m if m == ms.haiku45 => "Mossen Fast 4.5",
-        m if m == ms.haiku35 => "Mossen Fast 3.5",
+        m if m == ms.max46 => "Mossen Max 4.6",
+        m if m == format!("{}[1m]", ms.max46) => "Mossen Max 4.6 (1M context)",
+        m if m == ms.max45 => "Mossen Max 4.5",
+        m if m == ms.max41 => "Mossen Max 4.1",
+        m if m == ms.max40 => "Mossen Max 4",
+        m if m == format!("{}[1m]", ms.balanced46) => "Mossen Balanced 4.6 (1M context)",
+        m if m == ms.balanced46 => "Mossen Balanced 4.6",
+        m if m == format!("{}[1m]", ms.balanced45) => "Mossen Balanced 4.5 (1M context)",
+        m if m == ms.balanced45 => "Mossen Balanced 4.5",
+        m if m == ms.balanced40 => "Mossen Balanced 4",
+        m if m == format!("{}[1m]", ms.balanced40) => "Mossen Balanced 4 (1M context)",
+        m if m == ms.balanced37 => "Mossen Balanced 3.7",
+        m if m == ms.balanced35 => "Mossen Balanced 3.5",
+        m if m == ms.fast45 => "Mossen Fast 4.5",
+        m if m == ms.fast35 => "Mossen Fast 3.5",
         _ => return None,
     };
     Some(name.to_string())
@@ -415,7 +415,7 @@ pub fn render_model_name(model: &str) -> String {
     if let Some(public_name) = get_public_model_display_name(model) {
         return public_name;
     }
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         let resolved = parse_user_specified_model(model);
         if let Some(internal_model) = resolve_internal_model(Some(model)) {
             let base_name = M1M_SUFFIX.replace(&internal_model.model, "").to_string();
@@ -456,13 +456,13 @@ pub fn parse_user_specified_model(model_input: &str) -> ModelName {
         let suffix = if has_1m_tag { "[1m]" } else { "" };
         if let Some(alias) = ModelAlias::from_str(&model_string) {
             match alias {
-                ModelAlias::OpusPlan => {
-                    // Balanced is default, Frontier in plan mode.
-                    return format!("{}{}", get_default_sonnet_model(), suffix);
+                ModelAlias::MaxPlan => {
+                    // Balanced is default, Max in plan mode.
+                    return format!("{}{}", get_default_balanced_model(), suffix);
                 }
-                ModelAlias::Sonnet => return format!("{}{}", get_default_sonnet_model(), suffix),
-                ModelAlias::Haiku => return format!("{}{}", get_default_haiku_model(), suffix),
-                ModelAlias::Opus => return format!("{}{}", get_default_opus_model(), suffix),
+                ModelAlias::Balanced => return format!("{}{}", get_default_balanced_model(), suffix),
+                ModelAlias::Fast => return format!("{}{}", get_default_fast_model(), suffix),
+                ModelAlias::Max => return format!("{}{}", get_default_max_model(), suffix),
                 ModelAlias::Best => return get_best_model(),
                 _ => {}
             }
@@ -471,14 +471,14 @@ pub fn parse_user_specified_model(model_input: &str) -> ModelName {
 
     if !is_custom_backend_enabled()
         && get_api_provider() == APIProvider::FirstParty
-        && is_legacy_opus_first_party(&model_string)
+        && is_legacy_max_first_party(&model_string)
         && is_legacy_model_remap_enabled()
     {
         let suffix = if has_1m_tag { "[1m]" } else { "" };
-        return format!("{}{}", get_default_opus_model(), suffix);
+        return format!("{}{}", get_default_max_model(), suffix);
     }
 
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         let has_1m_internal_tag = has_1m_context(&normalized);
         let base_internal_model = M1M_SUFFIX.replace(&normalized, "").trim().to_string();
 
@@ -513,8 +513,8 @@ pub fn resolve_skill_model_override(skill_model: &str, current_model: &str) -> S
     skill_model.to_string()
 }
 
-fn is_legacy_opus_first_party(model: &str) -> bool {
-    LEGACY_OPUS_FIRSTPARTY_MODEL_IDS
+fn is_legacy_max_first_party(model: &str) -> bool {
+    LEGACY_MAX_FIRSTPARTY_MODEL_IDS
         .iter()
         .any(|m| m.as_str() == model)
 }
@@ -529,7 +529,7 @@ pub fn is_legacy_model_remap_enabled() -> bool {
 
 pub fn model_display_string(model: ModelSetting) -> String {
     if model.is_none() {
-        if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+        if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
             return format!(
                 "Default for internal users ({})",
                 render_default_model_setting(&get_default_main_loop_model_setting())
@@ -559,26 +559,26 @@ pub fn get_marketing_name_for_model(model_id: &str) -> Option<String> {
     let has1m = model_id.to_lowercase().contains("[1m]");
     let canonical = get_canonical_name(model_id);
 
-    if canonical.contains("mossen-opus-4-6") {
+    if canonical.contains("mossen-max-4-6") {
         return Some(
             if has1m {
-                "Mossen Frontier 4.6 (with 1M context)"
+                "Mossen Max 4.6 (with 1M context)"
             } else {
-                "Mossen Frontier 4.6"
+                "Mossen Max 4.6"
             }
             .to_string(),
         );
     }
-    if canonical.contains("mossen-opus-4-5") {
-        return Some("Mossen Frontier 4.5".to_string());
+    if canonical.contains("mossen-max-4-5") {
+        return Some("Mossen Max 4.5".to_string());
     }
-    if canonical.contains("mossen-opus-4-1") {
-        return Some("Mossen Frontier 4.1".to_string());
+    if canonical.contains("mossen-max-4-1") {
+        return Some("Mossen Max 4.1".to_string());
     }
-    if canonical.contains("mossen-opus-4") {
-        return Some("Mossen Frontier 4".to_string());
+    if canonical.contains("mossen-max-4") {
+        return Some("Mossen Max 4".to_string());
     }
-    if canonical.contains("mossen-sonnet-4-6") {
+    if canonical.contains("mossen-balanced-4-6") {
         return Some(
             if has1m {
                 "Mossen Balanced 4.6 (with 1M context)"
@@ -588,7 +588,7 @@ pub fn get_marketing_name_for_model(model_id: &str) -> Option<String> {
             .to_string(),
         );
     }
-    if canonical.contains("mossen-sonnet-4-5") {
+    if canonical.contains("mossen-balanced-4-5") {
         return Some(
             if has1m {
                 "Mossen Balanced 4.5 (with 1M context)"
@@ -598,7 +598,7 @@ pub fn get_marketing_name_for_model(model_id: &str) -> Option<String> {
             .to_string(),
         );
     }
-    if canonical.contains("mossen-sonnet-4") {
+    if canonical.contains("mossen-balanced-4") {
         return Some(
             if has1m {
                 "Mossen Balanced 4 (with 1M context)"
@@ -608,16 +608,16 @@ pub fn get_marketing_name_for_model(model_id: &str) -> Option<String> {
             .to_string(),
         );
     }
-    if canonical.contains("mossen-3-7-sonnet") {
+    if canonical.contains("mossen-3-7-balanced") {
         return Some("Mossen Balanced 3.7".to_string());
     }
-    if canonical.contains("mossen-3-5-sonnet") {
+    if canonical.contains("mossen-3-5-balanced") {
         return Some("Mossen Balanced 3.5".to_string());
     }
-    if canonical.contains("mossen-haiku-4-5") {
+    if canonical.contains("mossen-fast-4-5") {
         return Some("Mossen Fast 4.5".to_string());
     }
-    if canonical.contains("mossen-3-5-haiku") {
+    if canonical.contains("mossen-3-5-fast") {
         return Some("Mossen Fast 3.5".to_string());
     }
     None

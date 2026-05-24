@@ -76,9 +76,7 @@ static DESTRUCTIVE_PATTERNS: &[DestructivePattern] = &[
 static COMPILED_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     DESTRUCTIVE_PATTERNS
         .iter()
-        .filter_map(|dp| {
-            Regex::new(dp.pattern).ok().map(|re| (re, dp.warning))
-        })
+        .filter_map(|dp| Regex::new(dp.pattern).ok().map(|re| (re, dp.warning)))
         .collect()
 });
 

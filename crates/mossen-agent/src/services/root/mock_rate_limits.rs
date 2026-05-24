@@ -1,6 +1,5 @@
 /// Mock rate limits for internal testing.
 /// Allows testing various rate limit scenarios without hitting actual limits.
-
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -47,12 +46,12 @@ fn get_mock_user_type() -> String {
     std::env::var("USER_TYPE").unwrap_or_else(|_| "external".to_string())
 }
 
-fn is_ant() -> bool {
-    get_mock_user_type() == "ant"
+fn is_internal() -> bool {
+    get_mock_user_type() == "internal"
 }
 
 pub fn set_mock_header(key: &str, value: Option<&str>) {
-    if !is_ant() {
+    if !is_internal() {
         return;
     }
 
@@ -85,11 +84,16 @@ pub fn set_mock_header(key: &str, value: Option<&str>) {
             }
 
             if key == "claim" {
-                let valid_claims = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"];
+                let valid_claims = [
+                    "five_hour",
+                    "seven_day",
+                    "seven_day_max",
+                    "seven_day_balanced",
+                ];
                 if valid_claims.contains(&val) {
                     let resets_at = match val {
                         "five_hour" => now_secs() + 5 * 3600,
-                        "seven_day" | "seven_day_opus" | "seven_day_sonnet" => {
+                        "seven_day" | "seven_day_max" | "seven_day_balanced" => {
                             now_secs() + 7 * 24 * 3600
                         }
                         _ => now_secs() + 3600,
@@ -117,8 +121,14 @@ pub fn set_mock_header(key: &str, value: Option<&str>) {
 }
 
 fn update_retry_after(state: &mut MockState) {
-    let status = state.headers.get("mossen-ratelimit-unified-status").cloned();
-    let overage = state.headers.get("mossen-ratelimit-unified-overage-status").cloned();
+    let status = state
+        .headers
+        .get("mossen-ratelimit-unified-status")
+        .cloned();
+    let overage = state
+        .headers
+        .get("mossen-ratelimit-unified-overage-status")
+        .cloned();
     let reset = state.headers.get("mossen-ratelimit-unified-reset").cloned();
 
     if status.as_deref() == Some("rejected")
@@ -127,7 +137,9 @@ fn update_retry_after(state: &mut MockState) {
         if let Some(r) = reset {
             if let Ok(ts) = r.parse::<u64>() {
                 let secs = ts.saturating_sub(now_secs());
-                state.headers.insert("retry-after".to_string(), secs.to_string());
+                state
+                    .headers
+                    .insert("retry-after".to_string(), secs.to_string());
                 return;
             }
         }
@@ -137,7 +149,9 @@ fn update_retry_after(state: &mut MockState) {
 
 fn update_representative_claim(state: &mut MockState) {
     if state.exceeded_limits.is_empty() {
-        state.headers.remove("mossen-ratelimit-unified-representative-claim");
+        state
+            .headers
+            .remove("mossen-ratelimit-unified-representative-claim");
         state.headers.remove("mossen-ratelimit-unified-reset");
         state.headers.remove("retry-after");
         return;
@@ -159,11 +173,18 @@ fn update_representative_claim(state: &mut MockState) {
         furthest.resets_at.to_string(),
     );
 
-    if state.headers.get("mossen-ratelimit-unified-status").map(|s| s.as_str()) == Some("rejected") {
+    if state
+        .headers
+        .get("mossen-ratelimit-unified-status")
+        .map(|s| s.as_str())
+        == Some("rejected")
+    {
         let overage = state.headers.get("mossen-ratelimit-unified-overage-status");
         if overage.is_none() || overage.map(|s| s.as_str()) == Some("rejected") {
             let secs = furthest.resets_at.saturating_sub(now_secs());
-            state.headers.insert("retry-after".to_string(), secs.to_string());
+            state
+                .headers
+                .insert("retry-after".to_string(), secs.to_string());
         } else {
             state.headers.remove("retry-after");
         }
@@ -173,7 +194,7 @@ fn update_representative_claim(state: &mut MockState) {
 }
 
 pub fn add_exceeded_limit(limit_type: &str, hours_from_now: f64) {
-    if !is_ant() {
+    if !is_internal() {
         return;
     }
     let mut state = STATE.lock();
@@ -185,13 +206,16 @@ pub fn add_exceeded_limit(limit_type: &str, hours_from_now: f64) {
         resets_at,
     });
     if !state.exceeded_limits.is_empty() {
-        state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+        state.headers.insert(
+            "mossen-ratelimit-unified-status".to_string(),
+            "rejected".to_string(),
+        );
     }
     update_representative_claim(&mut state);
 }
 
 pub fn set_mock_early_warning(claim_abbrev: &str, utilization: f64, hours_from_now: Option<f64>) {
-    if !is_ant() {
+    if !is_internal() {
         return;
     }
     let mut state = STATE.lock();
@@ -213,12 +237,21 @@ pub fn set_mock_early_warning(claim_abbrev: &str, utilization: f64, hours_from_n
         resets_at.to_string(),
     );
     state.headers.insert(
-        format!("mossen-ratelimit-unified-{}-surpassed-threshold", claim_abbrev),
+        format!(
+            "mossen-ratelimit-unified-{}-surpassed-threshold",
+            claim_abbrev
+        ),
         utilization.to_string(),
     );
 
-    if !state.headers.contains_key("mossen-ratelimit-unified-status") {
-        state.headers.insert("mossen-ratelimit-unified-status".to_string(), "allowed".to_string());
+    if !state
+        .headers
+        .contains_key("mossen-ratelimit-unified-status")
+    {
+        state.headers.insert(
+            "mossen-ratelimit-unified-status".to_string(),
+            "allowed".to_string(),
+        );
     }
 }
 
@@ -227,7 +260,9 @@ fn clear_early_warning_headers(state: &mut MockState) {
         .headers
         .keys()
         .filter(|k| {
-            k.contains("-5h-") || k.contains("-7d-") || k.contains("-overage-utilization")
+            k.contains("-5h-")
+                || k.contains("-7d-")
+                || k.contains("-overage-utilization")
                 || k.contains("-overage-surpassed")
         })
         .cloned()
@@ -238,7 +273,7 @@ fn clear_early_warning_headers(state: &mut MockState) {
 }
 
 pub fn set_mock_rate_limit_scenario(scenario: &str) {
-    if !is_ant() {
+    if !is_internal() {
         return;
     }
     let mut state = STATE.lock();
@@ -258,61 +293,131 @@ pub fn set_mock_rate_limit_scenario(scenario: &str) {
     state.headers.clear();
     state.headerless_429_message = None;
 
-    let preserve = matches!(scenario, "overage-active" | "overage-warning" | "overage-exhausted");
+    let preserve = matches!(
+        scenario,
+        "overage-active" | "overage-warning" | "overage-exhausted"
+    );
     if !preserve {
         state.exceeded_limits.clear();
     }
 
     match scenario {
         "normal" => {
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "allowed".to_string());
-            state.headers.insert("mossen-ratelimit-unified-reset".to_string(), five_hours.to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "allowed".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-reset".to_string(),
+                five_hours.to_string(),
+            );
         }
         "session-limit-reached" => {
-            state.exceeded_limits = vec![ExceededLimit { limit_type: "five_hour".to_string(), resets_at: five_hours }];
+            state.exceeded_limits = vec![ExceededLimit {
+                limit_type: "five_hour".to_string(),
+                resets_at: five_hours,
+            }];
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
         }
         "approaching-weekly-limit" => {
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "allowed_warning".to_string());
-            state.headers.insert("mossen-ratelimit-unified-reset".to_string(), seven_days.to_string());
-            state.headers.insert("mossen-ratelimit-unified-representative-claim".to_string(), "seven_day".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "allowed_warning".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-reset".to_string(),
+                seven_days.to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-representative-claim".to_string(),
+                "seven_day".to_string(),
+            );
         }
         "weekly-limit-reached" => {
-            state.exceeded_limits = vec![ExceededLimit { limit_type: "seven_day".to_string(), resets_at: seven_days }];
+            state.exceeded_limits = vec![ExceededLimit {
+                limit_type: "seven_day".to_string(),
+                resets_at: seven_days,
+            }];
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
         }
         "overage-active" => {
             if state.exceeded_limits.is_empty() {
-                state.exceeded_limits = vec![ExceededLimit { limit_type: "five_hour".to_string(), resets_at: five_hours }];
+                state.exceeded_limits = vec![ExceededLimit {
+                    limit_type: "five_hour".to_string(),
+                    resets_at: five_hours,
+                }];
             }
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
-            state.headers.insert("mossen-ratelimit-unified-overage-status".to_string(), "allowed".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-status".to_string(),
+                "allowed".to_string(),
+            );
             let end_of_month = end_of_month_secs();
-            state.headers.insert("mossen-ratelimit-unified-overage-reset".to_string(), end_of_month.to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-reset".to_string(),
+                end_of_month.to_string(),
+            );
         }
         "overage-warning" => {
             if state.exceeded_limits.is_empty() {
-                state.exceeded_limits = vec![ExceededLimit { limit_type: "five_hour".to_string(), resets_at: five_hours }];
+                state.exceeded_limits = vec![ExceededLimit {
+                    limit_type: "five_hour".to_string(),
+                    resets_at: five_hours,
+                }];
             }
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
-            state.headers.insert("mossen-ratelimit-unified-overage-status".to_string(), "allowed_warning".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-status".to_string(),
+                "allowed_warning".to_string(),
+            );
             let end_of_month = end_of_month_secs();
-            state.headers.insert("mossen-ratelimit-unified-overage-reset".to_string(), end_of_month.to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-reset".to_string(),
+                end_of_month.to_string(),
+            );
         }
-        "overage-exhausted" | "out-of-credits" | "org-zero-credit-limit"
-        | "org-spend-cap-hit" | "member-zero-credit-limit" | "seat-tier-zero-credit-limit" => {
+        "overage-exhausted"
+        | "out-of-credits"
+        | "org-zero-credit-limit"
+        | "org-spend-cap-hit"
+        | "member-zero-credit-limit"
+        | "seat-tier-zero-credit-limit" => {
             if state.exceeded_limits.is_empty() {
-                state.exceeded_limits = vec![ExceededLimit { limit_type: "five_hour".to_string(), resets_at: five_hours }];
+                state.exceeded_limits = vec![ExceededLimit {
+                    limit_type: "five_hour".to_string(),
+                    resets_at: five_hours,
+                }];
             }
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
-            state.headers.insert("mossen-ratelimit-unified-overage-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-status".to_string(),
+                "rejected".to_string(),
+            );
             let end_of_month = end_of_month_secs();
-            state.headers.insert("mossen-ratelimit-unified-overage-reset".to_string(), end_of_month.to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-overage-reset".to_string(),
+                end_of_month.to_string(),
+            );
             // Set disabled reason for specific scenarios
             let reason = match scenario {
                 "out-of-credits" => Some("out_of_credits"),
@@ -323,41 +428,81 @@ pub fn set_mock_rate_limit_scenario(scenario: &str) {
                 _ => None,
             };
             if let Some(r) = reason {
-                state.headers.insert("mossen-ratelimit-unified-overage-disabled-reason".to_string(), r.to_string());
+                state.headers.insert(
+                    "mossen-ratelimit-unified-overage-disabled-reason".to_string(),
+                    r.to_string(),
+                );
             }
         }
-        "opus-limit" => {
-            state.exceeded_limits = vec![ExceededLimit { limit_type: "seven_day_opus".to_string(), resets_at: seven_days }];
+        "max-limit" => {
+            state.exceeded_limits = vec![ExceededLimit {
+                limit_type: "seven_day_max".to_string(),
+                resets_at: seven_days,
+            }];
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
         }
-        "opus-warning" => {
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "allowed_warning".to_string());
-            state.headers.insert("mossen-ratelimit-unified-reset".to_string(), seven_days.to_string());
-            state.headers.insert("mossen-ratelimit-unified-representative-claim".to_string(), "seven_day_opus".to_string());
+        "max-warning" => {
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "allowed_warning".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-reset".to_string(),
+                seven_days.to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-representative-claim".to_string(),
+                "seven_day_max".to_string(),
+            );
         }
-        "sonnet-limit" => {
-            state.exceeded_limits = vec![ExceededLimit { limit_type: "seven_day_sonnet".to_string(), resets_at: seven_days }];
+        "balanced-limit" => {
+            state.exceeded_limits = vec![ExceededLimit {
+                limit_type: "seven_day_balanced".to_string(),
+                resets_at: seven_days,
+            }];
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
         }
-        "sonnet-warning" => {
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "allowed_warning".to_string());
-            state.headers.insert("mossen-ratelimit-unified-reset".to_string(), seven_days.to_string());
-            state.headers.insert("mossen-ratelimit-unified-representative-claim".to_string(), "seven_day_sonnet".to_string());
+        "balanced-warning" => {
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "allowed_warning".to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-reset".to_string(),
+                seven_days.to_string(),
+            );
+            state.headers.insert(
+                "mossen-ratelimit-unified-representative-claim".to_string(),
+                "seven_day_balanced".to_string(),
+            );
         }
         "fast-mode-limit" => {
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
             state.fast_mode_duration_ms = Some(10 * 60 * 1000);
         }
         "fast-mode-short-limit" => {
             update_representative_claim(&mut state);
-            state.headers.insert("mossen-ratelimit-unified-status".to_string(), "rejected".to_string());
+            state.headers.insert(
+                "mossen-ratelimit-unified-status".to_string(),
+                "rejected".to_string(),
+            );
             state.fast_mode_duration_ms = Some(10 * 1000);
         }
         "extra-usage-required" => {
-            state.headerless_429_message = Some("Extra usage is required for long context requests.".to_string());
+            state.headerless_429_message =
+                Some("Extra usage is required for long context requests.".to_string());
         }
         _ => {}
     }
@@ -369,7 +514,7 @@ fn end_of_month_secs() -> u64 {
 }
 
 pub fn get_mock_headerless_429_message() -> Option<String> {
-    if !is_ant() {
+    if !is_internal() {
         return None;
     }
     if let Ok(env_val) = std::env::var("MOSSEN_MOCK_HEADERLESS_429") {
@@ -386,7 +531,7 @@ pub fn get_mock_headerless_429_message() -> Option<String> {
 
 pub fn get_mock_headers() -> Option<HashMap<String, String>> {
     let state = STATE.lock();
-    if !state.enabled || !is_ant() || state.headers.is_empty() {
+    if !state.enabled || !is_internal() || state.headers.is_empty() {
         return None;
     }
     Some(state.headers.clone())
@@ -399,9 +544,15 @@ pub fn get_mock_status() -> String {
     }
 
     let mut lines = vec!["Active mock headers:".to_string()];
-    let effective = state.subscription_type.as_deref().unwrap_or(DEFAULT_MOCK_SUBSCRIPTION);
+    let effective = state
+        .subscription_type
+        .as_deref()
+        .unwrap_or(DEFAULT_MOCK_SUBSCRIPTION);
     if state.subscription_type.is_some() {
-        lines.push(format!("  Subscription Type: {} (explicitly set)", effective));
+        lines.push(format!(
+            "  Subscription Type: {} (explicitly set)",
+            effective
+        ));
     } else {
         lines.push(format!("  Subscription Type: {} (default)", effective));
     }
@@ -424,7 +575,10 @@ pub fn get_mock_status() -> String {
     if !state.exceeded_limits.is_empty() {
         lines.push("\nExceeded limits (contributing to representative claim):".to_string());
         for limit in &state.exceeded_limits {
-            lines.push(format!("  {}: resets at {}", limit.limit_type, limit.resets_at));
+            lines.push(format!(
+                "  {}: resets at {}",
+                limit.limit_type, limit.resets_at
+            ));
         }
     }
 
@@ -452,7 +606,7 @@ pub fn apply_mock_headers(mut headers: HashMap<String, String>) -> HashMap<Strin
 }
 
 pub fn should_process_mock_limits() -> bool {
-    if !is_ant() {
+    if !is_internal() {
         return false;
     }
     let state = STATE.lock();
@@ -460,7 +614,7 @@ pub fn should_process_mock_limits() -> bool {
 }
 
 pub fn set_mock_subscription_type(subscription_type: Option<&str>) {
-    if !is_ant() {
+    if !is_internal() {
         return;
     }
     let mut state = STATE.lock();
@@ -470,15 +624,20 @@ pub fn set_mock_subscription_type(subscription_type: Option<&str>) {
 
 pub fn get_mock_subscription_type() -> Option<String> {
     let state = STATE.lock();
-    if !state.enabled || !is_ant() {
+    if !state.enabled || !is_internal() {
         return None;
     }
-    Some(state.subscription_type.clone().unwrap_or_else(|| DEFAULT_MOCK_SUBSCRIPTION.to_string()))
+    Some(
+        state
+            .subscription_type
+            .clone()
+            .unwrap_or_else(|| DEFAULT_MOCK_SUBSCRIPTION.to_string()),
+    )
 }
 
 pub fn should_use_mock_subscription() -> bool {
     let state = STATE.lock();
-    state.enabled && state.subscription_type.is_some() && is_ant()
+    state.enabled && state.subscription_type.is_some() && is_internal()
 }
 
 pub fn is_mock_fast_mode_rate_limit_scenario() -> bool {
@@ -537,10 +696,10 @@ pub fn get_scenario_description(scenario: &str) -> &'static str {
         "org-spend-cap-hit" => "Org spend cap hit for the month",
         "member-zero-credit-limit" => "Member limit is zero (admin can allocate more)",
         "seat-tier-zero-credit-limit" => "Seat tier limit is zero (admin can allocate more)",
-        "opus-limit" => "Frontier limit reached",
-        "opus-warning" => "Approaching Frontier limit",
-        "sonnet-limit" => "Balanced limit reached",
-        "sonnet-warning" => "Approaching Balanced limit",
+        "max-limit" => "Max limit reached",
+        "max-warning" => "Approaching Max limit",
+        "balanced-limit" => "Balanced limit reached",
+        "balanced-warning" => "Approaching Balanced limit",
         "fast-mode-limit" => "Fast mode rate limit",
         "fast-mode-short-limit" => "Fast mode rate limit (short)",
         "extra-usage-required" => "Headerless 429: Extra usage required for 1M context",

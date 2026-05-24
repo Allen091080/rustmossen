@@ -184,7 +184,10 @@ pub struct MemoryFileInfo {
 fn is_instructions_memory_type(t: &MemoryFileType) -> bool {
     matches!(
         t,
-        MemoryFileType::User | MemoryFileType::Project | MemoryFileType::Local | MemoryFileType::Managed
+        MemoryFileType::User
+            | MemoryFileType::Project
+            | MemoryFileType::Local
+            | MemoryFileType::Managed
     )
 }
 
@@ -446,10 +449,7 @@ pub enum Attachment {
         display_path: String,
     },
     /// An at-mentioned text file was edited.
-    EditedTextFile {
-        filename: String,
-        snippet: String,
-    },
+    EditedTextFile { filename: String, snippet: String },
     /// An at-mentioned image file was edited.
     EditedImageFile {
         filename: String,
@@ -471,9 +471,7 @@ pub enum Attachment {
         display_path: String,
     },
     /// Opened file in IDE.
-    OpenedFileInIde {
-        filename: String,
-    },
+    OpenedFileInIde { filename: String },
     /// Todo reminder.
     TodoReminder {
         content: TodoList,
@@ -491,9 +489,7 @@ pub enum Attachment {
         display_path: String,
     },
     /// Relevant memories (auto-surfaced).
-    RelevantMemories {
-        memories: Vec<RelevantMemoryEntry>,
-    },
+    RelevantMemories { memories: Vec<RelevantMemoryEntry> },
     /// Dynamic skill directory.
     DynamicSkill {
         skill_dir: String,
@@ -521,9 +517,7 @@ pub enum Attachment {
         is_meta: Option<bool>,
     },
     /// Output style override.
-    OutputStyle {
-        style: String,
-    },
+    OutputStyle { style: String },
     /// Diagnostics from IDE/LSP.
     Diagnostics {
         files: Vec<DiagnosticFile>,
@@ -538,24 +532,18 @@ pub enum Attachment {
         plan_exists: bool,
     },
     /// Plan mode re-entry notification.
-    PlanModeReentry {
-        plan_file_path: String,
-    },
+    PlanModeReentry { plan_file_path: String },
     /// Plan mode exit notification.
     PlanModeExit {
         plan_file_path: String,
         plan_exists: bool,
     },
     /// Auto mode reminder.
-    AutoMode {
-        reminder_type: ReminderType,
-    },
+    AutoMode { reminder_type: ReminderType },
     /// Auto mode exit notification.
     AutoModeExit,
     /// Critical system reminder.
-    CriticalSystemReminder {
-        content: String,
-    },
+    CriticalSystemReminder { content: String },
     /// Plan file reference.
     PlanFileReference {
         plan_file_path: String,
@@ -577,9 +565,7 @@ pub enum Attachment {
         model: Option<String>,
     },
     /// Agent mention.
-    AgentMention {
-        agent_type: String,
-    },
+    AgentMention { agent_type: String },
     /// Task status update.
     TaskStatus {
         task_id: String,
@@ -622,13 +608,9 @@ pub enum Attachment {
         budget: Option<usize>,
     },
     /// Structured output data.
-    StructuredOutput {
-        data: serde_json::Value,
-    },
+    StructuredOutput { data: serde_json::Value },
     /// Teammate mailbox messages.
-    TeammateMailbox {
-        messages: Vec<TeammateMessage>,
-    },
+    TeammateMailbox { messages: Vec<TeammateMessage> },
     /// Team context for swarm coordination.
     TeamContext {
         agent_id: String,
@@ -723,16 +705,11 @@ pub enum Attachment {
         hook_event: HookEvent,
     },
     /// Invoked skills.
-    InvokedSkills {
-        skills: Vec<InvokedSkillEntry>,
-    },
+    InvokedSkills { skills: Vec<InvokedSkillEntry> },
     /// Verify plan reminder.
     VerifyPlanReminder,
     /// Max turns reached notification.
-    MaxTurnsReached {
-        max_turns: usize,
-        turn_count: usize,
-    },
+    MaxTurnsReached { max_turns: usize, turn_count: usize },
     /// Current session memory.
     CurrentSessionMemory {
         content: String,
@@ -740,21 +717,15 @@ pub enum Attachment {
         token_count: usize,
     },
     /// Teammate shutdown batch.
-    TeammateShutdownBatch {
-        count: usize,
-    },
+    TeammateShutdownBatch { count: usize },
     /// Compaction reminder.
     CompactionReminder,
     /// Context efficiency nudge.
     ContextEfficiency,
     /// Date change notification.
-    DateChange {
-        new_date: String,
-    },
+    DateChange { new_date: String },
     /// Ultrathink effort level.
-    UltrathinkEffort {
-        level: String,
-    },
+    UltrathinkEffort { level: String },
     /// Deferred tools delta.
     DeferredToolsDelta {
         added_names: Vec<String>,
@@ -776,10 +747,7 @@ pub enum Attachment {
         removed_names: Vec<String>,
     },
     /// Companion intro.
-    CompanionIntro {
-        name: String,
-        species: String,
-    },
+    CompanionIntro { name: String, species: String },
     /// Console errors/warnings (bagel).
     BagelConsole {
         error_count: usize,
@@ -1115,13 +1083,12 @@ static SENT_SKILL_NAMES: Lazy<Mutex<HashMap<String, HashSet<String>>>> =
 
 static SUPPRESS_NEXT_SKILL: AtomicBool = AtomicBool::new(false);
 
-static INLINE_NOTIFICATION_MODES: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| {
-        let mut s = HashSet::new();
-        s.insert("prompt");
-        s.insert("task-notification");
-        s
-    });
+static INLINE_NOTIFICATION_MODES: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    let mut s = HashSet::new();
+    s.insert("prompt");
+    s.insert("task-notification");
+    s
+});
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -1209,9 +1176,7 @@ pub fn create_attachment_message(attachment: Attachment) -> AttachmentMessage {
 }
 
 /// Get queued command attachments from queued commands.
-pub async fn get_queued_command_attachments(
-    queued_commands: &[QueuedCommand],
-) -> Vec<Attachment> {
+pub async fn get_queued_command_attachments(queued_commands: &[QueuedCommand]) -> Vec<Attachment> {
     if queued_commands.is_empty() {
         return Vec::new();
     }
@@ -1255,24 +1220,25 @@ pub async fn get_queued_command_attachments(
 fn extract_text_from_value(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(arr) => {
-            arr.iter()
-                .filter_map(|block| {
-                    if block.get("type")?.as_str()? == "text" {
-                        block.get("text")?.as_str().map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|block| {
+                if block.get("type")?.as_str()? == "text" {
+                    block.get("text")?.as_str().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }
 
 /// Get image paste IDs from pasted contents.
-fn get_image_paste_ids(pasted_contents: Option<&HashMap<String, PastedContent>>) -> Option<Vec<u32>> {
+fn get_image_paste_ids(
+    pasted_contents: Option<&HashMap<String, PastedContent>>,
+) -> Option<Vec<u32>> {
     let contents = pasted_contents?;
     let ids: Vec<u32> = contents
         .iter()
@@ -1371,15 +1337,13 @@ fn get_plan_mode_attachment_turn_count(messages: &[ConversationMessage]) -> (usi
                     turns_since_last_attachment += 1;
                 }
             }
-            ConversationMessage::Attachment { attachment, .. } => {
-                match attachment {
-                    Attachment::PlanMode { .. } | Attachment::PlanModeReentry { .. } => {
-                        found_plan_mode_attachment = true;
-                        break;
-                    }
-                    _ => {}
+            ConversationMessage::Attachment { attachment, .. } => match attachment {
+                Attachment::PlanMode { .. } | Attachment::PlanModeReentry { .. } => {
+                    found_plan_mode_attachment = true;
+                    break;
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -2068,10 +2032,7 @@ fn get_snippet_for_two_file_diff(old: &str, new: &str) -> String {
     // Find last differing line (from end)
     let mut old_end = old_lines.len();
     let mut new_end = new_lines.len();
-    while old_end > start
-        && new_end > start
-        && old_lines[old_end - 1] == new_lines[new_end - 1]
-    {
+    while old_end > start && new_end > start && old_lines[old_end - 1] == new_lines[new_end - 1] {
         old_end -= 1;
         new_end -= 1;
     }
@@ -2445,7 +2406,10 @@ pub fn get_verify_plan_reminder_turn_count(messages: &[ConversationMessage]) -> 
                 message,
                 ..
             } => {
-                if !is_meta && tool_use_result.is_none() && !has_tool_result_content(&message.content) {
+                if !is_meta
+                    && tool_use_result.is_none()
+                    && !has_tool_result_content(&message.content)
+                {
                     turn_count += 1;
                 }
             }
@@ -2549,12 +2513,13 @@ pub fn collect_surfaced_memories(messages: &[ConversationMessage]) -> (HashSet<S
 }
 
 /// Regex for resume/recall prompts.
-static MEMORY_RESUME_PROMPT_RE: once_cell::sync::Lazy<regex::Regex> =
-    once_cell::sync::Lazy::new(|| {
+static MEMORY_RESUME_PROMPT_RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(
+    || {
         regex::Regex::new(
             r"(?i)^(继续|继续做|接着|接着做|恢复|恢复上下文|项目记忆|项目记忆呢|记忆|继续上次|继续之前|continue|resume|memory|memories|recall|handoff)$"
         ).unwrap()
-    });
+    },
+);
 
 /// Build the recall input string from user input.
 pub fn build_relevant_memory_recall_input(input: Option<&str>, cwd: &str) -> Option<String> {
@@ -2586,8 +2551,7 @@ pub async fn read_memories_for_surfacing(
     let mut results = Vec::new();
 
     for candidate in selected {
-        match read_file_in_range(&candidate.path, 0, MAX_MEMORY_LINES, Some(MAX_MEMORY_BYTES))
-            .await
+        match read_file_in_range(&candidate.path, 0, MAX_MEMORY_LINES, Some(MAX_MEMORY_BYTES)).await
         {
             Ok(result) => {
                 let truncated = result.total_lines > MAX_MEMORY_LINES || result.truncated_by_bytes;
@@ -2695,11 +2659,23 @@ fn memory_age(mtime_ms: u64) -> String {
     let diff_days = diff_hours / 24;
 
     if diff_days > 0 {
-        format!("{} day{} ago", diff_days, if diff_days == 1 { "" } else { "s" })
+        format!(
+            "{} day{} ago",
+            diff_days,
+            if diff_days == 1 { "" } else { "s" }
+        )
     } else if diff_hours > 0 {
-        format!("{} hour{} ago", diff_hours, if diff_hours == 1 { "" } else { "s" })
+        format!(
+            "{} hour{} ago",
+            diff_hours,
+            if diff_hours == 1 { "" } else { "s" }
+        )
     } else if diff_mins > 0 {
-        format!("{} minute{} ago", diff_mins, if diff_mins == 1 { "" } else { "s" })
+        format!(
+            "{} minute{} ago",
+            diff_mins,
+            if diff_mins == 1 { "" } else { "s" }
+        )
     } else {
         "just now".to_string()
     }
@@ -2712,7 +2688,10 @@ fn memory_freshness_text(mtime_ms: u64) -> Option<String> {
     let diff_days = diff_ms / (1000 * 60 * 60 * 24);
 
     if diff_days >= 7 {
-        Some(format!("⚠️ This memory was saved {} — it may be outdated.", memory_age(mtime_ms)))
+        Some(format!(
+            "⚠️ This memory was saved {} — it may be outdated.",
+            memory_age(mtime_ms)
+        ))
     } else {
         None
     }
@@ -2831,9 +2810,7 @@ pub struct SkillCommand {
 // ---------------------------------------------------------------------------
 
 /// Get dynamic skill attachments from triggered directories.
-pub async fn get_dynamic_skill_attachments(
-    triggers: &mut HashSet<String>,
-) -> Vec<Attachment> {
+pub async fn get_dynamic_skill_attachments(triggers: &mut HashSet<String>) -> Vec<Attachment> {
     if triggers.is_empty() {
         return Vec::new();
     }
@@ -2964,10 +2941,7 @@ pub fn get_async_hook_response_attachments(
 // ---------------------------------------------------------------------------
 
 /// Try to get a PDF reference attachment for large PDFs.
-pub async fn try_get_pdf_reference(
-    filename: &str,
-    inline_threshold: usize,
-) -> Option<Attachment> {
+pub async fn try_get_pdf_reference(filename: &str, inline_threshold: usize) -> Option<Attachment> {
     let ext = Path::new(filename)
         .extension()
         .and_then(|e| e.to_str())
@@ -3013,7 +2987,12 @@ pub fn collect_recent_successful_tools(
 
         // Stop at previous human turn
         if i < last_user_msg_idx {
-            if let ConversationMessage::User { is_meta, tool_use_result, .. } = msg {
+            if let ConversationMessage::User {
+                is_meta,
+                tool_use_result,
+                ..
+            } = msg
+            {
                 if !is_meta && tool_use_result.is_none() {
                     break;
                 }
@@ -3094,8 +3073,7 @@ fn has_tool_result_content(content: &serde_json::Value) -> bool {
 fn is_thinking_message_payload(content: &serde_json::Value) -> bool {
     match content.as_array() {
         Some(arr) => {
-            arr.len() == 1
-                && arr[0].get("type").and_then(|v| v.as_str()) == Some("thinking")
+            arr.len() == 1 && arr[0].get("type").and_then(|v| v.as_str()) == Some("thinking")
         }
         None => false,
     }
@@ -3117,10 +3095,7 @@ fn has_tool_use_name(content: &serde_json::Value, name: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Process @agent mentions from input against known agents.
-pub fn process_agent_mentions(
-    input: &str,
-    agents: &[AgentDefinition],
-) -> Vec<Attachment> {
+pub fn process_agent_mentions(input: &str, agents: &[AgentDefinition]) -> Vec<Attachment> {
     let mentions = extract_agent_mentions(input);
     if mentions.is_empty() {
         return Vec::new();
@@ -3382,7 +3357,10 @@ pub async fn create_directory_attachment(path: &str, max_entries: usize) -> Opti
 
     let mut content = names.join("\n");
     if truncated {
-        content.push_str(&format!("\n\u{2026} and {} more entries", total - max_entries));
+        content.push_str(&format!(
+            "\n\u{2026} and {} more entries",
+            total - max_entries
+        ));
     }
 
     let cwd = get_cwd();

@@ -39,7 +39,14 @@ impl<T> CircularBuffer<T> {
     /// Returns fewer items if the buffer contains less than N items.
     pub fn get_recent(&self, count: usize) -> Vec<&T> {
         let available = count.min(self.buffer.len());
-        self.buffer.iter().rev().take(available).collect::<Vec<_>>().into_iter().rev().collect()
+        self.buffer
+            .iter()
+            .rev()
+            .take(available)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect()
     }
 
     /// Get all items currently in the buffer, in order from oldest to newest.

@@ -71,9 +71,8 @@ pub fn get_built_in_agents() -> Vec<AgentDefinition> {
 
     // Include Code Guide agent for non-SDK entrypoints
     let entrypoint = env::var("MOSSEN_CODE_ENTRYPOINT").unwrap_or_default();
-    let is_non_sdk_entrypoint = entrypoint != "sdk-ts"
-        && entrypoint != "sdk-py"
-        && entrypoint != "sdk-cli";
+    let is_non_sdk_entrypoint =
+        entrypoint != "sdk-ts" && entrypoint != "sdk-py" && entrypoint != "sdk-cli";
 
     if is_non_sdk_entrypoint {
         agents.push(mossen_code_guide_agent::definition());

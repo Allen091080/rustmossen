@@ -59,7 +59,9 @@ impl Directive for DiagnoseDirective {
         output.push_str(&format!("Shell: {}\n", shell));
 
         // Check terminal
-        let terminal = ctx.env_vars.get("TERM_PROGRAM")
+        let terminal = ctx
+            .env_vars
+            .get("TERM_PROGRAM")
             .cloned()
             .unwrap_or_else(|| "unknown".to_string());
         output.push_str(&format!("Terminal: {}\n", terminal));

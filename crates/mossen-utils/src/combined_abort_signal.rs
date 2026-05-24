@@ -2,7 +2,6 @@
 //!
 //! 对应 TypeScript `utils/combinedAbortSignal.ts`。
 
-use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 

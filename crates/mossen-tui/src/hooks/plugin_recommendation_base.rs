@@ -1,4 +1,4 @@
-//! Plugin recommendation base (usePluginRecommendationBase.tsx).
+//! Plugin recommendation base.
 //! Base logic for recommending plugins based on workspace analysis.
 
 #[derive(Debug, Clone)]
@@ -18,10 +18,15 @@ pub struct PluginRecommendationBaseState {
 
 impl PluginRecommendationBaseState {
     pub fn new() -> Self {
-        Self { recommendations: Vec::new(), dismissed: Vec::new(), auto_installed: Vec::new() }
+        Self {
+            recommendations: Vec::new(),
+            dismissed: Vec::new(),
+            auto_installed: Vec::new(),
+        }
     }
     pub fn add_recommendation(&mut self, rec: PluginRecommendationEntry) {
-        if !self.dismissed.contains(&rec.plugin_id) && !self.auto_installed.contains(&rec.plugin_id) {
+        if !self.dismissed.contains(&rec.plugin_id) && !self.auto_installed.contains(&rec.plugin_id)
+        {
             self.recommendations.push(rec);
         }
     }
@@ -33,9 +38,15 @@ impl PluginRecommendationBaseState {
         self.recommendations.retain(|r| r.plugin_id != plugin_id);
         self.auto_installed.push(plugin_id.to_string());
     }
-    pub fn pending(&self) -> &[PluginRecommendationEntry] { &self.recommendations }
+    pub fn pending(&self) -> &[PluginRecommendationEntry] {
+        &self.recommendations
+    }
 }
-impl Default for PluginRecommendationBaseState { fn default() -> Self { Self::new() } }
+impl Default for PluginRecommendationBaseState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Outcome of an `install_plugin_and_notify` invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]

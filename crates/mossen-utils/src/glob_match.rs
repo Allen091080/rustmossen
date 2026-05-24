@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use regex::Regex;
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 
 /// Extract the static base directory from a glob pattern.
 /// The base directory is everything before the first glob special character (* ? [ {).

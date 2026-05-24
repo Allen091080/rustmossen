@@ -19,7 +19,10 @@ fn get_plan_v2_system_prompt() -> String {
     let search_tools_hint = if embedded {
         format!("`find`, `grep`, and {}", FILE_READ_TOOL_NAME)
     } else {
-        format!("{}, {}, and {}", GLOB_TOOL_NAME, GREP_TOOL_NAME, FILE_READ_TOOL_NAME)
+        format!(
+            "{}, {}, and {}",
+            GLOB_TOOL_NAME, GREP_TOOL_NAME, FILE_READ_TOOL_NAME
+        )
     };
 
     let grep_extra = if embedded { ", grep" } else { "" };
@@ -124,5 +127,4 @@ pub fn definition() -> AgentDefinition {
 }
 
 /// `planAgent.ts` `PLAN_AGENT` — singleton definition.
-pub static PLAN_AGENT: std::sync::LazyLock<AgentDefinition> =
-    std::sync::LazyLock::new(definition);
+pub static PLAN_AGENT: std::sync::LazyLock<AgentDefinition> = std::sync::LazyLock::new(definition);

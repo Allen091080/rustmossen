@@ -11,10 +11,7 @@ use crate::mcp::env_expansion::expand_env_vars_in_string;
 use crate::mcp::types::{ConfigScope, McpServerConfig, ScopedMcpServerConfig};
 
 /// CCR proxy URL path markers.
-const CCR_PROXY_PATH_MARKERS: &[&str] = &[
-    "/v2/session_ingress/shttp/mcp/",
-    "/v2/ccr-sessions/",
-];
+const CCR_PROXY_PATH_MARKERS: &[&str] = &["/v2/session_ingress/shttp/mcp/", "/v2/ccr-sessions/"];
 
 /// Get the path to the managed MCP configuration file.
 pub fn get_enterprise_mcp_file_path(managed_path: &Path) -> PathBuf {
@@ -87,7 +84,10 @@ pub fn unwrap_ccr_proxy_url(url: &str) -> String {
 /// Compute a dedup signature for an MCP server config.
 pub fn get_mcp_server_signature(config: &McpServerConfig) -> Option<String> {
     if let Some(cmd) = get_server_command_array(config) {
-        return Some(format!("stdio:{}", serde_json::to_string(&cmd).unwrap_or_default()));
+        return Some(format!(
+            "stdio:{}",
+            serde_json::to_string(&cmd).unwrap_or_default()
+        ));
     }
     if let Some(url) = get_server_url(config) {
         return Some(format!("url:{}", unwrap_ccr_proxy_url(url)));
@@ -99,7 +99,10 @@ pub fn get_mcp_server_signature(config: &McpServerConfig) -> Option<String> {
 pub fn dedup_plugin_mcp_servers(
     plugin_servers: &HashMap<String, ScopedMcpServerConfig>,
     manual_servers: &HashMap<String, ScopedMcpServerConfig>,
-) -> (HashMap<String, ScopedMcpServerConfig>, Vec<(String, String)>) {
+) -> (
+    HashMap<String, ScopedMcpServerConfig>,
+    Vec<(String, String)>,
+) {
     let mut manual_sigs: HashMap<String, String> = HashMap::new();
     for (name, config) in manual_servers {
         if let Some(sig) = get_mcp_server_signature(&config.config) {
@@ -135,7 +138,10 @@ pub fn dedup_hosted_mcp_servers(
     hosted_servers: &HashMap<String, ScopedMcpServerConfig>,
     manual_servers: &HashMap<String, ScopedMcpServerConfig>,
     is_disabled: impl Fn(&str) -> bool,
-) -> (HashMap<String, ScopedMcpServerConfig>, Vec<(String, String)>) {
+) -> (
+    HashMap<String, ScopedMcpServerConfig>,
+    Vec<(String, String)>,
+) {
     let mut manual_sigs: HashMap<String, String> = HashMap::new();
     for (name, config) in manual_servers {
         if is_disabled(name) {
@@ -236,8 +242,12 @@ pub fn is_mcp_server_allowed_by_policy(
         return false;
     }
 
-    let has_command_entries = allowed.iter().any(|e| matches!(e, McpServerPolicyEntry::Command { .. }));
-    let has_url_entries = allowed.iter().any(|e| matches!(e, McpServerPolicyEntry::Url { .. }));
+    let has_command_entries = allowed
+        .iter()
+        .any(|e| matches!(e, McpServerPolicyEntry::Command { .. }));
+    let has_url_entries = allowed
+        .iter()
+        .any(|e| matches!(e, McpServerPolicyEntry::Url { .. }));
 
     if let Some(cfg) = config {
         if let Some(cmd) = get_server_command_array(cfg) {
@@ -246,9 +256,9 @@ pub fn is_mcp_server_allowed_by_policy(
                     matches!(e, McpServerPolicyEntry::Command { server_command } if command_arrays_match(server_command, &cmd))
                 });
             }
-            return allowed.iter().any(|e| {
-                matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name)
-            });
+            return allowed.iter().any(
+                |e| matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name),
+            );
         }
         if let Some(url) = get_server_url(cfg) {
             if has_url_entries {
@@ -256,15 +266,15 @@ pub fn is_mcp_server_allowed_by_policy(
                     matches!(e, McpServerPolicyEntry::Url { server_url } if url_matches_pattern(url, server_url))
                 });
             }
-            return allowed.iter().any(|e| {
-                matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name)
-            });
+            return allowed.iter().any(
+                |e| matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name),
+            );
         }
     }
 
-    allowed.iter().any(|e| {
-        matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name)
-    })
+    allowed
+        .iter()
+        .any(|e| matches!(e, McpServerPolicyEntry::Name { server_name: n } if n == server_name))
 }
 
 /// Filter MCP servers by policy.
@@ -278,7 +288,12 @@ pub fn filter_mcp_servers_by_policy(
 
     for (name, config) in configs {
         if matches!(&config.config, McpServerConfig::Sdk { .. })
-            || is_mcp_server_allowed_by_policy(name, Some(&config.config), denied_list, allowed_list)
+            || is_mcp_server_allowed_by_policy(
+                name,
+                Some(&config.config),
+                denied_list,
+                allowed_list,
+            )
         {
             allowed.insert(name.clone(), config.clone());
         } else {
@@ -299,10 +314,17 @@ pub fn expand_env_vars(config: &McpServerConfig) -> (McpServerConfig, Vec<String
     };
 
     let expanded = match config {
-        McpServerConfig::Stdio { command, args, env, cwd } => {
+        McpServerConfig::Stdio {
+            command,
+            args,
+            env,
+            cwd,
+        } => {
             let expanded_cmd = expand(command);
             let expanded_args: Vec<String> = args.iter().map(|a| expand(a)).collect();
-            let expanded_env = env.as_ref().map(|e| e.iter().map(|(k, v)| (k.clone(), expand(v))).collect());
+            let expanded_env = env
+                .as_ref()
+                .map(|e| e.iter().map(|(k, v)| (k.clone(), expand(v))).collect());
             // Collect missing vars
             if let Some(ref e) = env {
                 for v in e.values() {
@@ -325,16 +347,23 @@ pub fn expand_env_vars(config: &McpServerConfig) -> (McpServerConfig, Vec<String
                 cwd: cwd.clone(),
             }
         }
-        McpServerConfig::Sse { url, headers, headers_helper, oauth } => {
+        McpServerConfig::Sse {
+            url,
+            headers,
+            headers_helper,
+            oauth,
+        } => {
             let r = expand_env_vars_in_string(url);
             missing_vars.extend(r.missing_vars);
             let expanded_url = r.expanded;
             let expanded_headers = headers.as_ref().map(|h| {
-                h.iter().map(|(k, v)| {
-                    let r = expand_env_vars_in_string(v);
-                    missing_vars.extend(r.missing_vars);
-                    (k.clone(), r.expanded)
-                }).collect()
+                h.iter()
+                    .map(|(k, v)| {
+                        let r = expand_env_vars_in_string(v);
+                        missing_vars.extend(r.missing_vars);
+                        (k.clone(), r.expanded)
+                    })
+                    .collect()
             });
             McpServerConfig::Sse {
                 url: expanded_url,
@@ -343,16 +372,23 @@ pub fn expand_env_vars(config: &McpServerConfig) -> (McpServerConfig, Vec<String
                 oauth: oauth.clone(),
             }
         }
-        McpServerConfig::Http { url, headers, headers_helper, oauth } => {
+        McpServerConfig::Http {
+            url,
+            headers,
+            headers_helper,
+            oauth,
+        } => {
             let r = expand_env_vars_in_string(url);
             missing_vars.extend(r.missing_vars);
             let expanded_url = r.expanded;
             let expanded_headers = headers.as_ref().map(|h| {
-                h.iter().map(|(k, v)| {
-                    let r = expand_env_vars_in_string(v);
-                    missing_vars.extend(r.missing_vars);
-                    (k.clone(), r.expanded)
-                }).collect()
+                h.iter()
+                    .map(|(k, v)| {
+                        let r = expand_env_vars_in_string(v);
+                        missing_vars.extend(r.missing_vars);
+                        (k.clone(), r.expanded)
+                    })
+                    .collect()
             });
             McpServerConfig::Http {
                 url: expanded_url,
@@ -361,16 +397,22 @@ pub fn expand_env_vars(config: &McpServerConfig) -> (McpServerConfig, Vec<String
                 oauth: oauth.clone(),
             }
         }
-        McpServerConfig::Ws { url, headers, headers_helper } => {
+        McpServerConfig::Ws {
+            url,
+            headers,
+            headers_helper,
+        } => {
             let r = expand_env_vars_in_string(url);
             missing_vars.extend(r.missing_vars);
             let expanded_url = r.expanded;
             let expanded_headers = headers.as_ref().map(|h| {
-                h.iter().map(|(k, v)| {
-                    let r = expand_env_vars_in_string(v);
-                    missing_vars.extend(r.missing_vars);
-                    (k.clone(), r.expanded)
-                }).collect()
+                h.iter()
+                    .map(|(k, v)| {
+                        let r = expand_env_vars_in_string(v);
+                        missing_vars.extend(r.missing_vars);
+                        (k.clone(), r.expanded)
+                    })
+                    .collect()
             });
             McpServerConfig::Ws {
                 url: expanded_url,
@@ -491,11 +533,7 @@ pub fn is_mcp_server_disabled(name: &str, disabled_servers: &[String]) -> bool {
 }
 
 /// Set MCP server enabled/disabled.
-pub fn set_mcp_server_enabled(
-    name: &str,
-    enabled: bool,
-    disabled_servers: &mut Vec<String>,
-) {
+pub fn set_mcp_server_enabled(name: &str, enabled: bool, disabled_servers: &mut Vec<String>) {
     if enabled {
         disabled_servers.retain(|n| n != name);
     } else if !disabled_servers.contains(&name.to_string()) {
@@ -566,7 +604,12 @@ pub async fn remove_mcp_config(
 /// Trait for writing MCP configs to different scopes.
 #[async_trait::async_trait]
 pub trait McpConfigWriter: Send + Sync {
-    async fn write(&self, name: &str, config: &McpServerConfig, scope: ConfigScope) -> Result<(), String>;
+    async fn write(
+        &self,
+        name: &str,
+        config: &McpServerConfig,
+        scope: ConfigScope,
+    ) -> Result<(), String>;
     async fn remove(&self, name: &str, scope: ConfigScope) -> Result<(), String>;
 }
 
@@ -582,11 +625,18 @@ pub fn get_project_mcp_server_status(
 ) -> &'static str {
     let normalized = crate::mcp::normalization::normalize_name_for_mcp(server_name);
 
-    if disabled_servers.iter().any(|n| crate::mcp::normalization::normalize_name_for_mcp(n) == normalized) {
+    if disabled_servers
+        .iter()
+        .any(|n| crate::mcp::normalization::normalize_name_for_mcp(n) == normalized)
+    {
         return "rejected";
     }
 
-    if enabled_servers.iter().any(|n| crate::mcp::normalization::normalize_name_for_mcp(n) == normalized) || enable_all {
+    if enabled_servers
+        .iter()
+        .any(|n| crate::mcp::normalization::normalize_name_for_mcp(n) == normalized)
+        || enable_all
+    {
         return "approved";
     }
 
@@ -614,9 +664,7 @@ pub fn get_project_mcp_configs_from_cwd() -> HashMap<String, ScopedMcpServerConf
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
             if let Some(map) = value.get("mcpServers").and_then(|v| v.as_object()) {
                 for (name, cfg) in map {
-                    if let Ok(server_cfg) =
-                        serde_json::from_value::<McpServerConfig>(cfg.clone())
-                    {
+                    if let Ok(server_cfg) = serde_json::from_value::<McpServerConfig>(cfg.clone()) {
                         out.insert(
                             name.clone(),
                             ScopedMcpServerConfig {

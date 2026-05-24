@@ -20,14 +20,7 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 pub struct OnboardingDirective;
 
 /// Onboarding steps for progress tracking.
-const ONBOARDING_STEPS: &[&str] = &[
-    "welcome",
-    "auth",
-    "model",
-    "editor",
-    "shell",
-    "tips",
-];
+const ONBOARDING_STEPS: &[&str] = &["welcome", "auth", "model", "editor", "shell", "tips"];
 
 #[async_trait]
 impl Directive for OnboardingDirective {
@@ -115,9 +108,7 @@ impl Directive for OnboardingDirective {
                 }
                 "editor" => {
                     lines.push(format!("Step {}: Editor/IDE Preferences", i + 1));
-                    lines.push(
-                        "  Run /ide to detect and connect your editor.".to_string(),
-                    );
+                    lines.push("  Run /ide to detect and connect your editor.".to_string());
                 }
                 "shell" => {
                     lines.push(format!("Step {}: Shell Integration", i + 1));
@@ -131,9 +122,7 @@ impl Directive for OnboardingDirective {
                     lines.push("  - Type a question or task in natural language".to_string());
                     lines.push("  - Use /help to see all available commands".to_string());
                     lines.push("  - Use /compact to summarize long conversations".to_string());
-                    lines.push(
-                        "  - Use /model to switch between AI models".to_string(),
-                    );
+                    lines.push("  - Use /model to switch between AI models".to_string());
                     lines.push(String::new());
                     lines.push("Setup complete! You're ready to start.".to_string());
                 }

@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::process::Command;
-use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::process::Command;
 
 // ============================================================
 // parser.ts — Types
@@ -217,11 +216,20 @@ fn get_parse_timeout_ms() -> u64 {
 /// Classify command name type based on its format
 fn classify_name_type(name: &str) -> NameType {
     // application: contains path separators or .exe
-    if name.contains('/') || name.contains('\\') || name.contains('.') && name.contains(std::path::MAIN_SEPARATOR) {
+    if name.contains('/')
+        || name.contains('\\')
+        || name.contains('.') && name.contains(std::path::MAIN_SEPARATOR)
+    {
         return NameType::Application;
     }
     // cmdlet: Verb-Noun pattern
-    if name.contains('-') && name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+    if name.contains('-')
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
+    {
         return NameType::Cmdlet;
     }
     NameType::Unknown
@@ -241,7 +249,10 @@ pub async fn parse_powershell_command(command: &str) -> ParsedPowerShellCommand 
     let timeout = get_parse_timeout_ms();
 
     // Encode command as base64
-    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, command.as_bytes());
+    let encoded = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        command.as_bytes(),
+    );
 
     // Find PowerShell executable
     let pwsh = find_powershell_path();
@@ -489,23 +500,49 @@ pub static ARG_GATED_CMDLETS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 const SHELLS_AND_SPAWNERS: &[&str] = &[
-    "pwsh", "powershell", "cmd", "bash", "wsl", "sh",
-    "start-process", "start", "add-type", "new-object",
+    "pwsh",
+    "powershell",
+    "cmd",
+    "bash",
+    "wsl",
+    "sh",
+    "start-process",
+    "start",
+    "add-type",
+    "new-object",
 ];
 
 pub static NEVER_SUGGEST: Lazy<HashSet<String>> = Lazy::new(|| {
     let mut core = HashSet::new();
-    for &s in SHELLS_AND_SPAWNERS { core.insert(s.to_string()); }
-    for &s in FILEPATH_EXECUTION_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in DANGEROUS_SCRIPT_BLOCK_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in MODULE_LOADING_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in NETWORK_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in ALIAS_HIJACK_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in WMI_CIM_CMDLETS.iter() { core.insert(s.to_string()); }
-    for &s in ARG_GATED_CMDLETS.iter() { core.insert(s.to_string()); }
+    for &s in SHELLS_AND_SPAWNERS {
+        core.insert(s.to_string());
+    }
+    for &s in FILEPATH_EXECUTION_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in DANGEROUS_SCRIPT_BLOCK_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in MODULE_LOADING_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in NETWORK_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in ALIAS_HIJACK_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in WMI_CIM_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
+    for &s in ARG_GATED_CMDLETS.iter() {
+        core.insert(s.to_string());
+    }
     core.insert("foreach-object".to_string());
     // Cross-platform code exec
-    for &cmd in &["node", "python", "python3", "ruby", "perl", "php", "lua", "deno", "bun"] {
+    for &cmd in &[
+        "node", "python", "python3", "ruby", "perl", "php", "lua", "deno", "bun",
+    ] {
         core.insert(cmd.to_string());
     }
     // Add aliases of core
@@ -514,7 +551,9 @@ pub static NEVER_SUGGEST: Lazy<HashSet<String>> = Lazy::new(|| {
         .filter(|(_, target)| core.contains(**target))
         .map(|(alias, _)| alias.to_string())
         .collect();
-    for a in aliases { core.insert(a); }
+    for a in aliases {
+        core.insert(a);
+    }
     core
 });
 
@@ -549,7 +588,9 @@ pub async fn extract_prefix_from_element(cmd: &ParsedCommandElement) -> Option<S
         }
         for (i, _) in cmd.args.iter().enumerate() {
             let t = types.get(i + 1);
-            if t != Some(&CommandElementType::StringConstant) && t != Some(&CommandElementType::Parameter) {
+            if t != Some(&CommandElementType::StringConstant)
+                && t != Some(&CommandElementType::Parameter)
+            {
                 return None;
             }
         }
@@ -625,9 +666,24 @@ fn get_depth_for_command(name: &str) -> usize {
 fn has_subcommand_structure(name: &str) -> bool {
     matches!(
         name,
-        "git" | "npm" | "yarn" | "pnpm" | "cargo" | "pip" | "brew"
-            | "docker" | "kubectl" | "terraform" | "gcloud" | "aws" | "az"
-            | "dotnet" | "go" | "rustup" | "conda" | "helm"
+        "git"
+            | "npm"
+            | "yarn"
+            | "pnpm"
+            | "cargo"
+            | "pip"
+            | "brew"
+            | "docker"
+            | "kubectl"
+            | "terraform"
+            | "gcloud"
+            | "aws"
+            | "az"
+            | "dotnet"
+            | "go"
+            | "rustup"
+            | "conda"
+            | "helm"
     )
 }
 
@@ -696,7 +752,11 @@ pub async fn get_compound_command_prefixes_static(
     let mut collapsed = Vec::new();
     for (root_lower, group) in &groups {
         let lcp = word_aligned_lcp(group);
-        let lcp_word_count = if lcp.is_empty() { 0 } else { lcp.matches(' ').count() + 1 };
+        let lcp_word_count = if lcp.is_empty() {
+            0
+        } else {
+            lcp.matches(' ').count() + 1
+        };
         if lcp_word_count <= 1 && has_subcommand_structure(root_lower) {
             continue;
         }
@@ -707,8 +767,12 @@ pub async fn get_compound_command_prefixes_static(
 
 /// Word-aligned longest common prefix (case-insensitive)
 fn word_aligned_lcp(strings: &[String]) -> String {
-    if strings.is_empty() { return String::new(); }
-    if strings.len() == 1 { return strings[0].clone(); }
+    if strings.is_empty() {
+        return String::new();
+    }
+    if strings.len() == 1 {
+        return strings[0].clone();
+    }
 
     let first_words: Vec<&str> = strings[0].split(' ').collect();
     let mut common_word_count = first_words.len();
@@ -723,7 +787,9 @@ fn word_aligned_lcp(strings: &[String]) -> String {
             match_count += 1;
         }
         common_word_count = match_count;
-        if common_word_count == 0 { break; }
+        if common_word_count == 0 {
+            break;
+        }
     }
 
     first_words[..common_word_count].join(" ")
@@ -760,7 +826,9 @@ pub const WINDOWS_MAX_COMMAND_LENGTH: usize = 8191;
 
 /// `PS_TOKENIZER_DASH_CHARS` — PowerShell tokenizer 允许作为参数前缀的 dash 字符。
 pub static PS_TOKENIZER_DASH_CHARS: Lazy<HashSet<char>> = Lazy::new(|| {
-    ['-', '\u{2013}', '\u{2014}', '\u{2212}'].into_iter().collect()
+    ['-', '\u{2013}', '\u{2014}', '\u{2212}']
+        .into_iter()
+        .collect()
 });
 
 /// 原始 AST 元素（对应 TS `RawCommandElement`）。
@@ -801,7 +869,9 @@ pub fn map_element_type(raw_type: &str, expression_type: Option<&str>) -> Comman
         "ExpandableStringExpressionAst" => CommandElementType::ExpandableString,
         "InvokeMemberExpressionAst" | "MemberExpressionAst" => CommandElementType::MemberInvocation,
         "VariableExpressionAst" => CommandElementType::Variable,
-        "StringConstantExpressionAst" | "ConstantExpressionAst" => CommandElementType::StringConstant,
+        "StringConstantExpressionAst" | "ConstantExpressionAst" => {
+            CommandElementType::StringConstant
+        }
         "CommandParameterAst" => CommandElementType::Parameter,
         "ParenExpressionAst" => CommandElementType::SubExpression,
         "CommandExpressionAst" => {
@@ -850,7 +920,11 @@ pub fn strip_module_prefix(name: &str) -> String {
 /// 携带，这里只提取 `name` / `args` 等关键字段，复杂展开（children/redirections）
 /// 在 [`parse_raw_output`] 中已经完成。
 pub fn transform_command_ast(raw: &RawPipelineElement) -> ParsedCommandElement {
-    let text = raw.get("extent").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let text = raw
+        .get("extent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let cmd_elements = raw
         .get("commandElements")
         .and_then(|v| v.as_array())
@@ -896,7 +970,11 @@ pub fn transform_command_ast(raw: &RawPipelineElement) -> ParsedCommandElement {
 
 /// 转换表达式元素（对应 TS `transformExpressionElement`）。
 pub fn transform_expression_element(raw: &RawPipelineElement) -> ParsedCommandElement {
-    let text = raw.get("extent").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let text = raw
+        .get("extent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     ParsedCommandElement {
         name: text.clone(),
         name_type: NameType::Unknown,
@@ -911,17 +989,39 @@ pub fn transform_expression_element(raw: &RawPipelineElement) -> ParsedCommandEl
 
 /// 转换重定向描述（对应 TS `transformRedirection`）。
 pub fn transform_redirection(raw: &RawRedirection) -> ParsedRedirection {
-    let operator = raw.get("operator").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let target = raw.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let is_merging = raw.get("isMerging").and_then(|v| v.as_bool()).unwrap_or(false);
-    ParsedRedirection { operator, target, is_merging }
+    let operator = raw
+        .get("operator")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target = raw
+        .get("target")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let is_merging = raw
+        .get("isMerging")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    ParsedRedirection {
+        operator,
+        target,
+        is_merging,
+    }
 }
 
 /// 转换 statement（对应 TS `transformStatement`）。
 pub fn transform_statement(raw: &RawStatement) -> ParsedStatement {
-    let raw_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("UnknownStatementAst");
+    let raw_type = raw
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UnknownStatementAst");
     let statement_type = map_statement_type(raw_type);
-    let text = raw.get("extent").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let text = raw
+        .get("extent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let commands: Vec<ParsedCommandElement> = raw
         .get("pipelineElements")
         .and_then(|v| v.as_array())
@@ -961,9 +1061,7 @@ pub fn get_all_redirections(parsed: &ParsedPowerShellCommand) -> Vec<ParsedRedir
 }
 
 /// 根据作用域分组变量（对应 TS `getVariablesByScope`）。
-pub fn get_variables_by_scope(
-    parsed: &ParsedPowerShellCommand,
-) -> HashMap<String, Vec<String>> {
+pub fn get_variables_by_scope(parsed: &ParsedPowerShellCommand) -> HashMap<String, Vec<String>> {
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     for v in &parsed.variables {
         let (scope, name) = if let Some(idx) = v.path.find(':') {
@@ -1006,7 +1104,10 @@ pub fn command_has_arg(cmd: &ParsedCommandElement, arg: &str) -> bool {
 
 /// 文本是否为 PowerShell 参数（对应 TS `isPowerShellParameter`）。
 pub fn is_power_shell_parameter(text: &str) -> bool {
-    text.chars().next().map(|c| PS_TOKENIZER_DASH_CHARS.contains(&c)).unwrap_or(false)
+    text.chars()
+        .next()
+        .map(|c| PS_TOKENIZER_DASH_CHARS.contains(&c))
+        .unwrap_or(false)
         && text.len() >= 2
 }
 
@@ -1016,7 +1117,11 @@ pub fn command_has_arg_abbreviation(cmd: &ParsedCommandElement, abbreviation: &s
     cmd.args
         .iter()
         .filter(|a| is_power_shell_parameter(a))
-        .any(|a| a.trim_start_matches(|c| PS_TOKENIZER_DASH_CHARS.contains(&c)).to_lowercase().starts_with(&abbr))
+        .any(|a| {
+            a.trim_start_matches(|c| PS_TOKENIZER_DASH_CHARS.contains(&c))
+                .to_lowercase()
+                .starts_with(&abbr)
+        })
 }
 
 /// 把解析结果切成管道段（对应 TS `getPipelineSegments`）。

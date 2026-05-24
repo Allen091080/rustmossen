@@ -1,4 +1,4 @@
-//! Mossen-facing aliases for the current frontier model family.
+//! Mossen-facing aliases for the current max model family.
 //!
 //! Direct translation of `utils/model/mossenCatalog.ts`.
 
@@ -7,17 +7,17 @@ use once_cell::sync::Lazy;
 use super::model_strings::get_model_strings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MossenFrontierModelFamily {
-    Opus,
-    Sonnet,
-    Haiku,
+pub enum MossenMaxModelFamily {
+    Max,
+    Balanced,
+    Fast,
 }
 
 #[derive(Debug, Clone)]
-pub struct MossenFrontierModelIds {
-    pub opus: String,
-    pub sonnet: String,
-    pub haiku: String,
+pub struct MossenMaxModelIds {
+    pub max: String,
+    pub balanced: String,
+    pub fast: String,
 }
 
 const MOSSEN_FIRST_PARTY_MODEL_PREFIX: &str = "mossen";
@@ -31,28 +31,28 @@ fn mossen_first_party_model_id(parts: &[&str]) -> String {
     all.join("-")
 }
 
-/// Mossen-facing aliases for the current frontier model family. Mirrors the
-/// TS `getMossenFrontierModelIds()` helper — the returned strings are still
+/// Mossen-facing aliases for the current max model family. Mirrors the
+/// TS `getMossenMaxModelIds()` helper — the returned strings are still
 /// provider-required IDs.
-pub fn get_mossen_frontier_model_ids() -> MossenFrontierModelIds {
+pub fn get_mossen_max_model_ids() -> MossenMaxModelIds {
     let ms = get_model_strings();
-    MossenFrontierModelIds {
-        opus: ms.opus46.clone(),
-        sonnet: ms.sonnet46.clone(),
-        haiku: ms.haiku45.clone(),
+    MossenMaxModelIds {
+        max: ms.max46.clone(),
+        balanced: ms.balanced46.clone(),
+        fast: ms.fast45.clone(),
     }
 }
 
-pub static LEGACY_OPUS_FIRSTPARTY_MODEL_IDS: Lazy<Vec<String>> = Lazy::new(|| {
+pub static LEGACY_MAX_FIRSTPARTY_MODEL_IDS: Lazy<Vec<String>> = Lazy::new(|| {
     vec![
-        mossen_first_party_model_id(&["opus", "4", "20250514"]),
-        mossen_first_party_model_id(&["opus", "4", "1", "20250805"]),
-        mossen_first_party_model_id(&["opus", "4", "0"]),
-        mossen_first_party_model_id(&["opus", "4", "1"]),
+        mossen_first_party_model_id(&["max", "4", "20250514"]),
+        mossen_first_party_model_id(&["max", "4", "1", "20250805"]),
+        mossen_first_party_model_id(&["max", "4", "0"]),
+        mossen_first_party_model_id(&["max", "4", "1"]),
     ]
 });
 
-pub static LEGACY_SONNET_45_FIRSTPARTY_MODEL_IDS: Lazy<Vec<String>> = Lazy::new(|| {
-    let base = mossen_first_party_model_id(&["sonnet", "4", "5", "20250929"]);
+pub static LEGACY_BALANCED_45_FIRSTPARTY_MODEL_IDS: Lazy<Vec<String>> = Lazy::new(|| {
+    let base = mossen_first_party_model_id(&["balanced", "4", "5", "20250929"]);
     vec![base.clone(), format!("{}[1m]", base)]
 });

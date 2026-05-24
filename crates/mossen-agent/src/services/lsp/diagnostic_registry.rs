@@ -1,9 +1,9 @@
 //! LSP diagnostic registry — stores diagnostics received asynchronously from LSP servers.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -136,7 +136,8 @@ impl LspDiagnosticRegistry {
         let mut total_diagnostics = 0usize;
         for file in &mut deduped_files {
             // Sort by severity
-            file.diagnostics.sort_by_key(|d| severity_to_number(d.severity.as_deref()));
+            file.diagnostics
+                .sort_by_key(|d| severity_to_number(d.severity.as_deref()));
 
             // Cap per file
             if file.diagnostics.len() > MAX_DIAGNOSTICS_PER_FILE {
@@ -214,9 +215,7 @@ impl LspDiagnosticRegistry {
 
         for file in all_files {
             let seen = file_map.entry(file.uri.clone()).or_default();
-            let mut target = deduped
-                .iter_mut()
-                .find(|f| f.uri == file.uri);
+            let mut target = deduped.iter_mut().find(|f| f.uri == file.uri);
 
             if target.is_none() {
                 deduped.push(DiagnosticFile {

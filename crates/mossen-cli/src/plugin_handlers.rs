@@ -26,10 +26,7 @@ pub fn handle_marketplace_error(error: impl std::fmt::Display, action: &str) -> 
 }
 
 /// 别名，匹配 TS 的驼峰函数名。
-pub fn handleMarketplaceError(
-    error: impl std::fmt::Display,
-    action: &str,
-) -> anyhow::Error {
+pub fn handleMarketplaceError(error: impl std::fmt::Display, action: &str) -> anyhow::Error {
     handle_marketplace_error(error, action)
 }
 
@@ -58,10 +55,7 @@ pub async fn plugin_validate_handler(opts: PluginValidateOptions) -> Result<Plug
     let mut plugin_name = None;
 
     if !plugin_json.exists() {
-        errors.push(format!(
-            "Missing plugin.json at {}",
-            plugin_json.display()
-        ));
+        errors.push(format!("Missing plugin.json at {}", plugin_json.display()));
     } else {
         match tokio::fs::read_to_string(&plugin_json).await {
             Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
@@ -225,15 +219,16 @@ pub async fn marketplace_list_handler(
         println!("No marketplaces configured.");
     } else {
         for e in &entries {
-            println!("- {} (from {}): {} plugins", e.name, e.source, e.plugin_count);
+            println!(
+                "- {} (from {}): {} plugins",
+                e.name, e.source, e.plugin_count
+            );
         }
     }
     Ok(entries)
 }
 
-pub async fn marketplaceListHandler(
-    opts: MarketplaceListOptions,
-) -> Result<Vec<MarketplaceInfo>> {
+pub async fn marketplaceListHandler(opts: MarketplaceListOptions) -> Result<Vec<MarketplaceInfo>> {
     marketplace_list_handler(opts).await
 }
 
@@ -419,8 +414,8 @@ pub struct McpAddJsonOptions {
 }
 
 pub async fn mcp_add_json_handler(opts: McpAddJsonOptions) -> Result<()> {
-    let _: serde_json::Value = serde_json::from_str(&opts.json)
-        .context("invalid JSON for MCP server config")?;
+    let _: serde_json::Value =
+        serde_json::from_str(&opts.json).context("invalid JSON for MCP server config")?;
     println!("Added MCP server '{}'", opts.name);
     Ok(())
 }
@@ -435,7 +430,7 @@ pub struct McpAddFromDesktopOptions {
 }
 
 pub async fn mcp_add_from_desktop_handler(_opts: McpAddFromDesktopOptions) -> Result<()> {
-    println!("(no Claude Desktop config found to import)");
+    println!("(no Mossen Desktop config found to import)");
     Ok(())
 }
 

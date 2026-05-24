@@ -8,22 +8,26 @@
 //! - [`context`] — Directive trait 定义、CommandContext、CommandResult
 //! - 各命令模块 — 每个文件实现一个 Directive
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_assignments,
+    unused_imports,
+    unused_mut,
+    unused_variables
+)]
 
-pub mod context;
 pub mod command_extras;
 pub mod component_stubs;
+pub mod context;
 pub mod plugin_helpers;
 
 // ── 核心命令组（Core Directives） ─────────────────────────────────────
 pub mod auth; // /login
-pub mod login_index;
 pub mod color; // /color
 pub mod color_index;
 pub mod config; // /config, /settings
 pub mod config_index;
 pub mod deauth; // /logout
-pub mod logout_index;
 pub mod desktop; // /desktop, /app
 pub mod desktop_index;
 pub mod diagnose; // /doctor
@@ -35,11 +39,13 @@ pub mod install; // /install
 pub mod keybindings; // /keybindings
 pub mod lang; // /lang
 pub mod lang_index;
+pub mod login_index;
+pub mod logout_index;
+pub mod model_index;
 pub mod onboarding; // /onboarding
 pub mod palette; // /theme
 pub mod profile; // /profile
 pub mod switch_model; // /model
-pub mod model_index;
 pub mod terminal_setup; // /terminal-setup
 pub mod turbo;
 pub mod version; // /version // /fast
@@ -62,14 +68,14 @@ pub mod ship; // /ship (commit-push-pr) // /proactive
 // ── 系统命令组（System Directives） ──────────────────────────────────
 pub mod access; // /permissions
 pub mod bridges; // /mcp
-pub mod mcp_index; // /mcp
-pub mod mcp_add_command;
-pub mod mcp_parse_args;
 pub mod chrome; // /chrome
 pub mod chrome_index;
 pub mod crafts; // /skills
 pub mod delegates; // /agents
 pub mod extra_usage; // /extra-usage
+pub mod mcp_add_command;
+pub mod mcp_index; // /mcp
+pub mod mcp_parse_args;
 pub mod metrics; // /stats
 pub mod mobile; // /mobile
 pub mod mobile_index;
@@ -94,23 +100,23 @@ pub mod watchers; // /hooks
 pub mod workitems; // /tasks // /remote-setup
 
 // ── 其他命令（Misc Directives） ─────────────────────────────────────
+pub mod agents_index;
 pub mod assistant; // /assistant
+pub mod assistant_index;
 pub mod btw; // /btw
 pub mod btw_index;
-pub mod github_app; // /github-app
-pub mod reload_plugins;
-pub mod slack_app; // /slack-app
-pub mod statusline; // /statusline // /reload-plugins
-pub mod agents_index;
-pub mod assistant_index;
 pub mod diff_index;
 pub mod doctor_index;
 pub mod effort_index;
 pub mod exit_index;
 pub mod export_index;
 pub mod feedback_index;
+pub mod github_app; // /github-app
 pub mod init;
 pub mod init_verifiers;
+pub mod reload_plugins;
+pub mod slack_app; // /slack-app
+pub mod statusline; // /statusline // /reload-plugins
 
 // ── 内部/调试命令（Internal Directives） ────────────────────────────
 pub mod heapdump; // /heapdump
@@ -125,19 +131,19 @@ pub mod add_dir_index;
 pub mod add_dir_validation;
 pub mod changes; // /diff
 pub mod clear_index;
-pub mod condense; // /compact
 pub mod compact_index;
+pub mod condense; // /compact
+pub mod context_index;
 pub mod copy; // /copy
 pub mod copy_index;
+pub mod cost_index;
 pub mod effort; // /effort
 pub mod environ; // /context
-pub mod context_index;
 pub mod exit; // /exit, /quit
 pub mod extract; // /export
 pub mod files; // /files
 pub mod files_index;
 pub mod meter; // /cost
-pub mod cost_index;
 pub mod output_style; // /output-style
 pub mod rename; // /rename
 pub mod rename_index;

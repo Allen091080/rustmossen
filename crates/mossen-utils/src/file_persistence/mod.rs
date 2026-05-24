@@ -1,9 +1,9 @@
 // Translated from utils/filePersistence/types.ts, outputsScanner.ts, filePersistence.ts
 
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use tokio::fs;
 
 // ============================================================================
@@ -62,10 +62,7 @@ pub fn get_environment_kind() -> Option<EnvironmentKind> {
 
 /// Find files that have been modified since the turn started.
 /// Returns paths of files with mtime >= turnStartTime.
-pub async fn find_modified_files(
-    turn_start_time: TurnStartTime,
-    outputs_dir: &str,
-) -> Vec<String> {
+pub async fn find_modified_files(turn_start_time: TurnStartTime, outputs_dir: &str) -> Vec<String> {
     let outputs_path = Path::new(outputs_dir);
 
     let entries = match read_dir_recursive(outputs_path).await {

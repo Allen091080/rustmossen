@@ -61,7 +61,7 @@ def assert_picker_options_complete(text: str) -> None:
 
 def assert_max_disabled_when_unsupported(text: str) -> None:
     if "modelSupportsMaxEffort" not in text:
-        fail("max-only-Opus-4.6 gate (modelSupportsMaxEffort) missing in picker")
+        fail("max-only-Max-4.6 gate (modelSupportsMaxEffort) missing in picker")
     if "disabled" not in text:
         fail("max option is not visually disabled when unsupported")
     info("  max option: gated by modelSupportsMaxEffort + disabled flag")

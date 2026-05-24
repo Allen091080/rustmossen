@@ -18,7 +18,7 @@ M4.4 — statusline ctx 显示与 /context 同源 (P0)。
 
   本测策略:
     bun -e 调真 getContextWindowForModel + getEffectiveContextWindowSize on
-    同一个 model name (用现网常用 mossen-sonnet-4-6 / opus-4-7), 验:
+    同一个 model name (用现网常用 mossen-balanced-4-6 / max-4-7), 验:
       a) raw_window > 0
       b) effective_window > 0
       c) effective < raw (因 reserve 减去 max output)
@@ -50,10 +50,10 @@ from harness_fixture import make_fixture, write_assertions, write_command_log
 
 RUN_BUN = str(ROOT / "run-bun-featured.sh")
 
-# 现网用过的 mossen 模型 alias —— 任一都能 resolve 到 anthropic context window
+# 现网用过的 mossen 模型 alias —— 任一都能 resolve 到 provider context window
 PROBE_MODELS = (
-    "mossen-sonnet-4-6",
-    "mossen-opus-4-7",
+    "mossen-balanced-4-6",
+    "mossen-max-4-7",
 )
 
 MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000  # autoCompact.ts:30 字面常量

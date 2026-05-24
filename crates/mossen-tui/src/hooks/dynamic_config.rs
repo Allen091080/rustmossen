@@ -39,15 +39,21 @@ impl DynamicConfigState {
 
     /// Get a config value as a raw JSON value.
     pub fn get_raw(&self, name: &str) -> Option<&serde_json::Value> {
-        self.configs.get(name).filter(|e| e.fetched).map(|e| &e.value)
+        self.configs
+            .get(name)
+            .filter(|e| e.fetched)
+            .map(|e| &e.value)
     }
 
     /// Set a config value (called when fetch completes).
     pub fn set(&mut self, name: String, value: serde_json::Value) {
-        self.configs.insert(name, DynamicConfigEntry {
-            value,
-            fetched: true,
-        });
+        self.configs.insert(
+            name,
+            DynamicConfigEntry {
+                value,
+                fetched: true,
+            },
+        );
     }
 
     /// Check if a config has been fetched.

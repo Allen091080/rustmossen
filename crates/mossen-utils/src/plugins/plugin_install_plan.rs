@@ -3,7 +3,6 @@ use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use rand::Rng;
-use tracing::debug;
 
 use super::schemas::{PluginMarketplaceEntry, PluginSource};
 
@@ -93,14 +92,8 @@ fn normalize_scope(scope: Option<&str>) -> Option<String> {
 /// Trait for plugin resolution dependencies.
 #[async_trait::async_trait]
 pub trait PluginInstallResolver: Send + Sync {
-    async fn get_plugin_by_id(
-        &self,
-        id: &str,
-    ) -> Option<(PluginMarketplaceEntry, String)>;
-    async fn get_marketplace_cache_only(
-        &self,
-        marketplace: &str,
-    ) -> Option<Vec<String>>;
+    async fn get_plugin_by_id(&self, id: &str) -> Option<(PluginMarketplaceEntry, String)>;
+    async fn get_marketplace_cache_only(&self, marketplace: &str) -> Option<Vec<String>>;
     fn get_enabled_plugin_ids_for_scope(&self, scope: &str) -> HashSet<String>;
     fn is_plugin_blocked_by_policy(&self, plugin_id: &str) -> bool;
     fn parse_plugin_identifier(&self, id: &str) -> (String, Option<String>);
@@ -147,10 +140,11 @@ pub async fn get_plugin_install_plan(
 
     // Check if it's a GitHub target
     if let Some(github_target) = parse_github_plugin_target(&requested_plugin) {
-        return get_github_direct_plugin_install_plan(github_target, &install_scope, resolver).await;
+        return get_github_direct_plugin_install_plan(github_target, &install_scope, resolver)
+            .await;
     }
 
-    let (name, marketplace) = resolver.parse_plugin_identifier(&requested_plugin);
+    let (_name, marketplace) = resolver.parse_plugin_identifier(&requested_plugin);
     if marketplace.is_none() {
         return Err(PluginInstallPlanError::MarketplaceRequired {
             plugin: requested_plugin,

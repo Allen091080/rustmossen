@@ -60,8 +60,12 @@ pub struct HousekeepingCallbacks {
     pub init_auto_dream: Box<dyn Fn() + Send + Sync>,
     pub auto_update_plugins: Box<dyn Fn() + Send + Sync>,
     pub ensure_deep_link_registered: Option<Box<dyn Fn() + Send + Sync>>,
-    pub cleanup_old_message_files: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>,
-    pub cleanup_old_versions: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>,
+    pub cleanup_old_message_files: Box<
+        dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync,
+    >,
+    pub cleanup_old_versions: Box<
+        dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync,
+    >,
     pub cleanup_npm_cache: Box<dyn Fn() + Send + Sync>,
     pub cleanup_old_versions_throttled: Box<dyn Fn() + Send + Sync>,
 }
@@ -90,11 +94,10 @@ pub fn start_background_housekeeping(callbacks: Arc<HousekeepingCallbacks>, has_
     });
 
     // 对于长时间运行的会话，安排每 24 小时定期清理
-    if env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if env::var("USER_TYPE").as_deref() == Ok("internal") {
         let callbacks_recurring = callbacks.clone();
         tokio::spawn(async move {
-            let mut interval =
-                time::interval(Duration::from_millis(RECURRING_CLEANUP_INTERVAL_MS));
+            let mut interval = time::interval(Duration::from_millis(RECURRING_CLEANUP_INTERVAL_MS));
             interval.tick().await; // 第一次 tick 立即返回，跳过
             loop {
                 interval.tick().await;

@@ -78,7 +78,7 @@ pub fn create_ripgrep_shell_integration(
 
 /// Creates shell integration for `find` and `grep`.
 pub fn create_find_grep_shell_integration(binary_path: &str) -> String {
-    let mut exclude_args: Vec<String> = VCS_DIRECTORIES_TO_EXCLUDE
+    let exclude_args: Vec<String> = VCS_DIRECTORIES_TO_EXCLUDE
         .iter()
         .map(|d| format!("--exclude-dir={}", d))
         .collect();
@@ -94,13 +94,13 @@ pub fn create_find_grep_shell_integration(binary_path: &str) -> String {
     [
         "unalias find 2>/dev/null || true".to_string(),
         "unalias grep 2>/dev/null || true".to_string(),
-        create_argv0_shell_function("find", "bfs", binary_path, &["-regextype", "findutils-default"]),
         create_argv0_shell_function(
-            "grep",
-            "ugrep",
+            "find",
+            "bfs",
             binary_path,
-            &grep_prepend,
+            &["-regextype", "findutils-default"],
         ),
+        create_argv0_shell_function("grep", "ugrep", binary_path, &grep_prepend),
     ]
     .join("\n")
 }
@@ -124,12 +124,14 @@ pub fn get_user_snapshot_content(config_file: &str) -> String {
 
     // User functions
     if is_zsh {
-        content.push_str("\
+        content.push_str(
+            "\
 \n      echo \"# Functions\" >> \"$SNAPSHOT_FILE\"\
 \n      typeset -f > /dev/null 2>&1\
 \n      typeset +f | grep -vE '^_[^_]' | while read func; do\
 \n        typeset -f \"$func\" >> \"$SNAPSHOT_FILE\"\
-\n      done\n");
+\n      done\n",
+        );
     } else {
         content.push_str("\
 \n      echo \"# Functions\" >> \"$SNAPSHOT_FILE\"\
@@ -142,15 +144,19 @@ pub fn get_user_snapshot_content(config_file: &str) -> String {
 
     // Shell options
     if is_zsh {
-        content.push_str("\
+        content.push_str(
+            "\
 \n      echo \"# Shell Options\" >> \"$SNAPSHOT_FILE\"\
-\n      setopt | sed 's/^/setopt /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n");
+\n      setopt | sed 's/^/setopt /' | head -n 1000 >> \"$SNAPSHOT_FILE\"\n",
+        );
     } else {
-        content.push_str("\
+        content.push_str(
+            "\
 \n      echo \"# Shell Options\" >> \"$SNAPSHOT_FILE\"\
 \n      shopt -p | head -n 1000 >> \"$SNAPSHOT_FILE\"\
 \n      set -o | grep \"on\" | awk '{print \"set -o \" $1}' | head -n 1000 >> \"$SNAPSHOT_FILE\"\
-\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n");
+\n      echo \"shopt -s expand_aliases\" >> \"$SNAPSHOT_FILE\"\n",
+        );
     }
 
     // User aliases

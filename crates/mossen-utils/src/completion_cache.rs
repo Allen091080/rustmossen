@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use tokio::fs;
 use tokio::process::Command;
@@ -26,7 +26,10 @@ pub fn detect_shell() -> Option<ShellInfo> {
             name: "zsh".to_string(),
             rc_file: home.join(".zshrc"),
             cache_file: cache_file.clone(),
-            completion_line: format!("[[ -f \"{}\" ]] && source \"{}\"", cache_file_str, cache_file_str),
+            completion_line: format!(
+                "[[ -f \"{}\" ]] && source \"{}\"",
+                cache_file_str, cache_file_str
+            ),
             shell_flag: "zsh".to_string(),
         });
     }
@@ -37,7 +40,10 @@ pub fn detect_shell() -> Option<ShellInfo> {
             name: "bash".to_string(),
             rc_file: home.join(".bashrc"),
             cache_file: cache_file.clone(),
-            completion_line: format!("[ -f \"{}\" ] && source \"{}\"", cache_file_str, cache_file_str),
+            completion_line: format!(
+                "[ -f \"{}\" ] && source \"{}\"",
+                cache_file_str, cache_file_str
+            ),
             shell_flag: "bash".to_string(),
         });
     }
@@ -51,7 +57,10 @@ pub fn detect_shell() -> Option<ShellInfo> {
             name: "fish".to_string(),
             rc_file: xdg.join("fish").join("config.fish"),
             cache_file: cache_file.clone(),
-            completion_line: format!("[ -f \"{}\" ] && source \"{}\"", cache_file_str, cache_file_str),
+            completion_line: format!(
+                "[ -f \"{}\" ] && source \"{}\"",
+                cache_file_str, cache_file_str
+            ),
             shell_flag: "fish".to_string(),
         });
     }

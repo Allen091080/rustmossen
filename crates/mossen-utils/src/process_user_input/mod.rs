@@ -1,6 +1,8 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::string_utils::prefix_chars;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -147,10 +149,10 @@ const MAX_HOOK_OUTPUT_LENGTH: usize = 10000;
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
 fn apply_truncation(content: &str) -> String {
-    if content.len() > MAX_HOOK_OUTPUT_LENGTH {
+    if content.chars().count() > MAX_HOOK_OUTPUT_LENGTH {
         format!(
             "{}… [output truncated - exceeded {} characters]",
-            &content[..MAX_HOOK_OUTPUT_LENGTH],
+            prefix_chars(content, MAX_HOOK_OUTPUT_LENGTH),
             MAX_HOOK_OUTPUT_LENGTH
         )
     } else {
@@ -224,7 +226,10 @@ fn parse_slash_command(input: &str) -> Option<(String, String)> {
     }
     let trimmed = &input[1..];
     let (cmd, rest) = match trimmed.find(|c: char| c.is_whitespace()) {
-        Some(idx) => (trimmed[..idx].to_string(), trimmed[idx..].trim().to_string()),
+        Some(idx) => (
+            trimmed[..idx].to_string(),
+            trimmed[idx..].trim().to_string(),
+        ),
         None => (trimmed.to_string(), String::new()),
     };
     Some((cmd, rest))
@@ -234,8 +239,7 @@ fn matches_negative_keyword(text: &str) -> bool {
     let lower = text.trim().to_lowercase();
     matches!(
         lower.as_str(),
-        "no" | "nope" | "don't" | "dont" | "stop" | "cancel" | "nevermind"
-            | "never mind" | "abort"
+        "no" | "nope" | "don't" | "dont" | "stop" | "cancel" | "nevermind" | "never mind" | "abort"
     )
 }
 
@@ -243,16 +247,25 @@ fn matches_keep_going_keyword(text: &str) -> bool {
     let lower = text.trim().to_lowercase();
     matches!(
         lower.as_str(),
-        "continue" | "keep going" | "go on" | "proceed" | "yes" | "yep" | "yeah"
-            | "sure" | "ok" | "okay" | "go ahead" | "do it"
+        "continue"
+            | "keep going"
+            | "go on"
+            | "proceed"
+            | "yes"
+            | "yep"
+            | "yeah"
+            | "sure"
+            | "ok"
+            | "okay"
+            | "go ahead"
+            | "do it"
     )
 }
 
 fn is_bridge_safe_command(cmd_name: &str) -> bool {
     matches!(
         cmd_name,
-        "help" | "clear" | "compact" | "cost" | "status" | "model"
-            | "think" | "plan" | "ultraplan"
+        "help" | "clear" | "compact" | "cost" | "status" | "model" | "think" | "plan" | "ultraplan"
     )
 }
 
@@ -291,10 +304,8 @@ pub async fn maybe_resize_and_downsample_image_block(
 
 // ─── Main Entry Point ────────────────────────────────────────────────────────
 
-pub async fn process_user_input(
-    params: ProcessUserInputParams,
-) -> ProcessUserInputBaseResult {
-    let input_string = match &params.input {
+pub async fn process_user_input(params: ProcessUserInputParams) -> ProcessUserInputBaseResult {
+    let _input_string = match &params.input {
         UserContent::Text(s) => Some(s.clone()),
         UserContent::Blocks(_) => None,
     };
@@ -319,9 +330,11 @@ pub async fn process_user_input(
 
     for hook_result in hook_results {
         // Skip progress messages
-        if hook_result.message.as_ref().map_or(false, |m| {
-            m.attachment.attachment_type == "progress"
-        }) {
+        if hook_result
+            .message
+            .as_ref()
+            .map_or(false, |m| m.attachment.attachment_type == "progress")
+        {
             continue;
         }
 
@@ -418,9 +431,7 @@ pub async fn process_user_input(
 
 // ─── processUserInputBase ────────────────────────────────────────────────────
 
-async fn process_user_input_base(
-    params: &ProcessUserInputParams,
-) -> ProcessUserInputBaseResult {
+async fn process_user_input_base(params: &ProcessUserInputParams) -> ProcessUserInputBaseResult {
     let mut input_string: Option<String> = None;
     let mut preceding_input_blocks: Vec<ContentBlockParam> = Vec::new();
     let mut image_metadata_texts: Vec<String> = Vec::new();
@@ -434,8 +445,7 @@ async fn process_user_input_base(
             let mut processed_blocks: Vec<ContentBlockParam> = Vec::new();
             for block in blocks {
                 if let ContentBlockParam::Image { .. } = block {
-                    let (resized, dims) =
-                        maybe_resize_and_downsample_image_block(block).await;
+                    let (resized, dims) = maybe_resize_and_downsample_image_block(block).await;
                     if let Some(ref d) = dims {
                         if let Some(text) = create_image_metadata_text(d, None) {
                             image_metadata_texts.push(text);
@@ -502,9 +512,7 @@ async fn process_user_input_base(
         let (resized, dims) = maybe_resize_and_downsample_image_block(&image_block).await;
 
         if let Some(ref d) = dims {
-            if let Some(text) =
-                create_image_metadata_text(d, pasted_image.source_path.as_deref())
-            {
+            if let Some(text) = create_image_metadata_text(d, pasted_image.source_path.as_deref()) {
                 image_metadata_texts.push(text);
             }
         } else if let Some(ref orig_dims) = pasted_image.dimensions {
@@ -531,10 +539,7 @@ async fn process_user_input_base(
                     if is_bridge_safe_command(&cmd_name) {
                         effective_skip_slash = false;
                     } else {
-                        let msg = format!(
-                            "/{} isn't available over Remote Control.",
-                            cmd_name
-                        );
+                        let msg = format!("/{} isn't available over Remote Control.", cmd_name);
                         return ProcessUserInputBaseResult {
                             messages: vec![
                                 Message::User(create_user_message(
@@ -572,8 +577,7 @@ async fn process_user_input_base(
             || !input_string.as_ref().unwrap().starts_with('/'));
 
     let attachment_messages: Vec<AttachmentMessage> = if should_extract_attachments {
-        get_attachment_messages(input_string.as_deref().unwrap_or(""), &params.ide_selection)
-            .await
+        get_attachment_messages(input_string.as_deref().unwrap_or(""), &params.ide_selection).await
     } else {
         Vec::new()
     };
@@ -688,12 +692,7 @@ pub fn process_text_prompt(
         );
 
         let mut messages: Vec<Message> = vec![Message::User(user_message)];
-        messages.extend(
-            attachment_messages
-                .iter()
-                .cloned()
-                .map(Message::Attachment),
-        );
+        messages.extend(attachment_messages.iter().cloned().map(Message::Attachment));
 
         return ProcessUserInputBaseResult {
             messages,
@@ -720,12 +719,7 @@ pub fn process_text_prompt(
     );
 
     let mut messages: Vec<Message> = vec![Message::User(user_message)];
-    messages.extend(
-        attachment_messages
-            .iter()
-            .cloned()
-            .map(Message::Attachment),
-    );
+    messages.extend(attachment_messages.iter().cloned().map(Message::Attachment));
 
     ProcessUserInputBaseResult {
         messages,

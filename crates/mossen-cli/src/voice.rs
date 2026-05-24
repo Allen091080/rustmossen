@@ -1,7 +1,7 @@
 // voice.rs — Translation of voice/voiceModeEnabled.ts
 
 /// Kill-switch check for voice mode. Returns true unless the
-/// tengu_amber_quartz_disabled GrowthBook flag is flipped on.
+/// mossen_amber_quartz_disabled GrowthBook flag is flipped on.
 pub fn is_voice_growthbook_enabled() -> bool {
     // Feature-gated: VOICE_MODE bundle flag
     // In Rust build, voice mode availability is controlled by compile features

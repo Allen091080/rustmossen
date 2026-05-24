@@ -22,6 +22,7 @@ mossen-remote.workspace = true
 
 # 核心
 tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -51,6 +52,7 @@ rand.workspace = true
 thiserror.workspace = true
 regex.workspace = true
 unicode-width.workspace = true
+unicode-segmentation.workspace = true
 base64.workspace = true
 
 [dev-dependencies]

@@ -39,10 +39,24 @@ pub fn detect_delisted_plugins(
 pub async fn detect_and_uninstall_delisted_plugins(
     load_flagged_plugins: impl std::future::Future<Output = ()>,
     load_installed_plugins_v2: impl Fn() -> InstalledPluginsFileV2,
-    get_flagged_plugins: impl Fn() -> std::collections::HashMap<String, super::plugin_flagging::FlaggedPlugin>,
-    load_known_marketplaces_safe: impl std::future::Future<Output = std::collections::HashMap<String, super::source_status::KnownMarketplaceInfo>>,
-    get_marketplace: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<PluginMarketplace, anyhow::Error>> + Send>>,
-    uninstall_plugin_op: impl Fn(&str, &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>>,
+    get_flagged_plugins: impl Fn() -> std::collections::HashMap<
+        String,
+        super::plugin_flagging::FlaggedPlugin,
+    >,
+    load_known_marketplaces_safe: impl std::future::Future<
+        Output = std::collections::HashMap<String, super::source_status::KnownMarketplaceInfo>,
+    >,
+    get_marketplace: impl Fn(
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<PluginMarketplace, anyhow::Error>> + Send>,
+    >,
+    uninstall_plugin_op: impl Fn(
+        &str,
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>,
+    >,
     add_flagged_plugin: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 ) -> Vec<String> {
     load_flagged_plugins.await;

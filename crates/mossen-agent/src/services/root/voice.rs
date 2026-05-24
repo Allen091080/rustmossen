@@ -2,7 +2,6 @@
 ///
 /// Recording uses native audio capture on macOS, Linux, and Windows.
 /// Falls back to SoX `rec` or arecord (ALSA) on Linux if native unavailable.
-
 use std::process::Stdio;
 
 use parking_lot::Mutex;
@@ -173,13 +172,20 @@ pub async fn check_recording_availability(ctx: &dyn VoiceContext) -> RecordingAv
         let pm = detect_package_manager(ctx);
         return RecordingAvailability {
             available: false,
-            reason: Some(pm.map(|cmd| {
-                format!("Voice mode requires SoX for audio recording. Install it with: {}", cmd)
-            }).unwrap_or_else(|| {
-                "Voice mode requires SoX for audio recording. Install SoX manually:\n  \
+            reason: Some(
+                pm.map(|cmd| {
+                    format!(
+                        "Voice mode requires SoX for audio recording. Install it with: {}",
+                        cmd
+                    )
+                })
+                .unwrap_or_else(|| {
+                    "Voice mode requires SoX for audio recording. Install SoX manually:\n  \
                  macOS: brew install sox\n  Ubuntu/Debian: sudo apt-get install sox\n  \
-                 Fedora: sudo dnf install sox".to_string()
-            })),
+                 Fedora: sudo dnf install sox"
+                        .to_string()
+                }),
+            ),
         };
     }
 
@@ -282,9 +288,16 @@ pub fn start_arecord_recording(
     let rate_str = RECORDING_SAMPLE_RATE.to_string();
     let channels_str = RECORDING_CHANNELS.to_string();
     let args = vec![
-        "-f", "S16_LE", "-r",
-        &rate_str, "-c",
-        &channels_str, "-t", "raw", "-q", "-",
+        "-f",
+        "S16_LE",
+        "-r",
+        &rate_str,
+        "-c",
+        &channels_str,
+        "-t",
+        "raw",
+        "-q",
+        "-",
     ];
 
     match Command::new("arecord")

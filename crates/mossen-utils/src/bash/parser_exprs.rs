@@ -19,25 +19,33 @@ pub fn try_parse_assignment(p: &mut PState) -> Option<TsNode> {
         return None;
     }
     let name_start = p.l.b;
-    while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+    while is_ident_char(peek_char(&p.l)) {
+        advance(&mut p.l);
+    }
     let name_end = p.l.b;
     let nc = peek_char(&p.l);
     let is_append;
     if nc == '+' && peek(&p.l, 1) == '=' {
         is_append = true;
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
     } else if nc == '=' {
         is_append = false;
         advance(&mut p.l);
     } else if nc == '[' {
         // Array subscript: name[idx]=val
         advance(&mut p.l);
-        while p.l.i < p.l.len && peek_char(&p.l) != ']' { advance(&mut p.l); }
-        if peek_char(&p.l) == ']' { advance(&mut p.l); }
+        while p.l.i < p.l.len && peek_char(&p.l) != ']' {
+            advance(&mut p.l);
+        }
+        if peek_char(&p.l) == ']' {
+            advance(&mut p.l);
+        }
         let after = peek_char(&p.l);
         if after == '+' && peek(&p.l, 1) == '=' {
             is_append = true;
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
         } else if after == '=' {
             is_append = false;
             advance(&mut p.l);
@@ -54,7 +62,13 @@ pub fn try_parse_assignment(p: &mut PState) -> Option<TsNode> {
     // Value
     let vn = mk(p, "variable_name", name_start, name_end, vec![]);
     let eq_str = if is_append { "+=" } else { "=" };
-    let eq_node = mk(p, eq_str, eq_end - if is_append { 2 } else { 1 }, eq_end, vec![]);
+    let eq_node = mk(
+        p,
+        eq_str,
+        eq_end - if is_append { 2 } else { 1 },
+        eq_end,
+        vec![],
+    );
     // Array value: (elem1 elem2 ...)
     if peek_char(&p.l) == '(' {
         let arr_start = p.l.b;
@@ -64,8 +78,13 @@ pub fn try_parse_assignment(p: &mut PState) -> Option<TsNode> {
         loop {
             skip_blanks(&mut p.l);
             let c = peek_char(&p.l);
-            if c == ')' || c == '\0' { break; }
-            if c == '\n' { advance(&mut p.l); continue; }
+            if c == ')' || c == '\0' {
+                break;
+            }
+            if c == '\n' {
+                advance(&mut p.l);
+                continue;
+            }
             if let Some(w) = parse_word(p, "arg") {
                 elems.push(w);
             } else {
@@ -80,7 +99,13 @@ pub fn try_parse_assignment(p: &mut PState) -> Option<TsNode> {
         let arr_end = p.l.b;
         let arr = mk(p, "array", arr_start, arr_end, elems);
         let end = arr.end_index;
-        return Some(mk(p, "variable_assignment", name_start, end, vec![vn, eq_node, arr]));
+        return Some(mk(
+            p,
+            "variable_assignment",
+            name_start,
+            end,
+            vec![vn, eq_node, arr],
+        ));
     }
     // Scalar value
     let val = parse_word(p, "arg");
@@ -97,8 +122,16 @@ pub fn try_parse_assignment(p: &mut PState) -> Option<TsNode> {
 
 fn is_redirect_literal_start(p: &PState) -> bool {
     let c = peek_char(&p.l);
-    c != '\0' && c != '\n' && c != ' ' && c != '\t' && c != ';' && c != '&' && c != '|' && c != ')'
-        && c != '>' && c != '<'
+    c != '\0'
+        && c != '\n'
+        && c != ' '
+        && c != '\t'
+        && c != ';'
+        && c != '&'
+        && c != '|'
+        && c != ')'
+        && c != '>'
+        && c != '<'
         && !(c == '(' && peek(&p.l, 0) == '(') // avoid confusing with subshell
 }
 
@@ -111,10 +144,14 @@ pub fn try_parse_redirect(p: &mut PState, greedy: bool) -> Option<TsNode> {
     if is_digit(c) {
         let fd_start = p.l.b;
         let mut j = p.l.i;
-        while j < p.l.len && is_digit(p.l.src[j]) { j += 1; }
+        while j < p.l.len && is_digit(p.l.src[j]) {
+            j += 1;
+        }
         let after = if j < p.l.len { p.l.src[j] } else { '\0' };
         if after == '>' || after == '<' {
-            while p.l.i < j { advance(&mut p.l); }
+            while p.l.i < j {
+                advance(&mut p.l);
+            }
             fd = Some(mk(p, "file_descriptor", fd_start, p.l.b, vec![]));
         } else {
             restore_lex(&mut p.l, save);
@@ -125,7 +162,9 @@ pub fn try_parse_redirect(p: &mut PState, greedy: bool) -> Option<TsNode> {
         let fd_start = p.l.b;
         advance(&mut p.l);
         if is_ident_start(peek_char(&p.l)) {
-            while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+            while is_ident_char(peek_char(&p.l)) {
+                advance(&mut p.l);
+            }
             if peek_char(&p.l) == '}' {
                 advance(&mut p.l);
                 let nc = peek_char(&p.l);
@@ -168,24 +207,35 @@ pub fn try_parse_redirect(p: &mut PState, greedy: bool) -> Option<TsNode> {
     if v == ">&-" || v == "<&-" {
         let op = leaf(p, v, &t);
         let mut kids = Vec::new();
-        if let Some(f) = fd { kids.push(f); }
+        if let Some(f) = fd {
+            kids.push(f);
+        }
         kids.push(op.clone());
         let start_idx = kids[0].start_index;
         return Some(mk(p, "file_redirect", start_idx, op.end_index, kids));
     }
     // Standard redirections
-    if matches!(v.as_str(), ">" | ">>" | ">&" | ">|" | "&>" | "&>>" | "<" | "<&") {
+    if matches!(
+        v.as_str(),
+        ">" | ">>" | ">&" | ">|" | "&>" | "&>>" | "<" | "<&"
+    ) {
         let op = leaf(p, v, &t);
         let mut kids = Vec::new();
-        if let Some(f) = fd { kids.push(f); }
+        if let Some(f) = fd {
+            kids.push(f);
+        }
         kids.push(op.clone());
         let mut end = op.end_index;
         let mut taken = 0;
         loop {
             skip_blanks(&mut p.l);
             let nc = peek_char(&p.l);
-            if nc == '\0' || nc == '\n' || nc == ';' || nc == '&' || nc == '|' || nc == ')' { break; }
-            if !greedy && taken >= 1 { break; }
+            if nc == '\0' || nc == '\n' || nc == ';' || nc == '&' || nc == '|' || nc == ')' {
+                break;
+            }
+            if !greedy && taken >= 1 {
+                break;
+            }
             // Process substitution check
             if (nc == '<' || nc == '>') && peek(&p.l, 1) == '(' {
                 if let Some(ps) = parse_process_sub(p) {
@@ -212,9 +262,12 @@ pub fn try_parse_redirect(p: &mut PState, greedy: bool) -> Option<TsNode> {
 
 fn parse_process_sub(p: &mut PState) -> Option<TsNode> {
     let c = peek_char(&p.l);
-    if (c != '<' && c != '>') || peek(&p.l, 1) != '(' { return None; }
+    if (c != '<' && c != '>') || peek(&p.l, 1) != '(' {
+        return None;
+    }
     let start = p.l.b;
-    advance(&mut p.l); advance(&mut p.l);
+    advance(&mut p.l);
+    advance(&mut p.l);
     let open_str = format!("{}(", c);
     let open = mk(p, &open_str, start, p.l.b, vec![]);
     let body = crate::bash::parser_stmts::parse_statements(p, Some(")"));
@@ -237,8 +290,12 @@ fn parse_process_sub(p: &mut PState) -> Option<TsNode> {
 
 pub fn scan_heredoc_bodies(p: &mut PState) {
     // Skip to newline
-    while p.l.i < p.l.len && p.l.src[p.l.i] != '\n' { advance(&mut p.l); }
-    if p.l.i < p.l.len { advance(&mut p.l); }
+    while p.l.i < p.l.len && p.l.src[p.l.i] != '\n' {
+        advance(&mut p.l);
+    }
+    if p.l.i < p.l.len {
+        advance(&mut p.l);
+    }
     let heredocs = std::mem::take(&mut p.l.heredocs);
     let mut updated = Vec::new();
     for mut hd in heredocs {
@@ -249,7 +306,9 @@ pub fn scan_heredoc_bodies(p: &mut PState) {
             let line_start_b = p.l.b;
             let mut check_i = p.l.i;
             if hd.strip_tabs {
-                while check_i < p.l.len && p.l.src[check_i] == '\t' { check_i += 1; }
+                while check_i < p.l.len && p.l.src[check_i] == '\t' {
+                    check_i += 1;
+                }
             }
             // Check if this line matches delimiter
             let mut matches_delim = true;
@@ -262,13 +321,22 @@ pub fn scan_heredoc_bodies(p: &mut PState) {
                 }
                 if matches_delim {
                     let after_idx = check_i + delim_len;
-                    if after_idx >= p.l.len || p.l.src[after_idx] == '\n' || p.l.src[after_idx] == '\r' {
+                    if after_idx >= p.l.len
+                        || p.l.src[after_idx] == '\n'
+                        || p.l.src[after_idx] == '\r'
+                    {
                         hd.body_end = line_start_b;
-                        while p.l.i < check_i { advance(&mut p.l); }
+                        while p.l.i < check_i {
+                            advance(&mut p.l);
+                        }
                         hd.end_start = p.l.b;
-                        for _ in 0..delim_len { advance(&mut p.l); }
+                        for _ in 0..delim_len {
+                            advance(&mut p.l);
+                        }
                         hd.end_end = p.l.b;
-                        if p.l.i < p.l.len && p.l.src[p.l.i] == '\n' { advance(&mut p.l); }
+                        if p.l.i < p.l.len && p.l.src[p.l.i] == '\n' {
+                            advance(&mut p.l);
+                        }
                         updated.push(hd);
                         break;
                     }
@@ -277,8 +345,12 @@ pub fn scan_heredoc_bodies(p: &mut PState) {
                 matches_delim = false;
             }
             // Consume line
-            while p.l.i < p.l.len && p.l.src[p.l.i] != '\n' { advance(&mut p.l); }
-            if p.l.i < p.l.len { advance(&mut p.l); }
+            while p.l.i < p.l.len && p.l.src[p.l.i] != '\n' {
+                advance(&mut p.l);
+            }
+            if p.l.i < p.l.len {
+                advance(&mut p.l);
+            }
             if !matches_delim && p.l.i >= p.l.len {
                 hd.body_end = p.l.b;
                 hd.end_start = p.l.b;
@@ -298,8 +370,15 @@ pub fn parse_word(p: &mut PState, _ctx: &str) -> Option<TsNode> {
     let mut parts: Vec<TsNode> = Vec::new();
     while p.l.i < p.l.len {
         let c = peek_char(&p.l);
-        if matches!(c, ' ' | '\t' | '\n' | '\r' | '\0' | '|' | '&' | ';' | '(' | ')') { break; }
-        if (c == '<' || c == '>') && peek(&p.l, 1) != '(' { break; }
+        if matches!(
+            c,
+            ' ' | '\t' | '\n' | '\r' | '\0' | '|' | '&' | ';' | '(' | ')'
+        ) {
+            break;
+        }
+        if (c == '<' || c == '>') && peek(&p.l, 1) != '(' {
+            break;
+        }
         if c == '<' || c == '>' {
             if let Some(ps) = parse_process_sub(p) {
                 parts.push(ps);
@@ -341,7 +420,9 @@ pub fn parse_word(p: &mut PState, _ctx: &str) -> Option<TsNode> {
             continue;
         }
         if c == '`' {
-            if p.in_backtick > 0 { break; }
+            if p.in_backtick > 0 {
+                break;
+            }
             if let Some(bt) = parse_backtick(p) {
                 parts.push(bt);
             }
@@ -385,8 +466,12 @@ pub fn parse_word(p: &mut PState, _ctx: &str) -> Option<TsNode> {
             break;
         }
     }
-    if parts.is_empty() { return None; }
-    if parts.len() == 1 { return Some(parts.remove(0)); }
+    if parts.is_empty() {
+        return None;
+    }
+    if parts.len() == 1 {
+        return Some(parts.remove(0));
+    }
     let start = parts[0].start_index;
     let end = parts.last().unwrap().end_index;
     Some(mk(p, "concatenation", start, end, parts))
@@ -398,21 +483,46 @@ fn parse_bare_word(p: &mut PState) -> Option<TsNode> {
     while p.l.i < p.l.len {
         let c = peek_char(&p.l);
         if c == '\\' {
-            if p.l.i + 1 >= p.l.len { break; }
+            if p.l.i + 1 >= p.l.len {
+                break;
+            }
             let nx = p.l.src[p.l.i + 1];
             if nx == '\n' || (nx == '\r' && p.l.i + 2 < p.l.len && p.l.src[p.l.i + 2] == '\n') {
                 break;
             }
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             continue;
         }
-        if matches!(c, ' ' | '\t' | '\n' | '\r' | '\0' | '|' | '&' | ';' | '(' | ')' |
-            '<' | '>' | '"' | '\'' | '$' | '`' | '{' | '}' | '[' | ']') {
+        if matches!(
+            c,
+            ' ' | '\t'
+                | '\n'
+                | '\r'
+                | '\0'
+                | '|'
+                | '&'
+                | ';'
+                | '('
+                | ')'
+                | '<'
+                | '>'
+                | '"'
+                | '\''
+                | '$'
+                | '`'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+        ) {
             break;
         }
         advance(&mut p.l);
     }
-    if p.l.b == start { return None; }
+    if p.l.b == start {
+        return None;
+    }
     let text: String = p.l.src[start_i..p.l.i].iter().collect();
     let re = Regex::new(r"^-?\d+$").unwrap();
     let node_type = if re.is_match(&text) { "number" } else { "word" };
@@ -421,22 +531,29 @@ fn parse_bare_word(p: &mut PState) -> Option<TsNode> {
 
 fn try_parse_brace_expr(p: &mut PState) -> Option<TsNode> {
     let save = save_lex(&p.l);
-    if peek_char(&p.l) != '{' { return None; }
+    if peek_char(&p.l) != '{' {
+        return None;
+    }
     let o_start = p.l.b;
     advance(&mut p.l);
     let o_end = p.l.b;
     let p1_start = p.l.b;
-    while is_digit(peek_char(&p.l)) || is_ident_start(peek_char(&p.l)) { advance(&mut p.l); }
+    while is_digit(peek_char(&p.l)) || is_ident_start(peek_char(&p.l)) {
+        advance(&mut p.l);
+    }
     let p1_end = p.l.b;
     if p1_end == p1_start || peek_char(&p.l) != '.' || peek(&p.l, 1) != '.' {
         restore_lex(&mut p.l, save);
         return None;
     }
     let dot_start = p.l.b;
-    advance(&mut p.l); advance(&mut p.l);
+    advance(&mut p.l);
+    advance(&mut p.l);
     let dot_end = p.l.b;
     let p2_start = p.l.b;
-    while is_digit(peek_char(&p.l)) || is_ident_start(peek_char(&p.l)) { advance(&mut p.l); }
+    while is_digit(peek_char(&p.l)) || is_ident_start(peek_char(&p.l)) {
+        advance(&mut p.l);
+    }
     let p2_end = p.l.b;
     if p2_end == p2_start || peek_char(&p.l) != '}' {
         restore_lex(&mut p.l, save);
@@ -464,19 +581,30 @@ fn try_parse_brace_expr(p: &mut PState) -> Option<TsNode> {
     let n_dot = mk(p, "..", dot_start, dot_end, vec![]);
     let n_p2 = mk(p, p2_type, p2_start, p2_end, vec![]);
     let n_close = mk(p, "}", c_start, c_end, vec![]);
-    Some(mk(p, "brace_expression", o_start, c_end, vec![
-        n_open, n_p1, n_dot, n_p2, n_close,
-    ]))
+    Some(mk(
+        p,
+        "brace_expression",
+        o_start,
+        c_end,
+        vec![n_open, n_p1, n_dot, n_p2, n_close],
+    ))
 }
 
 fn try_parse_brace_like_cat(p: &mut PState) -> Option<Vec<TsNode>> {
-    if peek_char(&p.l) != '{' { return None; }
+    if peek_char(&p.l) != '{' {
+        return None;
+    }
     let o_start = p.l.b;
     advance(&mut p.l);
     let mut inner = vec![mk(p, "word", o_start, p.l.b, vec![])];
     while p.l.i < p.l.len {
         let bc = peek_char(&p.l);
-        if matches!(bc, '}' | '\n' | ';' | '|' | '&' | ' ' | '\t' | '<' | '>' | '(' | ')') { break; }
+        if matches!(
+            bc,
+            '}' | '\n' | ';' | '|' | '&' | ' ' | '\t' | '<' | '>' | '(' | ')'
+        ) {
+            break;
+        }
         if bc == '[' || bc == ']' {
             let b_start = p.l.b;
             advance(&mut p.l);
@@ -487,7 +615,12 @@ fn try_parse_brace_like_cat(p: &mut PState) -> Option<Vec<TsNode>> {
         let mid_start_i = p.l.i;
         while p.l.i < p.l.len {
             let mc = peek_char(&p.l);
-            if matches!(mc, '}' | '\n' | ';' | '|' | '&' | ' ' | '\t' | '<' | '>' | '(' | ')' | '[' | ']') { break; }
+            if matches!(
+                mc,
+                '}' | '\n' | ';' | '|' | '&' | ' ' | '\t' | '<' | '>' | '(' | ')' | '[' | ']'
+            ) {
+                break;
+            }
             advance(&mut p.l);
         }
         if p.l.b > mid_start {
@@ -528,9 +661,12 @@ pub fn parse_double_quoted(p: &mut PState) -> TsNode {
     };
     while p.l.i < p.l.len {
         let c = peek_char(&p.l);
-        if c == '"' { break; }
+        if c == '"' {
+            break;
+        }
         if c == '\\' && p.l.i + 1 < p.l.len {
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             continue;
         }
         if c == '\n' {
@@ -542,7 +678,12 @@ pub fn parse_double_quoted(p: &mut PState) -> TsNode {
         }
         if c == '$' {
             let c1 = peek(&p.l, 1);
-            if c1 == '(' || c1 == '{' || is_ident_start(c1) || SPECIAL_VARS.contains(&c1) || is_digit(c1) {
+            if c1 == '('
+                || c1 == '{'
+                || is_ident_start(c1)
+                || SPECIAL_VARS.contains(&c1)
+                || is_digit(c1)
+            {
                 flush_content(p, &mut parts, content_start, content_start_i);
                 if let Some(exp) = parse_dollar_like(p) {
                     parts.push(exp);
@@ -592,13 +733,16 @@ pub fn parse_dollar_like(p: &mut PState) -> Option<TsNode> {
     let d_start = p.l.b;
     if c1 == '(' && peek(&p.l, 2) == '(' {
         // $((arithmetic))
-        advance(&mut p.l); advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let open = mk(p, "$((", d_start, p.l.b, vec![]);
         let exprs = parse_arith_comma_list(p, "))", ArithMode::Var);
         skip_blanks(&mut p.l);
         let close = if peek_char(&p.l) == ')' && peek(&p.l, 1) == ')' {
             let cs = p.l.b;
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             mk(p, "))", cs, p.l.b, vec![])
         } else {
             mk(p, "))", p.l.b, p.l.b, vec![])
@@ -611,7 +755,8 @@ pub fn parse_dollar_like(p: &mut PState) -> Option<TsNode> {
     }
     if c1 == '[' {
         // $[arithmetic] legacy
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let open = mk(p, "$[", d_start, p.l.b, vec![]);
         let exprs = parse_arith_comma_list(p, "]", ArithMode::Var);
         skip_blanks(&mut p.l);
@@ -630,7 +775,8 @@ pub fn parse_dollar_like(p: &mut PState) -> Option<TsNode> {
     }
     if c1 == '(' {
         // $(command)
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let open = mk(p, "$(", d_start, p.l.b, vec![]);
         let mut body = crate::bash::parser_stmts::parse_statements(p, Some(")"));
         skip_blanks(&mut p.l);
@@ -657,7 +803,8 @@ pub fn parse_dollar_like(p: &mut PState) -> Option<TsNode> {
     }
     if c1 == '{' {
         // ${expansion}
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let open = mk(p, "${", d_start, p.l.b, vec![]);
         let inner = parse_expansion_body(p);
         let close = if peek_char(&p.l) == '}' {
@@ -686,7 +833,9 @@ pub fn parse_dollar_like(p: &mut PState) -> Option<TsNode> {
     }
     if is_ident_start(nc) {
         let v_start = p.l.b;
-        while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_ident_char(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         let vn = mk(p, "variable_name", v_start, p.l.b, vec![]);
         return Some(mk(p, "simple_expansion", d_start, p.l.b, vec![dollar, vn]));
     }
@@ -716,7 +865,9 @@ fn parse_expansion_body(p: &mut PState) -> Vec<TsNode> {
     }
     // Optional ! = ~ prefix
     let pc = peek_char(&p.l);
-    if (pc == '!' || pc == '=' || pc == '~') && (is_ident_start(peek(&p.l, 1)) || is_digit(peek(&p.l, 1))) {
+    if (pc == '!' || pc == '=' || pc == '~')
+        && (is_ident_start(peek(&p.l, 1)) || is_digit(peek(&p.l, 1)))
+    {
         let s = p.l.b;
         advance(&mut p.l);
         out.push(mk(p, &pc.to_string(), s, p.l.b, vec![]));
@@ -725,11 +876,15 @@ fn parse_expansion_body(p: &mut PState) -> Vec<TsNode> {
     // Variable name
     if is_ident_start(peek_char(&p.l)) {
         let s = p.l.b;
-        while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_ident_char(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         out.push(mk(p, "variable_name", s, p.l.b, vec![]));
     } else if is_digit(peek_char(&p.l)) {
         let s = p.l.b;
-        while is_digit(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_digit(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         out.push(mk(p, "variable_name", s, p.l.b, vec![]));
     } else if SPECIAL_VARS.contains(&peek_char(&p.l)) {
         let s = p.l.b;
@@ -746,13 +901,21 @@ fn parse_expansion_body(p: &mut PState) -> Vec<TsNode> {
         let idx_start = p.l.b;
         while p.l.i < p.l.len && depth > 0 {
             let c = peek_char(&p.l);
-            if c == '[' { depth += 1; }
-            else if c == ']' { depth -= 1; if depth == 0 { break; } }
+            if c == '[' {
+                depth += 1;
+            } else if c == ']' {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
             advance(&mut p.l);
         }
         let idx_end = p.l.b;
         let br_close = p.l.b;
-        if peek_char(&p.l) == ']' { advance(&mut p.l); }
+        if peek_char(&p.l) == ']' {
+            advance(&mut p.l);
+        }
         let br_close_node = mk(p, "]", br_close, p.l.b, vec![]);
         if let Some(var_node) = out.last().cloned() {
             out.pop();
@@ -780,10 +943,12 @@ fn parse_expansion_body(p: &mut PState) -> Vec<TsNode> {
         let c1 = peek(&p.l, 1);
         let mut op = c.to_string();
         if c == ':' && matches!(c1, '-' | '=' | '?' | '+') {
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             op = format!("{}{}", c, c1);
         } else if matches!(c, '#' | '%' | '/' | '^' | ',') && c1 == c {
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             op = format!("{}{}", c, c);
         } else {
             advance(&mut p.l);
@@ -794,19 +959,28 @@ fn parse_expansion_body(p: &mut PState) -> Vec<TsNode> {
         let mut brace_depth = 0i32;
         while p.l.i < p.l.len {
             let rc = peek_char(&p.l);
-            if rc == '\n' { break; }
-            if brace_depth == 0 && rc == '}' { break; }
+            if rc == '\n' {
+                break;
+            }
+            if brace_depth == 0 && rc == '}' {
+                break;
+            }
             if rc == '\\' && p.l.i + 1 < p.l.len {
-                advance(&mut p.l); advance(&mut p.l);
+                advance(&mut p.l);
+                advance(&mut p.l);
                 continue;
             }
             if rc == '$' && peek(&p.l, 1) == '{' {
                 brace_depth += 1;
-                advance(&mut p.l); advance(&mut p.l);
+                advance(&mut p.l);
+                advance(&mut p.l);
                 continue;
             }
-            if rc == '{' { brace_depth += 1; }
-            else if rc == '}' && brace_depth > 0 { brace_depth -= 1; }
+            if rc == '{' {
+                brace_depth += 1;
+            } else if rc == '}' && brace_depth > 0 {
+                brace_depth -= 1;
+            }
             advance(&mut p.l);
         }
         if p.l.b > rest_start {
@@ -831,14 +1005,18 @@ pub fn parse_backtick(p: &mut PState) -> Option<TsNode> {
     let mut body: Vec<TsNode> = Vec::new();
     loop {
         skip_blanks(&mut p.l);
-        if peek_char(&p.l) == '`' || peek_char(&p.l) == '\0' { break; }
+        if peek_char(&p.l) == '`' || peek_char(&p.l) == '\0' {
+            break;
+        }
         let save = save_lex(&p.l);
         let t = next_token(&mut p.l, LexCtx::Cmd);
         if t.token_type == TokenType::Eof || t.token_type == TokenType::Backtick {
             restore_lex(&mut p.l, save);
             break;
         }
-        if t.token_type == TokenType::Newline { continue; }
+        if t.token_type == TokenType::Newline {
+            continue;
+        }
         restore_lex(&mut p.l, save);
         if let Some(stmt) = crate::bash::parser_stmts::parse_and_or(p) {
             body.push(stmt);
@@ -846,7 +1024,9 @@ pub fn parse_backtick(p: &mut PState) -> Option<TsNode> {
             break;
         }
         skip_blanks(&mut p.l);
-        if peek_char(&p.l) == '`' { break; }
+        if peek_char(&p.l) == '`' {
+            break;
+        }
         let save2 = save_lex(&p.l);
         let sep = next_token(&mut p.l, LexCtx::Cmd);
         if sep.token_type == TokenType::Op && (sep.value == ";" || sep.value == "&") {
@@ -863,7 +1043,9 @@ pub fn parse_backtick(p: &mut PState) -> Option<TsNode> {
     } else {
         mk(p, "`", p.l.b, p.l.b, vec![])
     };
-    if body.is_empty() { return None; }
+    if body.is_empty() {
+        return None;
+    }
     let mut kids = vec![open];
     kids.extend(body);
     let end = close.end_index;
@@ -874,7 +1056,11 @@ pub fn parse_backtick(p: &mut PState) -> Option<TsNode> {
 // ─── Arithmetic Expressions ───
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArithMode { Var, Word, Assign }
+pub enum ArithMode {
+    Var,
+    Word,
+    Assign,
+}
 
 pub fn parse_arith_comma_list(p: &mut PState, stop: &str, mode: ArithMode) -> Vec<TsNode> {
     let mut out = Vec::new();
@@ -912,9 +1098,13 @@ fn parse_arith_ternary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<Ts
         let last = f_expr.as_ref().unwrap_or(&colon);
         let end = last.end_index;
         let mut kids = vec![cond, q];
-        if let Some(t) = t_expr { kids.push(t); }
+        if let Some(t) = t_expr {
+            kids.push(t);
+        }
         kids.push(colon);
-        if let Some(f) = f_expr { kids.push(f); }
+        if let Some(f) = f_expr {
+            kids.push(f);
+        }
         return Some(mk(p, "ternary_expression", kids[0].start_index, end, kids));
     }
     Some(cond)
@@ -924,56 +1114,99 @@ fn parse_arith_binary(p: &mut PState, stop: &str, min_prec: u8, mode: ArithMode)
     let mut left = parse_arith_unary(p, stop, mode)?;
     loop {
         skip_blanks(&mut p.l);
-        if is_arith_stop(p, stop) { break; }
-        if peek_char(&p.l) == ',' { break; }
+        if is_arith_stop(p, stop) {
+            break;
+        }
+        if peek_char(&p.l) == ',' {
+            break;
+        }
         let op_info = scan_arith_op(p);
-        if op_info.is_none() { break; }
+        if op_info.is_none() {
+            break;
+        }
         let (op_text, op_len) = op_info.unwrap();
         let prec = arith_prec(&op_text);
-        if prec < min_prec { break; }
+        if prec < min_prec {
+            break;
+        }
         let os = p.l.b;
-        for _ in 0..op_len { advance(&mut p.l); }
+        for _ in 0..op_len {
+            advance(&mut p.l);
+        }
         let op = mk(p, &op_text, os, p.l.b, vec![]);
-        let next_min = if is_right_assoc(&op_text) { prec } else { prec + 1 };
+        let next_min = if is_right_assoc(&op_text) {
+            prec
+        } else {
+            prec + 1
+        };
         let right = parse_arith_binary(p, stop, next_min, mode);
-        if right.is_none() { break; }
+        if right.is_none() {
+            break;
+        }
         let right = right.unwrap();
         let end = right.end_index;
-        left = mk(p, "binary_expression", left.start_index, end, vec![left, op, right]);
+        left = mk(
+            p,
+            "binary_expression",
+            left.start_index,
+            end,
+            vec![left, op, right],
+        );
     }
     Some(left)
 }
 
 fn parse_arith_unary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<TsNode> {
     skip_blanks(&mut p.l);
-    if is_arith_stop(p, stop) { return None; }
+    if is_arith_stop(p, stop) {
+        return None;
+    }
     let c = peek_char(&p.l);
     let c1 = peek(&p.l, 1);
     if (c == '+' && c1 == '+') || (c == '-' && c1 == '-') {
         let s = p.l.b;
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let op = mk(p, &format!("{}{}", c, c1), s, p.l.b, vec![]);
         let inner = parse_arith_unary(p, stop, mode);
-        if inner.is_none() { return Some(op); }
+        if inner.is_none() {
+            return Some(op);
+        }
         let inner = inner.unwrap();
         let end = inner.end_index;
-        return Some(mk(p, "unary_expression", op.start_index, end, vec![op, inner]));
+        return Some(mk(
+            p,
+            "unary_expression",
+            op.start_index,
+            end,
+            vec![op, inner],
+        ));
     }
     if matches!(c, '-' | '+' | '!' | '~') {
         if mode != ArithMode::Var && c == '-' && is_digit(c1) {
             let s = p.l.b;
             advance(&mut p.l);
-            while is_digit(peek_char(&p.l)) { advance(&mut p.l); }
+            while is_digit(peek_char(&p.l)) {
+                advance(&mut p.l);
+            }
             return Some(mk(p, "number", s, p.l.b, vec![]));
         }
         let s = p.l.b;
         advance(&mut p.l);
         let op = mk(p, &c.to_string(), s, p.l.b, vec![]);
         let inner = parse_arith_unary(p, stop, mode);
-        if inner.is_none() { return Some(op); }
+        if inner.is_none() {
+            return Some(op);
+        }
         let inner = inner.unwrap();
         let end = inner.end_index;
-        return Some(mk(p, "unary_expression", op.start_index, end, vec![op, inner]));
+        return Some(mk(
+            p,
+            "unary_expression",
+            op.start_index,
+            end,
+            vec![op, inner],
+        ));
     }
     parse_arith_postfix(p, stop, mode)
 }
@@ -984,17 +1217,26 @@ fn parse_arith_postfix(p: &mut PState, stop: &str, mode: ArithMode) -> Option<Ts
     let c1 = peek(&p.l, 1);
     if (c == '+' && c1 == '+') || (c == '-' && c1 == '-') {
         let s = p.l.b;
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let op = mk(p, &format!("{}{}", c, c1), s, p.l.b, vec![]);
         let end = op.end_index;
-        return Some(mk(p, "postfix_expression", prim.start_index, end, vec![prim, op]));
+        return Some(mk(
+            p,
+            "postfix_expression",
+            prim.start_index,
+            end,
+            vec![prim, op],
+        ));
     }
     Some(prim)
 }
 
 fn parse_arith_primary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<TsNode> {
     skip_blanks(&mut p.l);
-    if is_arith_stop(p, stop) { return None; }
+    if is_arith_stop(p, stop) {
+        return None;
+    }
     let c = peek_char(&p.l);
     if c == '(' {
         let s = p.l.b;
@@ -1013,7 +1255,13 @@ fn parse_arith_primary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<Ts
         kids.extend(inners);
         let end = close.end_index;
         kids.push(close);
-        return Some(mk(p, "parenthesized_expression", kids[0].start_index, end, kids));
+        return Some(mk(
+            p,
+            "parenthesized_expression",
+            kids[0].start_index,
+            end,
+            kids,
+        ));
     }
     if c == '"' {
         return Some(parse_double_quoted(p));
@@ -1023,19 +1271,27 @@ fn parse_arith_primary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<Ts
     }
     if is_digit(c) {
         let s = p.l.b;
-        while is_digit(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_digit(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         if p.l.b - s == 1 && c == '0' && (peek_char(&p.l) == 'x' || peek_char(&p.l) == 'X') {
             advance(&mut p.l);
-            while is_hex_digit(peek_char(&p.l)) { advance(&mut p.l); }
+            while is_hex_digit(peek_char(&p.l)) {
+                advance(&mut p.l);
+            }
         } else if peek_char(&p.l) == '#' {
             advance(&mut p.l);
-            while is_base_digit(peek_char(&p.l)) { advance(&mut p.l); }
+            while is_base_digit(peek_char(&p.l)) {
+                advance(&mut p.l);
+            }
         }
         return Some(mk(p, "number", s, p.l.b, vec![]));
     }
     if is_ident_start(c) {
         let s = p.l.b;
-        while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_ident_char(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         // Subscript
         if peek_char(&p.l) == '[' {
             let vn = mk(p, "variable_name", s, p.l.b, vec![]);
@@ -1052,12 +1308,18 @@ fn parse_arith_primary(p: &mut PState, stop: &str, mode: ArithMode) -> Option<Ts
                 mk(p, "]", p.l.b, p.l.b, vec![])
             };
             let mut kids = vec![vn, br_open];
-            if let Some(i) = idx { kids.push(i); }
+            if let Some(i) = idx {
+                kids.push(i);
+            }
             let end = br_close.end_index;
             kids.push(br_close);
             return Some(mk(p, "subscript", s, end, kids));
         }
-        let ident_type = if mode == ArithMode::Var { "variable_name" } else { "word" };
+        let ident_type = if mode == ArithMode::Var {
+            "variable_name"
+        } else {
+            "word"
+        };
         return Some(mk(p, ident_type, s, p.l.b, vec![]));
     }
     None
@@ -1068,38 +1330,98 @@ fn scan_arith_op(p: &PState) -> Option<(String, usize)> {
     let c1 = peek(&p.l, 1);
     let c2 = peek(&p.l, 2);
     // 3-char
-    if c == '<' && c1 == '<' && c2 == '=' { return Some(("<<=".to_string(), 3)); }
-    if c == '>' && c1 == '>' && c2 == '=' { return Some((">>=".to_string(), 3)); }
+    if c == '<' && c1 == '<' && c2 == '=' {
+        return Some(("<<=".to_string(), 3));
+    }
+    if c == '>' && c1 == '>' && c2 == '=' {
+        return Some((">>=".to_string(), 3));
+    }
     // 2-char
-    if c == '*' && c1 == '*' { return Some(("**".to_string(), 2)); }
-    if c == '<' && c1 == '<' { return Some(("<<".to_string(), 2)); }
-    if c == '>' && c1 == '>' { return Some((">>".to_string(), 2)); }
-    if c == '=' && c1 == '=' { return Some(("==".to_string(), 2)); }
-    if c == '!' && c1 == '=' { return Some(("!=".to_string(), 2)); }
-    if c == '<' && c1 == '=' { return Some(("<=".to_string(), 2)); }
-    if c == '>' && c1 == '=' { return Some((">=".to_string(), 2)); }
-    if c == '&' && c1 == '&' { return Some(("&&".to_string(), 2)); }
-    if c == '|' && c1 == '|' { return Some(("||".to_string(), 2)); }
-    if c == '+' && c1 == '=' { return Some(("+=".to_string(), 2)); }
-    if c == '-' && c1 == '=' { return Some(("-=".to_string(), 2)); }
-    if c == '*' && c1 == '=' { return Some(("*=".to_string(), 2)); }
-    if c == '/' && c1 == '=' { return Some(("/=".to_string(), 2)); }
-    if c == '%' && c1 == '=' { return Some(("%=".to_string(), 2)); }
-    if c == '&' && c1 == '=' { return Some(("&=".to_string(), 2)); }
-    if c == '^' && c1 == '=' { return Some(("^=".to_string(), 2)); }
-    if c == '|' && c1 == '=' { return Some(("|=".to_string(), 2)); }
+    if c == '*' && c1 == '*' {
+        return Some(("**".to_string(), 2));
+    }
+    if c == '<' && c1 == '<' {
+        return Some(("<<".to_string(), 2));
+    }
+    if c == '>' && c1 == '>' {
+        return Some((">>".to_string(), 2));
+    }
+    if c == '=' && c1 == '=' {
+        return Some(("==".to_string(), 2));
+    }
+    if c == '!' && c1 == '=' {
+        return Some(("!=".to_string(), 2));
+    }
+    if c == '<' && c1 == '=' {
+        return Some(("<=".to_string(), 2));
+    }
+    if c == '>' && c1 == '=' {
+        return Some((">=".to_string(), 2));
+    }
+    if c == '&' && c1 == '&' {
+        return Some(("&&".to_string(), 2));
+    }
+    if c == '|' && c1 == '|' {
+        return Some(("||".to_string(), 2));
+    }
+    if c == '+' && c1 == '=' {
+        return Some(("+=".to_string(), 2));
+    }
+    if c == '-' && c1 == '=' {
+        return Some(("-=".to_string(), 2));
+    }
+    if c == '*' && c1 == '=' {
+        return Some(("*=".to_string(), 2));
+    }
+    if c == '/' && c1 == '=' {
+        return Some(("/=".to_string(), 2));
+    }
+    if c == '%' && c1 == '=' {
+        return Some(("%=".to_string(), 2));
+    }
+    if c == '&' && c1 == '=' {
+        return Some(("&=".to_string(), 2));
+    }
+    if c == '^' && c1 == '=' {
+        return Some(("^=".to_string(), 2));
+    }
+    if c == '|' && c1 == '=' {
+        return Some(("|=".to_string(), 2));
+    }
     // 1-char
-    if c == '+' && c1 != '+' { return Some(("+".to_string(), 1)); }
-    if c == '-' && c1 != '-' { return Some(("-".to_string(), 1)); }
-    if c == '*' { return Some(("*".to_string(), 1)); }
-    if c == '/' { return Some(("/".to_string(), 1)); }
-    if c == '%' { return Some(("%".to_string(), 1)); }
-    if c == '<' { return Some(("<".to_string(), 1)); }
-    if c == '>' { return Some((">".to_string(), 1)); }
-    if c == '&' { return Some(("&".to_string(), 1)); }
-    if c == '|' { return Some(("|".to_string(), 1)); }
-    if c == '^' { return Some(("^".to_string(), 1)); }
-    if c == '=' { return Some(("=".to_string(), 1)); }
+    if c == '+' && c1 != '+' {
+        return Some(("+".to_string(), 1));
+    }
+    if c == '-' && c1 != '-' {
+        return Some(("-".to_string(), 1));
+    }
+    if c == '*' {
+        return Some(("*".to_string(), 1));
+    }
+    if c == '/' {
+        return Some(("/".to_string(), 1));
+    }
+    if c == '%' {
+        return Some(("%".to_string(), 1));
+    }
+    if c == '<' {
+        return Some(("<".to_string(), 1));
+    }
+    if c == '>' {
+        return Some((">".to_string(), 1));
+    }
+    if c == '&' {
+        return Some(("&".to_string(), 1));
+    }
+    if c == '|' {
+        return Some(("|".to_string(), 1));
+    }
+    if c == '^' {
+        return Some(("^".to_string(), 1));
+    }
+    if c == '=' {
+        return Some(("=".to_string(), 1));
+    }
     None
 }
 
@@ -1122,7 +1444,10 @@ fn arith_prec(op: &str) -> u8 {
 }
 
 fn is_right_assoc(op: &str) -> bool {
-    matches!(op, "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "**")
+    matches!(
+        op,
+        "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "**"
+    )
 }
 
 fn is_arith_stop(p: &PState, stop: &str) -> bool {
@@ -1152,7 +1477,8 @@ fn parse_test_or(p: &mut PState, closer: &str) -> Option<TsNode> {
         if peek_char(&p.l) == '|' && peek(&p.l, 1) == '|' {
             let save = save_lex(&p.l);
             let s = p.l.b;
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             let op = mk(p, "||", s, p.l.b, vec![]);
             let right = parse_test_and(p, closer);
             if right.is_none() {
@@ -1161,7 +1487,13 @@ fn parse_test_or(p: &mut PState, closer: &str) -> Option<TsNode> {
             }
             let right = right.unwrap();
             let end = right.end_index;
-            left = mk(p, "binary_expression", left.start_index, end, vec![left, op, right]);
+            left = mk(
+                p,
+                "binary_expression",
+                left.start_index,
+                end,
+                vec![left, op, right],
+            );
         } else {
             break;
         }
@@ -1175,13 +1507,22 @@ fn parse_test_and(p: &mut PState, closer: &str) -> Option<TsNode> {
         skip_blanks(&mut p.l);
         if peek_char(&p.l) == '&' && peek(&p.l, 1) == '&' {
             let s = p.l.b;
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             let op = mk(p, "&&", s, p.l.b, vec![]);
             let right = parse_test_unary(p, closer);
-            if right.is_none() { break; }
+            if right.is_none() {
+                break;
+            }
             let right = right.unwrap();
             let end = right.end_index;
-            left = mk(p, "binary_expression", left.start_index, end, vec![left, op, right]);
+            left = mk(
+                p,
+                "binary_expression",
+                left.start_index,
+                end,
+                vec![left, op, right],
+            );
         } else {
             break;
         }
@@ -1206,10 +1547,18 @@ fn parse_test_unary(p: &mut PState, closer: &str) -> Option<TsNode> {
             mk(p, ")", p.l.b, p.l.b, vec![])
         };
         let mut kids = vec![open];
-        if let Some(i) = inner { kids.push(i); }
+        if let Some(i) = inner {
+            kids.push(i);
+        }
         let end = close.end_index;
         kids.push(close);
-        return Some(mk(p, "parenthesized_expression", kids[0].start_index, end, kids));
+        return Some(mk(
+            p,
+            "parenthesized_expression",
+            kids[0].start_index,
+            end,
+            kids,
+        ));
     }
     parse_test_binary(p, closer)
 }
@@ -1222,13 +1571,16 @@ fn parse_test_binary(p: &mut PState, closer: &str) -> Option<TsNode> {
     let c1 = peek(&p.l, 1);
     let os = p.l.b;
     let op = if c == '=' && c1 == '=' {
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         Some(mk(p, "==", os, p.l.b, vec![]))
     } else if c == '!' && c1 == '=' {
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         Some(mk(p, "!=", os, p.l.b, vec![]))
     } else if c == '=' && c1 == '~' {
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         Some(mk(p, "=~", os, p.l.b, vec![]))
     } else if c == '=' && c1 != '=' {
         advance(&mut p.l);
@@ -1241,20 +1593,32 @@ fn parse_test_binary(p: &mut PState, closer: &str) -> Option<TsNode> {
         Some(mk(p, ">", os, p.l.b, vec![]))
     } else if c == '-' && is_ident_start(c1) {
         advance(&mut p.l);
-        while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_ident_char(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         Some(mk(p, "test_operator", os, p.l.b, vec![]))
     } else {
         None
     };
-    if op.is_none() { return Some(left); }
+    if op.is_none() {
+        return Some(left);
+    }
     let op = op.unwrap();
     skip_blanks(&mut p.l);
     // Simplified RHS: parse as word
     let right = parse_test_primary(p, closer);
-    if right.is_none() { return Some(left); }
+    if right.is_none() {
+        return Some(left);
+    }
     let right = right.unwrap();
     let end = right.end_index;
-    Some(mk(p, "binary_expression", left.start_index, end, vec![left, op, right]))
+    Some(mk(
+        p,
+        "binary_expression",
+        left.start_index,
+        end,
+        vec![left, op, right],
+    ))
 }
 
 fn parse_test_negatable_primary(p: &mut PState, closer: &str) -> Option<TsNode> {
@@ -1265,30 +1629,52 @@ fn parse_test_negatable_primary(p: &mut PState, closer: &str) -> Option<TsNode> 
         advance(&mut p.l);
         let bang = mk(p, "!", s, p.l.b, vec![]);
         let inner = parse_test_negatable_primary(p, closer);
-        if inner.is_none() { return Some(bang); }
+        if inner.is_none() {
+            return Some(bang);
+        }
         let inner = inner.unwrap();
         let end = inner.end_index;
-        return Some(mk(p, "unary_expression", bang.start_index, end, vec![bang, inner]));
+        return Some(mk(
+            p,
+            "unary_expression",
+            bang.start_index,
+            end,
+            vec![bang, inner],
+        ));
     }
     if c == '-' && is_ident_start(peek(&p.l, 1)) {
         let s = p.l.b;
         advance(&mut p.l);
-        while is_ident_char(peek_char(&p.l)) { advance(&mut p.l); }
+        while is_ident_char(peek_char(&p.l)) {
+            advance(&mut p.l);
+        }
         let op = mk(p, "test_operator", s, p.l.b, vec![]);
         skip_blanks(&mut p.l);
         let arg = parse_test_primary(p, closer);
-        if arg.is_none() { return Some(op); }
+        if arg.is_none() {
+            return Some(op);
+        }
         let arg = arg.unwrap();
         let end = arg.end_index;
-        return Some(mk(p, "unary_expression", op.start_index, end, vec![op, arg]));
+        return Some(mk(
+            p,
+            "unary_expression",
+            op.start_index,
+            end,
+            vec![op, arg],
+        ));
     }
     parse_test_primary(p, closer)
 }
 
 fn parse_test_primary(p: &mut PState, closer: &str) -> Option<TsNode> {
     skip_blanks(&mut p.l);
-    if closer == "]" && peek_char(&p.l) == ']' { return None; }
-    if closer == "]]" && peek_char(&p.l) == ']' && peek(&p.l, 1) == ']' { return None; }
+    if closer == "]" && peek_char(&p.l) == ']' {
+        return None;
+    }
+    if closer == "]]" && peek_char(&p.l) == ']' && peek(&p.l, 1) == ']' {
+        return None;
+    }
     parse_word(p, "arg")
 }
 

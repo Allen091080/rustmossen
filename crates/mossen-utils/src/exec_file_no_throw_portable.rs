@@ -20,9 +20,7 @@ pub struct ExecSyncOptions {
 impl Default for ExecSyncOptions {
     fn default() -> Self {
         Self {
-            timeout: Some(Duration::from_millis(
-                10 * SECONDS_IN_MINUTE * MS_IN_SECOND,
-            )),
+            timeout: Some(Duration::from_millis(10 * SECONDS_IN_MINUTE * MS_IN_SECOND)),
             input: None,
             stdio: None,
         }

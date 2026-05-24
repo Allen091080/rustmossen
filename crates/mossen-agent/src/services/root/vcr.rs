@@ -11,9 +11,7 @@ pub fn should_use_vcr() -> bool {
     if std::env::var("NODE_ENV").as_deref() == Ok("test") {
         return true;
     }
-    if std::env::var("USER_TYPE").as_deref() == Ok("ant")
-        && is_env_truthy("FORCE_VCR")
-    {
+    if std::env::var("USER_TYPE").as_deref() == Ok("internal") && is_env_truthy("FORCE_VCR") {
         return true;
     }
     false
@@ -37,7 +35,9 @@ pub fn compute_fixture_path(base_dir: &Path, message_contents: &[&str]) -> PathB
         })
         .collect();
 
-    base_dir.join("fixtures").join(format!("{}.json", hashes.join("-")))
+    base_dir
+        .join("fixtures")
+        .join(format!("{}.json", hashes.join("-")))
 }
 
 /// VCR fixture format

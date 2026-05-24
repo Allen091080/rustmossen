@@ -16,8 +16,8 @@ R7 — 远程 GrowthBook 0 流量的安全网测试 (G2-2c, weak mode).
   - 模型 backend env 不动 (custom backend / dashscope 走真 API)
 
 2 user_type case:
-  - default (USER_TYPE unset, 非 ant) — 标准路径, 必须 exit 0 + session 落盘
-  - USER_TYPE=ant — Mossen 个人版已 strip ant 代码 (REPLTool 等仅 ant 工具不存在),
+  - default (USER_TYPE unset, 非 internal) — 标准路径, 必须 exit 0 + session 落盘
+  - USER_TYPE=internal — Mossen 个人版已 strip internal 代码 (REPLTool 等仅 internal 工具不存在),
     该路径在 require 时即抛 module-not-found. 这其实是更强的 0-GB 保证 (proc
     在 init 前就死了, 根本没机会发请求). 测试视为符合契约的 "blocked-but-safe".
 
@@ -29,7 +29,7 @@ GB endpoint 形状 (mock 收到任意一个就算 GB 流量):
 反测信号 (G6 strict 后):
   - G6-2 漏删 client.init() → 启动时 ≥1 GB POST → strict fail
   - G2-1 wrapper 改向后误 fallback 到 GrowthBook → mock 收到 → fail
-  - 兼容代码 USER_TYPE === 'ant' 守卫但 ant 代理走真 GB → ant case fail
+  - 兼容代码 USER_TYPE === 'internal' 守卫但 internal 代理走真 GB → internal case fail
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from lib.mock_http_capture import MockCaptureServer, alloc_port
 GB_PATH_PREFIXES = ("/api/features/", "/api/eval/", "/sub/")
 WEAK_MODE = False  # G6-2 已删除远程 GrowthBook 客户端; STRICT mode 启用
 
-# Mossen 个人版已 strip ant codepath; require './tools/REPLTool/REPLTool.js' 抛此错
+# Mossen 个人版已 strip internal codepath; require './tools/REPLTool/REPLTool.js' 抛此错
 ANT_STRIPPED_MARKER = "./tools/REPLTool/REPLTool.js"
 
 
@@ -58,7 +58,7 @@ def _is_gb_request(req: dict) -> bool:
     return any(req["path"].startswith(p) for p in GB_PATH_PREFIXES)
 
 
-def _make_env(ctx, mock_port: int, *, user_type_ant: bool) -> dict:
+def _make_env(ctx, mock_port: int, *, user_type_internal: bool) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
 
@@ -70,8 +70,8 @@ def _make_env(ctx, mock_port: int, *, user_type_ant: bool) -> dict:
     mock_url = f"http://127.0.0.1:{mock_port}"
     env["MOSSEN_CODE_GB_BASE_URL"] = mock_url
 
-    if user_type_ant:
-        env["USER_TYPE"] = "ant"
+    if user_type_internal:
+        env["USER_TYPE"] = "internal"
     else:
         env.pop("USER_TYPE", None)
 
@@ -88,13 +88,13 @@ def _find_session_logs(home: Path) -> list[Path]:
     return found
 
 
-def case_no_gb_traffic(*, user_type_ant: bool) -> dict:
-    label = "ant" if user_type_ant else "default"
+def case_no_gb_traffic(*, user_type_internal: bool) -> dict:
+    label = "internal" if user_type_internal else "default"
     ctx = make_fixture(f"R7_no_gb_{label}")
 
     server = MockCaptureServer.start(port=alloc_port())
     try:
-        env = _make_env(ctx, server.port, user_type_ant=user_type_ant)
+        env = _make_env(ctx, server.port, user_type_internal=user_type_internal)
         fake_proj = ctx.root_dir / "fake_project"
         fake_proj.mkdir(parents=True, exist_ok=True)
 
@@ -128,10 +128,10 @@ def case_no_gb_traffic(*, user_type_ant: bool) -> dict:
     session_logs = _find_session_logs(ctx.home_dir)
     session_landed = len(session_logs) > 0
 
-    # ant codepath stripped in Mossen 个人版 → require 抛 module-not-found, 而 GB
+    # internal codepath stripped in Mossen 个人版 → require 抛 module-not-found, 而 GB
     # 请求一定 0 (proc 死在 init 前). 视为契约 trivially 满足.
     ant_stripped_ok = (
-        user_type_ant
+        user_type_internal
         and proc.returncode != 0
         and ANT_STRIPPED_MARKER in (proc.stderr or "")
         and len(gb_requests) == 0
@@ -180,7 +180,7 @@ def _retry(case_fn, n=3, **kwargs):
 def main() -> int:
     results = []
 
-    res_default = _retry(case_no_gb_traffic, user_type_ant=False)
+    res_default = _retry(case_no_gb_traffic, user_type_internal=False)
     ctx_d = res_default.pop("_ctx")
     write_assertions(
         ctx_d,
@@ -200,7 +200,7 @@ def main() -> int:
     )
     results.append(res_default)
 
-    res_ant = _retry(case_no_gb_traffic, user_type_ant=True)
+    res_ant = _retry(case_no_gb_traffic, user_type_internal=True)
     ctx_a = res_ant.pop("_ctx")
     write_assertions(
         ctx_a,

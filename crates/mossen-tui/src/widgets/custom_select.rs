@@ -1,7 +1,6 @@
 //! Custom select / fuzzy picker widget.
 //!
-//! Translates: components/CustomSelect/ (10 files) into a searchable,
-//! scrollable selection list with fuzzy matching support.
+//! Searchable, scrollable selection list with fuzzy matching support.
 
 use ratatui::{
     buffer::Buffer,
@@ -11,6 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+use crate::render_glyphs::{RenderGlyphMode, RenderGlyphs};
 use crate::theme::Theme;
 
 // ---------------------------------------------------------------------------
@@ -149,6 +149,7 @@ pub struct CustomSelectWidget<'a> {
     pub placeholder: &'a str,
     pub theme: &'a Theme,
     pub max_visible: usize,
+    pub glyphs: RenderGlyphs,
 }
 
 impl<'a> CustomSelectWidget<'a> {
@@ -159,6 +160,7 @@ impl<'a> CustomSelectWidget<'a> {
             placeholder: "Type to filter...",
             theme,
             max_visible: 10,
+            glyphs: RenderGlyphs::default(),
         }
     }
 
@@ -174,6 +176,11 @@ impl<'a> CustomSelectWidget<'a> {
 
     pub fn max_visible(mut self, n: usize) -> Self {
         self.max_visible = n;
+        self
+    }
+
+    pub fn glyphs(mut self, glyphs: RenderGlyphs) -> Self {
+        self.glyphs = glyphs;
         self
     }
 }
@@ -213,8 +220,12 @@ impl<'a> Widget for CustomSelectWidget<'a> {
                 Style::default().fg(self.theme.text_dim),
             ))
         } else {
+            let search_prefix = match self.glyphs.mode {
+                RenderGlyphMode::Unicode => "🔍 ",
+                RenderGlyphMode::Ascii => "? ",
+            };
             Line::from(vec![
-                Span::styled("🔍 ", Style::default()),
+                Span::styled(search_prefix, Style::default()),
                 Span::styled(
                     &self.state.search_query,
                     Style::default().fg(self.theme.text),
@@ -261,7 +272,12 @@ impl<'a> Widget for CustomSelectWidget<'a> {
 
             // Indicator
             if is_selected {
-                buf.set_string(x, y, "▸", Style::default().fg(self.theme.primary).bg(bg));
+                buf.set_string(
+                    x,
+                    y,
+                    self.glyphs.selected_indicator(),
+                    Style::default().fg(self.theme.primary).bg(bg),
+                );
             }
             x += 2;
 

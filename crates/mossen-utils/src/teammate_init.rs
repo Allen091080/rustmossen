@@ -4,7 +4,9 @@
 //! 处理在 swarm 中作为队友运行的 Mossen 实例的初始化。
 
 use crate::team_helpers::read_team_file;
-use crate::teammate_mailbox::{create_idle_notification, get_inbox_path, IdleReason, TeammateMessage};
+use crate::teammate_mailbox::{
+    create_idle_notification, get_inbox_path, IdleReason, TeammateMessage,
+};
 
 /// 团队信息
 #[derive(Debug, Clone)]
@@ -51,10 +53,7 @@ pub fn initialize_teammate_hooks(team_info: TeamInfo) -> TeammateInitResult {
     let team_file = match read_team_file(team_name) {
         Some(f) => f,
         None => {
-            tracing::debug!(
-                "[TeammateInit] Team file not found for team: {}",
-                team_name
-            );
+            tracing::debug!("[TeammateInit] Team file not found for team: {}", team_name);
             return TeammateInitResult::default();
         }
     };

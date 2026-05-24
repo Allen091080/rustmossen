@@ -115,14 +115,23 @@ pub struct InitialApiKeyVerificationInputs<'a> {
 /// Compute the initial status. Mirrors `getInitialApiKeyVerificationStatus()`.
 ///
 /// TS source: `getInitialApiKeyVerificationStatus()`.
-pub fn get_initial_api_key_verification_status(inputs: &InitialApiKeyVerificationInputs<'_>) -> VerificationStatus {
+pub fn get_initial_api_key_verification_status(
+    inputs: &InitialApiKeyVerificationInputs<'_>,
+) -> VerificationStatus {
     if inputs.custom_backend_enabled {
-        return if inputs.has_custom_backend_auth { VerificationStatus::Valid } else { VerificationStatus::Missing };
+        return if inputs.has_custom_backend_auth {
+            VerificationStatus::Valid
+        } else {
+            VerificationStatus::Missing
+        };
     }
     if !inputs.mossen_hosted_auth_enabled || inputs.is_hosted_subscriber {
         return VerificationStatus::Valid;
     }
-    let has_key = inputs.configured_key.map(|k| !k.is_empty()).unwrap_or(false);
+    let has_key = inputs
+        .configured_key
+        .map(|k| !k.is_empty())
+        .unwrap_or(false);
     let needs_helper = inputs.key_source == Some("apiKeyHelper");
     if has_key || needs_helper {
         return VerificationStatus::Loading;

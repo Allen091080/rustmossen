@@ -4,7 +4,7 @@
 //! known plugin directory locations across platforms.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -169,10 +169,7 @@ static PLUGIN_INSTALLED_CACHE: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Check if JetBrains plugin is installed (with memoization).
-pub async fn is_jetbrains_plugin_installed_cached(
-    ide_type: &str,
-    force_refresh: bool,
-) -> bool {
+pub async fn is_jetbrains_plugin_installed_cached(ide_type: &str, force_refresh: bool) -> bool {
     if !force_refresh {
         let cache = PLUGIN_INSTALLED_CACHE.lock().unwrap();
         if let Some(&result) = cache.get(ide_type) {

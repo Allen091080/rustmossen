@@ -13,8 +13,8 @@ use super::denial_tracking::{
 use super::permission_result::{
     ExternalPermissionMode, PermissionAllowDecision, PermissionAskDecision, PermissionBehavior,
     PermissionDecision, PermissionDecisionReason, PermissionDenyDecision, PermissionMode,
-    PermissionResult, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    PermissionUpdate, PermissionUpdateDestination, ToolPermissionContext,
+    PermissionResult, PermissionRule, PermissionRuleSource, PermissionRuleValue, PermissionUpdate,
+    PermissionUpdateDestination, ToolPermissionContext,
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -309,10 +309,7 @@ pub fn create_permission_request_message(
                 ..
             } => {
                 return match r {
-                    Some(msg) => format!(
-                        "Hook '{}' blocked this action: {}",
-                        hook_name, msg
-                    ),
+                    Some(msg) => format!("Hook '{}' blocked this action: {}", hook_name, msg),
                     None => format!(
                         "Hook '{}' requires approval for this {} command",
                         hook_name, tool_name
@@ -451,8 +448,11 @@ pub struct PermissionPipelineConfig {
     pub powershell_auto_mode_enabled: bool,
     pub iron_gate_closed: bool,
     pub is_auto_mode_allowlisted_tool: Box<dyn Fn(&str) -> bool + Send + Sync>,
-    pub classify_yolo_action:
-        Box<dyn Fn(&[serde_json::Value], &str, &[String], &ToolPermissionContext) -> ClassifierResult + Send + Sync>,
+    pub classify_yolo_action: Box<
+        dyn Fn(&[serde_json::Value], &str, &[String], &ToolPermissionContext) -> ClassifierResult
+            + Send
+            + Sync,
+    >,
 }
 
 /// Main entry point: check if we have permissions to use a tool.
@@ -463,12 +463,8 @@ pub fn has_permissions_to_use_tool(
     tool_permission_result: &PermissionResult,
     config: &PermissionPipelineConfig,
 ) -> PermissionDecision {
-    let inner_result = has_permissions_to_use_tool_inner(
-        tool_name,
-        input,
-        context,
-        tool_permission_result,
-    );
+    let inner_result =
+        has_permissions_to_use_tool_inner(tool_name, input, context, tool_permission_result);
 
     // Reset denial tracking on allow
     if matches!(&inner_result, PermissionDecision::Allow(_)) {
@@ -572,7 +568,8 @@ pub fn has_permissions_to_use_tool(
                 if classifier_result.transcript_too_long {
                     if context.should_avoid_permission_prompts {
                         return PermissionDecision::Deny(PermissionDenyDecision {
-                            message: "Auto mode classifier transcript exceeded context window".to_string(),
+                            message: "Auto mode classifier transcript exceeded context window"
+                                .to_string(),
                             decision_reason: PermissionDecisionReason::Other {
                                 reason: "Transcript too long for classifier".to_string(),
                             },
@@ -691,9 +688,7 @@ fn has_permissions_to_use_tool_inner(
     tool_permission_result: &PermissionResult,
 ) -> PermissionDecision {
     // 1a. Entire tool denied
-    if let Some(deny_rule) =
-        get_deny_rule_for_tool(&context.tool_permission_context, tool_name)
-    {
+    if let Some(deny_rule) = get_deny_rule_for_tool(&context.tool_permission_context, tool_name) {
         return PermissionDecision::Deny(PermissionDenyDecision {
             message: format!("Permission to use {} has been denied.", tool_name),
             decision_reason: PermissionDecisionReason::Rule { rule: deny_rule },
@@ -736,7 +731,9 @@ fn has_permissions_to_use_tool_inner(
     // 2a. Bypass permissions mode
     let should_bypass = context.tool_permission_context.mode == PermissionMode::BypassPermissions
         || (context.tool_permission_context.mode == PermissionMode::Plan
-            && context.tool_permission_context.is_bypass_permissions_mode_available);
+            && context
+                .tool_permission_context
+                .is_bypass_permissions_mode_available);
     if should_bypass {
         return PermissionDecision::Allow(PermissionAllowDecision {
             updated_input: Some(get_updated_input_or_fallback(tool_permission_result, input)),
@@ -748,8 +745,7 @@ fn has_permissions_to_use_tool_inner(
     }
 
     // 2b. Entire tool always allowed
-    if let Some(allow_rule) =
-        tool_always_allowed_rule(&context.tool_permission_context, tool_name)
+    if let Some(allow_rule) = tool_always_allowed_rule(&context.tool_permission_context, tool_name)
     {
         return PermissionDecision::Allow(PermissionAllowDecision {
             updated_input: Some(get_updated_input_or_fallback(tool_permission_result, input)),
@@ -760,16 +756,19 @@ fn has_permissions_to_use_tool_inner(
 
     // 3. Convert passthrough to ask
     match tool_permission_result {
-        PermissionResult::Passthrough { message, decision_reason, suggestions, blocked_path } => {
-            PermissionDecision::Ask(PermissionAskDecision {
-                message: create_permission_request_message(tool_name, decision_reason.as_ref()),
-                updated_input: None,
-                decision_reason: decision_reason.clone(),
-                suggestions: suggestions.clone(),
-                blocked_path: blocked_path.clone(),
-                metadata: None,
-            })
-        }
+        PermissionResult::Passthrough {
+            message: _,
+            decision_reason,
+            suggestions,
+            blocked_path,
+        } => PermissionDecision::Ask(PermissionAskDecision {
+            message: create_permission_request_message(tool_name, decision_reason.as_ref()),
+            updated_input: None,
+            decision_reason: decision_reason.clone(),
+            suggestions: suggestions.clone(),
+            blocked_path: blocked_path.clone(),
+            metadata: None,
+        }),
         PermissionResult::Allow(a) => PermissionDecision::Allow(a.clone()),
         PermissionResult::Ask(a) => PermissionDecision::Ask(a.clone()),
         PermissionResult::Deny(d) => PermissionDecision::Deny(d.clone()),
@@ -861,7 +860,10 @@ pub fn convert_rules_to_updates(
     let mut grouped: HashMap<String, Vec<PermissionRuleValue>> = HashMap::new();
     for rule in rules {
         let key = format!("{:?}:{:?}", rule.source, rule.rule_behavior);
-        grouped.entry(key.clone()).or_default().push(rule.rule_value.clone());
+        grouped
+            .entry(key.clone())
+            .or_default()
+            .push(rule.rule_value.clone());
     }
 
     let mut updates = Vec::new();
@@ -1025,12 +1027,12 @@ pub fn apply_permission_update(
         } => {
             let source = destination_to_source(*destination);
             for dir in directories {
-                ctx.additional_working_directories.entry(dir.clone()).or_insert(
-                    super::permission_result::AdditionalWorkingDirectory {
+                ctx.additional_working_directories
+                    .entry(dir.clone())
+                    .or_insert(super::permission_result::AdditionalWorkingDirectory {
                         path: dir.clone(),
                         source,
-                    },
-                );
+                    });
             }
         }
         PermissionUpdate::RemoveDirectories { directories, .. } => {
@@ -1077,7 +1079,9 @@ fn destination_to_source(dest: PermissionUpdateDestination) -> PermissionRuleSou
     }
 }
 
-fn source_to_destination(source: PermissionRuleSource) -> Result<PermissionUpdateDestination, String> {
+fn source_to_destination(
+    source: PermissionRuleSource,
+) -> Result<PermissionUpdateDestination, String> {
     match source {
         PermissionRuleSource::UserSettings => Ok(PermissionUpdateDestination::UserSettings),
         PermissionRuleSource::ProjectSettings => Ok(PermissionUpdateDestination::ProjectSettings),
@@ -1108,8 +1112,15 @@ fn get_updated_input_or_fallback(
     }
 }
 
-fn format_action_for_classifier(tool_name: &str, input: &HashMap<String, serde_json::Value>) -> String {
-    format!("{}({})", tool_name, serde_json::to_string(input).unwrap_or_default())
+fn format_action_for_classifier(
+    tool_name: &str,
+    input: &HashMap<String, serde_json::Value>,
+) -> String {
+    format!(
+        "{}({})",
+        tool_name,
+        serde_json::to_string(input).unwrap_or_default()
+    )
 }
 
 fn parse_source(s: &str) -> Option<PermissionRuleSource> {

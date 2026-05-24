@@ -10,7 +10,15 @@ use std::collections::HashSet;
 const LINE_PRINT_SAFE_FLAGS: &[&str] = &["-n", "-E", "-r", "-z"];
 
 /// Safe sed flags for substitution commands.
-const SUBSTITUTION_SAFE_FLAGS: &[&str] = &["-i", "-E", "-r", "-e", "--in-place", "--expression", "--regexp-extended"];
+const SUBSTITUTION_SAFE_FLAGS: &[&str] = &[
+    "-i",
+    "-E",
+    "-r",
+    "-e",
+    "--in-place",
+    "--expression",
+    "--regexp-extended",
+];
 
 /// Result of sed validation.
 #[derive(Debug, Clone, PartialEq)]
@@ -55,7 +63,9 @@ pub fn is_line_printing_command(command: &str, expressions: &[String]) -> bool {
 
     // Must have -n flag
     let parts: Vec<&str> = command.trim().split_whitespace().collect();
-    let has_n = parts.iter().any(|p| *p == "-n" || p.contains('n') && p.starts_with('-') && !p.starts_with("--"));
+    let has_n = parts
+        .iter()
+        .any(|p| *p == "-n" || p.contains('n') && p.starts_with('-') && !p.starts_with("--"));
 
     if !has_n {
         return false;
@@ -76,7 +86,10 @@ pub fn is_line_printing_command(command: &str, expressions: &[String]) -> bool {
 /// Validates that the substitution pattern and flags are safe.
 pub fn is_safe_substitution(expression: &str) -> bool {
     // Must start with s/
-    if !expression.starts_with("s/") && !expression.starts_with("s|") && !expression.starts_with("s#") {
+    if !expression.starts_with("s/")
+        && !expression.starts_with("s|")
+        && !expression.starts_with("s#")
+    {
         return false;
     }
 
@@ -88,6 +101,9 @@ pub fn is_safe_substitution(expression: &str) -> bool {
 /// Pattern 3: Check for dangerous sed patterns.
 /// These require explicit approval.
 fn has_dangerous_pattern(expression: &str) -> bool {
+    let normalized = normalize_expression(expression);
+    let expression = normalized.as_str();
+
     // `e` flag (execute pattern space as command)
     if expression.ends_with('e') {
         let re = Regex::new(r"/[gipe]*e[gipe]*$").unwrap();
@@ -108,6 +124,14 @@ fn has_dangerous_pattern(expression: &str) -> bool {
     }
 
     false
+}
+
+fn normalize_expression(expression: &str) -> String {
+    expression
+        .trim()
+        .trim_matches('\'')
+        .trim_matches('"')
+        .to_string()
 }
 
 /// Check sed-specific constraints on a command.
@@ -182,14 +206,16 @@ pub fn check_sed_constraints(command: &str) -> SedCheckResult {
             return SedCheckResult::NeedsApproval {
                 message: format!(
                     "sed command contains potentially dangerous pattern: {}",
-                    expr
+                    normalize_expression(expr)
                 ),
             };
         }
     }
 
     // If sed has -n flag (suppress output) and only uses print commands, it's read-only
-    let has_n = flags.iter().any(|f| *f == "-n" || (f.starts_with('-') && !f.starts_with("--") && f.contains('n')));
+    let has_n = flags
+        .iter()
+        .any(|f| *f == "-n" || (f.starts_with('-') && !f.starts_with("--") && f.contains('n')));
     if has_n && !has_in_place {
         if is_line_printing_command(trimmed, &expressions) {
             return SedCheckResult::Allowed;
@@ -214,10 +240,7 @@ pub fn check_sed_constraints(command: &str) -> SedCheckResult {
 }
 
 /// Check if a sed command is allowed by the permission allowlist.
-pub fn sed_command_is_allowed_by_allowlist(
-    command: &str,
-    allow_rules: &[String],
-) -> bool {
+pub fn sed_command_is_allowed_by_allowlist(command: &str, allow_rules: &[String]) -> bool {
     // Check if any allow rule explicitly covers sed commands
     for rule in allow_rules {
         if rule == "sed:*" || rule == "sed" {
@@ -269,7 +292,8 @@ mod tests {
         assert_eq!(
             result,
             SedCheckResult::NeedsApproval {
-                message: "sed command contains potentially dangerous pattern: s/foo/bar/e".to_string()
+                message: "sed command contains potentially dangerous pattern: s/foo/bar/e"
+                    .to_string()
             }
         );
     }

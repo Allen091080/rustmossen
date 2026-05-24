@@ -57,16 +57,19 @@ pub fn init_upstream_proxy(token_path: Option<&str>) -> UpstreamProxyState {
     if !is_env_truthy(&std::env::var("MOSSEN_CODE_REMOTE").unwrap_or_default()) {
         return read_state();
     }
-    if !is_env_truthy(
-        &std::env::var("CCR_UPSTREAM_PROXY_ENABLED").unwrap_or_default(),
-    ) {
+    if !is_env_truthy(&std::env::var("CCR_UPSTREAM_PROXY_ENABLED").unwrap_or_default()) {
         return read_state();
     }
-    if std::env::var("MOSSEN_CODE_REMOTE_SESSION_ID").ok().is_none() {
+    if std::env::var("MOSSEN_CODE_REMOTE_SESSION_ID")
+        .ok()
+        .is_none()
+    {
         return read_state();
     }
     let path = token_path.unwrap_or(SESSION_TOKEN_PATH);
-    let token = std::fs::read_to_string(path).ok().map(|s| s.trim().to_string());
+    let token = std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string());
     if token.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
         return read_state();
     }
@@ -266,7 +269,10 @@ pub async fn start_upstream_proxy_relay(
             }
         }
     });
-    Ok(UpstreamProxyRelay { port, shutdown: Some(tx) })
+    Ok(UpstreamProxyRelay {
+        port,
+        shutdown: Some(tx),
+    })
 }
 
 /// 处理单个 CONNECT 连接：解析 CONNECT，开启 WS 隧道，双向 pump。
@@ -304,7 +310,9 @@ async fn handle_connection(
     // 必须形如 `CONNECT host:port HTTP/1.1`
     let connect_re = regex_lite_connect(first_line);
     if !connect_re {
-        let _ = sock.write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n").await;
+        let _ = sock
+            .write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+            .await;
         let _ = sock.shutdown().await;
         anyhow::bail!("not a CONNECT request");
     }
@@ -340,9 +348,7 @@ async fn handle_connection(
         for off in (0..trailing.len()).step_by(MAX_CHUNK_BYTES) {
             let end = (off + MAX_CHUNK_BYTES).min(trailing.len());
             ws_write
-                .send(WsMessage::Binary(
-                    encode_chunk(&trailing[off..end]).into(),
-                ))
+                .send(WsMessage::Binary(encode_chunk(&trailing[off..end]).into()))
                 .await?;
         }
     }
@@ -362,9 +368,7 @@ async fn handle_connection(
             for off in (0..n).step_by(MAX_CHUNK_BYTES) {
                 let end = (off + MAX_CHUNK_BYTES).min(n);
                 if ws_write
-                    .send(WsMessage::Binary(
-                        encode_chunk(&tmp[off..end]).into(),
-                    ))
+                    .send(WsMessage::Binary(encode_chunk(&tmp[off..end]).into()))
                     .await
                     .is_err()
                 {
@@ -408,9 +412,7 @@ async fn handle_connection(
         }
         // 如果在 established 之前 WS 就关了，回 502 给客户端
         if !established {
-            let _ = sock_w
-                .write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
-                .await;
+            let _ = sock_w.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
         }
         let _ = sock_w.shutdown().await;
         let _ = cancel_tx.send(());

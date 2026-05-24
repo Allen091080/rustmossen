@@ -99,7 +99,9 @@ impl Directive for MobileDirective {
                     let url = format!("{}{}", base_url, p.url_suffix);
                     output.push_str(&format!("  {} — {}\n", p.name, url));
                 }
-                output.push_str("\nUse /mobile ios or /mobile android for platform-specific download.\n");
+                output.push_str(
+                    "\nUse /mobile ios or /mobile android for platform-specific download.\n",
+                );
                 output.push_str("(tab to switch, esc to close in interactive mode)");
             }
         }

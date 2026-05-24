@@ -5,6 +5,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::fs;
 
+use crate::string_utils::safe_prefix_by_bytes;
+
 /// Represents a file with name and content.
 #[derive(Debug, Clone)]
 pub struct File {
@@ -80,7 +82,7 @@ pub fn detect_line_endings(file_path: &Path) -> LineEndingType {
 pub fn detect_line_endings_for_string(content: &str) -> LineEndingType {
     // Check first 4096 chars
     let sample = if content.len() > 4096 {
-        &content[..4096]
+        safe_prefix_by_bytes(content, 4096)
     } else {
         content
     };
@@ -151,7 +153,9 @@ pub fn find_similar_file(file_path: &Path) -> Option<String> {
         }
         if let Some(entry_stem) = entry_path.file_stem() {
             if entry_stem.to_string_lossy() == stem {
-                return entry_path.file_name().map(|n| n.to_string_lossy().to_string());
+                return entry_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string());
             }
         }
     }
@@ -162,10 +166,7 @@ pub fn find_similar_file(file_path: &Path) -> Option<String> {
 pub const FILE_NOT_FOUND_CWD_NOTE: &str = "Note: your current working directory is";
 
 /// Suggests a corrected path under the current working directory.
-pub async fn suggest_path_under_cwd(
-    requested_path: &Path,
-    cwd: &Path,
-) -> Option<PathBuf> {
+pub async fn suggest_path_under_cwd(requested_path: &Path, cwd: &Path) -> Option<PathBuf> {
     let cwd_parent = cwd.parent()?;
 
     // Resolve symlinks in the requested path's parent directory
@@ -208,7 +209,7 @@ pub async fn suggest_path_under_cwd(
 /// Returns true by default (killswitch pattern).
 pub fn is_compact_line_prefix_enabled() -> bool {
     // Default: compact format enabled unless killswitch is set
-    !std::env::var("TENGU_COMPACT_LINE_PREFIX_KILLSWITCH")
+    !std::env::var("MOSSEN_COMPACT_LINE_PREFIX_KILLSWITCH")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false)
 }
@@ -333,10 +334,7 @@ pub fn write_file_sync_and_flush(file_path: &Path, content: &str) -> std::io::Re
             #[cfg(unix)]
             if let Some(mode) = target_mode {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(
-                    &target_path,
-                    std::fs::Permissions::from_mode(mode),
-                )?;
+                std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(mode))?;
             }
 
             Ok(())
@@ -357,7 +355,8 @@ pub fn get_desktop_path() -> PathBuf {
     {
         if let Ok(profile) = std::env::var("USERPROFILE") {
             let wsl_path = profile.replace('\\', "/");
-            let wsl_path = wsl_path.trim_start_matches(|c: char| c.is_ascii_alphabetic() || c == ':');
+            let wsl_path =
+                wsl_path.trim_start_matches(|c: char| c.is_ascii_alphabetic() || c == ':');
             let desktop = PathBuf::from(format!("/mnt/c{}/Desktop", wsl_path));
             if desktop.exists() {
                 return desktop;
@@ -401,8 +400,7 @@ pub fn is_file_within_read_size_limit(file_path: &Path, max_size_bytes: u64) -> 
 
 /// Normalize a file path for comparison.
 pub fn normalize_path_for_comparison(file_path: &Path) -> String {
-    let normalized = dunce::canonicalize(file_path)
-        .unwrap_or_else(|_| file_path.to_path_buf());
+    let normalized = dunce::canonicalize(file_path).unwrap_or_else(|_| file_path.to_path_buf());
 
     #[cfg(target_os = "windows")]
     {

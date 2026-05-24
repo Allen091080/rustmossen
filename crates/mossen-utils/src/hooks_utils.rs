@@ -5,7 +5,6 @@
 //! React hooks 模式转为普通函数 + struct 方法 + 依赖注入。
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -14,11 +13,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
-use tokio::sync::mpsc;
-use tracing;
-use uuid::Uuid;
 
-use mossen_types::hooks::{HookEvent, HookResult as HookResultType};
+use crate::string_utils::truncate_chars;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -150,8 +147,13 @@ pub struct HookCallback {
     pub internal: bool,
     pub timeout: Option<u64>,
     pub callback: Arc<
-        dyn Fn(Value, String, Option<tokio_util::sync::CancellationToken>, usize, Option<Value>)
-            -> futures::future::BoxFuture<'static, Value>
+        dyn Fn(
+                Value,
+                String,
+                Option<tokio_util::sync::CancellationToken>,
+                usize,
+                Option<Value>,
+            ) -> futures::future::BoxFuture<'static, Value>
             + Send
             + Sync,
     >,
@@ -175,8 +177,10 @@ pub struct FunctionHook {
     pub error_message: String,
     pub timeout: Option<u64>,
     pub callback: Arc<
-        dyn Fn(Vec<Value>, Option<tokio_util::sync::CancellationToken>)
-            -> futures::future::BoxFuture<'static, bool>
+        dyn Fn(
+                Vec<Value>,
+                Option<tokio_util::sync::CancellationToken>,
+            ) -> futures::future::BoxFuture<'static, bool>
             + Send
             + Sync,
     >,
@@ -476,9 +480,7 @@ pub fn create_base_hook_input(
     session_id: Option<&str>,
     agent_info: Option<(&str, &str)>,
 ) -> BaseHookInput {
-    let resolved_session_id = session_id
-        .unwrap_or(&ctx.session_id)
-        .to_string();
+    let resolved_session_id = session_id.unwrap_or(&ctx.session_id).to_string();
     let resolved_agent_type = agent_info
         .map(|(_, at)| at.to_string())
         .or_else(|| ctx.main_thread_agent_type.clone());
@@ -504,7 +506,10 @@ pub fn get_pre_tool_hook_blocking_message(
     hook_name: &str,
     blocking_error: &HookBlockingError,
 ) -> String {
-    format!("{} hook error: {}", hook_name, blocking_error.blocking_error)
+    format!(
+        "{} hook error: {}",
+        hook_name, blocking_error.blocking_error
+    )
 }
 
 /// Format a blocking error message for Stop hooks.
@@ -537,9 +542,7 @@ pub fn get_task_completed_hook_message(blocking_error: &HookBlockingError) -> St
 }
 
 /// Format a blocking error message for UserPromptSubmit hooks.
-pub fn get_user_prompt_submit_hook_blocking_message(
-    blocking_error: &HookBlockingError,
-) -> String {
+pub fn get_user_prompt_submit_hook_blocking_message(blocking_error: &HookBlockingError) -> String {
     format!(
         "UserPromptSubmit operation blocked by hook:\n{}",
         blocking_error.blocking_error
@@ -579,9 +582,7 @@ fn get_legacy_tool_names(_name: &str) -> Vec<String> {
 
 /// Check if a parsed JSON value is an async hook output.
 pub fn is_async_hook_json_output(val: &Value) -> bool {
-    val.get("async")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
+    val.get("async").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 /// Check if a parsed JSON value is a sync hook output.
@@ -696,11 +697,7 @@ pub fn parse_http_hook_output(body: &str) -> ParsedHttpHookOutput {
     if !trimmed.starts_with('{') {
         let error = format!(
             "HTTP hook must return JSON, but got non-JSON response body: {}",
-            if trimmed.len() > 200 {
-                format!("{}…", &trimmed[..200])
-            } else {
-                trimmed.to_string()
-            }
+            truncate_chars(trimmed, 200)
         );
         return ParsedHttpHookOutput {
             json: None,
@@ -890,9 +887,8 @@ pub fn process_hook_json_output(
                         behavior: behavior.to_string(),
                         updated_input: decision.get("updatedInput").cloned(),
                     });
-                    result.permission_behavior = Some(
-                        if behavior == "allow" { "allow" } else { "deny" }.to_string(),
-                    );
+                    result.permission_behavior =
+                        Some(if behavior == "allow" { "allow" } else { "deny" }.to_string());
                     if behavior == "allow" {
                         if let Some(ui) = decision.get("updatedInput") {
                             result.updated_input = Some(ui.clone());
@@ -1118,10 +1114,7 @@ fn get_hook_type_counts(hooks: &[MatchedHook]) -> HashMap<String, usize> {
 // ---------------------------------------------------------------------------
 
 /// Get hooks configuration by merging snapshot, registered, and session hooks.
-fn get_hooks_config(
-    ctx: &HooksContext,
-    hook_event: &str,
-) -> Vec<HookMatcher> {
+fn get_hooks_config(ctx: &HooksContext, hook_event: &str) -> Vec<HookMatcher> {
     let mut hooks: Vec<HookMatcher> = Vec::new();
 
     // From snapshot
@@ -1171,7 +1164,7 @@ fn has_hook_for_event(ctx: &HooksContext, hook_event: &str) -> bool {
 pub async fn get_matching_hooks(
     ctx: &HooksContext,
     hook_event: &str,
-    hook_input: &Value,
+    _hook_input: &Value,
     match_query: Option<&str>,
 ) -> Vec<MatchedHook> {
     let hook_matchers = get_hooks_config(ctx, hook_event);
@@ -1264,9 +1257,10 @@ pub async fn get_matching_hooks(
     }
 
     // Check if all hooks are callback/function — skip dedup
-    if matched_hooks.iter().all(|m| {
-        matches!(m.hook, Hook::Callback(_) | Hook::Function(_))
-    }) {
+    if matched_hooks
+        .iter()
+        .all(|m| matches!(m.hook, Hook::Callback(_) | Hook::Function(_)))
+    {
         return matched_hooks;
     }
 
@@ -1350,8 +1344,8 @@ pub async fn get_matching_hooks(
 /// Execute a command-based hook using shell.
 pub async fn exec_command_hook(
     hook: &HookCommand,
-    hook_event: &str,
-    hook_name: &str,
+    _hook_event: &str,
+    _hook_name: &str,
     json_input: &str,
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
     ctx: &HooksContext,
@@ -1369,7 +1363,7 @@ pub async fn exec_command_hook(
     // Substitute plugin variables
     if let Some(pr) = plugin_root {
         command_str = command_str.replace("${MOSSEN_PLUGIN_ROOT}", pr);
-        if let Some(pid) = plugin_id {
+        if let Some(_pid) = plugin_id {
             let data_dir = format!("{}/data", pr); // Simplified plugin data dir
             command_str = command_str.replace("${MOSSEN_PLUGIN_DATA}", &data_dir);
         }
@@ -1377,10 +1371,7 @@ pub async fn exec_command_hook(
 
     // Build environment variables
     let mut env_vars: HashMap<String, String> = ctx.subprocess_env.clone();
-    env_vars.insert(
-        "MOSSEN_PROJECT_DIR".to_string(),
-        ctx.project_root.clone(),
-    );
+    env_vars.insert("MOSSEN_PROJECT_DIR".to_string(), ctx.project_root.clone());
     if let Some(pr) = plugin_root {
         env_vars.insert("MOSSEN_PLUGIN_ROOT".to_string(), pr.to_string());
     }
@@ -1453,16 +1444,14 @@ pub async fn exec_command_hook(
                 backgrounded: false,
             }
         }
-        Err(_) => {
-            CommandHookExecResult {
-                stdout: String::new(),
-                stderr: "Hook cancelled (timeout)".to_string(),
-                output: "Hook cancelled (timeout)".to_string(),
-                status: 1,
-                aborted: true,
-                backgrounded: false,
-            }
-        }
+        Err(_) => CommandHookExecResult {
+            stdout: String::new(),
+            stderr: "Hook cancelled (timeout)".to_string(),
+            output: "Hook cancelled (timeout)".to_string(),
+            status: 1,
+            aborted: true,
+            backgrounded: false,
+        },
     };
 
     // Check cancellation token
@@ -1493,9 +1482,9 @@ pub async fn execute_hooks(
     tool_use_id: &str,
     match_query: Option<&str>,
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
-    timeout_ms: u64,
+    _timeout_ms: u64,
     messages: Option<&[Value]>,
-    force_sync_execution: bool,
+    _force_sync_execution: bool,
 ) -> Vec<AggregatedHookResult> {
     if ctx.disable_all_hooks {
         return Vec::new();
@@ -1545,19 +1534,14 @@ pub async fn execute_hooks(
         for (_i, matched) in matching_hooks.iter().enumerate() {
             if let Hook::Callback(cb) = &matched.hook {
                 let token = cancel_token.map(|t| t.clone());
-                let _result = (cb.callback)(
-                    hook_input.clone(),
-                    tool_use_id.to_string(),
-                    token,
-                    0,
-                    None,
-                )
-                .await;
+                let _result =
+                    (cb.callback)(hook_input.clone(), tool_use_id.to_string(), token, 0, None)
+                        .await;
             }
         }
         let total_ms = batch_start.elapsed().as_millis() as u64;
         (ctx.log_event)(
-            "tengu_repl_hook_finished",
+            "mossen_repl_hook_finished",
             &serde_json::json!({
                 "hookName": hook_name,
                 "numCommands": matching_hooks.len(),
@@ -1573,10 +1557,8 @@ pub async fn execute_hooks(
 
     // Log analytics for user hooks
     if !user_hooks.is_empty() {
-        let plugin_hook_counts = get_plugin_hook_counts(
-            &matching_hooks,
-            &ctx.allowed_official_marketplace_names,
-        );
+        let plugin_hook_counts =
+            get_plugin_hook_counts(&matching_hooks, &ctx.allowed_official_marketplace_names);
         let hook_type_counts = get_hook_type_counts(&matching_hooks);
         let mut event_data = serde_json::json!({
             "hookName": hook_name,
@@ -1587,7 +1569,7 @@ pub async fn execute_hooks(
             event_data["pluginHookCounts"] =
                 serde_json::Value::String(serde_json::to_string(&counts).unwrap_or_default());
         }
-        (ctx.log_event)("tengu_run_hook", &event_data);
+        (ctx.log_event)("mossen_run_hook", &event_data);
     }
 
     let batch_start = Instant::now();
@@ -1598,7 +1580,10 @@ pub async fn execute_hooks(
     let json_input = match serde_json::to_string(hook_input) {
         Ok(s) => s,
         Err(e) => {
-            (ctx.log_error)(&format!("Failed to stringify hook {} input: {}", hook_name, e));
+            (ctx.log_error)(&format!(
+                "Failed to stringify hook {} input: {}",
+                hook_name, e
+            ));
             return Vec::new();
         }
     };
@@ -1607,7 +1592,7 @@ pub async fn execute_hooks(
     let mut hook_futures: Vec<futures::future::BoxFuture<'_, Vec<HookResult>>> = Vec::new();
 
     for (hook_index, matched) in matching_hooks.iter().enumerate() {
-        let hook_id = Uuid::new_v4().to_string();
+        let _hook_id = Uuid::new_v4().to_string();
         let hook_start = Instant::now();
         let hook_command = get_hook_display_text(&matched.hook);
 
@@ -1648,8 +1633,16 @@ pub async fn execute_hooks(
                         }];
                     }
                     let processed = process_hook_json_output(
-                        &json, "callback", &hn, &tu_id, &he, Some(&he),
-                        None, None, None, None,
+                        &json,
+                        "callback",
+                        &hn,
+                        &tu_id,
+                        &he,
+                        Some(&he),
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                     vec![HookResult {
                         message: processed.message,
@@ -1681,7 +1674,7 @@ pub async fn execute_hooks(
                 let fh = fh.clone();
                 let hn = hook_name.clone();
                 let he = hook_event.to_string();
-                let tu_id = tool_use_id.to_string();
+                let _tu_id = tool_use_id.to_string();
                 let msgs = messages.map(|m| m.to_vec()).unwrap_or_default();
                 let token = cancel_token.map(|t| t.clone());
 
@@ -1690,7 +1683,9 @@ pub async fn execute_hooks(
                         return vec![HookResult {
                             message: Some(create_attachment_message_value(
                                 "hook_error_during_execution",
-                                &hn, &he, &None,
+                                &hn,
+                                &he,
+                                &None,
                             )),
                             system_message: None,
                             blocking_error: None,
@@ -1779,7 +1774,7 @@ pub async fn execute_hooks(
                 let ji = json_input.clone();
                 let hc = hook_command.clone();
                 let pr = matched.plugin_root.clone();
-                let pid = matched.plugin_id.clone();
+                let _pid = matched.plugin_id.clone();
                 let sr = matched.skill_root.clone();
                 // We need to pass ctx references — use async block
                 // Note: we can't easily send &ctx across threads, so we clone needed fields
@@ -1788,7 +1783,8 @@ pub async fn execute_hooks(
                 let original_cwd = ctx.original_cwd.clone();
 
                 let fut = Box::pin(async move {
-                    let hook_timeout_ms = cmd.timeout
+                    let hook_timeout_ms = cmd
+                        .timeout
                         .map(|t| t * 1000)
                         .unwrap_or(TOOL_HOOK_EXECUTION_TIMEOUT_MS);
 
@@ -1836,10 +1832,13 @@ pub async fn execute_hooks(
                     let mut child = match spawn_result {
                         Ok(c) => c,
                         Err(e) => {
-                            let err_msg = format!("Failed to run: {}", e);
+                            let _err_msg = format!("Failed to run: {}", e);
                             return vec![HookResult {
                                 message: Some(create_attachment_message_value(
-                                    "hook_non_blocking_error", &hn, &he, &None,
+                                    "hook_non_blocking_error",
+                                    &hn,
+                                    &he,
+                                    &None,
                                 )),
                                 system_message: None,
                                 blocking_error: None,
@@ -1875,37 +1874,48 @@ pub async fn execute_hooks(
                     }
 
                     let timeout = Duration::from_millis(hook_timeout_ms);
-                    let exec_result = match tokio::time::timeout(timeout, child.wait_with_output()).await {
-                        Ok(Ok(output)) => {
-                            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                            let status = output.status.code().unwrap_or(1);
-                            CommandHookExecResult {
-                                output: format!("{}{}", stdout, stderr),
-                                stdout, stderr, status,
-                                aborted: false, backgrounded: false,
+                    let exec_result =
+                        match tokio::time::timeout(timeout, child.wait_with_output()).await {
+                            Ok(Ok(output)) => {
+                                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                                let status = output.status.code().unwrap_or(1);
+                                CommandHookExecResult {
+                                    output: format!("{}{}", stdout, stderr),
+                                    stdout,
+                                    stderr,
+                                    status,
+                                    aborted: false,
+                                    backgrounded: false,
+                                }
                             }
-                        }
-                        Ok(Err(e)) => CommandHookExecResult {
-                            stdout: String::new(),
-                            stderr: format!("Error: {}", e),
-                            output: format!("Error: {}", e),
-                            status: 1, aborted: false, backgrounded: false,
-                        },
-                        Err(_) => CommandHookExecResult {
-                            stdout: String::new(),
-                            stderr: "Hook cancelled (timeout)".to_string(),
-                            output: "Hook cancelled (timeout)".to_string(),
-                            status: 1, aborted: true, backgrounded: false,
-                        },
-                    };
+                            Ok(Err(e)) => CommandHookExecResult {
+                                stdout: String::new(),
+                                stderr: format!("Error: {}", e),
+                                output: format!("Error: {}", e),
+                                status: 1,
+                                aborted: false,
+                                backgrounded: false,
+                            },
+                            Err(_) => CommandHookExecResult {
+                                stdout: String::new(),
+                                stderr: "Hook cancelled (timeout)".to_string(),
+                                output: "Hook cancelled (timeout)".to_string(),
+                                status: 1,
+                                aborted: true,
+                                backgrounded: false,
+                            },
+                        };
 
                     let duration_ms = hook_start.elapsed().as_millis() as u64;
 
                     if exec_result.aborted {
                         return vec![HookResult {
                             message: Some(create_attachment_message_value(
-                                "hook_cancelled", &hn, &he, &None,
+                                "hook_cancelled",
+                                &hn,
+                                &he,
+                                &None,
                             )),
                             system_message: None,
                             blocking_error: None,
@@ -1933,10 +1943,13 @@ pub async fn execute_hooks(
                     // Parse output
                     let parsed = parse_hook_output(&exec_result.stdout);
 
-                    if let Some(ref ve) = parsed.validation_error {
+                    if let Some(_ve) = parsed.validation_error {
                         return vec![HookResult {
                             message: Some(create_attachment_message_value(
-                                "hook_non_blocking_error", &hn, &he, &None,
+                                "hook_non_blocking_error",
+                                &hn,
+                                &he,
+                                &None,
                             )),
                             system_message: None,
                             blocking_error: None,
@@ -1989,9 +2002,16 @@ pub async fn execute_hooks(
                         }
 
                         let processed = process_hook_json_output(
-                            json, &hc, &hn, &tu_id, &he, Some(&he),
-                            Some(&exec_result.stdout), Some(&exec_result.stderr),
-                            Some(exec_result.status), Some(duration_ms),
+                            json,
+                            &hc,
+                            &hn,
+                            &tu_id,
+                            &he,
+                            Some(&he),
+                            Some(&exec_result.stdout),
+                            Some(&exec_result.stderr),
+                            Some(exec_result.status),
+                            Some(duration_ms),
                         );
                         return vec![HookResult {
                             message: processed.message,
@@ -2001,7 +2021,8 @@ pub async fn execute_hooks(
                             prevent_continuation: processed.prevent_continuation,
                             stop_reason: processed.stop_reason,
                             permission_behavior: processed.permission_behavior,
-                            hook_permission_decision_reason: processed.hook_permission_decision_reason,
+                            hook_permission_decision_reason: processed
+                                .hook_permission_decision_reason,
                             additional_context: processed.additional_context,
                             initial_user_message: processed.initial_user_message,
                             updated_input: processed.updated_input,
@@ -2022,7 +2043,10 @@ pub async fn execute_hooks(
                     if exec_result.status == 0 {
                         vec![HookResult {
                             message: Some(create_attachment_message_value(
-                                "hook_success", &hn, &he, &None,
+                                "hook_success",
+                                &hn,
+                                &he,
+                                &None,
                             )),
                             system_message: None,
                             blocking_error: None,
@@ -2084,7 +2108,10 @@ pub async fn execute_hooks(
                     } else {
                         vec![HookResult {
                             message: Some(create_attachment_message_value(
-                                "hook_non_blocking_error", &hn, &he, &None,
+                                "hook_non_blocking_error",
+                                &hn,
+                                &he,
+                                &None,
                             )),
                             system_message: None,
                             blocking_error: None,
@@ -2115,8 +2142,8 @@ pub async fn execute_hooks(
             Hook::Prompt(_) | Hook::Agent(_) | Hook::Http(_) => {
                 // These hooks need tool use context which we don't have in pure Rust
                 // They delegate to external executors; for now return success placeholder
-                let hn = hook_name.clone();
-                let he = hook_event.to_string();
+                let _hn = hook_name.clone();
+                let _he = hook_event.to_string();
                 let ht = matched.hook.hook_type().to_string();
                 let display = hook_command.clone();
 
@@ -2182,7 +2209,7 @@ pub async fn execute_hooks(
                 });
             }
 
-            if let Some(ref sm) = result.system_message {
+            if let Some(_sm) = result.system_message {
                 all_results.push(AggregatedHookResult {
                     message: Some(create_attachment_message_value(
                         "hook_system_message",
@@ -2254,9 +2281,7 @@ pub async fn execute_hooks(
                 };
                 all_results.push(AggregatedHookResult {
                     permission_behavior: permission_behavior.clone(),
-                    hook_permission_decision_reason: result
-                        .hook_permission_decision_reason
-                        .clone(),
+                    hook_permission_decision_reason: result.hook_permission_decision_reason.clone(),
                     updated_input,
                     ..Default::default()
                 });
@@ -2302,7 +2327,7 @@ pub async fn execute_hooks(
 
     let total_ms = batch_start.elapsed().as_millis() as u64;
     (ctx.log_event)(
-        "tengu_repl_hook_finished",
+        "mossen_repl_hook_finished",
         &serde_json::json!({
             "hookName": hook_name,
             "numCommands": matching_hooks.len(),
@@ -2347,7 +2372,7 @@ pub async fn execute_hooks_outside_repl(
     hook_input: &Value,
     match_query: Option<&str>,
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
-    timeout_ms: u64,
+    _timeout_ms: u64,
 ) -> Vec<HookOutsideReplResult> {
     if ctx.simple_mode {
         return Vec::new();
@@ -2406,14 +2431,8 @@ pub async fn execute_hooks_outside_repl(
             Hook::Callback(cb) => {
                 let token = cancel_token.map(|t| t.clone());
                 let tool_use_id = Uuid::new_v4().to_string();
-                let json = (cb.callback)(
-                    hook_input.clone(),
-                    tool_use_id,
-                    token,
-                    hook_index,
-                    None,
-                )
-                .await;
+                let json =
+                    (cb.callback)(hook_input.clone(), tool_use_id, token, hook_index, None).await;
                 let blocked = is_sync_hook_json_output(&json)
                     && json.get("decision").and_then(|v| v.as_str()) == Some("block");
                 results.push(HookOutsideReplResult {
@@ -2762,14 +2781,8 @@ pub async fn execute_notification_hooks(
         "notification_type": notification_type,
     });
 
-    let _ = execute_hooks_outside_repl(
-        ctx,
-        &hook_input,
-        Some(notification_type),
-        None,
-        timeout_ms,
-    )
-    .await;
+    let _ = execute_hooks_outside_repl(ctx, &hook_input, Some(notification_type), None, timeout_ms)
+        .await;
 }
 
 /// Execute stop failure hooks.
@@ -3118,8 +3131,7 @@ pub async fn execute_pre_compact_hooks(
     });
 
     let results =
-        execute_hooks_outside_repl(ctx, &hook_input, Some(trigger), cancel_token, timeout_ms)
-            .await;
+        execute_hooks_outside_repl(ctx, &hook_input, Some(trigger), cancel_token, timeout_ms).await;
 
     if results.is_empty() {
         return (None, None);
@@ -3185,8 +3197,7 @@ pub async fn execute_post_compact_hooks(
     });
 
     let results =
-        execute_hooks_outside_repl(ctx, &hook_input, Some(trigger), cancel_token, timeout_ms)
-            .await;
+        execute_hooks_outside_repl(ctx, &hook_input, Some(trigger), cancel_token, timeout_ms).await;
 
     if results.is_empty() {
         return None;
@@ -3414,8 +3425,8 @@ pub async fn execute_instructions_loaded_hooks(
         "parent_file_path": parent_file_path,
     });
 
-    let _ = execute_hooks_outside_repl(ctx, &hook_input, Some(load_reason_str), None, timeout_ms)
-        .await;
+    let _ =
+        execute_hooks_outside_repl(ctx, &hook_input, Some(load_reason_str), None, timeout_ms).await;
 }
 
 /// Parse elicitation-specific fields from a HookOutsideReplResult.
@@ -3622,7 +3633,7 @@ pub async fn execute_status_line_command(
     ctx: &HooksContext,
     status_line_input: &Value,
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
-    timeout_ms: u64,
+    _timeout_ms: u64,
     log_result: bool,
 ) -> Option<String> {
     if ctx.disable_all_hooks {
@@ -3639,10 +3650,7 @@ pub async fn execute_status_line_command(
         (ctx.get_settings)()
     };
 
-    let status_line = settings
-        .as_ref()
-        .and_then(|s| s.get("statusLine"))
-        .cloned();
+    let status_line = settings.as_ref().and_then(|s| s.get("statusLine")).cloned();
     let status_line = match status_line {
         Some(sl) if sl.get("type").and_then(|v| v.as_str()) == Some("command") => sl,
         _ => return None,
@@ -3726,7 +3734,7 @@ pub async fn execute_file_suggestion_command(
     ctx: &HooksContext,
     file_suggestion_input: &Value,
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
-    timeout_ms: u64,
+    _timeout_ms: u64,
 ) -> Vec<String> {
     if ctx.disable_all_hooks {
         return Vec::new();
@@ -3825,10 +3833,7 @@ pub fn has_worktree_create_hook(ctx: &HooksContext) -> bool {
 }
 
 /// Execute WorktreeCreate hook.
-pub async fn execute_worktree_create_hook(
-    ctx: &HooksContext,
-    name: &str,
-) -> Result<String> {
+pub async fn execute_worktree_create_hook(ctx: &HooksContext, name: &str) -> Result<String> {
     let base = create_base_hook_input(ctx, None, None, None);
     let hook_input = serde_json::json!({
         "session_id": base.session_id,
@@ -3838,14 +3843,9 @@ pub async fn execute_worktree_create_hook(
         "name": name,
     });
 
-    let results = execute_hooks_outside_repl(
-        ctx,
-        &hook_input,
-        None,
-        None,
-        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
-    )
-    .await;
+    let results =
+        execute_hooks_outside_repl(ctx, &hook_input, None, None, TOOL_HOOK_EXECUTION_TIMEOUT_MS)
+            .await;
 
     let successful_result = results
         .iter()
@@ -3882,10 +3882,7 @@ pub async fn execute_worktree_create_hook(
 }
 
 /// Execute WorktreeRemove hook.
-pub async fn execute_worktree_remove_hook(
-    ctx: &HooksContext,
-    worktree_path: &str,
-) -> bool {
+pub async fn execute_worktree_remove_hook(ctx: &HooksContext, worktree_path: &str) -> bool {
     let has_snapshot = ctx
         .hooks_config_snapshot
         .as_ref()
@@ -3909,14 +3906,9 @@ pub async fn execute_worktree_remove_hook(
         "worktree_path": worktree_path,
     });
 
-    let results = execute_hooks_outside_repl(
-        ctx,
-        &hook_input,
-        None,
-        None,
-        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
-    )
-    .await;
+    let results =
+        execute_hooks_outside_repl(ctx, &hook_input, None, None, TOOL_HOOK_EXECUTION_TIMEOUT_MS)
+            .await;
 
     if results.is_empty() {
         return false;

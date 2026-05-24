@@ -4,16 +4,13 @@
 //! and execution pipelines. Handles exit commands, slash commands,
 //! file history snapshots, and query guard management.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Direct exit input commands.
-const DIRECT_EXIT_INPUTS: &[&str] = &[
-    "exit", "quit", ":q", ":q!", ":wq", ":wq!", "/exit", "/quit",
-];
+const DIRECT_EXIT_INPUTS: &[&str] = &["exit", "quit", ":q", ":q!", ":wq", ":wq!", "/exit", "/quit"];
 
 /// Check if input is a direct exit command.
 pub fn is_direct_exit_input(input: &str) -> bool {
@@ -414,11 +411,7 @@ pub fn selectable_user_messages_filter(msg: &serde_json::Value) -> bool {
         }
     }
     // Skip isMeta messages
-    if msg
-        .get("isMeta")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    if msg.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false) {
         return false;
     }
     true
@@ -430,7 +423,10 @@ pub fn compute_turn_workload(commands: &[QueuedCommand]) -> Option<String> {
         return None;
     }
     let first_workload = commands[0].workload.as_ref()?;
-    if commands.iter().all(|c| c.workload.as_ref() == Some(first_workload)) {
+    if commands
+        .iter()
+        .all(|c| c.workload.as_ref() == Some(first_workload))
+    {
         Some(first_workload.clone())
     } else {
         None

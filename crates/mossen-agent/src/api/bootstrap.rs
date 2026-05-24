@@ -120,7 +120,10 @@ async fn fetch_bootstrap_api(
 
     if !status.is_success() {
         debug!("[Bootstrap] Fetch failed: {}", status.as_u16());
-        return Err(anyhow::anyhow!("Bootstrap fetch failed with status {}", status));
+        return Err(anyhow::anyhow!(
+            "Bootstrap fetch failed with status {}",
+            status
+        ));
     }
 
     let data: BootstrapResponse = response.json().await.map_err(|e| {

@@ -5,14 +5,12 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{error, info, warn};
 use url::Url;
 
-use crate::structured_io::{SDKControlRequest, StructuredIO, StdoutMessage};
-use crate::transports::{
-    get_transport_for_url, CCRClient, SSETransport, SessionExternalMetadata, Transport,
-};
+use crate::structured_io::StructuredIO;
+use crate::transports::{get_transport_for_url, CCRClient, SessionExternalMetadata, Transport};
 
 /// RemoteIO — 远程双向流式 IO。
 ///
@@ -35,10 +33,7 @@ impl RemoteIO {
     /// 创建新的 RemoteIO 实例。
     ///
     /// 对应 TS RemoteIO 的 constructor。
-    pub async fn new(
-        stream_url: &str,
-        replay_user_messages: bool,
-    ) -> Result<Self> {
+    pub async fn new(stream_url: &str, replay_user_messages: bool) -> Result<Self> {
         let url = Url::parse(stream_url).context("invalid stream URL")?;
 
         // 准备请求头
@@ -80,16 +75,31 @@ impl RemoteIO {
 
         let structured_io = StructuredIO::new(replay_user_messages);
 
-        // 设置数据回调
-        let outbound_tx = structured_io.outbound.clone();
+        // 设置数据回调：transport receives NDJSON/JSON chunks, StructuredIO
+        // owns protocol parsing and side effects such as control responses.
+        let (incoming_tx, mut incoming_rx) = mpsc::channel::<String>(256);
+        let incoming_structured_io = structured_io.clone();
+        tokio::spawn(async move {
+            while let Some(data) = incoming_rx.recv().await {
+                process_remote_transport_data(incoming_structured_io.clone(), data).await;
+            }
+        });
+
         transport.set_on_data(Box::new(move |data| {
-            // 将接收到的数据通过 StructuredIO 处理
             info!(data_len = data.len(), "RemoteIO: received data");
+            if let Err(err) = incoming_tx.try_send(data) {
+                warn!(error = %err, "RemoteIO: dropped inbound data");
+            }
         }));
 
         // 设置关闭回调
-        transport.set_on_close(Box::new(|| {
+        let close_structured_io = structured_io.clone();
+        transport.set_on_close(Box::new(move || {
             info!("RemoteIO: transport closed");
+            let close_structured_io = close_structured_io.clone();
+            tokio::spawn(async move {
+                close_structured_io.mark_input_closed().await;
+            });
         }));
 
         // 初始化 CCR v2 客户端（如果启用）
@@ -118,6 +128,13 @@ impl RemoteIO {
                     // 不在这里退出，允许 fallback
                 }
             }
+        }
+
+        // Drain StructuredIO outbound messages to the remote transport. This
+        // includes control_request/control_response/cancel messages generated
+        // by StructuredIO while processing inbound protocol data.
+        if let Some(outbound_rx) = structured_io.take_outbound_rx().await {
+            spawn_remote_outbound_drain(outbound_rx, transport.clone(), ccr_client.clone());
         }
 
         // 启动连接
@@ -168,10 +185,79 @@ impl RemoteIO {
     }
 }
 
+async fn process_remote_transport_data(structured_io: StructuredIO, data: String) {
+    let lines = remote_transport_lines(&data)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for line in lines {
+        if let Err(err) = structured_io.process_line(&line).await {
+            warn!(
+                error = %err,
+                data_len = data.len(),
+                "RemoteIO: failed to process inbound protocol line"
+            );
+        }
+    }
+}
+
+fn remote_transport_lines(data: &str) -> impl Iterator<Item = &str> {
+    data.lines().map(str::trim).filter(|line| !line.is_empty())
+}
+
+fn spawn_remote_outbound_drain(
+    mut outbound_rx: mpsc::Receiver<crate::structured_io::StdoutMessage>,
+    transport: Arc<dyn Transport>,
+    ccr_client: Option<Arc<CCRClient>>,
+) {
+    tokio::spawn(async move {
+        while let Some(message) = outbound_rx.recv().await {
+            let value = match serde_json::to_value(&message) {
+                Ok(value) => value,
+                Err(err) => {
+                    warn!(error = %err, "RemoteIO: failed to serialize outbound protocol message");
+                    continue;
+                }
+            };
+            let result = if let Some(ref client) = ccr_client {
+                client.write_event(&value).await
+            } else {
+                transport.write(&value).await
+            };
+            if let Err(err) = result {
+                warn!(error = %err, "RemoteIO: failed to write outbound protocol message");
+                break;
+            }
+        }
+    });
+}
+
 /// 获取会话入口认证 token。
 fn get_session_ingress_auth_token() -> Option<String> {
     // 优先从环境变量获取
     std::env::var("MOSSEN_CODE_SESSION_ACCESS_TOKEN")
         .ok()
         .or_else(|| std::env::var("MOSSEN_CODE_SESSION_INGRESS_TOKEN").ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remote_transport_lines;
+
+    #[test]
+    fn remote_transport_lines_handles_ndjson_and_single_json() {
+        let lines = remote_transport_lines(
+            "  {\"type\":\"keep_alive\"}\n\n{\"type\":\"system\",\"content\":\"ok\"}\n",
+        )
+        .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            vec![
+                "{\"type\":\"keep_alive\"}",
+                "{\"type\":\"system\",\"content\":\"ok\"}"
+            ]
+        );
+
+        let single = remote_transport_lines("{\"type\":\"keep_alive\"}").collect::<Vec<_>>();
+        assert_eq!(single, vec!["{\"type\":\"keep_alive\"}"]);
+    }
 }

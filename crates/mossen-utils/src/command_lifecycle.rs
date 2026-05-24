@@ -13,8 +13,7 @@ pub enum CommandLifecycleState {
 }
 
 /// 命令生命周期监听器类型。
-pub type CommandLifecycleListener =
-    Box<dyn Fn(String, CommandLifecycleState) + Send + Sync>;
+pub type CommandLifecycleListener = Box<dyn Fn(String, CommandLifecycleState) + Send + Sync>;
 
 static LISTENER: Mutex<Option<Box<dyn Fn(String, CommandLifecycleState) + Send + Sync>>> =
     Mutex::new(None);
@@ -48,10 +47,7 @@ mod tests {
             *called_clone.lock().unwrap() = true;
         })));
 
-        notify_command_lifecycle(
-            "test-uuid".to_string(),
-            CommandLifecycleState::Started,
-        );
+        notify_command_lifecycle("test-uuid".to_string(), CommandLifecycleState::Started);
 
         assert!(*called.lock().unwrap());
     }

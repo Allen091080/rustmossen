@@ -1,4 +1,4 @@
-//! Chrome extension notification (useChromeExtensionNotification.tsx).
+//! Chrome extension notification.
 //!
 //! Shows notifications about Chrome extension status: not installed,
 //! integration unavailable, or default-enabled.
@@ -125,7 +125,8 @@ pub fn get_chrome_extension_notification_surface(
         let message = if inputs.custom_backend_enabled && !inputs.has_configured_chrome_urls {
             "Chrome integration is not configured. Set MOSSEN_CODE_PLATFORM_BASE_URL or the MOSSEN_CODE_CHROME_* URLs first.".to_string()
         } else {
-            "Chrome integration is not enabled for the current provider or backend configuration.".to_string()
+            "Chrome integration is not enabled for the current provider or backend configuration."
+                .to_string()
         };
         return Some(ChromeExtensionNotice {
             key: "chrome-integration-unavailable".to_string(),

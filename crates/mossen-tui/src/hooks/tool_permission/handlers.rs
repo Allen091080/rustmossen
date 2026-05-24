@@ -68,7 +68,9 @@ impl PermissionHandlerState {
 
     /// Check if a tool should be auto-approved.
     fn should_auto_approve(&self, tool_name: &str) -> bool {
-        self.auto_approve_patterns.iter().any(|p| p == tool_name || p == "*")
+        self.auto_approve_patterns
+            .iter()
+            .any(|p| p == tool_name || p == "*")
     }
 
     /// Check if there is a pending request.

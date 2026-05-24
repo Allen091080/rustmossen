@@ -77,7 +77,16 @@ impl TerminalPanel {
 
         let result = Command::new("tmux")
             .args([
-                "-L", &socket, "new-session", "-d", "-s", TMUX_SESSION, "-c", cwd, &shell, "-l",
+                "-L",
+                &socket,
+                "new-session",
+                "-d",
+                "-s",
+                TMUX_SESSION,
+                "-c",
+                cwd,
+                &shell,
+                "-l",
             ])
             .output();
 
@@ -85,10 +94,7 @@ impl TerminalPanel {
             Ok(output) if output.status.success() => {}
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::debug!(
-                    "Terminal panel: failed to create tmux session: {}",
-                    stderr
-                );
+                tracing::debug!("Terminal panel: failed to create tmux session: {}", stderr);
                 return false;
             }
             Err(e) => {

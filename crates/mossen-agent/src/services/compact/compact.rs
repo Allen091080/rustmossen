@@ -3,10 +3,14 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use mossen_types::{ContentBlock, Message, Role};
-use crate::token_estimation::rough_token_count_estimation;
+use crate::token_estimation::{estimate_messages_tokens, rough_token_count_estimation};
+use mossen_types::{ContentBlock, Message, Role, TextBlock, ToolResultContent};
+use mossen_utils::hooks_utils::{
+    execute_post_compact_hooks, execute_pre_compact_hooks, HooksContext,
+    TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+};
 
 use super::grouping::group_messages_by_api_round;
 use super::prompt::{
@@ -236,6 +240,75 @@ pub fn build_post_compact_messages(result: &CompactionResult) -> Vec<Message> {
     messages
 }
 
+/// Build a compact boundary message with metadata shared by manual and auto
+/// compaction paths.
+pub fn build_compact_boundary_message(
+    trigger: &str,
+    compacted_message_count: usize,
+    pre_compact_token_count: usize,
+    post_compact_token_count: usize,
+) -> Message {
+    let trigger = trigger.trim();
+    let trigger = if trigger.is_empty() {
+        "manual"
+    } else {
+        trigger
+    };
+    let mut extra = HashMap::new();
+    extra.insert(
+        "compact_metadata".to_string(),
+        serde_json::json!({
+            "trigger": trigger,
+            "pre_compact_token_count": pre_compact_token_count,
+            "post_compact_token_count": post_compact_token_count,
+            "compacted_message_count": compacted_message_count,
+        }),
+    );
+
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(TextBlock {
+            text: format!(
+                "[{} compact boundary: {} message(s) compacted]",
+                trigger, compacted_message_count
+            ),
+        })],
+        uuid: None,
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra,
+    }
+}
+
+/// Prepend a compact boundary and recompute the true post-compact token count
+/// including that boundary.
+pub fn prepend_compact_boundary_to_messages(
+    compacted_messages: Vec<Message>,
+    trigger: &str,
+    compacted_message_count: usize,
+    pre_compact_token_count: usize,
+) -> (Vec<Message>, usize) {
+    let mut messages = Vec::with_capacity(compacted_messages.len().saturating_add(1));
+    messages.push(build_compact_boundary_message(
+        trigger,
+        compacted_message_count,
+        pre_compact_token_count,
+        0,
+    ));
+    messages.extend(compacted_messages);
+
+    let post_compact_token_count = estimate_messages_tokens(&messages) as usize;
+    messages[0] = build_compact_boundary_message(
+        trigger,
+        compacted_message_count,
+        pre_compact_token_count,
+        post_compact_token_count,
+    );
+
+    (messages, post_compact_token_count)
+}
+
 /// Annotate a compact boundary with relink metadata for messagesToKeep.
 pub fn annotate_boundary_with_preserved_segment(
     mut boundary: Message,
@@ -317,10 +390,7 @@ pub fn truncate_to_tokens(content: &str, max_tokens: usize) -> String {
 }
 
 /// Check if a file should be excluded from post-compact restore.
-pub fn should_exclude_from_post_compact_restore(
-    filename: &str,
-    _agent_id: Option<&str>,
-) -> bool {
+pub fn should_exclude_from_post_compact_restore(filename: &str, _agent_id: Option<&str>) -> bool {
     let normalized = filename.to_lowercase();
     if normalized.ends_with("/plan.md") || normalized.contains("mossen.md") {
         return true;
@@ -387,54 +457,227 @@ pub struct CompactConversationResult {
     pub remaining_token_count: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub new_messages: Vec<Message>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_compact_hook_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_compact_hook_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_instructions_applied: Option<String>,
 }
 
-/// `compact.ts` `compactConversation`.
-/// Pre-compact hook：通知 watcher 即将压缩。
-/// 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
-fn fire_pre_compact_hook(message_count: usize) {
-    tracing::info!(
-        target: "mossen_agent::compact",
-        message_count,
-        "Pre-compact hook: compaction about to start"
-    );
+/// Runtime options for conversation compaction.
+pub struct CompactConversationOptions<'a> {
+    pub hook_context: Option<&'a HooksContext>,
+    pub trigger: &'a str,
+    pub custom_instructions: Option<&'a str>,
+    pub cancel_token: Option<&'a tokio_util::sync::CancellationToken>,
+    pub hook_timeout_ms: u64,
 }
 
-/// Post-compact hook：通知 watcher 压缩已完成。
-/// 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
-fn fire_post_compact_hook(result: &CompactConversationResult) {
-    tracing::info!(
-        target: "mossen_agent::compact",
-        boundary_token_count = result.remaining_token_count,
-        "Post-compact hook: compaction completed"
-    );
+impl<'a> CompactConversationOptions<'a> {
+    pub fn without_hooks() -> Self {
+        Self {
+            hook_context: None,
+            trigger: "manual",
+            custom_instructions: None,
+            cancel_token: None,
+            hook_timeout_ms: TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+        }
+    }
+}
+
+const COMPACT_SUMMARY_PREVIEW_CHARS: usize = 800;
+const COMPACT_SUMMARY_MAX_CHARS: usize = 12_000;
+
+fn role_label(role: Role) -> &'static str {
+    match role {
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::System => "system",
+    }
+}
+
+fn truncate_chars(input: &str, max_chars: usize) -> String {
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+    let mut output: String = input.chars().take(max_chars.saturating_sub(3)).collect();
+    output.push_str("...");
+    output
+}
+
+fn compact_inline(input: &str, max_chars: usize) -> String {
+    let compacted = input.split_whitespace().collect::<Vec<_>>().join(" ");
+    truncate_chars(&compacted, max_chars)
+}
+
+fn tool_result_text(content: &ToolResultContent) -> String {
+    match content {
+        ToolResultContent::Text(text) => compact_inline(text, COMPACT_SUMMARY_PREVIEW_CHARS),
+        ToolResultContent::Blocks(blocks) => compact_blocks_text(blocks),
+    }
+}
+
+fn compact_blocks_text(blocks: &[ContentBlock]) -> String {
+    let mut parts = Vec::new();
+    for block in blocks {
+        match block {
+            ContentBlock::Text(text) => {
+                let text = compact_inline(&text.text, COMPACT_SUMMARY_PREVIEW_CHARS);
+                if !text.is_empty() {
+                    parts.push(text);
+                }
+            }
+            ContentBlock::ToolUse(tool) => {
+                let input = compact_inline(&tool.input.to_string(), 240);
+                parts.push(format!("tool_use {} {}", tool.name, input));
+            }
+            ContentBlock::ToolResult(result) => {
+                let text = tool_result_text(&result.content);
+                if text.is_empty() {
+                    parts.push(format!("tool_result {}", result.tool_use_id));
+                } else {
+                    parts.push(format!("tool_result {} {}", result.tool_use_id, text));
+                }
+            }
+            ContentBlock::Thinking(_) => {}
+            ContentBlock::Image(_) => parts.push("[image]".to_string()),
+        }
+    }
+    truncate_chars(&parts.join(" "), COMPACT_SUMMARY_PREVIEW_CHARS)
+}
+
+fn compact_summary_message(omitted_messages: &[Message], instructions: Option<&str>) -> Message {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Earlier conversation summary. The following {} message(s) were compacted before the recent context:",
+        omitted_messages.len()
+    ));
+    if let Some(instructions) = instructions.and_then(|s| {
+        let trimmed = s.trim();
+        (!trimmed.is_empty()).then_some(trimmed)
+    }) {
+        lines.push(format!(
+            "Compaction instructions applied: {}",
+            compact_inline(instructions, COMPACT_SUMMARY_PREVIEW_CHARS)
+        ));
+    }
+    for (index, message) in omitted_messages.iter().enumerate() {
+        let text = compact_blocks_text(&message.content);
+        let text = if text.is_empty() {
+            "[non-text content omitted]".to_string()
+        } else {
+            text
+        };
+        lines.push(format!(
+            "{}. {}: {}",
+            index + 1,
+            role_label(message.role),
+            text
+        ));
+    }
+
+    let summary = truncate_chars(&lines.join("\n"), COMPACT_SUMMARY_MAX_CHARS);
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(TextBlock { text: summary })],
+        uuid: None,
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra: HashMap::new(),
+    }
 }
 
 pub async fn compact_conversation(
     messages: &[Message],
-    _file_read_tool_name: &str,
+    file_read_tool_name: &str,
 ) -> CompactConversationResult {
-    // Pre-compact hook
-    fire_pre_compact_hook(messages.len());
+    compact_conversation_with_options(
+        messages,
+        file_read_tool_name,
+        CompactConversationOptions::without_hooks(),
+    )
+    .await
+}
 
+/// `compact.ts` `compactConversation`.
+pub async fn compact_conversation_with_options(
+    messages: &[Message],
+    _file_read_tool_name: &str,
+    options: CompactConversationOptions<'_>,
+) -> CompactConversationResult {
     if messages.is_empty() {
         return CompactConversationResult {
             success: true,
             ..Default::default()
         };
     }
+
+    let mut compact_instructions = options.custom_instructions.map(str::to_string);
+    let mut pre_compact_hook_message = None;
+    if let Some(ctx) = options.hook_context {
+        tracing::info!(
+            target: "mossen_agent::compact",
+            message_count = messages.len(),
+            trigger = options.trigger,
+            "Executing PreCompact hooks"
+        );
+        let (hook_instructions, display_message) = execute_pre_compact_hooks(
+            ctx,
+            options.trigger,
+            options.custom_instructions,
+            options.cancel_token,
+            options.hook_timeout_ms,
+        )
+        .await;
+        pre_compact_hook_message = display_message;
+        compact_instructions =
+            merge_hook_instructions(options.custom_instructions, hook_instructions.as_deref());
+    }
+
     let half = messages.len() / 2;
-    let kept = messages[half..].to_vec();
-    let result = CompactConversationResult {
+    let mut kept = Vec::with_capacity(messages.len().saturating_sub(half).saturating_add(1));
+    if half > 0 {
+        kept.push(compact_summary_message(
+            &messages[..half],
+            compact_instructions.as_deref(),
+        ));
+    }
+    kept.extend_from_slice(&messages[half..]);
+    let mut result = CompactConversationResult {
         success: true,
         error: None,
         compacted_message_count: half,
-        remaining_token_count: (kept.len() as u64) * 256,
+        remaining_token_count: estimate_messages_tokens(&kept),
         new_messages: kept,
+        pre_compact_hook_message,
+        post_compact_hook_message: None,
+        hook_instructions_applied: compact_instructions,
     };
 
-    // Post-compact hook
-    fire_post_compact_hook(&result);
+    if let Some(ctx) = options.hook_context {
+        tracing::info!(
+            target: "mossen_agent::compact",
+            boundary_token_count = result.remaining_token_count,
+            trigger = options.trigger,
+            "Executing PostCompact hooks"
+        );
+        let compact_summary = result
+            .new_messages
+            .first()
+            .map(|message| compact_blocks_text(&message.content))
+            .unwrap_or_default();
+        result.post_compact_hook_message = execute_post_compact_hooks(
+            ctx,
+            options.trigger,
+            &compact_summary,
+            options.cancel_token,
+            options.hook_timeout_ms,
+        )
+        .await;
+    }
+
     result
 }
 
@@ -447,19 +690,24 @@ pub async fn partial_compact_conversation(
         return CompactConversationResult {
             success: true,
             compacted_message_count: 0,
-            remaining_token_count: (messages.len() as u64) * 256,
+            remaining_token_count: estimate_messages_tokens(messages),
             new_messages: messages.to_vec(),
             ..Default::default()
         };
     }
     let split = messages.len() - keep_recent;
-    let kept = messages[split..].to_vec();
+    let mut kept = Vec::with_capacity(keep_recent.saturating_add(1));
+    if split > 0 {
+        kept.push(compact_summary_message(&messages[..split], None));
+    }
+    kept.extend_from_slice(&messages[split..]);
     CompactConversationResult {
         success: true,
         error: None,
         compacted_message_count: split,
-        remaining_token_count: (kept.len() as u64) * 256,
+        remaining_token_count: estimate_messages_tokens(&kept),
         new_messages: kept,
+        ..Default::default()
     }
 }
 
@@ -524,4 +772,239 @@ pub fn create_async_agent_attachments_if_needed(agent_ids: &[String]) -> Vec<ser
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_message(role: Role, text: &str) -> Message {
+        Message {
+            role,
+            content: vec![ContentBlock::Text(TextBlock {
+                text: text.to_string(),
+            })],
+            uuid: None,
+            is_meta: None,
+            origin: None,
+            timestamp: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    fn first_text(message: &Message) -> &str {
+        match message.content.first() {
+            Some(ContentBlock::Text(block)) => block.text.as_str(),
+            _ => panic!("expected text block"),
+        }
+    }
+
+    fn test_hooks_context(
+        cwd: &std::path::Path,
+        registered_hooks: HashMap<String, Vec<mossen_utils::hooks_utils::HookMatcher>>,
+    ) -> HooksContext {
+        HooksContext {
+            session_id: "test-session".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: std::sync::Arc::new(|session_id| {
+                format!("/tmp/{session_id}.jsonl")
+            }),
+            get_agent_transcript_path: std::sync::Arc::new(|agent_id| {
+                format!("/tmp/agent-{agent_id}.jsonl")
+            }),
+            log_debug: std::sync::Arc::new(|_| {}),
+            log_error: std::sync::Arc::new(|_| {}),
+            log_event: std::sync::Arc::new(|_, _| {}),
+            get_settings: std::sync::Arc::new(|| None),
+            get_settings_for_source: std::sync::Arc::new(|_| None),
+            invalidate_session_env_cache: std::sync::Arc::new(|| {}),
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn compact_conversation_keeps_summary_plus_recent_messages() {
+        let messages = vec![
+            text_message(Role::User, "one"),
+            text_message(Role::Assistant, "two"),
+            text_message(Role::User, "three"),
+            text_message(Role::Assistant, "four"),
+        ];
+
+        let result = compact_conversation(&messages, "Read").await;
+
+        assert!(result.success);
+        assert_eq!(result.compacted_message_count, 2);
+        assert_eq!(result.new_messages.len(), 3);
+        assert_eq!(result.new_messages[0].role, Role::User);
+        assert_eq!(result.new_messages[0].is_meta, Some(true));
+        let summary = first_text(&result.new_messages[0]);
+        assert!(summary.contains("Earlier conversation summary"));
+        assert!(summary.contains("user: one"));
+        assert!(summary.contains("assistant: two"));
+        assert_eq!(first_text(&result.new_messages[1]), "three");
+        assert_eq!(first_text(&result.new_messages[2]), "four");
+    }
+
+    #[test]
+    fn prepend_compact_boundary_adds_metadata_and_recomputes_tokens() {
+        let compacted_messages = vec![
+            text_message(Role::User, "summary"),
+            text_message(Role::Assistant, "recent"),
+        ];
+        let (messages, post_tokens) =
+            prepend_compact_boundary_to_messages(compacted_messages, "manual", 4, 128);
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].is_meta, Some(true));
+        assert!(matches!(
+            messages[0].content.first(),
+            Some(ContentBlock::Text(text)) if text.text.contains("[manual compact boundary: 4 message(s) compacted]")
+        ));
+        let metadata = messages[0]
+            .extra
+            .get("compact_metadata")
+            .expect("boundary should carry compact metadata");
+        assert_eq!(metadata["trigger"], "manual");
+        assert_eq!(metadata["pre_compact_token_count"], 128);
+        assert_eq!(metadata["post_compact_token_count"], post_tokens);
+        assert_eq!(metadata["compacted_message_count"], 4);
+        assert!(post_tokens > 0);
+    }
+
+    #[tokio::test]
+    async fn compact_conversation_executes_pre_and_post_compact_hooks() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PreCompact".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("manual".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": "printf 'preserve architectural decisions'",
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        registered_hooks.insert(
+            "PostCompact".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("manual".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": "printf 'post compact recorded'",
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = test_hooks_context(cwd.path(), registered_hooks);
+        let messages = vec![
+            text_message(Role::User, "one"),
+            text_message(Role::Assistant, "two"),
+            text_message(Role::User, "three"),
+            text_message(Role::Assistant, "four"),
+        ];
+
+        let result = compact_conversation_with_options(
+            &messages,
+            "Read",
+            CompactConversationOptions {
+                hook_context: Some(&hooks_context),
+                trigger: "manual",
+                custom_instructions: None,
+                cancel_token: None,
+                hook_timeout_ms: 1_000,
+            },
+        )
+        .await;
+
+        assert!(result.success);
+        assert!(result
+            .pre_compact_hook_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("preserve architectural decisions"));
+        assert!(result
+            .post_compact_hook_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("post compact recorded"));
+        assert_eq!(
+            result.hook_instructions_applied.as_deref(),
+            Some("preserve architectural decisions")
+        );
+        assert!(first_text(&result.new_messages[0])
+            .contains("Compaction instructions applied: preserve architectural decisions"));
+    }
+
+    #[tokio::test]
+    async fn compact_conversation_respects_cancelled_hook_token() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PreCompact".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("manual".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": "printf 'should not run'",
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = test_hooks_context(cwd.path(), registered_hooks);
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        cancel_token.cancel();
+        let messages = vec![
+            text_message(Role::User, "one"),
+            text_message(Role::Assistant, "two"),
+            text_message(Role::User, "three"),
+            text_message(Role::Assistant, "four"),
+        ];
+
+        let result = compact_conversation_with_options(
+            &messages,
+            "Read",
+            CompactConversationOptions {
+                hook_context: Some(&hooks_context),
+                trigger: "manual",
+                custom_instructions: None,
+                cancel_token: Some(&cancel_token),
+                hook_timeout_ms: 1_000,
+            },
+        )
+        .await;
+
+        assert!(result.success);
+        assert!(result.pre_compact_hook_message.is_none());
+        assert!(result.hook_instructions_applied.is_none());
+        assert!(!first_text(&result.new_messages[0]).contains("should not run"));
+    }
 }

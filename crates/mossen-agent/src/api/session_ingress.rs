@@ -130,8 +130,13 @@ async fn append_session_log_impl(
 
                 if status == 200 || status == 201 {
                     let mut state = state.lock().await;
-                    state.last_uuid_map.insert(session_id.to_string(), entry.uuid.clone());
-                    debug!("Successfully persisted session log entry for session {}", session_id);
+                    state
+                        .last_uuid_map
+                        .insert(session_id.to_string(), entry.uuid.clone());
+                    debug!(
+                        "Successfully persisted session log entry for session {}",
+                        session_id
+                    );
                     return true;
                 }
 
@@ -143,7 +148,9 @@ async fn append_session_log_impl(
 
                     if server_last_uuid.as_deref() == Some(&entry.uuid) {
                         let mut state = state.lock().await;
-                        state.last_uuid_map.insert(session_id.to_string(), entry.uuid.clone());
+                        state
+                            .last_uuid_map
+                            .insert(session_id.to_string(), entry.uuid.clone());
                         debug!(
                             "Session entry {} already present on server, recovering from stale state",
                             entry.uuid
@@ -153,18 +160,23 @@ async fn append_session_log_impl(
 
                     if let Some(ref server_uuid) = server_last_uuid {
                         let mut state = state.lock().await;
-                        state.last_uuid_map.insert(session_id.to_string(), server_uuid.clone());
+                        state
+                            .last_uuid_map
+                            .insert(session_id.to_string(), server_uuid.clone());
                         debug!(
                             "Session 409: adopting server lastUuid={} from header, retrying entry {}",
                             server_uuid, entry.uuid
                         );
                     } else {
                         // Re-fetch session to discover current head
-                        let logs = fetch_session_logs_from_url(client, session_id, url, headers).await;
+                        let logs =
+                            fetch_session_logs_from_url(client, session_id, url, headers).await;
                         let adopted_uuid = find_last_uuid(logs.as_deref());
                         if let Some(adopted) = adopted_uuid {
                             let mut state = state.lock().await;
-                            state.last_uuid_map.insert(session_id.to_string(), adopted.clone());
+                            state
+                                .last_uuid_map
+                                .insert(session_id.to_string(), adopted.clone());
                             debug!(
                                 "Session 409: re-fetched entries, adopting lastUuid={}, retrying entry {}",
                                 adopted, entry.uuid
@@ -274,7 +286,10 @@ pub async fn get_session_logs_via_oauth(
     let url = format!("{}/v1/session_ingress/session/{}", base_api_url, session_id);
     debug!("[session-ingress] Fetching session logs from: {}", url);
     let headers = vec![
-        ("Authorization".to_string(), format!("Bearer {}", access_token)),
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", access_token),
+        ),
         ("x-organization-uuid".to_string(), org_uuid.to_string()),
     ];
     fetch_session_logs_from_url(client, session_id, &url, &headers).await
@@ -288,9 +303,15 @@ pub async fn get_teleport_events(
     access_token: &str,
     org_uuid: &str,
 ) -> Option<Vec<Entry>> {
-    let base_url = format!("{}/v1/code/sessions/{}/teleport-events", base_api_url, session_id);
+    let base_url = format!(
+        "{}/v1/code/sessions/{}/teleport-events",
+        base_api_url, session_id
+    );
     let headers = vec![
-        ("Authorization".to_string(), format!("Bearer {}", access_token)),
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", access_token),
+        ),
         ("x-organization-uuid".to_string(), org_uuid.to_string()),
     ];
 
@@ -326,7 +347,10 @@ pub async fn get_teleport_events(
         let status = response.status().as_u16();
 
         if status == 404 {
-            debug!("[teleport] Session {} not found (page {})", session_id, pages);
+            debug!(
+                "[teleport] Session {} not found (page {})",
+                session_id, pages
+            );
             return if pages == 0 { None } else { Some(all) };
         }
 
@@ -363,7 +387,10 @@ pub async fn get_teleport_events(
     }
 
     if pages >= max_pages {
-        error!("Teleport events hit page cap ({}) for {}", max_pages, session_id);
+        error!(
+            "Teleport events hit page cap ({}) for {}",
+            max_pages, session_id
+        );
     }
 
     debug!(
@@ -382,9 +409,7 @@ async fn fetch_session_logs_from_url(
     url: &str,
     headers: &[(String, String)],
 ) -> Option<Vec<Entry>> {
-    let mut req = client
-        .get(url)
-        .timeout(Duration::from_secs(20));
+    let mut req = client.get(url).timeout(Duration::from_secs(20));
 
     for (key, value) in headers {
         req = req.header(key.as_str(), value.as_str());
@@ -406,7 +431,11 @@ async fn fetch_session_logs_from_url(
                 let loglines = data.get("loglines").and_then(|v| v.as_array());
                 match loglines {
                     Some(entries) => {
-                        debug!("Fetched {} session logs for session {}", entries.len(), session_id);
+                        debug!(
+                            "Fetched {} session logs for session {}",
+                            entries.len(),
+                            session_id
+                        );
                         Some(entries.clone())
                     }
                     None => {
@@ -435,7 +464,10 @@ async fn fetch_session_logs_from_url(
 /// Walk backward through entries to find the last one with a uuid.
 fn find_last_uuid(logs: Option<&[Entry]>) -> Option<String> {
     let logs = logs?;
-    logs.iter()
-        .rev()
-        .find_map(|entry| entry.get("uuid").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    logs.iter().rev().find_map(|entry| {
+        entry
+            .get("uuid")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    })
 }

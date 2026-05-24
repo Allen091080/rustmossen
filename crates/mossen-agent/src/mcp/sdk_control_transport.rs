@@ -11,8 +11,14 @@ use tokio::sync::Mutex;
 pub type JsonRpcMessage = Value;
 
 /// Callback function to send an MCP message and get the response.
-pub type SendMcpMessageCallback =
-    Arc<dyn Fn(String, JsonRpcMessage) -> futures::future::BoxFuture<'static, anyhow::Result<JsonRpcMessage>> + Send + Sync>;
+pub type SendMcpMessageCallback = Arc<
+    dyn Fn(
+            String,
+            JsonRpcMessage,
+        ) -> futures::future::BoxFuture<'static, anyhow::Result<JsonRpcMessage>>
+        + Send
+        + Sync,
+>;
 
 /// Callback function to send an MCP message (fire-and-forget for server side).
 pub type SendMcpMessageServerCallback = Arc<dyn Fn(JsonRpcMessage) + Send + Sync>;

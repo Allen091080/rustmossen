@@ -5,7 +5,12 @@ use super::text_input::{Key, TextCursor, TextInputState};
 
 /// Vim mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VimMode { Normal, Insert, Visual, Command }
+pub enum VimMode {
+    Normal,
+    Insert,
+    Visual,
+    Command,
+}
 
 /// Vim command state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,17 +117,32 @@ impl VimInputState {
             return;
         }
 
-        let ch = if key.left_arrow { "h" }
-            else if key.right_arrow { "l" }
-            else if key.up_arrow { "k" }
-            else if key.down_arrow { "j" }
-            else { key.input.as_str() };
+        let ch = if key.left_arrow {
+            "h"
+        } else if key.right_arrow {
+            "l"
+        } else if key.up_arrow {
+            "k"
+        } else if key.down_arrow {
+            "j"
+        } else {
+            key.input.as_str()
+        };
 
         match (&self.command, ch) {
             (VimCommand::Idle, "i") => self.enter_insert_mode(),
-            (VimCommand::Idle, "a") => { self.text_input.cursor.right(); self.enter_insert_mode(); }
-            (VimCommand::Idle, "I") => { self.text_input.cursor.start_of_line(); self.enter_insert_mode(); }
-            (VimCommand::Idle, "A") => { self.text_input.cursor.end_of_line(); self.enter_insert_mode(); }
+            (VimCommand::Idle, "a") => {
+                self.text_input.cursor.right();
+                self.enter_insert_mode();
+            }
+            (VimCommand::Idle, "I") => {
+                self.text_input.cursor.start_of_line();
+                self.enter_insert_mode();
+            }
+            (VimCommand::Idle, "A") => {
+                self.text_input.cursor.end_of_line();
+                self.enter_insert_mode();
+            }
             (VimCommand::Idle, "o") => {
                 self.text_input.cursor.end_of_line();
                 self.text_input.cursor.insert("\n");
@@ -154,8 +174,14 @@ impl VimInputState {
             (VimCommand::Operator(op), "w") => {
                 let op = op.clone();
                 match op.as_str() {
-                    "d" => { self.text_input.cursor.delete_word_after(); }
-                    "c" => { self.text_input.cursor.delete_word_after(); self.enter_insert_mode(); return; }
+                    "d" => {
+                        self.text_input.cursor.delete_word_after();
+                    }
+                    "c" => {
+                        self.text_input.cursor.delete_word_after();
+                        self.enter_insert_mode();
+                        return;
+                    }
                     _ => {}
                 }
                 self.command = VimCommand::Idle;
@@ -163,8 +189,14 @@ impl VimInputState {
             (VimCommand::Operator(op), "$") => {
                 let op = op.clone();
                 match op.as_str() {
-                    "d" => { self.text_input.cursor.delete_to_line_end(); }
-                    "c" => { self.text_input.cursor.delete_to_line_end(); self.enter_insert_mode(); return; }
+                    "d" => {
+                        self.text_input.cursor.delete_to_line_end();
+                    }
+                    "c" => {
+                        self.text_input.cursor.delete_to_line_end();
+                        self.enter_insert_mode();
+                        return;
+                    }
                     _ => {}
                 }
                 self.command = VimCommand::Idle;
@@ -189,12 +221,18 @@ impl VimInputState {
                 }
                 self.command = VimCommand::Idle;
             }
-            _ => { self.command = VimCommand::Idle; }
+            _ => {
+                self.command = VimCommand::Idle;
+            }
         }
     }
 
-    pub fn value(&self) -> &str { self.text_input.value() }
-    pub fn set_value(&mut self, value: &str) { self.text_input.set_value(value); }
+    pub fn value(&self) -> &str {
+        self.text_input.value()
+    }
+    pub fn set_value(&mut self, value: &str) {
+        self.text_input.set_value(value);
+    }
     pub fn set_mode(&mut self, mode: VimMode) {
         match mode {
             VimMode::Insert => self.enter_insert_mode(),
@@ -203,4 +241,8 @@ impl VimInputState {
     }
 }
 
-impl Default for VimInputState { fn default() -> Self { Self::new(80) } }
+impl Default for VimInputState {
+    fn default() -> Self {
+        Self::new(80)
+    }
+}

@@ -6,7 +6,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::broadcast;
 
 /// Creates an AbortController that can be aborted multiple times.
 /// This is a simple wrapper around a broadcast channel for signaling abort.
@@ -117,9 +116,7 @@ pub fn create_abort_controller(_max_listeners: Option<usize>) -> AbortController
 ///
 /// Memory-safe: Uses shared state with atomic flag so the parent doesn't
 /// necessarily retain the child, though in Rust this is handled at compile time.
-pub fn create_child_abort_controller(
-    parent: &AbortController,
-) -> AbortController {
+pub fn create_child_abort_controller(parent: &AbortController) -> AbortController {
     let child = AbortController::new();
 
     // Fast path: parent already aborted, sync the state
@@ -162,9 +159,7 @@ pub fn create_child_abort_controller(
 
 /// Creates a simple child AbortController that immediately syncs parent state.
 /// For synchronous usage, this is simpler than the async version.
-pub fn create_child_abort_controller_sync(
-    parent: &AbortController,
-) -> AbortController {
+pub fn create_child_abort_controller_sync(parent: &AbortController) -> AbortController {
     let child = AbortController::new();
 
     // Sync parent state if already aborted

@@ -16,7 +16,13 @@ pub struct TsNode {
 }
 
 impl TsNode {
-    pub fn new(node_type: impl Into<String>, text: impl Into<String>, start_index: usize, end_index: usize, children: Vec<TsNode>) -> Self {
+    pub fn new(
+        node_type: impl Into<String>,
+        text: impl Into<String>,
+        start_index: usize,
+        end_index: usize,
+        children: Vec<TsNode>,
+    ) -> Self {
         Self {
             node_type: node_type.into(),
             text: text.into(),

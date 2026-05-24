@@ -6,7 +6,9 @@
 use super::permission_result::{
     PermissionBehavior, PermissionRule, PermissionRuleSource, PermissionRuleValue,
 };
-use super::permission_rule_parser::{permission_rule_value_from_string, permission_rule_value_to_string};
+use super::permission_rule_parser::{
+    permission_rule_value_from_string, permission_rule_value_to_string,
+};
 
 /// Editable setting sources that can be modified.
 pub const EDITABLE_SOURCES: &[&str] = &["userSettings", "projectSettings", "localSettings"];
@@ -271,7 +273,10 @@ pub fn add_permission_rules_to_settings(
         .entry("permissions")
         .or_insert_with(|| serde_json::json!({}));
     if let Some(obj) = perms.as_object_mut() {
-        obj.insert(behavior_key.to_string(), serde_json::Value::Array(all_rules));
+        obj.insert(
+            behavior_key.to_string(),
+            serde_json::Value::Array(all_rules),
+        );
     }
 
     update_settings_for_source(source_str, updated).is_ok()

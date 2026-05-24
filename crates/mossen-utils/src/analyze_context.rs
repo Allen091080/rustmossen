@@ -7,6 +7,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::string_utils::truncate_chars;
+
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
@@ -211,15 +213,8 @@ pub fn extract_section_name(content: &str) -> String {
         }
     }
     // Fall back to a truncated preview of the first non-empty line
-    let first_line = content
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("");
-    if first_line.len() > 40 {
-        format!("{}…", &first_line[..40])
-    } else {
-        first_line.to_string()
-    }
+    let first_line = content.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    truncate_chars(first_line, 40)
 }
 
 /// Rough token count estimation based on character count (4 chars ≈ 1 token).
@@ -232,7 +227,11 @@ pub fn rough_token_count_estimation(text: &str) -> usize {
 pub fn compute_grid_params(context_window: usize, terminal_width: Option<usize>) -> (usize, usize) {
     let is_narrow_screen = terminal_width.map_or(false, |w| w < 80);
     let grid_width = if context_window >= 1_000_000 {
-        if is_narrow_screen { 5 } else { 20 }
+        if is_narrow_screen {
+            5
+        } else {
+            20
+        }
     } else if is_narrow_screen {
         5
     } else {
@@ -296,9 +295,9 @@ pub fn build_grid(
         .collect();
 
     // Separate reserved category for end placement
-    let reserved_category = category_squares.iter().find(|c| {
-        c.name == RESERVED_CATEGORY_NAME || c.name == MANUAL_COMPACT_BUFFER_NAME
-    });
+    let reserved_category = category_squares
+        .iter()
+        .find(|c| c.name == RESERVED_CATEGORY_NAME || c.name == MANUAL_COMPACT_BUFFER_NAME);
     let non_reserved_categories: Vec<&CategorySquareInfo> = category_squares
         .iter()
         .filter(|c| {
@@ -356,8 +355,7 @@ pub fn build_grid(
 
     // Add reserved squares at the end
     if let Some(reserved) = reserved_category {
-        let exact_squares =
-            (reserved.tokens as f64 / context_window as f64) * total_squares as f64;
+        let exact_squares = (reserved.tokens as f64 / context_window as f64) * total_squares as f64;
         let whole_squares = exact_squares.floor() as usize;
         let fractional_part = exact_squares - exact_squares.floor();
 
@@ -419,19 +417,28 @@ impl MessageBreakdownAccumulator {
     /// Add tool call tokens for a given tool name.
     pub fn add_tool_call(&mut self, tool_name: &str, tokens: usize) {
         self.tool_call_tokens += tokens;
-        *self.tool_calls_by_type.entry(tool_name.to_string()).or_insert(0) += tokens;
+        *self
+            .tool_calls_by_type
+            .entry(tool_name.to_string())
+            .or_insert(0) += tokens;
     }
 
     /// Add tool result tokens for a given tool name.
     pub fn add_tool_result(&mut self, tool_name: &str, tokens: usize) {
         self.tool_result_tokens += tokens;
-        *self.tool_results_by_type.entry(tool_name.to_string()).or_insert(0) += tokens;
+        *self
+            .tool_results_by_type
+            .entry(tool_name.to_string())
+            .or_insert(0) += tokens;
     }
 
     /// Add attachment tokens for a given attachment type.
     pub fn add_attachment(&mut self, attachment_type: &str, tokens: usize) {
         self.attachment_tokens += tokens;
-        *self.attachments_by_type.entry(attachment_type.to_string()).or_insert(0) += tokens;
+        *self
+            .attachments_by_type
+            .entry(attachment_type.to_string())
+            .or_insert(0) += tokens;
     }
 
     /// Convert to the final MessageBreakdown structure.
@@ -659,9 +666,10 @@ impl ContextAnalysisBuilder {
         });
 
         // Determine total tokens (use API if available)
-        let total_from_api = self.api_usage.as_ref().map(|u| {
-            u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
-        });
+        let total_from_api = self
+            .api_usage
+            .as_ref()
+            .map(|u| u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens);
         let final_total_tokens = total_from_api.unwrap_or(actual_usage);
 
         let percentage = if self.context_window > 0 {

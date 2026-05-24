@@ -35,8 +35,7 @@ static SAFE_ENV_VARS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 });
 
 /// CCD spawn env keys — captured once on first apply.
-static CCD_SPAWN_ENV_KEYS: Lazy<Mutex<Option<HashSet<String>>>> =
-    Lazy::new(|| Mutex::new(None));
+static CCD_SPAWN_ENV_KEYS: Lazy<Mutex<Option<HashSet<String>>>> = Lazy::new(|| Mutex::new(None));
 
 /// SSH tunnel env vars that should not be clobbered.
 const SSH_TUNNEL_VARS: &[&str] = &[
@@ -63,9 +62,7 @@ fn without_ssh_tunnel_vars(env: &HashMap<String, String>) -> HashMap<String, Str
 }
 
 /// Strip provider-managed vars when MOSSEN_CODE_PROVIDER_MANAGED_BY_HOST is set.
-fn without_host_managed_provider_vars(
-    env: &HashMap<String, String>,
-) -> HashMap<String, String> {
+fn without_host_managed_provider_vars(env: &HashMap<String, String>) -> HashMap<String, String> {
     let managed_by_host = std::env::var("MOSSEN_CODE_PROVIDER_MANAGED_BY_HOST")
         .map(|v| is_env_truthy(&v))
         .unwrap_or(false);

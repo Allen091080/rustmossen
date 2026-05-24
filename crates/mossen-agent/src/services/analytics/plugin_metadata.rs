@@ -1,10 +1,10 @@
 //! Plugin metadata — analytics metadata enrichment for MCP plugins.
 
-use std::collections::{HashMap, HashSet};
-use std::path::MAIN_SEPARATOR;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::path::MAIN_SEPARATOR;
 
 /// Plugin metadata collected for analytics events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,10 @@ pub fn hash_plugin_id(name: &str, marketplace: Option<&str>) -> String {
     hasher.update(key.as_bytes());
     hasher.update(PLUGIN_ID_HASH_SALT.as_bytes());
     let digest = hasher.finalize();
-    let hex = digest.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let hex = digest
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
     hex[..16].to_string()
 }
 
@@ -153,7 +156,10 @@ pub struct PluginManifestInfo {
 
 /// Mirror of `pluginIdentifier.ts` `isOfficialMarketplaceName`.
 fn is_official_marketplace_name(marketplace: Option<&str>) -> bool {
-    matches!(marketplace, Some("mossen-official") | Some("mossen") | Some("anthropic"))
+    matches!(
+        marketplace,
+        Some("mossen-official") | Some("mossen") | Some("provider")
+    )
 }
 
 /// `pluginMetadata.ts` `getTelemetryPluginScope`.
@@ -273,28 +279,48 @@ pub fn log_plugins_enabled_for_session(
     let mut out = Vec::with_capacity(plugins.len());
     for plugin in plugins {
         let (_, marketplace) = parse_plugin_identifier(&plugin.repository);
-        let fields = build_plugin_telemetry_fields(&plugin.name, marketplace.as_deref(), managed_names);
+        let fields =
+            build_plugin_telemetry_fields(&plugin.name, marketplace.as_deref(), managed_names);
         let mut map = HashMap::new();
-        map.insert("_PROTO_plugin_name".to_string(), Value::String(plugin.name.clone()));
+        map.insert(
+            "_PROTO_plugin_name".to_string(),
+            Value::String(plugin.name.clone()),
+        );
         if let Some(m) = marketplace {
             map.insert("_PROTO_marketplace_name".to_string(), Value::String(m));
         }
-        map.insert("plugin_id_hash".to_string(), Value::String(fields.plugin_id_hash));
-        map.insert("plugin_scope".to_string(), Value::String(fields.plugin_scope));
-        map.insert("plugin_name_redacted".to_string(), Value::String(fields.plugin_name_redacted));
+        map.insert(
+            "plugin_id_hash".to_string(),
+            Value::String(fields.plugin_id_hash),
+        );
+        map.insert(
+            "plugin_scope".to_string(),
+            Value::String(fields.plugin_scope),
+        );
+        map.insert(
+            "plugin_name_redacted".to_string(),
+            Value::String(fields.plugin_name_redacted),
+        );
         map.insert(
             "marketplace_name_redacted".to_string(),
             Value::String(fields.marketplace_name_redacted),
         );
-        map.insert("is_official_plugin".to_string(), Value::Bool(fields.is_official_plugin));
+        map.insert(
+            "is_official_plugin".to_string(),
+            Value::Bool(fields.is_official_plugin),
+        );
         map.insert(
             "enabled_via".to_string(),
-            Value::String(get_enabled_via(plugin, managed_names, seed_dirs).as_str().to_string()),
+            Value::String(
+                get_enabled_via(plugin, managed_names, seed_dirs)
+                    .as_str()
+                    .to_string(),
+            ),
         );
-        let skill_path_count = (if plugin.skills_path.is_some() { 1 } else { 0 })
-            + plugin.skills_paths.len();
-        let command_path_count = (if plugin.commands_path.is_some() { 1 } else { 0 })
-            + plugin.commands_paths.len();
+        let skill_path_count =
+            (if plugin.skills_path.is_some() { 1 } else { 0 }) + plugin.skills_paths.len();
+        let command_path_count =
+            (if plugin.commands_path.is_some() { 1 } else { 0 }) + plugin.commands_paths.len();
         map.insert(
             "skill_path_count".to_string(),
             Value::Number(serde_json::Number::from(skill_path_count)),
@@ -303,8 +329,14 @@ pub fn log_plugins_enabled_for_session(
             "command_path_count".to_string(),
             Value::Number(serde_json::Number::from(command_path_count)),
         );
-        map.insert("has_mcp".to_string(), Value::Bool(plugin.manifest_has_mcp_servers));
-        map.insert("has_hooks".to_string(), Value::Bool(plugin.hooks_config_present));
+        map.insert(
+            "has_mcp".to_string(),
+            Value::Bool(plugin.manifest_has_mcp_servers),
+        );
+        map.insert(
+            "has_hooks".to_string(),
+            Value::Bool(plugin.hooks_config_present),
+        );
         if let Some(v) = &plugin.manifest_version {
             map.insert("version".to_string(), Value::String(v.clone()));
         }
@@ -322,11 +354,13 @@ pub fn classify_plugin_command_error(message: &str) -> PluginCommandErrorCategor
     if re_network.is_match(message) {
         return PluginCommandErrorCategory::Network;
     }
-    let re_not_found = regex::Regex::new(r"(?i)\b404\b|not found|does not exist|no such plugin").unwrap();
+    let re_not_found =
+        regex::Regex::new(r"(?i)\b404\b|not found|does not exist|no such plugin").unwrap();
     if re_not_found.is_match(message) {
         return PluginCommandErrorCategory::NotFound;
     }
-    let re_perm = regex::Regex::new(r"(?i)\b40[13]\b|EACCES|EPERM|permission denied|unauthorized").unwrap();
+    let re_perm =
+        regex::Regex::new(r"(?i)\b40[13]\b|EACCES|EPERM|permission denied|unauthorized").unwrap();
     if re_perm.is_match(message) {
         return PluginCommandErrorCategory::Permission;
     }
@@ -353,25 +387,38 @@ pub fn log_plugin_load_errors(
     let mut out = Vec::with_capacity(errors.len());
     for err in errors {
         let (parsed_name, marketplace) = parse_plugin_identifier(&err.source);
-        let plugin_name = err
-            .plugin
-            .clone()
-            .unwrap_or(parsed_name);
-        let fields = build_plugin_telemetry_fields(&plugin_name, marketplace.as_deref(), managed_names);
+        let plugin_name = err.plugin.clone().unwrap_or(parsed_name);
+        let fields =
+            build_plugin_telemetry_fields(&plugin_name, marketplace.as_deref(), managed_names);
         let mut map = HashMap::new();
-        map.insert("error_category".to_string(), Value::String(err.error_type.clone()));
+        map.insert(
+            "error_category".to_string(),
+            Value::String(err.error_type.clone()),
+        );
         map.insert("_PROTO_plugin_name".to_string(), Value::String(plugin_name));
         if let Some(m) = marketplace {
             map.insert("_PROTO_marketplace_name".to_string(), Value::String(m));
         }
-        map.insert("plugin_id_hash".to_string(), Value::String(fields.plugin_id_hash));
-        map.insert("plugin_scope".to_string(), Value::String(fields.plugin_scope));
-        map.insert("plugin_name_redacted".to_string(), Value::String(fields.plugin_name_redacted));
+        map.insert(
+            "plugin_id_hash".to_string(),
+            Value::String(fields.plugin_id_hash),
+        );
+        map.insert(
+            "plugin_scope".to_string(),
+            Value::String(fields.plugin_scope),
+        );
+        map.insert(
+            "plugin_name_redacted".to_string(),
+            Value::String(fields.plugin_name_redacted),
+        );
         map.insert(
             "marketplace_name_redacted".to_string(),
             Value::String(fields.marketplace_name_redacted),
         );
-        map.insert("is_official_plugin".to_string(), Value::Bool(fields.is_official_plugin));
+        map.insert(
+            "is_official_plugin".to_string(),
+            Value::Bool(fields.is_official_plugin),
+        );
         out.push(map);
     }
     out
@@ -380,14 +427,38 @@ pub fn log_plugin_load_errors(
 /// Collect metadata for all active plugins.
 pub fn collect_plugin_metadata(plugins: &[PluginMetadata]) -> HashMap<String, Value> {
     let mut map = HashMap::new();
-    map.insert("plugin_count".to_string(), Value::Number(serde_json::Number::from(plugins.len())));
+    map.insert(
+        "plugin_count".to_string(),
+        Value::Number(serde_json::Number::from(plugins.len())),
+    );
     let total_tools: usize = plugins.iter().map(|p| p.tool_count).sum();
-    map.insert("total_tool_count".to_string(), Value::Number(serde_json::Number::from(total_tools)));
-    let builtin_count = plugins.iter().filter(|p| matches!(p.plugin_source, PluginSource::Builtin)).count();
-    let user_count = plugins.iter().filter(|p| matches!(p.plugin_source, PluginSource::UserInstalled)).count();
-    let mcp_count = plugins.iter().filter(|p| matches!(p.plugin_source, PluginSource::McpServer)).count();
-    map.insert("builtin_plugin_count".to_string(), Value::Number(serde_json::Number::from(builtin_count)));
-    map.insert("user_plugin_count".to_string(), Value::Number(serde_json::Number::from(user_count)));
-    map.insert("mcp_plugin_count".to_string(), Value::Number(serde_json::Number::from(mcp_count)));
+    map.insert(
+        "total_tool_count".to_string(),
+        Value::Number(serde_json::Number::from(total_tools)),
+    );
+    let builtin_count = plugins
+        .iter()
+        .filter(|p| matches!(p.plugin_source, PluginSource::Builtin))
+        .count();
+    let user_count = plugins
+        .iter()
+        .filter(|p| matches!(p.plugin_source, PluginSource::UserInstalled))
+        .count();
+    let mcp_count = plugins
+        .iter()
+        .filter(|p| matches!(p.plugin_source, PluginSource::McpServer))
+        .count();
+    map.insert(
+        "builtin_plugin_count".to_string(),
+        Value::Number(serde_json::Number::from(builtin_count)),
+    );
+    map.insert(
+        "user_plugin_count".to_string(),
+        Value::Number(serde_json::Number::from(user_count)),
+    );
+    map.insert(
+        "mcp_plugin_count".to_string(),
+        Value::Number(serde_json::Number::from(mcp_count)),
+    );
     map
 }

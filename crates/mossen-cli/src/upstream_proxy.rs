@@ -171,7 +171,9 @@ async fn handle_connection(
             let first_line = req_head.lines().next().unwrap_or("");
 
             if !first_line.to_uppercase().starts_with("CONNECT ") {
-                let _ = stream.write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n").await;
+                let _ = stream
+                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                    .await;
                 return;
             }
 
@@ -185,7 +187,8 @@ async fn handle_connection(
                 ws_url,
                 auth_header,
                 ws_auth_header,
-            ).await;
+            )
+            .await;
             return;
         }
 
@@ -208,8 +211,8 @@ async fn open_tunnel(
     auth_header: &str,
     ws_auth_header: &str,
 ) {
-    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     let mut request = match ws_url.into_client_request() {
         Ok(r) => r,
@@ -218,14 +221,12 @@ async fn open_tunnel(
             return;
         }
     };
-    request.headers_mut().insert(
-        "Content-Type",
-        "application/proto".parse().unwrap(),
-    );
-    request.headers_mut().insert(
-        "Authorization",
-        ws_auth_header.parse().unwrap(),
-    );
+    request
+        .headers_mut()
+        .insert("Content-Type", "application/proto".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("Authorization", ws_auth_header.parse().unwrap());
 
     let ws_result = tokio_tungstenite::connect_async(request).await;
     let (ws_stream, _) = match ws_result {
@@ -239,9 +240,16 @@ async fn open_tunnel(
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
     // Send CONNECT header + auth as first chunk
-    let head = format!("{}\r\nProxy-Authorization: {}\r\n\r\n", connect_line, auth_header);
+    let head = format!(
+        "{}\r\nProxy-Authorization: {}\r\n\r\n",
+        connect_line, auth_header
+    );
     let chunk = encode_chunk(head.as_bytes());
-    if ws_write.send(tokio_tungstenite::tungstenite::Message::Binary(chunk)).await.is_err() {
+    if ws_write
+        .send(tokio_tungstenite::tungstenite::Message::Binary(chunk))
+        .await
+        .is_err()
+    {
         let _ = stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
         return;
     }
@@ -251,7 +259,11 @@ async fn open_tunnel(
         for off in (0..trailing.len()).step_by(MAX_CHUNK_BYTES) {
             let end = (off + MAX_CHUNK_BYTES).min(trailing.len());
             let chunk = encode_chunk(&trailing[off..end]);
-            if ws_write.send(tokio_tungstenite::tungstenite::Message::Binary(chunk)).await.is_err() {
+            if ws_write
+                .send(tokio_tungstenite::tungstenite::Message::Binary(chunk))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -262,12 +274,16 @@ async fn open_tunnel(
     let ws_write2 = ws_write.clone();
 
     let keepalive_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(PING_INTERVAL_MS));
+        let mut interval =
+            tokio::time::interval(tokio::time::Duration::from_millis(PING_INTERVAL_MS));
         loop {
             interval.tick().await;
             let empty_chunk = encode_chunk(&[]);
             let mut w = ws_write2.lock().await;
-            if w.send(tokio_tungstenite::tungstenite::Message::Binary(empty_chunk)).await.is_err() {
+            if w.send(tokio_tungstenite::tungstenite::Message::Binary(empty_chunk))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -309,7 +325,10 @@ async fn open_tunnel(
             };
             let chunk = encode_chunk(&buf[..n]);
             let mut w = ws_write.lock().await;
-            if w.send(tokio_tungstenite::tungstenite::Message::Binary(chunk)).await.is_err() {
+            if w.send(tokio_tungstenite::tungstenite::Message::Binary(chunk))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -340,7 +359,11 @@ pub struct UpstreamProxyState {
 
 impl Default for UpstreamProxyState {
     fn default() -> Self {
-        Self { enabled: false, port: None, ca_bundle_path: None }
+        Self {
+            enabled: false,
+            port: None,
+            ca_bundle_path: None,
+        }
     }
 }
 
@@ -389,9 +412,12 @@ pub async fn init_upstream_proxy(
         .unwrap_or_else(|| "https://api.mossen.invalid".to_string());
 
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-    let ca_path = ca_bundle_path
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| home.join(".ccr").join("ca-bundle.crt").to_string_lossy().to_string());
+    let ca_path = ca_bundle_path.map(|s| s.to_string()).unwrap_or_else(|| {
+        home.join(".ccr")
+            .join("ca-bundle.crt")
+            .to_string_lossy()
+            .to_string()
+    });
 
     let sys_ca = system_ca_path.unwrap_or(SYSTEM_CA_BUNDLE);
     if !download_ca_bundle(&base_url, sys_ca, &ca_path).await {
@@ -418,11 +444,15 @@ pub async fn init_upstream_proxy(
     }
 }
 
-pub fn get_upstream_proxy_env(state: &UpstreamProxyState) -> std::collections::HashMap<String, String> {
+pub fn get_upstream_proxy_env(
+    state: &UpstreamProxyState,
+) -> std::collections::HashMap<String, String> {
     let mut env = std::collections::HashMap::new();
     if !state.enabled {
         // Pass through inherited proxy vars if present
-        if let (Ok(proxy), Ok(cert)) = (std::env::var("HTTPS_PROXY"), std::env::var("SSL_CERT_FILE")) {
+        if let (Ok(proxy), Ok(cert)) =
+            (std::env::var("HTTPS_PROXY"), std::env::var("SSL_CERT_FILE"))
+        {
             env.insert("HTTPS_PROXY".into(), proxy.clone());
             env.insert("https_proxy".into(), proxy);
             env.insert("SSL_CERT_FILE".into(), cert.clone());
@@ -452,7 +482,11 @@ async fn read_token(path: &str) -> Option<String> {
     match tokio::fs::read_to_string(path).await {
         Ok(content) => {
             let trimmed = content.trim().to_string();
-            if trimmed.is_empty() { None } else { Some(trimmed) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
         }
         Err(_) => None,
     }
@@ -468,13 +502,19 @@ async fn download_ca_bundle(base_url: &str, system_ca_path: &str, out_path: &str
     let resp = match client.get(&url).send().await {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!("[upstreamproxy] ca-cert download failed: {}; proxy disabled", e);
+            tracing::warn!(
+                "[upstreamproxy] ca-cert download failed: {}; proxy disabled",
+                e
+            );
             return false;
         }
     };
 
     if !resp.status().is_success() {
-        tracing::warn!("[upstreamproxy] ca-cert fetch {}; proxy disabled", resp.status());
+        tracing::warn!(
+            "[upstreamproxy] ca-cert fetch {}; proxy disabled",
+            resp.status()
+        );
         return false;
     }
 
@@ -486,7 +526,9 @@ async fn download_ca_bundle(base_url: &str, system_ca_path: &str, out_path: &str
         }
     };
 
-    let system_ca = tokio::fs::read_to_string(system_ca_path).await.unwrap_or_default();
+    let system_ca = tokio::fs::read_to_string(system_ca_path)
+        .await
+        .unwrap_or_default();
 
     if let Some(parent) = std::path::Path::new(out_path).parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
@@ -495,7 +537,10 @@ async fn download_ca_bundle(base_url: &str, system_ca_path: &str, out_path: &str
     match tokio::fs::write(out_path, format!("{}\n{}", system_ca, ccr_ca)).await {
         Ok(_) => true,
         Err(e) => {
-            tracing::warn!("[upstreamproxy] ca-cert write failed: {}; proxy disabled", e);
+            tracing::warn!(
+                "[upstreamproxy] ca-cert write failed: {}; proxy disabled",
+                e
+            );
             false
         }
     }

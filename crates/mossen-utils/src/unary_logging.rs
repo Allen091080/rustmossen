@@ -50,7 +50,7 @@ pub struct UnaryLogEvent {
 /// 记录一元事件。
 pub async fn log_unary_event(event: UnaryLogEvent) {
     tracing::info!(
-        target: "tengu_unary_event",
+        target: "mossen_unary_event",
         event_type = ?event.event,
         completion_type = event.completion_type.as_str(),
         language_name = %event.metadata.language_name,

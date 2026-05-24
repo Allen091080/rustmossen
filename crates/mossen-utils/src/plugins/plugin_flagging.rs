@@ -26,11 +26,14 @@ struct FlaggedPluginsFile {
 }
 
 /// Module-level cache — populated by load_flagged_plugins(), updated by writes.
-static CACHE: Lazy<Mutex<Option<HashMap<String, FlaggedPlugin>>>> =
-    Lazy::new(|| Mutex::new(None));
+static CACHE: Lazy<Mutex<Option<HashMap<String, FlaggedPlugin>>>> = Lazy::new(|| Mutex::new(None));
 
 fn get_flagged_plugins_path() -> String {
-    format!("{}/{}", get_plugins_directory().display(), FLAGGED_PLUGINS_FILENAME)
+    format!(
+        "{}/{}",
+        get_plugins_directory().display(),
+        FLAGGED_PLUGINS_FILENAME
+    )
 }
 
 fn parse_plugins_data(content: &str) -> HashMap<String, FlaggedPlugin> {
@@ -50,7 +53,11 @@ async fn read_from_disk() -> HashMap<String, FlaggedPlugin> {
 
 async fn write_to_disk(plugins: &HashMap<String, FlaggedPlugin>) {
     let file_path = get_flagged_plugins_path();
-    let temp_path = format!("{}.{}.tmp", file_path, hex::encode(rand::random::<[u8; 8]>()));
+    let temp_path = format!(
+        "{}.{}.tmp",
+        file_path,
+        hex::encode(rand::random::<[u8; 8]>())
+    );
 
     let plugins_dir = get_plugins_directory();
     let _ = fs::create_dir_all(&plugins_dir).await;

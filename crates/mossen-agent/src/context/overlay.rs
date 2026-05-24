@@ -28,10 +28,7 @@ impl OverlayTracker {
 
     /// Register an overlay as active.
     pub fn register(&self, id: &str) {
-        self.active_overlays
-            .write()
-            .unwrap()
-            .insert(id.to_string());
+        self.active_overlays.write().unwrap().insert(id.to_string());
     }
 
     /// Unregister an overlay (no longer active).

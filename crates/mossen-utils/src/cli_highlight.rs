@@ -122,10 +122,7 @@ pub async fn get_language_name(file_path: &str) -> String {
         return "unknown".to_string();
     }
     match highlight {
-        Some(h) => h
-            .get_language_name(ext)
-            .unwrap_or("unknown")
-            .to_string(),
+        Some(h) => h.get_language_name(ext).unwrap_or("unknown").to_string(),
         None => "unknown".to_string(),
     }
 }

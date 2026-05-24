@@ -2,7 +2,7 @@
 //!
 //! Provides functions to run ripgrep searches, count files, and stream results.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -125,11 +125,7 @@ pub fn get_ripgrep_config() -> &'static RipgrepConfig {
 /// Get the ripgrep command path and base arguments.
 pub fn ripgrep_command() -> (&'static str, &'static [String], Option<&'static str>) {
     let config = get_ripgrep_config();
-    (
-        &config.command,
-        &config.args,
-        config.argv0.as_deref(),
-    )
+    (&config.command, &config.args, config.argv0.as_deref())
 }
 
 /// Check if an error string indicates an EAGAIN resource error.
@@ -182,145 +178,146 @@ fn rip_grep_impl<'a>(
     is_retry: bool,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send + 'a>> {
     Box::pin(async move {
-    let config = get_ripgrep_config();
-    let rg_timeout = get_timeout();
+        let config = get_ripgrep_config();
+        let rg_timeout = get_timeout();
 
-    let mut cmd_args: Vec<&str> = Vec::new();
-    for a in &config.args {
-        cmd_args.push(a.as_str());
-    }
-    if is_retry {
-        cmd_args.push("-j");
-        cmd_args.push("1");
-    }
-    cmd_args.extend_from_slice(args);
-    cmd_args.push(target);
+        let mut cmd_args: Vec<&str> = Vec::new();
+        for a in &config.args {
+            cmd_args.push(a.as_str());
+        }
+        if is_retry {
+            cmd_args.push("-j");
+            cmd_args.push("1");
+        }
+        cmd_args.extend_from_slice(args);
+        cmd_args.push(target);
 
-    let mut cmd = Command::new(&config.command);
-    cmd.args(&cmd_args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        let mut cmd = Command::new(&config.command);
+        cmd.args(&cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
 
-    let mut child = cmd.spawn().context("Failed to spawn ripgrep")?;
+        let mut child = cmd.spawn().context("Failed to spawn ripgrep")?;
 
-    let stdout = child.stdout.take().context("No stdout from ripgrep")?;
-    let stderr_handle = child.stderr.take().context("No stderr from ripgrep")?;
+        let stdout = child.stdout.take().context("No stdout from ripgrep")?;
+        let stderr_handle = child.stderr.take().context("No stderr from ripgrep")?;
 
-    let stdout_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout);
-        let mut output = String::new();
-        let mut buf = vec![0u8; 65536];
-        loop {
-            use tokio::io::AsyncReadExt;
-            match reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if output.len() + n <= MAX_BUFFER_SIZE {
-                        output.push_str(&String::from_utf8_lossy(&buf[..n]));
+        let stdout_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout);
+            let mut output = String::new();
+            let mut buf = vec![0u8; 65536];
+            loop {
+                use tokio::io::AsyncReadExt;
+                match reader.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if output.len() + n <= MAX_BUFFER_SIZE {
+                            output.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            output
+        });
+
+        let stderr_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr_handle);
+            let mut output = String::new();
+            let mut buf = vec![0u8; 8192];
+            loop {
+                use tokio::io::AsyncReadExt;
+                match reader.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if output.len() + n <= MAX_BUFFER_SIZE {
+                            output.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            output
+        });
+
+        let result = tokio::select! {
+            _ = cancel.cancelled() => {
+                child.kill().await.ok();
+                return Ok(vec![]);
+            }
+            result = timeout(rg_timeout, child.wait()) => {
+                match result {
+                    Ok(Ok(status)) => {
+                        let stdout_str = stdout_task.await.unwrap_or_default();
+                        let stderr_str = stderr_task.await.unwrap_or_default();
+                        (status.code(), stdout_str, stderr_str)
+                    }
+                    Ok(Err(e)) => {
+                        child.kill().await.ok();
+                        return Err(e.into());
+                    }
+                    Err(_) => {
+                        // Timeout
+                        child.kill().await.ok();
+                        let stdout_str = stdout_task.await.unwrap_or_default();
+                        let lines = parse_lines(&stdout_str);
+                        if lines.is_empty() {
+                            return Err(RipgrepTimeoutError {
+                                message: format!(
+                                    "Ripgrep search timed out after {} seconds.",
+                                    rg_timeout.as_secs()
+                                ),
+                                partial_results: vec![],
+                            }.into());
+                        }
+                        // Return partial results (drop last potentially incomplete line)
+                        let mut lines = lines;
+                        lines.pop();
+                        return Ok(lines);
                     }
                 }
-                Err(_) => break,
             }
-        }
-        output
-    });
+        };
 
-    let stderr_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr_handle);
-        let mut output = String::new();
-        let mut buf = vec![0u8; 8192];
-        loop {
-            use tokio::io::AsyncReadExt;
-            match reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if output.len() + n <= MAX_BUFFER_SIZE {
-                        output.push_str(&String::from_utf8_lossy(&buf[..n]));
+        let (exit_code, stdout_str, stderr_str) = result;
+
+        match exit_code {
+            Some(0) | Some(1) => {
+                // 0 = matches found, 1 = no matches
+                Ok(parse_lines(&stdout_str))
+            }
+            Some(code) => {
+                // Check for EAGAIN retry
+                if !is_retry && is_eagain_error(&stderr_str) {
+                    debug!("rg EAGAIN error detected, retrying with single-threaded mode");
+                    return rip_grep_impl(args, target, cancel, true).await;
+                }
+
+                debug!(
+                    "rg error (code={}, stderr={}), returning partial results",
+                    code, stderr_str
+                );
+
+                let lines = parse_lines(&stdout_str);
+                if lines.is_empty() && code != 2 {
+                    error!("ripgrep exited with code {}: {}", code, stderr_str);
+                }
+                Ok(lines)
+            }
+            None => {
+                // Process was killed by signal
+                let lines = parse_lines(&stdout_str);
+                if lines.is_empty() {
+                    return Err(RipgrepTimeoutError {
+                        message: "Ripgrep was killed by signal".to_string(),
+                        partial_results: vec![],
                     }
+                    .into());
                 }
-                Err(_) => break,
+                Ok(lines)
             }
         }
-        output
-    });
-
-    let result = tokio::select! {
-        _ = cancel.cancelled() => {
-            child.kill().await.ok();
-            return Ok(vec![]);
-        }
-        result = timeout(rg_timeout, child.wait()) => {
-            match result {
-                Ok(Ok(status)) => {
-                    let stdout_str = stdout_task.await.unwrap_or_default();
-                    let stderr_str = stderr_task.await.unwrap_or_default();
-                    (status.code(), stdout_str, stderr_str)
-                }
-                Ok(Err(e)) => {
-                    child.kill().await.ok();
-                    return Err(e.into());
-                }
-                Err(_) => {
-                    // Timeout
-                    child.kill().await.ok();
-                    let stdout_str = stdout_task.await.unwrap_or_default();
-                    let lines = parse_lines(&stdout_str);
-                    if lines.is_empty() {
-                        return Err(RipgrepTimeoutError {
-                            message: format!(
-                                "Ripgrep search timed out after {} seconds.",
-                                rg_timeout.as_secs()
-                            ),
-                            partial_results: vec![],
-                        }.into());
-                    }
-                    // Return partial results (drop last potentially incomplete line)
-                    let mut lines = lines;
-                    lines.pop();
-                    return Ok(lines);
-                }
-            }
-        }
-    };
-
-    let (exit_code, stdout_str, stderr_str) = result;
-
-    match exit_code {
-        Some(0) | Some(1) => {
-            // 0 = matches found, 1 = no matches
-            Ok(parse_lines(&stdout_str))
-        }
-        Some(code) => {
-            // Check for EAGAIN retry
-            if !is_retry && is_eagain_error(&stderr_str) {
-                debug!("rg EAGAIN error detected, retrying with single-threaded mode");
-                return rip_grep_impl(args, target, cancel, true).await;
-            }
-
-            debug!(
-                "rg error (code={}, stderr={}), returning partial results",
-                code, stderr_str
-            );
-
-            let lines = parse_lines(&stdout_str);
-            if lines.is_empty() && code != 2 {
-                error!("ripgrep exited with code {}: {}", code, stderr_str);
-            }
-            Ok(lines)
-        }
-        None => {
-            // Process was killed by signal
-            let lines = parse_lines(&stdout_str);
-            if lines.is_empty() {
-                return Err(RipgrepTimeoutError {
-                    message: "Ripgrep was killed by signal".to_string(),
-                    partial_results: vec![],
-                }.into());
-            }
-            Ok(lines)
-        }
-    }
     }) // end Box::pin
 }
 
@@ -360,7 +357,9 @@ where
         .stderr(Stdio::null())
         .kill_on_drop(true);
 
-    let mut child = cmd.spawn().context("Failed to spawn ripgrep for streaming")?;
+    let mut child = cmd
+        .spawn()
+        .context("Failed to spawn ripgrep for streaming")?;
     let stdout = child.stdout.take().context("No stdout from ripgrep")?;
     let mut reader = BufReader::new(stdout);
     let mut line = String::new();

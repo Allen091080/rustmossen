@@ -139,7 +139,11 @@ pub fn use_mcp_connectivity_status(
         .count();
 
     if failed_local > 0 {
-        let word = if failed_local == 1 { "server" } else { "servers" };
+        let word = if failed_local == 1 {
+            "server"
+        } else {
+            "servers"
+        };
         out.push(McpConnectivityNotification {
             key: "mcp-failed".to_string(),
             text: format!("{} MCP {} failed · /mcp", failed_local, word),
@@ -148,7 +152,11 @@ pub fn use_mcp_connectivity_status(
         });
     }
     if failed_hosted > 0 {
-        let word = if failed_hosted == 1 { "connector" } else { "connectors" };
+        let word = if failed_hosted == 1 {
+            "connector"
+        } else {
+            "connectors"
+        };
         out.push(McpConnectivityNotification {
             key: "mcp-hosted-failed".to_string(),
             text: format!("{} hosted {} unavailable · /mcp", failed_hosted, word),
@@ -157,7 +165,11 @@ pub fn use_mcp_connectivity_status(
         });
     }
     if needs_auth_local > 0 {
-        let phrase = if needs_auth_local == 1 { "server needs" } else { "servers need" };
+        let phrase = if needs_auth_local == 1 {
+            "server needs"
+        } else {
+            "servers need"
+        };
         out.push(McpConnectivityNotification {
             key: "mcp-needs-auth".to_string(),
             text: format!("{} MCP {} auth · /mcp", needs_auth_local, phrase),
@@ -166,7 +178,11 @@ pub fn use_mcp_connectivity_status(
         });
     }
     if needs_auth_hosted > 0 {
-        let phrase = if needs_auth_hosted == 1 { "connector needs" } else { "connectors need" };
+        let phrase = if needs_auth_hosted == 1 {
+            "connector needs"
+        } else {
+            "connectors need"
+        };
         out.push(McpConnectivityNotification {
             key: "mcp-hosted-needs-auth".to_string(),
             text: format!("{} hosted {} auth · /mcp", needs_auth_hosted, phrase),

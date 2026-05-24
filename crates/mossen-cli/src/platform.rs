@@ -27,14 +27,13 @@ pub fn get_platform_info() -> PlatformInfo {
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();
 
-    let shell = std::env::var("SHELL")
-        .unwrap_or_else(|_| {
-            if cfg!(windows) {
-                "cmd.exe".to_string()
-            } else {
-                "/bin/sh".to_string()
-            }
-        });
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(windows) {
+            "cmd.exe".to_string()
+        } else {
+            "/bin/sh".to_string()
+        }
+    });
 
     let home_dir = dirs::home_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -42,8 +41,7 @@ pub fn get_platform_info() -> PlatformInfo {
 
     let temp_dir = std::env::temp_dir().to_string_lossy().to_string();
 
-    let is_wsl = std::env::var("WSL_DISTRO_NAME").is_ok()
-        || std::env::var("WSLENV").is_ok();
+    let is_wsl = std::env::var("WSL_DISTRO_NAME").is_ok() || std::env::var("WSLENV").is_ok();
 
     let is_docker = std::path::Path::new("/.dockerenv").exists()
         || std::fs::read_to_string("/proc/1/cgroup")
@@ -55,8 +53,7 @@ pub fn get_platform_info() -> PlatformInfo {
         || std::env::var("JENKINS_URL").is_ok()
         || std::env::var("GITLAB_CI").is_ok();
 
-    let is_ssh = std::env::var("SSH_CONNECTION").is_ok()
-        || std::env::var("SSH_CLIENT").is_ok();
+    let is_ssh = std::env::var("SSH_CONNECTION").is_ok() || std::env::var("SSH_CLIENT").is_ok();
 
     let terminal = std::env::var("TERM_PROGRAM")
         .ok()
@@ -277,9 +274,7 @@ pub async fn get_platform_runtime_snapshot(prime: bool) -> PlatformRuntimeSnapsh
             .args(["auth", "status"])
             .output()
             .await;
-        snapshot.local_git.gh_authenticated = output
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        snapshot.local_git.gh_authenticated = output.map(|o| o.status.success()).unwrap_or(false);
         snapshot.local_git.local_pr_ready =
             snapshot.local_git.gh_installed && snapshot.local_git.gh_authenticated;
     }
@@ -355,9 +350,7 @@ pub fn supports_color() -> bool {
         return true;
     }
     // Check TERM
-    std::env::var("TERM")
-        .map(|t| t != "dumb")
-        .unwrap_or(false)
+    std::env::var("TERM").map(|t| t != "dumb").unwrap_or(false)
 }
 
 /// 检测终端是否支持 Unicode。

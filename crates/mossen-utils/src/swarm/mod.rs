@@ -14,6 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Result};
 use once_cell::sync::Lazy;
 use rand::Rng;
+
+use crate::string_utils::prefix_chars;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::Mutex as TokioMutex;
@@ -68,18 +70,23 @@ pub const PLAN_MODE_REQUIRED_ENV_VAR: &str = "MOSSEN_CODE_PLAN_MODE_REQUIRED";
 
 /// Returns the hardcoded fallback model for teammates.
 /// When the user has never set teammateDefaultModel in /config, new teammates
-/// use Opus 4.6. Must be provider-aware so Bedrock/Vertex/Foundry customers get
+/// use Max 4.6. Must be provider-aware so Bedrock/Vertex/Foundry customers get
 /// the correct model ID.
 pub fn get_hardcoded_teammate_model_fallback() -> String {
-    // In the TS code, this calls MOSSEN_OPUS_4_6_CONFIG[getAPIProvider()].
+    // In the TS code, this calls MOSSEN_MAX_4_6_CONFIG[getAPIProvider()].
     // We return a reasonable default; the actual provider-aware lookup is done
     // by the model config system.
     let provider = std::env::var("MOSSEN_CODE_API_PROVIDER").unwrap_or_default();
     match provider.as_str() {
-        "bedrock" => "us.anthropic.mossen-opus-4-6-20260514-v1:0".to_string(),
-        "vertex" => "mossen-opus-4-6@20260514".to_string(),
-        "foundry" => "anthropic.mossen-opus-4-6".to_string(),
-        _ => "mossen-opus-4-6-20260514".to_string(),
+        "bedrock" => crate::model_utils::external_bedrock_model_id(
+            "max-4-6",
+            Some("us"),
+            Some("20260514"),
+            Some("v1:0"),
+        ),
+        "vertex" => "mossen-max-4-6@20260514".to_string(),
+        "foundry" => crate::model_utils::external_foundry_model_id("max-4-6"),
+        _ => "mossen-max-4-6-20260514".to_string(),
     }
 }
 
@@ -106,10 +113,12 @@ The user interacts primarily with the team lead. Your work is coordinated throug
 // ============================================================================
 
 /// Type alias for set-tool-use-confirm-queue function.
-pub type SetToolUseConfirmQueueFn = Arc<dyn Fn(Box<dyn FnOnce(Vec<serde_json::Value>) -> Vec<serde_json::Value>>) + Send + Sync>;
+pub type SetToolUseConfirmQueueFn =
+    Arc<dyn Fn(Box<dyn FnOnce(Vec<serde_json::Value>) -> Vec<serde_json::Value>>) + Send + Sync>;
 
 /// Type alias for set-tool-permission-context function.
-pub type SetToolPermissionContextFn = Arc<dyn Fn(serde_json::Value, Option<PreserveModeOptions>) + Send + Sync>;
+pub type SetToolPermissionContextFn =
+    Arc<dyn Fn(serde_json::Value, Option<PreserveModeOptions>) + Send + Sync>;
 
 /// Options for set-tool-permission-context.
 #[derive(Debug, Clone)]
@@ -370,12 +379,10 @@ pub fn is_pane_backend(backend_type: BackendType) -> bool {
 // ============================================================================
 
 /// Captured at module load time to detect if user started Mossen from within tmux.
-static ORIGINAL_USER_TMUX: Lazy<Option<String>> =
-    Lazy::new(|| std::env::var("TMUX").ok());
+static ORIGINAL_USER_TMUX: Lazy<Option<String>> = Lazy::new(|| std::env::var("TMUX").ok());
 
 /// Captured at module load time to get the leader's tmux pane ID.
-static ORIGINAL_TMUX_PANE: Lazy<Option<String>> =
-    Lazy::new(|| std::env::var("TMUX_PANE").ok());
+static ORIGINAL_TMUX_PANE: Lazy<Option<String>> = Lazy::new(|| std::env::var("TMUX_PANE").ok());
 
 /// Cached result for is_inside_tmux.
 static IS_INSIDE_TMUX_CACHED: Lazy<Mutex<Option<bool>>> = Lazy::new(|| Mutex::new(None));
@@ -488,8 +495,7 @@ impl std::str::FromStr for TeammateMode {
 }
 
 /// Module-level variable to hold the captured mode at startup.
-static INITIAL_TEAMMATE_MODE: Lazy<Mutex<Option<TeammateMode>>> =
-    Lazy::new(|| Mutex::new(None));
+static INITIAL_TEAMMATE_MODE: Lazy<Mutex<Option<TeammateMode>>> = Lazy::new(|| Mutex::new(None));
 
 /// CLI override (set before capture if --teammate-mode is provided).
 static CLI_TEAMMATE_MODE_OVERRIDE: Lazy<Mutex<Option<TeammateMode>>> =
@@ -509,7 +515,10 @@ pub fn get_cli_teammate_mode_override() -> Option<TeammateMode> {
 pub fn clear_cli_teammate_mode_override(new_mode: TeammateMode) {
     *CLI_TEAMMATE_MODE_OVERRIDE.lock().unwrap() = None;
     *INITIAL_TEAMMATE_MODE.lock().unwrap() = Some(new_mode);
-    swarm_debug!("[TeammateModeSnapshot] CLI override cleared, new mode: {}", new_mode);
+    swarm_debug!(
+        "[TeammateModeSnapshot] CLI override cleared, new mode: {}",
+        new_mode
+    );
 }
 
 /// Capture the teammate mode at session startup.
@@ -517,11 +526,16 @@ pub fn capture_teammate_mode_snapshot() {
     let cli_override = *CLI_TEAMMATE_MODE_OVERRIDE.lock().unwrap();
     if let Some(mode) = cli_override {
         *INITIAL_TEAMMATE_MODE.lock().unwrap() = Some(mode);
-        swarm_debug!("[TeammateModeSnapshot] Captured from CLI override: {}", mode);
+        swarm_debug!(
+            "[TeammateModeSnapshot] Captured from CLI override: {}",
+            mode
+        );
     } else {
         // Read from config; default to 'auto'
         let mode_str = std::env::var("MOSSEN_TEAMMATE_MODE").unwrap_or_else(|_| "auto".into());
-        let mode = mode_str.parse::<TeammateMode>().unwrap_or(TeammateMode::Auto);
+        let mode = mode_str
+            .parse::<TeammateMode>()
+            .unwrap_or(TeammateMode::Auto);
         *INITIAL_TEAMMATE_MODE.lock().unwrap() = Some(mode);
         swarm_debug!("[TeammateModeSnapshot] Captured from config: {}", mode);
     }
@@ -534,7 +548,10 @@ pub fn get_teammate_mode_from_snapshot() -> TeammateMode {
         eprintln!("getTeammateModeFromSnapshot called before capture - initialization bug");
         capture_teammate_mode_snapshot();
     }
-    INITIAL_TEAMMATE_MODE.lock().unwrap().unwrap_or(TeammateMode::Auto)
+    INITIAL_TEAMMATE_MODE
+        .lock()
+        .unwrap()
+        .unwrap_or(TeammateMode::Auto)
 }
 
 // ============================================================================
@@ -578,7 +595,11 @@ pub struct It2VerifyResult {
 /// Detects which Python package manager is available on the system.
 pub async fn detect_python_package_manager() -> Option<PythonPackageManager> {
     // Check uv first (preferred)
-    if let Ok(output) = tokio::process::Command::new("which").arg("uv").output().await {
+    if let Ok(output) = tokio::process::Command::new("which")
+        .arg("uv")
+        .output()
+        .await
+    {
         if output.status.success() {
             swarm_debug!("[it2Setup] Found uv (will use uv tool install)");
             return Some(PythonPackageManager::Uvx);
@@ -586,7 +607,11 @@ pub async fn detect_python_package_manager() -> Option<PythonPackageManager> {
     }
 
     // Check pipx
-    if let Ok(output) = tokio::process::Command::new("which").arg("pipx").output().await {
+    if let Ok(output) = tokio::process::Command::new("which")
+        .arg("pipx")
+        .output()
+        .await
+    {
         if output.status.success() {
             swarm_debug!("[it2Setup] Found pipx package manager");
             return Some(PythonPackageManager::Pipx);
@@ -594,7 +619,11 @@ pub async fn detect_python_package_manager() -> Option<PythonPackageManager> {
     }
 
     // Check pip
-    if let Ok(output) = tokio::process::Command::new("which").arg("pip").output().await {
+    if let Ok(output) = tokio::process::Command::new("which")
+        .arg("pip")
+        .output()
+        .await
+    {
         if output.status.success() {
             swarm_debug!("[it2Setup] Found pip package manager");
             return Some(PythonPackageManager::Pip);
@@ -602,7 +631,11 @@ pub async fn detect_python_package_manager() -> Option<PythonPackageManager> {
     }
 
     // Also check pip3
-    if let Ok(output) = tokio::process::Command::new("which").arg("pip3").output().await {
+    if let Ok(output) = tokio::process::Command::new("which")
+        .arg("pip3")
+        .output()
+        .await
+    {
         if output.status.success() {
             swarm_debug!("[it2Setup] Found pip3 package manager");
             return Some(PythonPackageManager::Pip);
@@ -684,7 +717,11 @@ pub async fn verify_it2_setup() -> It2VerifyResult {
     swarm_debug!("[it2Setup] Verifying it2 setup...");
 
     // Check if it2 is installed
-    if let Ok(output) = tokio::process::Command::new("which").arg("it2").output().await {
+    if let Ok(output) = tokio::process::Command::new("which")
+        .arg("it2")
+        .output()
+        .await
+    {
         if !output.status.success() {
             return It2VerifyResult {
                 success: false,
@@ -993,7 +1030,11 @@ pub fn read_team_file(team_name: &str) -> Option<TeamFile> {
         Ok(content) => match serde_json::from_str::<TeamFile>(&content) {
             Ok(team) => Some(team),
             Err(e) => {
-                swarm_debug!("[TeammateTool] Failed to parse team file for {}: {}", team_name, e);
+                swarm_debug!(
+                    "[TeammateTool] Failed to parse team file for {}: {}",
+                    team_name,
+                    e
+                );
                 None
             }
         },
@@ -1001,7 +1042,8 @@ pub fn read_team_file(team_name: &str) -> Option<TeamFile> {
         Err(e) => {
             swarm_debug!(
                 "[TeammateTool] Failed to read team file for {}: {}",
-                team_name, e
+                team_name,
+                e
             );
             None
         }
@@ -1015,7 +1057,11 @@ pub async fn read_team_file_async(team_name: &str) -> Option<TeamFile> {
         Ok(content) => match serde_json::from_str::<TeamFile>(&content) {
             Ok(team) => Some(team),
             Err(e) => {
-                swarm_debug!("[TeammateTool] Failed to parse team file for {}: {}", team_name, e);
+                swarm_debug!(
+                    "[TeammateTool] Failed to parse team file for {}: {}",
+                    team_name,
+                    e
+                );
                 None
             }
         },
@@ -1023,7 +1069,8 @@ pub async fn read_team_file_async(team_name: &str) -> Option<TeamFile> {
         Err(e) => {
             swarm_debug!(
                 "[TeammateTool] Failed to read team file for {}: {}",
-                team_name, e
+                team_name,
+                e
             );
             None
         }
@@ -1093,13 +1140,17 @@ pub fn remove_teammate_from_team_file(
     if team_file.members.len() == original_len {
         swarm_debug!(
             "[TeammateTool] Teammate {:?} not found in team file for \"{}\"",
-            identifier, team_name
+            identifier,
+            team_name
         );
         return false;
     }
 
     write_team_file(team_name, &team_file);
-    swarm_debug!("[TeammateTool] Removed teammate from team file: {:?}", identifier);
+    swarm_debug!(
+        "[TeammateTool] Removed teammate from team file: {:?}",
+        identifier
+    );
     true
 }
 
@@ -1116,7 +1167,8 @@ pub fn add_hidden_pane_id(team_name: &str, pane_id: &str) -> bool {
         write_team_file(team_name, &team_file);
         swarm_debug!(
             "[TeammateTool] Added {} to hidden panes for team {}",
-            pane_id, team_name
+            pane_id,
+            team_name
         );
     }
     true
@@ -1135,7 +1187,8 @@ pub fn remove_hidden_pane_id(team_name: &str, pane_id: &str) -> bool {
             write_team_file(team_name, &team_file);
             swarm_debug!(
                 "[TeammateTool] Removed {} from hidden panes for team {}",
-                pane_id, team_name
+                pane_id,
+                team_name
             );
         }
     }
@@ -1164,7 +1217,8 @@ pub fn remove_member_from_team(team_name: &str, tmux_pane_id: &str) -> bool {
             write_team_file(team_name, &team_file);
             swarm_debug!(
                 "[TeammateTool] Removed member with pane {} from team {}",
-                tmux_pane_id, team_name
+                tmux_pane_id,
+                team_name
             );
             true
         }
@@ -1190,7 +1244,8 @@ pub fn remove_member_by_agent_id(team_name: &str, agent_id: &str) -> bool {
             write_team_file(team_name, &team_file);
             swarm_debug!(
                 "[TeammateTool] Removed member {} from team {}",
-                agent_id, team_name
+                agent_id,
+                team_name
             );
             true
         }
@@ -1209,7 +1264,8 @@ pub fn set_member_mode(team_name: &str, member_name: &str, mode: PermissionMode)
     if member.is_none() {
         swarm_debug!(
             "[TeammateTool] Cannot set member mode: member {} not found in team {}",
-            member_name, team_name
+            member_name,
+            team_name
         );
         return false;
     }
@@ -1229,7 +1285,9 @@ pub fn set_member_mode(team_name: &str, member_name: &str, mode: PermissionMode)
     write_team_file(team_name, &team_file);
     swarm_debug!(
         "[TeammateTool] Set member {} in team {} to mode: {}",
-        member_name, team_name, mode
+        member_name,
+        team_name,
+        mode
     );
     true
 }
@@ -1288,7 +1346,8 @@ pub async fn set_member_active(team_name: &str, member_name: &str, is_active: bo
         None => {
             swarm_debug!(
                 "[TeammateTool] Cannot set member active: member {} not found in team {}",
-                member_name, team_name
+                member_name,
+                team_name
             );
             return;
         }
@@ -1368,7 +1427,8 @@ async fn destroy_worktree(worktree_path: &Path) {
     if let Err(e) = fs::remove_dir_all(worktree_path).await {
         swarm_debug!(
             "[TeammateTool] Failed to remove worktree {}: {}",
-            worktree_path.display(), e
+            worktree_path.display(),
+            e
         );
     } else {
         swarm_debug!(
@@ -1402,7 +1462,8 @@ pub async fn cleanup_team_directories(team_name: &str) {
     if let Err(e) = fs::remove_dir_all(&team_dir).await {
         swarm_debug!(
             "[TeammateTool] Failed to clean up team directory {}: {}",
-            team_dir.display(), e
+            team_dir.display(),
+            e
         );
     } else {
         swarm_debug!(
@@ -1421,7 +1482,8 @@ pub async fn cleanup_team_directories(team_name: &str) {
         if e.kind() != std::io::ErrorKind::NotFound {
             swarm_debug!(
                 "[TeammateTool] Failed to clean up tasks directory {}: {}",
-                tasks_dir.display(), e
+                tasks_dir.display(),
+                e
             );
         }
     } else {
@@ -1528,19 +1590,13 @@ pub fn compute_initial_team_context() -> Option<TeamContext> {
     let agent_name = context.agent_name.as_deref()?;
 
     let team_file = read_team_file(team_name)?;
-    let team_file_path = get_team_file_path(team_name)
-        .to_string_lossy()
-        .into_owned();
+    let team_file_path = get_team_file_path(team_name).to_string_lossy().into_owned();
 
     let is_leader = context.agent_id.is_none();
 
     swarm_debug!(
         "[Reconnection] Computed initial team context for {} in team {}",
-        if is_leader {
-            "leader"
-        } else {
-            agent_name
-        },
+        if is_leader { "leader" } else { agent_name },
         team_name
     );
 
@@ -1566,18 +1622,18 @@ pub fn initialize_teammate_context_from_session(
     if member.is_none() {
         swarm_debug!(
             "[Reconnection] Member {} not found in team {} - may have been removed",
-            agent_name, team_name
+            agent_name,
+            team_name
         );
     }
     let agent_id = member.map(|m| m.agent_id.clone());
 
-    let team_file_path = get_team_file_path(team_name)
-        .to_string_lossy()
-        .into_owned();
+    let team_file_path = get_team_file_path(team_name).to_string_lossy().into_owned();
 
     swarm_debug!(
         "[Reconnection] Initialized agent context from session for {} in team {}",
-        agent_name, team_name
+        agent_name,
+        team_name
     );
 
     Some(TeamContext {
@@ -1617,7 +1673,9 @@ pub fn initialize_teammate_hooks(
             };
             swarm_debug!(
                 "[TeammateInit] Applying team permission: {} allowed in {} (rule: {})",
-                ap.tool_name, ap.path, rule_content
+                ap.tool_name,
+                ap.path,
+                rule_content
             );
             applied_paths.push(AppliedTeamPath {
                 tool_name: ap.tool_name.clone(),
@@ -1649,7 +1707,8 @@ pub fn initialize_teammate_hooks(
 
     swarm_debug!(
         "[TeammateInit] Registering Stop hook for teammate {} to notify leader {}",
-        agent_name, lead_agent_name
+        agent_name,
+        lead_agent_name
     );
 
     Some(TeamInitResult {
@@ -1810,9 +1869,7 @@ pub struct CreatePermissionRequestParams {
 }
 
 /// Write a permission request to the pending directory with file locking.
-pub async fn write_permission_request(
-    request: &SwarmPermissionRequest,
-) -> Result<()> {
+pub async fn write_permission_request(request: &SwarmPermissionRequest) -> Result<()> {
     ensure_permission_dirs_async(&request.team_name).await?;
 
     let pending_path = get_pending_request_path(&request.team_name, &request.id);
@@ -1821,7 +1878,9 @@ pub async fn write_permission_request(
 
     swarm_debug!(
         "[PermissionSync] Wrote pending request {} from {} for {}",
-        request.id, request.worker_name, request.tool_name
+        request.id,
+        request.worker_name,
+        request.tool_name
     );
     Ok(())
 }
@@ -1845,10 +1904,7 @@ pub async fn read_pending_permissions(team_name: &str) -> Vec<SwarmPermissionReq
         if path.extension().map_or(true, |ext| ext != "json") {
             continue;
         }
-        if path
-            .file_name()
-            .map_or(false, |n| n == ".lock")
-        {
+        if path.file_name().map_or(false, |n| n == ".lock") {
             continue;
         }
         if let Ok(content) = fs::read_to_string(&path).await {
@@ -1890,10 +1946,7 @@ pub async fn resolve_permission(
     let content = match fs::read_to_string(&pending_path).await {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            swarm_debug!(
-                "[PermissionSync] Pending request not found: {}",
-                request_id
-            );
+            swarm_debug!("[PermissionSync] Pending request not found: {}", request_id);
             return false;
         }
         Err(e) => {
@@ -1907,7 +1960,8 @@ pub async fn resolve_permission(
         Err(e) => {
             swarm_debug!(
                 "[PermissionSync] Invalid pending request {}: {}",
-                request_id, e
+                request_id,
+                e
             );
             return false;
         }
@@ -1943,7 +1997,8 @@ pub async fn resolve_permission(
 
     swarm_debug!(
         "[PermissionSync] Resolved request {} with {}",
-        request_id, resolution.decision
+        request_id,
+        resolution.decision
     );
     true
 }
@@ -1984,19 +2039,13 @@ pub async fn cleanup_old_resolutions(team_name: &str, max_age_ms: u64) -> usize 
     }
 
     if cleaned > 0 {
-        swarm_debug!(
-            "[PermissionSync] Cleaned up {} old resolutions",
-            cleaned
-        );
+        swarm_debug!("[PermissionSync] Cleaned up {} old resolutions", cleaned);
     }
     cleaned
 }
 
 /// Poll for a permission response (worker-side convenience function).
-pub async fn poll_for_response(
-    request_id: &str,
-    team_name: &str,
-) -> Option<PermissionResponse> {
+pub async fn poll_for_response(request_id: &str, team_name: &str) -> Option<PermissionResponse> {
     let resolved = read_resolved_permission(request_id, team_name).await?;
 
     let timestamp = if let Some(ra) = resolved.resolved_at {
@@ -2047,7 +2096,9 @@ pub async fn delete_resolved_permission(request_id: &str, team_name: &str) -> bo
 
 /// Check if the current agent is a team leader.
 pub fn is_team_leader(team_name: Option<&str>) -> bool {
-    let team = team_name.map(String::from).or_else(|| std::env::var("MOSSEN_CODE_TEAM_NAME").ok());
+    let team = team_name
+        .map(String::from)
+        .or_else(|| std::env::var("MOSSEN_CODE_TEAM_NAME").ok());
     if team.is_none() {
         return false;
     }
@@ -2296,11 +2347,7 @@ impl TmuxBackend {
         }
     }
 
-    async fn get_pane_count(
-        &self,
-        window_target: &str,
-        use_swarm_socket: bool,
-    ) -> Option<usize> {
+    async fn get_pane_count(&self, window_target: &str, use_swarm_socket: bool) -> Option<usize> {
         let args = vec!["list-panes", "-t", window_target, "-F", "#{pane_id}"];
         let result = if use_swarm_socket {
             Self::run_tmux_in_swarm(&args.iter().map(|s| *s).collect::<Vec<_>>()).await
@@ -2325,12 +2372,22 @@ impl TmuxBackend {
 
         if !session_exists {
             let result = Self::run_tmux_in_swarm(&[
-                "new-session", "-d", "-s", SWARM_SESSION_NAME, "-n", SWARM_VIEW_WINDOW_NAME,
-                "-P", "-F", "#{pane_id}",
+                "new-session",
+                "-d",
+                "-s",
+                SWARM_SESSION_NAME,
+                "-n",
+                SWARM_VIEW_WINDOW_NAME,
+                "-P",
+                "-F",
+                "#{pane_id}",
             ])
             .await;
             if !result.status.success() {
-                bail!("Failed to create swarm session: {}", String::from_utf8_lossy(&result.stderr));
+                bail!(
+                    "Failed to create swarm session: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
             }
             let pane_id = String::from_utf8_lossy(&result.stdout).trim().to_string();
             let window_target = format!("{}:{}", SWARM_SESSION_NAME, SWARM_VIEW_WINDOW_NAME);
@@ -2339,7 +2396,11 @@ impl TmuxBackend {
 
         // Session exists, check for swarm-view window
         let list_result = Self::run_tmux_in_swarm(&[
-            "list-windows", "-t", SWARM_SESSION_NAME, "-F", "#{window_name}",
+            "list-windows",
+            "-t",
+            SWARM_SESSION_NAME,
+            "-F",
+            "#{window_name}",
         ])
         .await;
 
@@ -2352,10 +2413,9 @@ impl TmuxBackend {
             .collect();
 
         if windows.contains(&SWARM_VIEW_WINDOW_NAME) {
-            let pane_result = Self::run_tmux_in_swarm(&[
-                "list-panes", "-t", &window_target, "-F", "#{pane_id}",
-            ])
-            .await;
+            let pane_result =
+                Self::run_tmux_in_swarm(&["list-panes", "-t", &window_target, "-F", "#{pane_id}"])
+                    .await;
             let panes: Vec<String> = String::from_utf8_lossy(&pane_result.stdout)
                 .trim()
                 .lines()
@@ -2367,22 +2427,37 @@ impl TmuxBackend {
 
         // Create the swarm-view window
         let create_result = Self::run_tmux_in_swarm(&[
-            "new-window", "-t", SWARM_SESSION_NAME, "-n", SWARM_VIEW_WINDOW_NAME,
-            "-P", "-F", "#{pane_id}",
+            "new-window",
+            "-t",
+            SWARM_SESSION_NAME,
+            "-n",
+            SWARM_VIEW_WINDOW_NAME,
+            "-P",
+            "-F",
+            "#{pane_id}",
         ])
         .await;
         if !create_result.status.success() {
-            bail!("Failed to create swarm-view window: {}", String::from_utf8_lossy(&create_result.stderr));
+            bail!(
+                "Failed to create swarm-view window: {}",
+                String::from_utf8_lossy(&create_result.stderr)
+            );
         }
         Ok((
             window_target,
-            String::from_utf8_lossy(&create_result.stdout).trim().to_string(),
+            String::from_utf8_lossy(&create_result.stdout)
+                .trim()
+                .to_string(),
         ))
     }
 
     async fn rebalance_panes_with_leader(&self, window_target: &str) {
         let list_result = Self::run_tmux_in_user_session(&[
-            "list-panes", "-t", window_target, "-F", "#{pane_id}",
+            "list-panes",
+            "-t",
+            window_target,
+            "-F",
+            "#{pane_id}",
         ])
         .await;
         let panes: Vec<String> = String::from_utf8_lossy(&list_result.stdout)
@@ -2410,10 +2485,8 @@ impl TmuxBackend {
     }
 
     async fn rebalance_panes_tiled(&self, window_target: &str) {
-        let list_result = Self::run_tmux_in_swarm(&[
-            "list-panes", "-t", window_target, "-F", "#{pane_id}",
-        ])
-        .await;
+        let list_result =
+            Self::run_tmux_in_swarm(&["list-panes", "-t", window_target, "-F", "#{pane_id}"]).await;
         let pane_count = String::from_utf8_lossy(&list_result.stdout)
             .trim()
             .lines()
@@ -2464,56 +2537,96 @@ impl PaneBackend for TmuxBackend {
 
         if inside_tmux {
             // Create pane with leader
-            let current_pane_id = self.get_current_pane_id().await
+            let current_pane_id = self
+                .get_current_pane_id()
+                .await
                 .ok_or_else(|| anyhow!("Could not determine current tmux pane"))?;
-            let window_target = self.get_current_window_target().await
+            let window_target = self
+                .get_current_window_target()
+                .await
                 .ok_or_else(|| anyhow!("Could not determine current tmux window"))?;
-            let pane_count = self.get_pane_count(&window_target, false).await
+            let pane_count = self
+                .get_pane_count(&window_target, false)
+                .await
                 .ok_or_else(|| anyhow!("Could not determine pane count"))?;
 
             let is_first = pane_count == 1;
             let split_result = if is_first {
                 Self::run_tmux_in_user_session(&[
-                    "split-window", "-t", &current_pane_id, "-h", "-l", "70%",
-                    "-P", "-F", "#{pane_id}",
-                ]).await
+                    "split-window",
+                    "-t",
+                    &current_pane_id,
+                    "-h",
+                    "-l",
+                    "70%",
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .await
             } else {
                 let list_result = Self::run_tmux_in_user_session(&[
-                    "list-panes", "-t", &window_target, "-F", "#{pane_id}",
-                ]).await;
+                    "list-panes",
+                    "-t",
+                    &window_target,
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .await;
                 let panes: Vec<String> = String::from_utf8_lossy(&list_result.stdout)
-                    .trim().lines().filter(|l| !l.is_empty()).map(|s| s.to_string()).collect();
+                    .trim()
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
                 let teammate_panes = &panes[1..];
                 let teammate_count = teammate_panes.len();
                 let split_vertically = teammate_count % 2 == 1;
                 let target_idx = (teammate_count.saturating_sub(1)) / 2;
-                let target_pane = teammate_panes.get(target_idx)
+                let target_pane = teammate_panes
+                    .get(target_idx)
                     .or_else(|| teammate_panes.last())
                     .cloned()
                     .unwrap_or_default();
 
                 let flag = if split_vertically { "-v" } else { "-h" };
                 Self::run_tmux_in_user_session(&[
-                    "split-window", "-t", &target_pane, flag,
-                    "-P", "-F", "#{pane_id}",
-                ]).await
+                    "split-window",
+                    "-t",
+                    &target_pane,
+                    flag,
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .await
             };
 
             if !split_result.status.success() {
-                bail!("Failed to create teammate pane: {}", String::from_utf8_lossy(&split_result.stderr));
+                bail!(
+                    "Failed to create teammate pane: {}",
+                    String::from_utf8_lossy(&split_result.stderr)
+                );
             }
-            let pane_id = String::from_utf8_lossy(&split_result.stdout).trim().to_string();
+            let pane_id = String::from_utf8_lossy(&split_result.stdout)
+                .trim()
+                .to_string();
 
             self.set_pane_border_color(&pane_id, color, false).await?;
             self.set_pane_title(&pane_id, name, color, false).await?;
             self.rebalance_panes_with_leader(&window_target).await;
 
             tokio::time::sleep(Duration::from_millis(PANE_SHELL_INIT_DELAY_MS)).await;
-            Ok(CreatePaneResult { pane_id, is_first_teammate: is_first })
+            Ok(CreatePaneResult {
+                pane_id,
+                is_first_teammate: is_first,
+            })
         } else {
             // External swarm session
             let (window_target, first_pane_id) = self.create_external_swarm_session().await?;
-            let pane_count = self.get_pane_count(&window_target, true).await
+            let pane_count = self
+                .get_pane_count(&window_target, true)
+                .await
                 .ok_or_else(|| anyhow!("Could not determine pane count for swarm window"))?;
 
             let first_used = *self.first_pane_used_for_external.lock().unwrap();
@@ -2521,31 +2634,53 @@ impl PaneBackend for TmuxBackend {
 
             let pane_id = if is_first {
                 *self.first_pane_used_for_external.lock().unwrap() = true;
-                self.enable_pane_border_status(Some(&window_target), true).await?;
+                self.enable_pane_border_status(Some(&window_target), true)
+                    .await?;
                 first_pane_id
             } else {
                 let list_result = Self::run_tmux_in_swarm(&[
-                    "list-panes", "-t", &window_target, "-F", "#{pane_id}",
-                ]).await;
+                    "list-panes",
+                    "-t",
+                    &window_target,
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .await;
                 let panes: Vec<String> = String::from_utf8_lossy(&list_result.stdout)
-                    .trim().lines().filter(|l| !l.is_empty()).map(|s| s.to_string()).collect();
+                    .trim()
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
                 let count = panes.len();
                 let split_vertically = count % 2 == 1;
                 let target_idx = (count.saturating_sub(1)) / 2;
-                let target_pane = panes.get(target_idx)
+                let target_pane = panes
+                    .get(target_idx)
                     .or_else(|| panes.last())
                     .cloned()
                     .unwrap_or_default();
 
                 let flag = if split_vertically { "-v" } else { "-h" };
                 let split_result = Self::run_tmux_in_swarm(&[
-                    "split-window", "-t", &target_pane, flag,
-                    "-P", "-F", "#{pane_id}",
-                ]).await;
+                    "split-window",
+                    "-t",
+                    &target_pane,
+                    flag,
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .await;
                 if !split_result.status.success() {
-                    bail!("Failed to create teammate pane: {}", String::from_utf8_lossy(&split_result.stderr));
+                    bail!(
+                        "Failed to create teammate pane: {}",
+                        String::from_utf8_lossy(&split_result.stderr)
+                    );
                 }
-                String::from_utf8_lossy(&split_result.stdout).trim().to_string()
+                String::from_utf8_lossy(&split_result.stdout)
+                    .trim()
+                    .to_string()
             };
 
             self.set_pane_border_color(&pane_id, color, true).await?;
@@ -2553,7 +2688,10 @@ impl PaneBackend for TmuxBackend {
             self.rebalance_panes_tiled(&window_target).await;
 
             tokio::time::sleep(Duration::from_millis(PANE_SHELL_INIT_DELAY_MS)).await;
-            Ok(CreatePaneResult { pane_id, is_first_teammate: is_first })
+            Ok(CreatePaneResult {
+                pane_id,
+                is_first_teammate: is_first,
+            })
         }
     }
 
@@ -2563,7 +2701,11 @@ impl PaneBackend for TmuxBackend {
         command: &str,
         use_external_session: bool,
     ) -> Result<()> {
-                let result = Self::run_tmux(&["send-keys", "-t", pane_id, command, "Enter"], use_external_session).await;
+        let result = Self::run_tmux(
+            &["send-keys", "-t", pane_id, command, "Enter"],
+            use_external_session,
+        )
+        .await;
         if !result.status.success() {
             bail!(
                 "Failed to send command to pane {}: {}",
@@ -2581,9 +2723,41 @@ impl PaneBackend for TmuxBackend {
         use_external_session: bool,
     ) -> Result<()> {
         let tmux_color = Self::get_tmux_color_name(color);
-                Self::run_tmux(&["select-pane", "-t", pane_id, "-P", &format!("bg=default,fg={}", tmux_color)], use_external_session).await;
-        Self::run_tmux(&["set-option", "-p", "-t", pane_id, "pane-border-style", &format!("fg={}", tmux_color)], use_external_session).await;
-        Self::run_tmux(&["set-option", "-p", "-t", pane_id, "pane-active-border-style", &format!("fg={}", tmux_color)], use_external_session).await;
+        Self::run_tmux(
+            &[
+                "select-pane",
+                "-t",
+                pane_id,
+                "-P",
+                &format!("bg=default,fg={}", tmux_color),
+            ],
+            use_external_session,
+        )
+        .await;
+        Self::run_tmux(
+            &[
+                "set-option",
+                "-p",
+                "-t",
+                pane_id,
+                "pane-border-style",
+                &format!("fg={}", tmux_color),
+            ],
+            use_external_session,
+        )
+        .await;
+        Self::run_tmux(
+            &[
+                "set-option",
+                "-p",
+                "-t",
+                pane_id,
+                "pane-active-border-style",
+                &format!("fg={}", tmux_color),
+            ],
+            use_external_session,
+        )
+        .await;
         Ok(())
     }
 
@@ -2595,11 +2769,23 @@ impl PaneBackend for TmuxBackend {
         use_external_session: bool,
     ) -> Result<()> {
         let tmux_color = Self::get_tmux_color_name(color);
-                Self::run_tmux(&["select-pane", "-t", pane_id, "-T", name], use_external_session).await;
-        Self::run_tmux(&[
-            "set-option", "-p", "-t", pane_id, "pane-border-format",
-            &format!("#[fg={},bold] #{{pane_title}} #[default]", tmux_color),
-        ], use_external_session).await;
+        Self::run_tmux(
+            &["select-pane", "-t", pane_id, "-T", name],
+            use_external_session,
+        )
+        .await;
+        Self::run_tmux(
+            &[
+                "set-option",
+                "-p",
+                "-t",
+                pane_id,
+                "pane-border-format",
+                &format!("#[fg={},bold] #{{pane_title}} #[default]", tmux_color),
+            ],
+            use_external_session,
+        )
+        .await;
         Ok(())
     }
 
@@ -2615,7 +2801,18 @@ impl PaneBackend for TmuxBackend {
                 None => return Ok(()),
             },
         };
-                Self::run_tmux(&["set-option", "-w", "-t", &target, "pane-border-status", "top"], use_external_session).await;
+        Self::run_tmux(
+            &[
+                "set-option",
+                "-w",
+                "-t",
+                &target,
+                "pane-border-status",
+                "top",
+            ],
+            use_external_session,
+        )
+        .await;
         Ok(())
     }
 
@@ -2629,14 +2826,22 @@ impl PaneBackend for TmuxBackend {
     }
 
     async fn kill_pane(&self, pane_id: &str, use_external_session: bool) -> bool {
-                let result = Self::run_tmux(&["kill-pane", "-t", pane_id], use_external_session).await;
+        let result = Self::run_tmux(&["kill-pane", "-t", pane_id], use_external_session).await;
         result.status.success()
     }
 
     async fn hide_pane(&self, pane_id: &str, use_external_session: bool) -> bool {
-                Self::run_tmux(&["new-session", "-d", "-s", HIDDEN_SESSION_NAME], use_external_session).await;
+        Self::run_tmux(
+            &["new-session", "-d", "-s", HIDDEN_SESSION_NAME],
+            use_external_session,
+        )
+        .await;
         let target = format!("{}:", HIDDEN_SESSION_NAME);
-        let result = Self::run_tmux(&["break-pane", "-d", "-s", pane_id, "-t", &target], use_external_session).await;
+        let result = Self::run_tmux(
+            &["break-pane", "-d", "-s", pane_id, "-t", &target],
+            use_external_session,
+        )
+        .await;
         if result.status.success() {
             swarm_debug!("[TmuxBackend] Hidden pane {}", pane_id);
         } else {
@@ -2655,7 +2860,18 @@ impl PaneBackend for TmuxBackend {
         target_window_or_pane: &str,
         use_external_session: bool,
     ) -> bool {
-                let result = Self::run_tmux(&["join-pane", "-h", "-s", pane_id, "-t", target_window_or_pane], use_external_session).await;
+        let result = Self::run_tmux(
+            &[
+                "join-pane",
+                "-h",
+                "-s",
+                pane_id,
+                "-t",
+                target_window_or_pane,
+            ],
+            use_external_session,
+        )
+        .await;
         if !result.status.success() {
             swarm_debug!(
                 "[TmuxBackend] Failed to show pane {}: {}",
@@ -2665,15 +2881,40 @@ impl PaneBackend for TmuxBackend {
             return false;
         }
 
-        Self::run_tmux(&["select-layout", "-t", target_window_or_pane, "main-vertical"], use_external_session).await;
+        Self::run_tmux(
+            &[
+                "select-layout",
+                "-t",
+                target_window_or_pane,
+                "main-vertical",
+            ],
+            use_external_session,
+        )
+        .await;
 
-        let panes_result = Self::run_tmux(&[
-            "list-panes", "-t", target_window_or_pane, "-F", "#{pane_id}",
-        ], use_external_session).await;
+        let panes_result = Self::run_tmux(
+            &[
+                "list-panes",
+                "-t",
+                target_window_or_pane,
+                "-F",
+                "#{pane_id}",
+            ],
+            use_external_session,
+        )
+        .await;
         let panes: Vec<String> = String::from_utf8_lossy(&panes_result.stdout)
-            .trim().lines().filter(|l| !l.is_empty()).map(|s| s.to_string()).collect();
+            .trim()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|s| s.to_string())
+            .collect();
         if let Some(first) = panes.first() {
-            Self::run_tmux(&["resize-pane", "-t", first, "-x", "30%"], use_external_session).await;
+            Self::run_tmux(
+                &["resize-pane", "-t", first, "-x", "30%"],
+                use_external_session,
+            )
+            .await;
         }
         true
     }
@@ -2764,7 +3005,16 @@ impl PaneBackend for ITermBackend {
             let (split_args, targeted_teammate_id): (Vec<String>, Option<String>) = if is_first {
                 let leader_session = Self::get_leader_session_id();
                 if let Some(session) = leader_session {
-                    (vec!["session".into(), "split".into(), "-v".into(), "-s".into(), session], None)
+                    (
+                        vec![
+                            "session".into(),
+                            "split".into(),
+                            "-v".into(),
+                            "-s".into(),
+                            session,
+                        ],
+                        None,
+                    )
                 } else {
                     (vec!["session".into(), "split".into(), "-v".into()], None)
                 }
@@ -2772,7 +3022,10 @@ impl PaneBackend for ITermBackend {
                 let session_ids = self.teammate_session_ids.lock().unwrap();
                 let last = session_ids.last().cloned();
                 if let Some(target) = last.clone() {
-                    (vec!["session".into(), "split".into(), "-s".into(), target], last)
+                    (
+                        vec!["session".into(), "split".into(), "-s".into(), target],
+                        last,
+                    )
                 } else {
                     (vec!["session".into(), "split".into()], None)
                 }
@@ -2811,9 +3064,7 @@ impl PaneBackend for ITermBackend {
                 *self.first_pane_used.lock().unwrap() = true;
             }
 
-            let pane_id = Self::parse_split_output(
-                &String::from_utf8_lossy(&split_result.stdout),
-            );
+            let pane_id = Self::parse_split_output(&String::from_utf8_lossy(&split_result.stdout));
             if pane_id.is_empty() {
                 bail!(
                     "Failed to parse session ID from split output: {}",
@@ -2821,8 +3072,15 @@ impl PaneBackend for ITermBackend {
                 );
             }
 
-            swarm_debug!("[ITermBackend] Created teammate pane for {}: {}", name, pane_id);
-            self.teammate_session_ids.lock().unwrap().push(pane_id.clone());
+            swarm_debug!(
+                "[ITermBackend] Created teammate pane for {}: {}",
+                name,
+                pane_id
+            );
+            self.teammate_session_ids
+                .lock()
+                .unwrap()
+                .push(pane_id.clone());
 
             return Ok(CreatePaneResult {
                 pane_id,
@@ -2960,7 +3218,9 @@ impl TeammateExecutor for InProcessBackend {
             return TeammateSpawnResult {
                 success: false,
                 agent_id,
-                error: Some("InProcessBackend not initialized. Call setContext() before spawn().".into()),
+                error: Some(
+                    "InProcessBackend not initialized. Call setContext() before spawn().".into(),
+                ),
                 task_id: None,
                 pane_id: None,
             };
@@ -2992,24 +3252,31 @@ impl TeammateExecutor for InProcessBackend {
         swarm_debug!(
             "[InProcessBackend] sendMessage() to {}: {}...",
             agent_id,
-            &message.text[..message.text.len().min(50)]
+            prefix_chars(&message.text, 50)
         );
 
         // Parse agentId to get agentName and teamName
         let parts: Vec<&str> = agent_id.splitn(2, '@').collect();
         if parts.len() != 2 {
-            bail!("Invalid agentId format: {}. Expected format: agentName@teamName", agent_id);
+            bail!(
+                "Invalid agentId format: {}. Expected format: agentName@teamName",
+                agent_id
+            );
         }
 
         // In full implementation: write to file-based mailbox
-        swarm_debug!("[InProcessBackend] sendMessage() completed for {}", agent_id);
+        swarm_debug!(
+            "[InProcessBackend] sendMessage() completed for {}",
+            agent_id
+        );
         Ok(())
     }
 
     async fn terminate(&self, agent_id: &str, reason: Option<&str>) -> bool {
         swarm_debug!(
             "[InProcessBackend] terminate() called for {}: {:?}",
-            agent_id, reason
+            agent_id,
+            reason
         );
 
         if self.context.lock().unwrap().is_none() {
@@ -3101,9 +3368,10 @@ impl TeammateExecutor for PaneBackendExecutor {
     async fn spawn(&self, config: &TeammateSpawnConfig) -> TeammateSpawnResult {
         let agent_id = format!("{}@{}", config.name, config.team_name);
 
-        let teammate_color_str = config.color.clone().unwrap_or_else(|| {
-            assign_teammate_color(&agent_id).to_string()
-        });
+        let teammate_color_str = config
+            .color
+            .clone()
+            .unwrap_or_else(|| assign_teammate_color(&agent_id).to_string());
         let teammate_color: AgentColorName = match teammate_color_str.as_str() {
             "red" => AgentColorName::Red,
             "blue" => AgentColorName::Blue,
@@ -3116,7 +3384,11 @@ impl TeammateExecutor for PaneBackendExecutor {
             _ => AgentColorName::Blue,
         };
 
-        match self.backend.create_teammate_pane_in_swarm_view(&config.name, teammate_color).await {
+        match self
+            .backend
+            .create_teammate_pane_in_swarm_view(&config.name, teammate_color)
+            .await
+        {
             Ok(result) => {
                 let inside_tmux = is_inside_tmux().await;
 
@@ -3138,10 +3410,7 @@ impl TeammateExecutor for PaneBackendExecutor {
                     if config.plan_mode_required { " --plan-mode-required" } else { "" }
                 );
 
-                let inherited_flags = build_inherited_cli_flags(
-                    config.plan_mode_required,
-                    None,
-                );
+                let inherited_flags = build_inherited_cli_flags(config.plan_mode_required, None);
 
                 let mut flags_str = if inherited_flags.is_empty() {
                     String::new()
@@ -3184,11 +3453,11 @@ impl TeammateExecutor for PaneBackendExecutor {
                 );
 
                 // Send command to pane
-                if let Err(e) = self.backend.send_command_to_pane(
-                    &result.pane_id,
-                    &spawn_command,
-                    !inside_tmux,
-                ).await {
+                if let Err(e) = self
+                    .backend
+                    .send_command_to_pane(&result.pane_id, &spawn_command, !inside_tmux)
+                    .await
+                {
                     return TeammateSpawnResult {
                         success: false,
                         agent_id,
@@ -3209,7 +3478,8 @@ impl TeammateExecutor for PaneBackendExecutor {
 
                 swarm_debug!(
                     "[PaneBackendExecutor] Spawned teammate {} in pane {}",
-                    agent_id, result.pane_id
+                    agent_id,
+                    result.pane_id
                 );
 
                 TeammateSpawnResult {
@@ -3221,10 +3491,7 @@ impl TeammateExecutor for PaneBackendExecutor {
                 }
             }
             Err(e) => {
-                swarm_debug!(
-                    "[PaneBackendExecutor] Failed to spawn {}: {}",
-                    agent_id, e
-                );
+                swarm_debug!("[PaneBackendExecutor] Failed to spawn {}: {}", agent_id, e);
                 TeammateSpawnResult {
                     success: false,
                     agent_id,
@@ -3240,13 +3507,16 @@ impl TeammateExecutor for PaneBackendExecutor {
         swarm_debug!(
             "[PaneBackendExecutor] sendMessage() to {}: {}...",
             agent_id,
-            &message.text[..message.text.len().min(50)]
+            prefix_chars(&message.text, 50)
         );
 
         // Parse agentId to get agentName and teamName
         let parts: Vec<&str> = agent_id.splitn(2, '@').collect();
         if parts.len() != 2 {
-            bail!("Invalid agentId format: {}. Expected format: agentName@teamName", agent_id);
+            bail!(
+                "Invalid agentId format: {}. Expected format: agentName@teamName",
+                agent_id
+            );
         }
 
         // In full implementation: write to file-based mailbox
@@ -3260,7 +3530,8 @@ impl TeammateExecutor for PaneBackendExecutor {
     async fn terminate(&self, agent_id: &str, reason: Option<&str>) -> bool {
         swarm_debug!(
             "[PaneBackendExecutor] terminate() called for {}: {:?}",
-            agent_id, reason
+            agent_id,
+            reason
         );
 
         let parts: Vec<&str> = agent_id.splitn(2, '@').collect();
@@ -3299,13 +3570,13 @@ impl TeammateExecutor for PaneBackendExecutor {
             }
         };
 
-        let killed = self.backend.kill_pane(&info.pane_id, !info.inside_tmux).await;
+        let killed = self
+            .backend
+            .kill_pane(&info.pane_id, !info.inside_tmux)
+            .await;
         if killed {
             self.spawned_teammates.lock().unwrap().remove(agent_id);
-            swarm_debug!(
-                "[PaneBackendExecutor] kill() succeeded for {}",
-                agent_id
-            );
+            swarm_debug!("[PaneBackendExecutor] kill() succeeded for {}", agent_id);
         } else {
             swarm_debug!("[PaneBackendExecutor] kill() failed for {}", agent_id);
         }
@@ -3374,9 +3645,7 @@ pub fn parse_agent_id(agent_id: &str) -> Option<(String, String)> {
 }
 
 /// Spawns an in-process teammate.
-pub async fn spawn_in_process_teammate(
-    config: &InProcessSpawnConfig,
-) -> InProcessSpawnOutput {
+pub async fn spawn_in_process_teammate(config: &InProcessSpawnConfig) -> InProcessSpawnOutput {
     let agent_id = format_agent_id(&config.name, &config.team_name);
     let task_id = format!(
         "in_process_teammate_{}",
@@ -3388,7 +3657,8 @@ pub async fn spawn_in_process_teammate(
 
     swarm_debug!(
         "[spawnInProcessTeammate] Spawning {} (taskId: {})",
-        agent_id, task_id
+        agent_id,
+        task_id
     );
 
     // In full implementation: create AbortController, TeammateContext,
@@ -3404,10 +3674,7 @@ pub async fn spawn_in_process_teammate(
 
 /// Kills an in-process teammate by task ID.
 pub fn kill_in_process_teammate(task_id: &str) -> bool {
-    swarm_debug!(
-        "[killInProcessTeammate] Killing task {}",
-        task_id
-    );
+    swarm_debug!("[killInProcessTeammate] Killing task {}", task_id);
     // In full implementation: abort the teammate's controller,
     // update task state to 'killed', remove from team file.
     true
@@ -3493,14 +3760,8 @@ pub fn find_available_task(tasks: &[serde_json::Value]) -> Option<&serde_json::V
 
 /// Format a task as a prompt for the teammate.
 pub fn format_task_as_prompt(task: &serde_json::Value) -> String {
-    let id = task
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("?");
-    let subject = task
-        .get("subject")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    let subject = task.get("subject").and_then(|v| v.as_str()).unwrap_or("");
     let description = task
         .get("description")
         .and_then(|v| v.as_str())
@@ -3517,9 +3778,7 @@ pub fn format_task_as_prompt(task: &serde_json::Value) -> String {
 }
 
 /// Runs an in-process teammate with a continuous prompt loop.
-pub async fn run_in_process_teammate(
-    config: InProcessRunnerConfig,
-) -> InProcessRunnerResult {
+pub async fn run_in_process_teammate(config: InProcessRunnerConfig) -> InProcessRunnerResult {
     swarm_debug!(
         "[inProcessRunner] Starting agent loop for {}",
         config.identity.agent_id
@@ -3568,10 +3827,7 @@ pub fn start_in_process_teammate(config: InProcessRunnerConfig) {
         })
         .await
         {
-            swarm_debug!(
-                "[inProcessRunner] Unhandled error in {}: {}",
-                agent_id, e
-            );
+            swarm_debug!("[inProcessRunner] Unhandled error in {}: {}", agent_id, e);
         }
     });
 }
@@ -3630,12 +3886,8 @@ pub fn register_team_for_session_cleanup(team_name: &str) {
 
 /// Remove a team from session cleanup tracking.
 pub fn unregister_team_for_session_cleanup(team_name: &str) {
-    SESSION_CREATED_TEAMS
-        .lock()
-        .unwrap()
-        .remove(team_name);
+    SESSION_CREATED_TEAMS.lock().unwrap().remove(team_name);
 }
-
 
 // =============================================================================
 // Trait re-export aliases — make the trait names visible to the gap scanner.
@@ -3660,8 +3912,9 @@ static BACKEND_REGISTERED: once_cell::sync::Lazy<std::sync::Mutex<bool>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(false));
 static CACHED_BACKEND_TYPE: once_cell::sync::Lazy<std::sync::Mutex<Option<PaneBackendType>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
-static BACKEND_DETECTION_CACHE: once_cell::sync::Lazy<std::sync::Mutex<Option<BackendDetectionInfo>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+static BACKEND_DETECTION_CACHE: once_cell::sync::Lazy<
+    std::sync::Mutex<Option<BackendDetectionInfo>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
 /// 对应 TS `BackendDetectionResult`（registry 视角）。
 #[derive(Debug, Clone)]
@@ -3907,4 +4160,3 @@ impl It2SetupPrompt {
 
 /// Alias for the swarm permission request validator (mirrors TS `SwarmPermissionRequestSchema`).
 pub type SwarmPermissionRequestSchema = SwarmPermissionRequest;
-

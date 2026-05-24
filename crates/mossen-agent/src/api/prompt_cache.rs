@@ -121,7 +121,7 @@ fn get_tracking_key(query_source: &str, agent_id: Option<&str>) -> Option<String
 
 /// Check if a model should be excluded from cache break detection.
 fn is_excluded_model(model: &str) -> bool {
-    model.contains("haiku")
+    model.contains("fast")
 }
 
 /// Sanitize tool name for analytics (collapse MCP tool names).
@@ -161,7 +161,7 @@ impl PromptCacheBreakDetector {
         let system_hash = djb2_hash(&snapshot.system_text);
         let tools_hash = djb2_hash(&snapshot.tool_schemas_json);
         // `cache_control` is currently not propagated through
-        // `PromptStateSnapshot` — the Anthropic-style `cache_control` array
+        // `PromptStateSnapshot` — the Provider-style `cache_control` array
         // is applied at request-encode time by `build_system_prompt_blocks`
         // / `add_cache_breakpoints`, not before this snapshot is captured.
         // Treating it as a constant 0 here means cache-control-only changes

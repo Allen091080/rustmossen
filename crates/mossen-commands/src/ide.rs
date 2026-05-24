@@ -111,17 +111,25 @@ fn get_ide_open_target_display_name(target_name: &str, branch: Option<&str>) -> 
 }
 
 /// Get localized IDE connection result message.
-fn get_ide_connection_result(
-    target_name: &str,
-    ide_name: &str,
-    state: &str,
-) -> String {
+fn get_ide_connection_result(target_name: &str, ide_name: &str, state: &str) -> String {
     match state {
         "connected" => format!("Connected to {} for project {}.", ide_name, target_name),
-        "failed" => format!("Failed to connect to {} for project {}.", ide_name, target_name),
-        "timed-out" => format!("Connection to {} for project {} timed out.", ide_name, target_name),
-        "disconnected" => format!("Disconnected from {} for project {}.", ide_name, target_name),
-        _ => format!("IDE {} state: {} for project {}.", ide_name, state, target_name),
+        "failed" => format!(
+            "Failed to connect to {} for project {}.",
+            ide_name, target_name
+        ),
+        "timed-out" => format!(
+            "Connection to {} for project {} timed out.",
+            ide_name, target_name
+        ),
+        "disconnected" => format!(
+            "Disconnected from {} for project {}.",
+            ide_name, target_name
+        ),
+        _ => format!(
+            "IDE {} state: {} for project {}.",
+            ide_name, state, target_name
+        ),
     }
 }
 
@@ -257,7 +265,9 @@ impl Directive for IdeDirective {
                 } else {
                     output.push_str("Scanning for available IDEs...\n");
                     output.push_str("  • None   — No IDE connection\n\n");
-                    output.push_str("Note: Only one instance can be connected to VS Code at a time.\n");
+                    output.push_str(
+                        "Note: Only one instance can be connected to VS Code at a time.\n",
+                    );
                     output.push_str("Tip: You can enable auto-connect to IDE in /config or with the --ide flag.");
                 }
 

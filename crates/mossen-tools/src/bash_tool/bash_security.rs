@@ -150,12 +150,6 @@ fn command_substitution_patterns() -> Vec<DangerousPattern> {
 /// Strip safe heredoc substitutions from a command for security checking.
 /// Heredocs with quoted delimiters (<<'EOF' or <<"EOF") don't expand variables.
 pub fn strip_safe_heredoc_substitutions(command: &str) -> String {
-    // Match heredocs with quoted delimiters and remove their bodies
-    let heredoc_re = Regex::new(r#"<<[-~]?['"](\w+)['"].*?\n([\s\S]*?)\n\1"#).unwrap();
-    let mut result = command.to_string();
-
-    // Simple heredoc stripping: remove content between quoted heredoc markers
-    // This is a simplified version - in full implementation would use proper shell parsing
     let lines: Vec<&str> = command.lines().collect();
     let mut in_heredoc = false;
     let mut heredoc_marker = String::new();
@@ -171,17 +165,45 @@ pub fn strip_safe_heredoc_substitutions(command: &str) -> String {
             continue;
         }
 
-        // Check for heredoc start with quoted delimiter
-        let heredoc_start =
-            Regex::new(r#"<<[-~]?['"](\w+)['"]"#).unwrap();
-        if let Some(cap) = heredoc_start.captures(line) {
-            heredoc_marker = cap.get(1).unwrap().as_str().to_string();
+        if let Some(marker) = quoted_heredoc_marker(line) {
+            heredoc_marker = marker;
             in_heredoc = true;
         }
         output_lines.push(*line);
     }
 
     output_lines.join("\n")
+}
+
+fn quoted_heredoc_marker(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] == b'<' && bytes[i + 1] == b'<' {
+            let mut j = i + 2;
+            if j < bytes.len() && (bytes[j] == b'-' || bytes[j] == b'~') {
+                j += 1;
+            }
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                j += 1;
+            }
+            if j >= bytes.len() || (bytes[j] != b'\'' && bytes[j] != b'"') {
+                i += 1;
+                continue;
+            }
+            let quote = bytes[j];
+            let start = j + 1;
+            let mut end = start;
+            while end < bytes.len() && bytes[end] != quote {
+                end += 1;
+            }
+            if end > start && end < bytes.len() {
+                return Some(String::from_utf8_lossy(&bytes[start..end]).to_string());
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Validate that a command doesn't contain dangerous shell patterns.

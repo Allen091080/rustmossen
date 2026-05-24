@@ -50,10 +50,7 @@ impl IDEPathConverter for WindowsToWSLConverter {
         }
 
         // 使用 wslpath 转换 Windows 路径为 WSL 路径
-        match Command::new("wslpath")
-            .args(["-u", windows_path])
-            .output()
-        {
+        match Command::new("wslpath").args(["-u", windows_path]).output() {
             Ok(output) if output.status.success() => {
                 String::from_utf8_lossy(&output.stdout).trim().to_string()
             }
@@ -75,10 +72,7 @@ impl IDEPathConverter for WindowsToWSLConverter {
         }
 
         // 使用 wslpath 转换 WSL 路径为 Windows 路径
-        match Command::new("wslpath")
-            .args(["-w", wsl_path])
-            .output()
-        {
+        match Command::new("wslpath").args(["-w", wsl_path]).output() {
             Ok(output) if output.status.success() => {
                 String::from_utf8_lossy(&output.stdout).trim().to_string()
             }

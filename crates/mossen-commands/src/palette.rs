@@ -12,8 +12,14 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 const THEMES: &[(&str, &str)] = &[
     ("light", "Light theme — optimized for light terminals"),
     ("dark", "Dark theme — optimized for dark terminals"),
-    ("dark-high-contrast", "Dark High Contrast — enhanced visibility"),
-    ("light-high-contrast", "Light High Contrast — enhanced visibility"),
+    (
+        "dark-high-contrast",
+        "Dark High Contrast — enhanced visibility",
+    ),
+    (
+        "light-high-contrast",
+        "Light High Contrast — enhanced visibility",
+    ),
 ];
 
 /// `/theme` command.

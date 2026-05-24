@@ -58,8 +58,8 @@ fn get_rate_limit_display_name(t: &RateLimitType) -> &'static str {
     match t {
         RateLimitType::FiveHour => "session limit",
         RateLimitType::SevenDay => "weekly limit",
-        RateLimitType::SevenDayOpus => "Frontier limit",
-        RateLimitType::SevenDaySonnet => "Balanced limit",
+        RateLimitType::SevenDayMax => "Max limit",
+        RateLimitType::SevenDayBalanced => "Balanced limit",
         RateLimitType::Overage => "extra usage limit",
     }
 }
@@ -85,7 +85,10 @@ fn format_reset_time(resets_at: u64) -> String {
 }
 
 /// Get the appropriate rate limit message
-pub fn get_rate_limit_message(limits: &HostedLimitsState, _model: &str) -> Option<RateLimitMessage> {
+pub fn get_rate_limit_message(
+    limits: &HostedLimitsState,
+    _model: &str,
+) -> Option<RateLimitMessage> {
     // Check overage scenarios first
     if limits.is_using_overage {
         if limits.overage_status.as_ref() == Some(&QuotaStatus::AllowedWarning) {
@@ -176,8 +179,8 @@ fn get_limit_reached_text(limits: &HostedLimitsState) -> String {
 
     if let Some(ref rlt) = limits.rate_limit_type {
         let limit_name = match rlt {
-            RateLimitType::SevenDaySonnet => "Balanced limit",
-            RateLimitType::SevenDayOpus => "Frontier limit",
+            RateLimitType::SevenDayBalanced => "Balanced limit",
+            RateLimitType::SevenDayMax => "Max limit",
             RateLimitType::SevenDay => "weekly limit",
             RateLimitType::FiveHour => "session limit",
             _ => "usage limit",
@@ -192,8 +195,8 @@ fn get_early_warning_text(limits: &HostedLimitsState) -> Option<String> {
     let limit_name = match limits.rate_limit_type.as_ref()? {
         RateLimitType::SevenDay => "weekly limit",
         RateLimitType::FiveHour => "session limit",
-        RateLimitType::SevenDayOpus => "Frontier limit",
-        RateLimitType::SevenDaySonnet => "Balanced limit",
+        RateLimitType::SevenDayMax => "Max limit",
+        RateLimitType::SevenDayBalanced => "Balanced limit",
         RateLimitType::Overage => get_hosted_usage_label(),
     };
 
@@ -212,7 +215,7 @@ fn get_early_warning_text(limits: &HostedLimitsState) -> Option<String> {
 }
 
 fn format_limit_reached(limit: &str, reset_message: &str) -> String {
-    if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
         format!(
             "You've hit your {}{}. If you have feedback about this limit, post in #briarpatch-cc. You can reset your limits with /reset-limits",
             limit, reset_message
@@ -229,8 +232,8 @@ pub fn get_using_overage_text(limits: &HostedLimitsState) -> String {
     let limit_name = match limits.rate_limit_type.as_ref() {
         Some(RateLimitType::FiveHour) => Some("session limit"),
         Some(RateLimitType::SevenDay) => Some("weekly limit"),
-        Some(RateLimitType::SevenDayOpus) => Some("Frontier limit"),
-        Some(RateLimitType::SevenDaySonnet) => Some("Balanced limit"),
+        Some(RateLimitType::SevenDayMax) => Some("Max limit"),
+        Some(RateLimitType::SevenDayBalanced) => Some("Balanced limit"),
         _ => None,
     };
 

@@ -1,8 +1,8 @@
 //! LSP server configuration — loads server configs from plugins.
 
-use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{debug, error, warn};
 
 /// Scoped LSP server configuration from a plugin.

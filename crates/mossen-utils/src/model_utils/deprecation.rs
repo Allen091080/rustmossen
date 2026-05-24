@@ -49,9 +49,9 @@ pub enum DeprecationInfo {
 static DEPRECATED_MODELS: Lazy<HashMap<&'static str, DeprecationEntry>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert(
-        "mossen-3-opus",
+        "mossen-3-max",
         DeprecationEntry {
-            model_name: "Mossen Frontier 3",
+            model_name: "Mossen Max 3",
             retirement_dates: RetirementDates {
                 first_party: Some("January 5, 2026"),
                 bedrock: Some("January 15, 2026"),
@@ -61,7 +61,7 @@ static DEPRECATED_MODELS: Lazy<HashMap<&'static str, DeprecationEntry>> = Lazy::
         },
     );
     m.insert(
-        "mossen-3-7-sonnet",
+        "mossen-3-7-balanced",
         DeprecationEntry {
             model_name: "Mossen Balanced 3.7",
             retirement_dates: RetirementDates {
@@ -73,7 +73,7 @@ static DEPRECATED_MODELS: Lazy<HashMap<&'static str, DeprecationEntry>> = Lazy::
         },
     );
     m.insert(
-        "mossen-3-5-haiku",
+        "mossen-3-5-fast",
         DeprecationEntry {
             model_name: "Mossen Fast 3.5",
             retirement_dates: RetirementDates {

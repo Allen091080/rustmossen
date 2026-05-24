@@ -41,14 +41,21 @@ mod tests {
 
     #[test]
     fn test_eager_parse_flag_with_equals() {
-        let argv = vec!["prog".to_string(), "--settings=/path/to/settings.json".to_string()];
+        let argv = vec![
+            "prog".to_string(),
+            "--settings=/path/to/settings.json".to_string(),
+        ];
         let result = eager_parse_cli_flag("--settings", Some(argv));
         assert_eq!(result, Some("/path/to/settings.json".to_string()));
     }
 
     #[test]
     fn test_eager_parse_flag_with_space() {
-        let argv = vec!["prog".to_string(), "--settings".to_string(), "/path/to/settings.json".to_string()];
+        let argv = vec![
+            "prog".to_string(),
+            "--settings".to_string(),
+            "/path/to/settings.json".to_string(),
+        ];
         let result = eager_parse_cli_flag("--settings", Some(argv));
         assert_eq!(result, Some("/path/to/settings.json".to_string()));
     }

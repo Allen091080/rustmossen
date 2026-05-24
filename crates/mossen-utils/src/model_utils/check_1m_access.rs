@@ -1,4 +1,4 @@
-//! 1M context-access checks for Opus/Sonnet.
+//! 1M context-access checks for Max/Balanced.
 //!
 //! Direct translation of `utils/model/check1mAccess.ts`.
 
@@ -34,7 +34,7 @@ fn is_extra_usage_enabled() -> bool {
     }
 }
 
-pub fn check_opus_1m_access() -> bool {
+pub fn check_max_1m_access() -> bool {
     if is_1m_context_disabled() {
         return false;
     }
@@ -47,7 +47,7 @@ pub fn check_opus_1m_access() -> bool {
     true
 }
 
-pub fn check_sonnet_1m_access() -> bool {
+pub fn check_balanced_1m_access() -> bool {
     if is_1m_context_disabled() {
         return false;
     }

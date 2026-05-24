@@ -52,7 +52,8 @@ impl Directive for CraftsDirective {
                             if path.is_dir() {
                                 let skill_md = path.join("SKILL.md");
                                 if skill_md.exists() {
-                                    let name = path.file_name()
+                                    let name = path
+                                        .file_name()
                                         .and_then(|n| n.to_str())
                                         .unwrap_or("unknown");
                                     output.push_str(&format!("  • {} (local)\n", name));
@@ -100,9 +101,7 @@ impl Directive for CraftsDirective {
                         "Usage: /skills remove <skill-name>".to_string(),
                     ))
                 } else {
-                    Ok(CommandResult::Text(format!(
-                        "Removed skill: {}", name
-                    )))
+                    Ok(CommandResult::Text(format!("Removed skill: {}", name)))
                 }
             }
 

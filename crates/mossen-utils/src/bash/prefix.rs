@@ -19,7 +19,9 @@ lazy_static::lazy_static! {
     };
 }
 
-fn to_vec<'a>(args: &'a [crate::bash::registry::Argument]) -> &'a [crate::bash::registry::Argument] {
+fn to_vec<'a>(
+    args: &'a [crate::bash::registry::Argument],
+) -> &'a [crate::bash::registry::Argument] {
     args
 }
 
@@ -59,9 +61,9 @@ pub fn get_command_prefix_static(
 
     let spec = get_command_spec(cmd);
     let mut is_wrapper = WRAPPER_COMMANDS.contains(cmd.as_str())
-        || spec.as_ref().map_or(false, |s| {
-            s.args.iter().any(|arg| arg.is_command)
-        });
+        || spec
+            .as_ref()
+            .map_or(false, |s| s.args.iter().any(|arg| arg.is_command));
 
     // Special case: if the command has subcommands and first arg matches
     if is_wrapper && !args.is_empty() && is_known_subcommand(&args[0], spec.as_ref()) {
@@ -113,7 +115,10 @@ fn build_prefix(
 
     // Check if first arg looks like a subcommand (no dash prefix, not numeric, not env var)
     let first_arg = &args[0];
-    if !first_arg.starts_with('-') && !NUMERIC_RE.is_match(first_arg) && !ENV_VAR_RE.is_match(first_arg) {
+    if !first_arg.starts_with('-')
+        && !NUMERIC_RE.is_match(first_arg)
+        && !ENV_VAR_RE.is_match(first_arg)
+    {
         return Some(format!("{} {}", cmd, first_arg));
     }
 
@@ -137,7 +142,11 @@ fn handle_wrapper(
             for i in 0..=std::cmp::min(args.len().saturating_sub(1), cmd_idx) {
                 if i == cmd_idx {
                     let remaining = args[i..].join(" ");
-                    let result = get_command_prefix_static(&remaining, recursion_depth + 1, wrapper_count + 1);
+                    let result = get_command_prefix_static(
+                        &remaining,
+                        recursion_depth + 1,
+                        wrapper_count + 1,
+                    );
                     if let Some(Some(prefix)) = result {
                         parts.extend(prefix.split(' ').map(|s| s.to_string()));
                         return Some(parts.join(" "));
@@ -205,7 +214,8 @@ pub fn get_compound_command_prefixes_static(
     }
 
     // Group prefixes by their first word (root command)
-    let mut groups: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for prefix in &prefixes {
         let root = prefix.split(' ').next().unwrap_or("").to_string();
         groups.entry(root).or_default().push(prefix.clone());
@@ -235,7 +245,10 @@ fn longest_common_prefix(strings: &[String]) -> String {
     for s in &strings[1..] {
         let other_words: Vec<&str> = s.split(' ').collect();
         let mut shared = 0;
-        while shared < common_words && shared < other_words.len() && words[shared] == other_words[shared] {
+        while shared < common_words
+            && shared < other_words.len()
+            && words[shared] == other_words[shared]
+        {
             shared += 1;
         }
         common_words = shared;
@@ -285,10 +298,7 @@ pub fn create_command_prefix_extractor(
             _ => None,
         };
         if enable_cache {
-            cache
-                .lock()
-                .unwrap()
-                .insert(normalized, computed.clone());
+            cache.lock().unwrap().insert(normalized, computed.clone());
         }
         computed
     })
@@ -318,7 +328,10 @@ pub fn create_subcommand_prefix_extractor(
                 .filter_map(|sc| get_prefix(sc.trim()))
                 .collect()
         };
-        cache.lock().unwrap().insert(command.to_string(), prefixes.clone());
+        cache
+            .lock()
+            .unwrap()
+            .insert(command.to_string(), prefixes.clone());
         prefixes
     })
 }

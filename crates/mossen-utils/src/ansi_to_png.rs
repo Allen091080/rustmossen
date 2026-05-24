@@ -1,7 +1,5 @@
 // ANSI text rendering to PNG (with font rasterization, CRC32, PNG encoding).
 
-use std::collections::HashMap;
-
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::Write;
@@ -70,7 +68,11 @@ pub fn ansi_to_png(ansi_text: &str, options: AnsiToPngOptions) -> Vec<u8> {
 
     // Trim trailing blank lines
     while !lines.is_empty()
-        && lines.last().unwrap().iter().all(|span| span.text.trim().is_empty())
+        && lines
+            .last()
+            .unwrap()
+            .iter()
+            .all(|span| span.text.trim().is_empty())
     {
         lines.pop();
     }
@@ -82,7 +84,12 @@ pub fn ansi_to_png(ansi_text: &str, options: AnsiToPngOptions) -> Vec<u8> {
         }]);
     }
 
-    let cols = lines.iter().map(|l| line_width_cells(l)).max().unwrap_or(1).max(1);
+    let cols = lines
+        .iter()
+        .map(|l| line_width_cells(l))
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let rows = lines.len();
 
     let width = (cols * GLYPH_W + padding_x * 2) * scale;
@@ -114,7 +121,16 @@ pub fn ansi_to_png(ansi_text: &str, options: AnsiToPngOptions) -> Vec<u8> {
                 if let Some(&alpha) = SHADE_ALPHA.get(&cp) {
                     blit_shade(&mut px, width, x, y, &span.color, &background, alpha, scale);
                 } else {
-                    blit_glyph(&mut px, width, x, y, &fallback_glyph, &span.color, span.bold, scale);
+                    blit_glyph(
+                        &mut px,
+                        width,
+                        x,
+                        y,
+                        &fallback_glyph,
+                        &span.color,
+                        span.bold,
+                        scale,
+                    );
                 }
                 col += cell_w;
             }
@@ -186,9 +202,9 @@ use std::collections::HashMap as LazyHashMap;
 static SHADE_ALPHA: Lazy<LazyHashMap<u32, f64>> = Lazy::new(|| {
     let mut m = LazyHashMap::new();
     m.insert(0x2591, 0.25); // ░
-    m.insert(0x2592, 0.5);  // ▒
+    m.insert(0x2592, 0.5); // ▒
     m.insert(0x2593, 0.75); // ▓
-    m.insert(0x2588, 1.0);  // █
+    m.insert(0x2588, 1.0); // █
     m
 });
 
@@ -354,7 +370,11 @@ pub fn parse_ansi(text: &str) -> Vec<ParsedLine> {
     let mut lines: Vec<ParsedLine> = Vec::new();
     let mut current_line: ParsedLine = Vec::new();
     let mut current_text = String::new();
-    let mut current_color = AnsiColor { r: 204, g: 204, b: 204 }; // default fg
+    let mut current_color = AnsiColor {
+        r: 204,
+        g: 204,
+        b: 204,
+    }; // default fg
     let mut current_bold = false;
 
     let chars: Vec<char> = text.chars().collect();
@@ -375,16 +395,17 @@ pub fn parse_ansi(text: &str) -> Vec<ParsedLine> {
             // Parse CSI sequence
             i += 2;
             let mut params = String::new();
-            while i < chars.len() && chars[i] != 'm' && chars[i].is_ascii() && !chars[i].is_alphabetic() {
+            while i < chars.len()
+                && chars[i] != 'm'
+                && chars[i].is_ascii()
+                && !chars[i].is_alphabetic()
+            {
                 params.push(chars[i]);
                 i += 1;
             }
             if i < chars.len() && chars[i] == 'm' {
                 // Process SGR parameters
-                let codes: Vec<u32> = params
-                    .split(';')
-                    .filter_map(|s| s.parse().ok())
-                    .collect();
+                let codes: Vec<u32> = params.split(';').filter_map(|s| s.parse().ok()).collect();
                 process_sgr(&codes, &mut current_color, &mut current_bold);
                 i += 1;
             } else if i < chars.len() {
@@ -422,7 +443,11 @@ pub fn parse_ansi(text: &str) -> Vec<ParsedLine> {
 
 fn process_sgr(codes: &[u32], color: &mut AnsiColor, bold: &mut bool) {
     if codes.is_empty() || codes == &[0] {
-        *color = AnsiColor { r: 204, g: 204, b: 204 };
+        *color = AnsiColor {
+            r: 204,
+            g: 204,
+            b: 204,
+        };
         *bold = false;
         return;
     }
@@ -431,28 +456,128 @@ fn process_sgr(codes: &[u32], color: &mut AnsiColor, bold: &mut bool) {
     while i < codes.len() {
         match codes[i] {
             0 => {
-                *color = AnsiColor { r: 204, g: 204, b: 204 };
+                *color = AnsiColor {
+                    r: 204,
+                    g: 204,
+                    b: 204,
+                };
                 *bold = false;
             }
             1 => *bold = true,
             22 => *bold = false,
             30 => *color = AnsiColor { r: 0, g: 0, b: 0 },
-            31 => *color = AnsiColor { r: 205, g: 49, b: 49 },
-            32 => *color = AnsiColor { r: 13, g: 188, b: 121 },
-            33 => *color = AnsiColor { r: 229, g: 229, b: 16 },
-            34 => *color = AnsiColor { r: 36, g: 114, b: 200 },
-            35 => *color = AnsiColor { r: 188, g: 63, b: 188 },
-            36 => *color = AnsiColor { r: 17, g: 168, b: 205 },
-            37 => *color = AnsiColor { r: 204, g: 204, b: 204 },
-            39 => *color = AnsiColor { r: 204, g: 204, b: 204 },
-            90 => *color = AnsiColor { r: 118, g: 118, b: 118 },
-            91 => *color = AnsiColor { r: 241, g: 76, b: 76 },
-            92 => *color = AnsiColor { r: 35, g: 209, b: 139 },
-            93 => *color = AnsiColor { r: 245, g: 245, b: 67 },
-            94 => *color = AnsiColor { r: 59, g: 142, b: 234 },
-            95 => *color = AnsiColor { r: 214, g: 112, b: 214 },
-            96 => *color = AnsiColor { r: 41, g: 184, b: 219 },
-            97 => *color = AnsiColor { r: 229, g: 229, b: 229 },
+            31 => {
+                *color = AnsiColor {
+                    r: 205,
+                    g: 49,
+                    b: 49,
+                }
+            }
+            32 => {
+                *color = AnsiColor {
+                    r: 13,
+                    g: 188,
+                    b: 121,
+                }
+            }
+            33 => {
+                *color = AnsiColor {
+                    r: 229,
+                    g: 229,
+                    b: 16,
+                }
+            }
+            34 => {
+                *color = AnsiColor {
+                    r: 36,
+                    g: 114,
+                    b: 200,
+                }
+            }
+            35 => {
+                *color = AnsiColor {
+                    r: 188,
+                    g: 63,
+                    b: 188,
+                }
+            }
+            36 => {
+                *color = AnsiColor {
+                    r: 17,
+                    g: 168,
+                    b: 205,
+                }
+            }
+            37 => {
+                *color = AnsiColor {
+                    r: 204,
+                    g: 204,
+                    b: 204,
+                }
+            }
+            39 => {
+                *color = AnsiColor {
+                    r: 204,
+                    g: 204,
+                    b: 204,
+                }
+            }
+            90 => {
+                *color = AnsiColor {
+                    r: 118,
+                    g: 118,
+                    b: 118,
+                }
+            }
+            91 => {
+                *color = AnsiColor {
+                    r: 241,
+                    g: 76,
+                    b: 76,
+                }
+            }
+            92 => {
+                *color = AnsiColor {
+                    r: 35,
+                    g: 209,
+                    b: 139,
+                }
+            }
+            93 => {
+                *color = AnsiColor {
+                    r: 245,
+                    g: 245,
+                    b: 67,
+                }
+            }
+            94 => {
+                *color = AnsiColor {
+                    r: 59,
+                    g: 142,
+                    b: 234,
+                }
+            }
+            95 => {
+                *color = AnsiColor {
+                    r: 214,
+                    g: 112,
+                    b: 214,
+                }
+            }
+            96 => {
+                *color = AnsiColor {
+                    r: 41,
+                    g: 184,
+                    b: 219,
+                }
+            }
+            97 => {
+                *color = AnsiColor {
+                    r: 229,
+                    g: 229,
+                    b: 229,
+                }
+            }
             38 => {
                 // Extended foreground color
                 if i + 1 < codes.len() && codes[i + 1] == 5 && i + 2 < codes.len() {
@@ -478,10 +603,22 @@ fn ansi_256_color(idx: usize) -> AnsiColor {
     if idx < 16 {
         // Standard colors
         let colors: [(u8, u8, u8); 16] = [
-            (0, 0, 0), (205, 49, 49), (13, 188, 121), (229, 229, 16),
-            (36, 114, 200), (188, 63, 188), (17, 168, 205), (204, 204, 204),
-            (118, 118, 118), (241, 76, 76), (35, 209, 139), (245, 245, 67),
-            (59, 142, 234), (214, 112, 214), (41, 184, 219), (229, 229, 229),
+            (0, 0, 0),
+            (205, 49, 49),
+            (13, 188, 121),
+            (229, 229, 16),
+            (36, 114, 200),
+            (188, 63, 188),
+            (17, 168, 205),
+            (204, 204, 204),
+            (118, 118, 118),
+            (241, 76, 76),
+            (35, 209, 139),
+            (245, 245, 67),
+            (59, 142, 234),
+            (214, 112, 214),
+            (41, 184, 219),
+            (229, 229, 229),
         ];
         let (r, g, b) = colors[idx];
         AnsiColor { r, g, b }

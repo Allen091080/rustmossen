@@ -18,10 +18,7 @@ pub fn is_auto_memory_enabled() -> bool {
 }
 
 /// Check if there have been memory writes since a given message index.
-pub fn has_memory_writes_since(
-    messages: &[serde_json::Value],
-    since_index: usize,
-) -> bool {
+pub fn has_memory_writes_since(messages: &[serde_json::Value], since_index: usize) -> bool {
     messages[since_index..].iter().any(|msg| {
         msg.get("role")
             .and_then(|r| r.as_str())
@@ -74,8 +71,8 @@ pub fn format_existing_memories(memory_files: &[(String, String)]) -> String {
 // TS-mirror — `services/SessionMemory/sessionMemoryUtils.ts` exports.
 // ---------------------------------------------------------------------------
 
-use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
+use std::sync::{Mutex, OnceLock};
 
 /// `sessionMemoryUtils.ts` `SessionMemoryConfig` — extended utility-layer
 /// variant (mod.rs has the simpler shape under the same TS name).
@@ -153,8 +150,74 @@ pub async fn wait_for_session_memory_extraction() {
     }
 }
 
-/// `sessionMemoryUtils.ts` `getSessionMemoryContent` — placeholder reader.
+async fn read_non_empty(path: &Path) -> Option<String> {
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn memory_content_from_json(content: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(content).ok()?;
+    let object = value.as_object()?;
+    let mut entries = object
+        .values()
+        .filter_map(|entry| {
+            let key = entry
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("session memory");
+            let content = entry.get("content").and_then(|v| v.as_str())?.trim();
+            (!content.is_empty()).then(|| format!("## {key}\n\n{content}"))
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries.join("\n\n"))
+    }
+}
+
+/// `sessionMemoryUtils.ts` `getSessionMemoryContent`.
 pub async fn get_session_memory_content() -> Option<String> {
+    let mut candidates = Vec::new();
+    for key in [
+        "MOSSEN_SESSION_MEMORY_PATH",
+        "MOSSEN_CODE_SESSION_MEMORY_PATH",
+    ] {
+        if let Ok(path) = std::env::var(key) {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                candidates.push(PathBuf::from(trimmed));
+            }
+        }
+    }
+
+    let cwd = std::env::current_dir().ok()?;
+    candidates.push(cwd.join(".mossen").join("session-memory").join("MOSSEN.md"));
+    candidates.push(cwd.join(".mossen").join("memory").join("MOSSEN.md"));
+    candidates.push(
+        cwd.join(".mossen")
+            .join("memory")
+            .join("session_memory.json"),
+    );
+
+    for path in candidates {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+            if let Some(content) = read_non_empty(&path)
+                .await
+                .and_then(|content| memory_content_from_json(&content))
+            {
+                return Some(content);
+            }
+        } else if let Some(content) = read_non_empty(&path).await {
+            return Some(content);
+        }
+    }
     None
 }
 

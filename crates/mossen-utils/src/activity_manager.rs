@@ -6,8 +6,6 @@
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Instant;
 
 /// 活动状态快照
 #[derive(Debug, Clone)]

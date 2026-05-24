@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wave 2A — A6 (ANT-STUCK S3 hard remove + smoke_check.py 4 字符串同 commit) focused smoke.
+"""Wave 2A — A6 (INTERNAL-STUCK S3 hard remove + smoke_check.py 4 字符串同 commit) focused smoke.
 
 Verifies:
   1. skills/bundled/stuck.ts 文件不存在
@@ -98,7 +98,7 @@ def main() -> int:
     if f["slack_channel_id_in_skills_count"] != 0:
         failures.append(
             f"skills/bundled/ 内仍有 {f['slack_channel_id_in_skills_count']} 处 "
-            "C07VBSHV7EV (anthropic 内网 Slack 频道 ID) — 应为 0"
+            "C07VBSHV7EV (provider 内网 Slack 频道 ID) — 应为 0"
         )
     if not f["feedback_channel_in_fullscreen_only"]:
         failures.append(
@@ -118,7 +118,7 @@ def main() -> int:
         "mode_reason": (
             "skills 注册系统涉及 deferred runtime 模块。S3 hard remove 是纯结构 + "
             "字符串清理, 静态断言已足够;真实 /help 行为差 = 0 由 mossen 默认 "
-            "USER_TYPE=undefined 时本来就走 isEnabled=false 的 ANT gate 兜底。"
+            "USER_TYPE=undefined 时本来就走 isEnabled=false 的 INTERNAL gate 兜底。"
         ),
         "static_findings": f,
         "failures": failures,

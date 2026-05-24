@@ -171,8 +171,8 @@ fn get_email(oauth_account: Option<&OAuthAccountInfo>) -> Option<String> {
         }
     }
 
-    // Ant-only fallbacks
-    if env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+    // Internal-only fallbacks
+    if env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return None;
     }
 
@@ -188,7 +188,7 @@ async fn get_email_async() -> Option<String> {
     // Note: in a real implementation, this would call get_oauth_account_info()
     // For now we check env fallbacks
 
-    if env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+    if env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return None;
     }
 

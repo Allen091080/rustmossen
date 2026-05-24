@@ -65,9 +65,7 @@ pub fn get_plan_mode_v2_agent_count() -> u32 {
     let subscription_type = get_subscription_type();
     let rate_limit_tier = get_rate_limit_tier();
 
-    if subscription_type == SubscriptionType::Max
-        && rate_limit_tier == "default_mossen_max_20x"
-    {
+    if subscription_type == SubscriptionType::Max && rate_limit_tier == "default_mossen_max_20x" {
         return 3;
     }
 
@@ -95,8 +93,8 @@ pub fn get_plan_mode_v2_explore_agent_count() -> u32 {
 
 /// 检查 plan mode 面试阶段是否启用
 pub fn is_plan_mode_interview_phase_enabled() -> bool {
-    // ant 用户始终启用
-    if env::var("USER_TYPE").as_deref() == Ok("ant") {
+    // internal 用户始终启用
+    if env::var("USER_TYPE").as_deref() == Ok("internal") {
         return true;
     }
 
@@ -110,7 +108,7 @@ pub fn is_plan_mode_interview_phase_enabled() -> bool {
         }
     }
 
-    get_feature_value_cached("tengu_plan_mode_interview_phase", false)
+    get_feature_value_cached("mossen_plan_mode_interview_phase", false)
 }
 
 /// Pewter Ledger 变体
@@ -123,7 +121,7 @@ pub enum PewterLedgerVariant {
 
 /// 获取 Pewter Ledger 变体
 pub fn get_pewter_ledger_variant() -> Option<PewterLedgerVariant> {
-    let raw: Option<String> = get_feature_value_cached("tengu_pewter_ledger", None);
+    let raw: Option<String> = get_feature_value_cached("mossen_pewter_ledger", None);
     match raw.as_deref() {
         Some("trim") => Some(PewterLedgerVariant::Trim),
         Some("cut") => Some(PewterLedgerVariant::Cut),

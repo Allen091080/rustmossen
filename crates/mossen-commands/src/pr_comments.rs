@@ -51,7 +51,11 @@ impl Directive for PrCommentsDirective {
     }
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let mut help = String::from(
                 "Usage: /pr-comments [filter]\n\n                 View comments on the current pull request.\n\n                 Filters:\n",
             );

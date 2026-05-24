@@ -32,12 +32,36 @@ pub enum ReadOnlyResult {
 fn git_read_only_commands() -> HashSet<&'static str> {
     let mut s = HashSet::new();
     for cmd in &[
-        "status", "log", "diff", "show", "branch", "tag", "describe",
-        "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote",
-        "cat-file", "for-each-ref", "reflog", "shortlog", "blame",
-        "grep", "bisect", "stash list", "remote", "config --get",
-        "config --list", "config -l", "name-rev", "merge-base",
-        "count-objects", "verify-commit", "verify-tag", "whatchanged",
+        "status",
+        "log",
+        "diff",
+        "show",
+        "branch",
+        "tag",
+        "describe",
+        "rev-parse",
+        "rev-list",
+        "ls-files",
+        "ls-tree",
+        "ls-remote",
+        "cat-file",
+        "for-each-ref",
+        "reflog",
+        "shortlog",
+        "blame",
+        "grep",
+        "bisect",
+        "stash list",
+        "remote",
+        "config --get",
+        "config --list",
+        "config -l",
+        "name-rev",
+        "merge-base",
+        "count-objects",
+        "verify-commit",
+        "verify-tag",
+        "whatchanged",
     ] {
         s.insert(*cmd);
     }
@@ -48,8 +72,8 @@ fn git_read_only_commands() -> HashSet<&'static str> {
 fn docker_read_only_commands() -> HashSet<&'static str> {
     let mut s = HashSet::new();
     for cmd in &[
-        "ps", "images", "inspect", "logs", "port", "top", "stats",
-        "version", "info", "events", "diff", "history",
+        "ps", "images", "inspect", "logs", "port", "top", "stats", "version", "info", "events",
+        "diff", "history",
     ] {
         s.insert(*cmd);
     }
@@ -60,11 +84,20 @@ fn docker_read_only_commands() -> HashSet<&'static str> {
 fn gh_read_only_commands() -> HashSet<&'static str> {
     let mut s = HashSet::new();
     for cmd in &[
-        "pr list", "pr view", "pr status", "pr checks", "pr diff",
-        "issue list", "issue view", "issue status",
-        "repo view", "repo list",
-        "run list", "run view",
-        "release list", "release view",
+        "pr list",
+        "pr view",
+        "pr status",
+        "pr checks",
+        "pr diff",
+        "issue list",
+        "issue view",
+        "issue status",
+        "repo view",
+        "repo list",
+        "run list",
+        "run view",
+        "release list",
+        "release view",
         "api",
     ] {
         s.insert(*cmd);
@@ -116,21 +149,96 @@ fn ripgrep_read_only_flags() -> HashMap<&'static str, FlagArgType> {
 fn external_read_only_commands() -> HashSet<&'static str> {
     let mut s = HashSet::new();
     for cmd in &[
-        "cat", "head", "tail", "less", "more", "wc", "stat", "file",
-        "strings", "od", "xxd", "hexdump", "ls", "tree", "du", "df",
-        "find", "locate", "which", "whereis", "type", "command",
-        "grep", "egrep", "fgrep", "rg", "ag", "ack",
-        "sort", "uniq", "cut", "tr", "awk", "jq", "yq",
-        "echo", "printf", "true", "false", "test", "[",
-        "pwd", "env", "printenv", "whoami", "id", "groups",
-        "date", "cal", "uptime", "uname", "hostname",
-        "ps", "top", "htop", "free", "vmstat", "iostat",
-        "netstat", "ss", "ip", "ifconfig", "ping", "traceroute",
-        "dig", "nslookup", "host", "curl", "wget",
-        "man", "info", "help", "apropos", "whatis",
-        "diff", "comm", "cmp", "md5sum", "sha256sum", "shasum",
-        "base64", "basename", "dirname", "realpath", "readlink",
-        "xargs", "seq", "yes", "tput", "stty",
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "wc",
+        "stat",
+        "file",
+        "strings",
+        "od",
+        "xxd",
+        "hexdump",
+        "ls",
+        "tree",
+        "du",
+        "df",
+        "find",
+        "locate",
+        "which",
+        "whereis",
+        "type",
+        "command",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "ag",
+        "ack",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "awk",
+        "jq",
+        "yq",
+        "echo",
+        "printf",
+        "true",
+        "false",
+        "test",
+        "[",
+        "pwd",
+        "env",
+        "printenv",
+        "whoami",
+        "id",
+        "groups",
+        "date",
+        "cal",
+        "uptime",
+        "uname",
+        "hostname",
+        "ps",
+        "top",
+        "htop",
+        "free",
+        "vmstat",
+        "iostat",
+        "netstat",
+        "ss",
+        "ip",
+        "ifconfig",
+        "ping",
+        "traceroute",
+        "dig",
+        "nslookup",
+        "host",
+        "curl",
+        "wget",
+        "man",
+        "info",
+        "help",
+        "apropos",
+        "whatis",
+        "diff",
+        "comm",
+        "cmp",
+        "md5sum",
+        "sha256sum",
+        "shasum",
+        "base64",
+        "basename",
+        "dirname",
+        "realpath",
+        "readlink",
+        "xargs",
+        "seq",
+        "yes",
+        "tput",
+        "stty",
     ] {
         s.insert(*cmd);
     }
@@ -327,8 +435,8 @@ pub fn sed_command_is_allowed_by_allowlist(command: &str) -> bool {
     }
 
     // sed with -n (suppress output) and only p/= commands is read-only
-    let has_n_flag = trimmed.contains(" -n ") || trimmed.contains(" -n'")
-        || trimmed.starts_with("sed -n");
+    let has_n_flag =
+        trimmed.contains(" -n ") || trimmed.contains(" -n'") || trimmed.starts_with("sed -n");
 
     if has_n_flag {
         // Check for print-only patterns: sed -n 'Np' or sed -n 'N,Mp'
@@ -347,7 +455,10 @@ mod tests {
 
     #[test]
     fn test_read_only_ls() {
-        assert_eq!(check_read_only_constraints("ls -la"), ReadOnlyResult::ReadOnly);
+        assert_eq!(
+            check_read_only_constraints("ls -la"),
+            ReadOnlyResult::ReadOnly
+        );
     }
 
     #[test]
@@ -413,5 +524,8 @@ mod tests {
 
 /// `readOnlyValidation.ts` `isCommandSafeViaFlagParsing`.
 pub fn is_command_safe_via_flag_parsing(command: &str) -> bool {
-    matches!(check_read_only_constraints(command), ReadOnlyResult::ReadOnly)
+    matches!(
+        check_read_only_constraints(command),
+        ReadOnlyResult::ReadOnly
+    )
 }

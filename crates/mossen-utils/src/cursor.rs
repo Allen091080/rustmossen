@@ -78,7 +78,11 @@ pub fn get_kill_ring_item(index: i32) -> String {
     }
     let len = state.ring.len() as i32;
     let normalized = ((index % len) + len) % len;
-    state.ring.get(normalized as usize).cloned().unwrap_or_default()
+    state
+        .ring
+        .get(normalized as usize)
+        .cloned()
+        .unwrap_or_default()
 }
 
 pub fn get_kill_ring_size() -> usize {
@@ -337,7 +341,12 @@ impl MeasuredText {
         boundaries[lo]
     }
 
-    fn binary_search_boundary(&self, boundaries: &[usize], target: usize, find_next: bool) -> usize {
+    fn binary_search_boundary(
+        &self,
+        boundaries: &[usize],
+        target: usize,
+        find_next: bool,
+    ) -> usize {
         let mut left: usize = 0;
         let mut right = if boundaries.is_empty() {
             return if find_next { self.text.len() } else { 0 };
@@ -409,9 +418,7 @@ impl MeasuredText {
     pub fn get_position_from_offset(&mut self, offset: usize) -> Position {
         let lines = self.get_wrapped_lines_internal().to_vec();
         for (line_idx, current_line) in lines.iter().enumerate() {
-            let next_start = lines
-                .get(line_idx + 1)
-                .map(|l| l.start_offset);
+            let next_start = lines.get(line_idx + 1).map(|l| l.start_offset);
             if offset >= current_line.start_offset
                 && (next_start.is_none() || offset < next_start.unwrap())
             {
@@ -419,8 +426,7 @@ impl MeasuredText {
                 let display_column = if current_line.is_preceded_by_newline {
                     Self::string_index_to_display_width(&current_line.text, str_pos_in_line)
                 } else {
-                    let leading_ws =
-                        current_line.text.len() - current_line.text.trim_start().len();
+                    let leading_ws = current_line.text.len() - current_line.text.trim_start().len();
                     if str_pos_in_line < leading_ws {
                         0
                     } else {
@@ -749,9 +755,7 @@ impl Cursor {
         let pos = self.get_position();
         let lines = self.measured_text.get_wrapped_text();
         let line_text = lines.get(pos.line).cloned().unwrap_or_default();
-        let col = line_text
-            .find(|c: char| !c.is_whitespace())
-            .unwrap_or(0);
+        let col = line_text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
         let display_col = MeasuredText::string_index_to_display_width(&line_text, col);
         let off = self.get_offset(Position {
             line: pos.line,
@@ -791,9 +795,7 @@ impl Cursor {
         let start = self.find_logical_line_start(self.offset);
         let end = self.find_logical_line_end(self.offset);
         let line_text = &self.text()[start..end];
-        let first_non_blank = line_text
-            .find(|c: char| !c.is_whitespace())
-            .unwrap_or(0);
+        let first_non_blank = line_text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
         Cursor::new(self.measured_text.clone(), start + first_non_blank, 0)
     }
 
@@ -860,11 +862,7 @@ impl Cursor {
                 prev_start = Some(b.start);
             }
         }
-        Cursor::new(
-            self.measured_text.clone(),
-            prev_start.unwrap_or(0),
-            0,
-        )
+        Cursor::new(self.measured_text.clone(), prev_start.unwrap_or(0), 0)
     }
 
     pub fn end_of_word(&mut self) -> Cursor {
@@ -1144,9 +1142,7 @@ impl Cursor {
     pub fn delete_token_before(&mut self) -> Option<Cursor> {
         let chip_after = self.image_ref_starting_at(self.offset);
         if let Some((_, end)) = chip_after {
-            let actual_end = if end < self.text().len()
-                && self.text().as_bytes()[end] == b' '
-            {
+            let actual_end = if end < self.text().len() && self.text().as_bytes()[end] == b' ' {
                 end + 1
             } else {
                 end

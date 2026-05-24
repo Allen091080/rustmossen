@@ -193,9 +193,7 @@ pub struct SyncResult {
 pub struct TeamMemoryTooManyEntriesSchema;
 
 impl TeamMemoryTooManyEntriesSchema {
-    pub fn parse(
-        value: &serde_json::Value,
-    ) -> Result<TeamMemoryTooManyEntriesError, String> {
+    pub fn parse(value: &serde_json::Value) -> Result<TeamMemoryTooManyEntriesError, String> {
         let details = value
             .get("error")
             .and_then(|e| e.get("details"))

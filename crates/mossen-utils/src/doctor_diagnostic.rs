@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Installation type for the Mossen binary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,10 +90,7 @@ pub async fn get_current_installation_type() -> InstallationType {
         "/.nvm/versions/node/",
     ];
 
-    if npm_global_paths
-        .iter()
-        .any(|p| invoked_path.contains(p))
-    {
+    if npm_global_paths.iter().any(|p| invoked_path.contains(p)) {
         return InstallationType::NpmGlobal;
     }
 
@@ -158,7 +155,9 @@ pub async fn get_installation_path() -> String {
         return "native".to_string();
     }
 
-    std::env::args().next().unwrap_or_else(|| "unknown".to_string())
+    std::env::args()
+        .next()
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Get the invoked binary path.
@@ -168,7 +167,9 @@ pub fn get_invoked_binary() -> String {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "unknown".to_string())
     } else {
-        std::env::args().nth(1).unwrap_or_else(|| "unknown".to_string())
+        std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "unknown".to_string())
     }
 }
 
@@ -236,7 +237,10 @@ pub async fn detect_configuration_issues(
             .map(|h| h.join(".local").join("bin").to_string_lossy().to_string())
             .unwrap_or_default();
 
-        if !path_var.split(':').any(|p| p.trim_end_matches('/') == local_bin.trim_end_matches('/')) {
+        if !path_var
+            .split(':')
+            .any(|p| p.trim_end_matches('/') == local_bin.trim_end_matches('/'))
+        {
             warnings.push(DiagnosticWarning {
                 issue: "Native installation exists but ~/.local/bin is not in your PATH"
                     .to_string(),
@@ -291,28 +295,19 @@ pub async fn get_doctor_diagnostic() -> DiagnosticInfo {
             match install.install_type.as_str() {
                 "npm-global" => {
                     warnings.push(DiagnosticWarning {
-                        issue: format!(
-                            "Leftover npm global installation at {}",
-                            install.path
-                        ),
+                        issue: format!("Leftover npm global installation at {}", install.path),
                         fix: "Run: npm -g uninstall @mossen/mossen-code".to_string(),
                     });
                 }
                 "npm-global-orphan" => {
                     warnings.push(DiagnosticWarning {
-                        issue: format!(
-                            "Orphaned npm global package at {}",
-                            install.path
-                        ),
+                        issue: format!("Orphaned npm global package at {}", install.path),
                         fix: format!("Run: rm -rf {}", install.path),
                     });
                 }
                 "npm-local" => {
                     warnings.push(DiagnosticWarning {
-                        issue: format!(
-                            "Leftover npm local installation at {}",
-                            install.path
-                        ),
+                        issue: format!("Leftover npm local installation at {}", install.path),
                         fix: format!("Run: rm -rf {}", install.path),
                     });
                 }
@@ -354,7 +349,9 @@ fn is_in_bundled_mode() -> bool {
 /// Detect if installed via Homebrew.
 fn detect_homebrew() -> bool {
     std::env::current_exe()
-        .map(|p| p.to_string_lossy().contains("/Cellar/") || p.to_string_lossy().contains("/Caskroom/"))
+        .map(|p| {
+            p.to_string_lossy().contains("/Cellar/") || p.to_string_lossy().contains("/Caskroom/")
+        })
         .unwrap_or(false)
 }
 

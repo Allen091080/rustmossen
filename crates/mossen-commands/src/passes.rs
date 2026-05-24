@@ -45,7 +45,11 @@ impl Directive for PassesDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let mut help = String::from(
                 "Usage: /passes\n\n                 View your current API access passes and rate limits.\n\n                 Access tiers:\n"
             );

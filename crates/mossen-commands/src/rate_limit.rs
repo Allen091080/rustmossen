@@ -44,7 +44,11 @@ impl Directive for RateLimitDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let mut help = String::from(
                 "Usage: /rate-limit-options [setting] [value]\n\n                 View and configure how rate limits are handled.\n\n                 Settings:\n                   backoff <strategy>    Set backoff strategy\n                   threshold <percent>   Set notification threshold\n                   auto-retry <on|off>   Toggle auto-retry\n\n                 Backoff strategies:\n",
             );

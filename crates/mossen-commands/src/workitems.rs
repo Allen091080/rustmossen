@@ -81,7 +81,10 @@ fn format_tasks_display(tasks: &[BackgroundTask]) -> String {
         ));
     }
 
-    let running_count = tasks.iter().filter(|t| t.status == TaskStatus::Running).count();
+    let running_count = tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Running)
+        .count();
     output.push_str(&format!(
         "\n{} task(s) total, {} running.",
         tasks.len(),

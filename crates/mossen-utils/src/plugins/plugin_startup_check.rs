@@ -1,8 +1,7 @@
 //! Plugin startup check — checks for enabled plugins and installs missing ones.
+use super::plugin_identifier::ExtendedPluginScope;
 use std::collections::HashMap;
 use tracing::debug;
-use super::plugin_identifier::{ExtendedPluginScope};
-use super::schemas::PluginScope;
 
 /// Checks for enabled plugins across all settings sources.
 pub fn check_enabled_plugins(
@@ -21,12 +20,18 @@ pub fn check_enabled_plugins(
 
     if let Some(ref ep) = settings.enabled_plugins {
         for (plugin_id, value) in ep {
-            if !plugin_id.contains('@') { continue; }
+            if !plugin_id.contains('@') {
+                continue;
+            }
             let idx = enabled_plugins.iter().position(|p| p == plugin_id);
             if *value {
-                if idx.is_none() { enabled_plugins.push(plugin_id.clone()); }
+                if idx.is_none() {
+                    enabled_plugins.push(plugin_id.clone());
+                }
             } else {
-                if let Some(i) = idx { enabled_plugins.remove(i); }
+                if let Some(i) = idx {
+                    enabled_plugins.remove(i);
+                }
             }
         }
     }
@@ -42,9 +47,14 @@ pub fn get_plugin_editable_scopes(
     let add_dir_plugins = get_add_dir_enabled_plugins();
 
     for (plugin_id, value) in &add_dir_plugins {
-        if !plugin_id.contains('@') { continue; }
-        if *value { result.insert(plugin_id.clone(), ExtendedPluginScope::Flag); }
-        else { result.remove(plugin_id); }
+        if !plugin_id.contains('@') {
+            continue;
+        }
+        if *value {
+            result.insert(plugin_id.clone(), ExtendedPluginScope::Flag);
+        } else {
+            result.remove(plugin_id);
+        }
     }
 
     let scope_sources = [
@@ -59,9 +69,14 @@ pub fn get_plugin_editable_scopes(
         if let Some(settings) = get_settings_for_source(source) {
             if let Some(ref ep) = settings.enabled_plugins {
                 for (plugin_id, value) in ep {
-                    if !plugin_id.contains('@') { continue; }
-                    if *value { result.insert(plugin_id.clone(), scope.clone()); }
-                    else { result.remove(plugin_id); }
+                    if !plugin_id.contains('@') {
+                        continue;
+                    }
+                    if *value {
+                        result.insert(plugin_id.clone(), scope.clone());
+                    } else {
+                        result.remove(plugin_id);
+                    }
                 }
             }
         }
@@ -93,10 +108,16 @@ pub async fn get_installed_plugins(
 pub async fn find_missing_plugins(
     enabled_plugins: &[String],
     get_installed: impl std::future::Future<Output = Vec<String>>,
-    get_plugin_by_id: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<()>> + Send>>,
+    get_plugin_by_id: impl Fn(
+        &str,
+    )
+        -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<()>> + Send>>,
 ) -> Vec<String> {
     let installed = get_installed.await;
-    let not_installed: Vec<&String> = enabled_plugins.iter().filter(|id| !installed.contains(id)).collect();
+    let not_installed: Vec<&String> = enabled_plugins
+        .iter()
+        .filter(|id| !installed.contains(id))
+        .collect();
 
     let mut missing = Vec::new();
     for plugin_id in not_installed {
@@ -124,8 +145,18 @@ pub struct PluginInstallFailure {
 pub async fn install_selected_plugins(
     plugins_to_install: &[String],
     scope: &str,
-    get_plugin_by_id: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<PluginInfo>> + Send>>,
-    cache_and_register_plugin: impl Fn(&str, &str, &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>>,
+    get_plugin_by_id: impl Fn(
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<PluginInfo>> + Send>,
+    >,
+    cache_and_register_plugin: impl Fn(
+        &str,
+        &str,
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>,
+    >,
     update_settings: impl Fn(&str, HashMap<String, bool>),
     on_progress: Option<&dyn Fn(&str, usize, usize)>,
 ) -> PluginInstallResult {
@@ -145,10 +176,16 @@ pub async fn install_selected_plugins(
                         updated_enabled.insert(plugin_id.clone(), true);
                         installed.push(plugin_id.clone());
                     }
-                    Err(e) => failed.push(PluginInstallFailure { name: plugin_id.clone(), error: e.to_string() }),
+                    Err(e) => failed.push(PluginInstallFailure {
+                        name: plugin_id.clone(),
+                        error: e.to_string(),
+                    }),
                 }
             }
-            None => failed.push(PluginInstallFailure { name: plugin_id.clone(), error: "Plugin not found in any marketplace".to_string() }),
+            None => failed.push(PluginInstallFailure {
+                name: plugin_id.clone(),
+                error: "Plugin not found in any marketplace".to_string(),
+            }),
         }
     }
 
@@ -196,7 +233,18 @@ pub struct StartupCheckOutcome {
 /// Each side effect is delegated to a caller-supplied async closure so
 /// `mossen-utils` doesn't depend on the AppState shape or the
 /// PluginInstallationManager.
-pub async fn perform_startup_checks<TrustCheck, SeedRegister, ClearMpCache, ClearPluginCache, BgInstall, FTrust, FSeed, FClearMp, FClearPl, FBg>(
+pub async fn perform_startup_checks<
+    TrustCheck,
+    SeedRegister,
+    ClearMpCache,
+    ClearPluginCache,
+    BgInstall,
+    FTrust,
+    FSeed,
+    FClearMp,
+    FClearPl,
+    FBg,
+>(
     check_has_trust_dialog_accepted: TrustCheck,
     register_seed_marketplaces: SeedRegister,
     clear_marketplaces_cache: ClearMpCache,

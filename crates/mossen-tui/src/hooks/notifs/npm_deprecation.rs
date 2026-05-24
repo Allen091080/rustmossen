@@ -100,8 +100,11 @@ pub fn get_npm_deprecation_message(
 /// event to fire on startup, or `None` if it shouldn't fire.
 ///
 /// TS source: `getNpmDeprecationNotification()`.
-pub fn get_npm_deprecation_notification(inputs: &NpmDeprecationInputs) -> Option<NpmDeprecationEvent> {
-    if inputs.custom_backend_enabled || inputs.is_bundled_mode || inputs.disable_installation_checks {
+pub fn get_npm_deprecation_notification(
+    inputs: &NpmDeprecationInputs,
+) -> Option<NpmDeprecationEvent> {
+    if inputs.custom_backend_enabled || inputs.is_bundled_mode || inputs.disable_installation_checks
+    {
         return None;
     }
     if inputs.installation_type == "development" {
@@ -124,6 +127,8 @@ pub fn get_npm_deprecation_notification(inputs: &NpmDeprecationInputs) -> Option
 /// `get_npm_deprecation_notification` matching the TS export name.
 ///
 /// TS source: `useNpmDeprecationNotification()`.
-pub fn use_npm_deprecation_notification(inputs: &NpmDeprecationInputs) -> Option<NpmDeprecationEvent> {
+pub fn use_npm_deprecation_notification(
+    inputs: &NpmDeprecationInputs,
+) -> Option<NpmDeprecationEvent> {
     get_npm_deprecation_notification(inputs)
 }

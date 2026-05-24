@@ -7,7 +7,7 @@
 //! - `commands/plugin/PluginOptionsDialog.tsx`（仅业务逻辑）
 //! - `commands/plugin/PluginOptionsFlow.tsx`（仅业务逻辑）
 //!
-//! 不翻译 React/Ink UI 组件 — Rust 端 TUI 由 mossen-tui 处理。
+//! 不翻译 UI 组件 — Rust 端 TUI 由 mossen-tui 处理。
 
 use std::collections::HashMap;
 
@@ -69,7 +69,11 @@ pub fn build_plugin_details_menu_options(
     is_chinese: bool,
 ) -> Vec<PluginDetailsMenuOption> {
     let l = |en: &str, zh: &str| -> String {
-        if is_chinese { zh.into() } else { en.into() }
+        if is_chinese {
+            zh.into()
+        } else {
+            en.into()
+        }
     };
     let mut options = vec![
         PluginDetailsMenuOption {
@@ -115,7 +119,11 @@ pub fn build_plugin_details_menu_options(
 /// Rust 不渲染 React 组件 — 我们返回一个文本数组，由 TUI 层决定如何显示。
 pub fn plugin_selection_key_hint(has_selection: bool, is_chinese: bool) -> Vec<String> {
     let l = |en: &str, zh: &str| -> String {
-        if is_chinese { zh.into() } else { en.into() }
+        if is_chinese {
+            zh.into()
+        } else {
+            en.into()
+        }
     };
     let mut hints = Vec::new();
     if has_selection {
@@ -207,7 +215,9 @@ pub fn filter_managed_disabled_plugins(
 /// `ManagePlugins.tsx` `ManagePlugins` 业务逻辑（排除 UI）。
 ///
 /// 输入是所有可见插件，输出是按字母序排序的列表 + managed-disabled 列表。
-pub fn manage_plugins(rows: Vec<ManagedPluginRow>) -> (Vec<ManagedPluginRow>, Vec<ManagedPluginRow>) {
+pub fn manage_plugins(
+    rows: Vec<ManagedPluginRow>,
+) -> (Vec<ManagedPluginRow>, Vec<ManagedPluginRow>) {
     let (mut available, mut managed_off) = filter_managed_disabled_plugins(rows);
     available.sort_by(|a, b| a.name.cmp(&b.name));
     managed_off.sort_by(|a, b| a.name.cmp(&b.name));
@@ -346,14 +356,12 @@ mod tests {
 
     #[test]
     fn final_values_fills_defaults() {
-        let opts = vec![
-            PluginOptionDef {
-                name: "foo".into(),
-                kind: "string".into(),
-                default: Some(json!("bar")),
-                description: None,
-            },
-        ];
+        let opts = vec![PluginOptionDef {
+            name: "foo".into(),
+            kind: "string".into(),
+            default: Some(json!("bar")),
+            description: None,
+        }];
         let r = build_final_values(&opts, &HashMap::new());
         assert_eq!(r.get("foo"), Some(&json!("bar")));
     }

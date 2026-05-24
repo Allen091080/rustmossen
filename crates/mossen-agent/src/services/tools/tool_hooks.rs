@@ -1,9 +1,9 @@
 //! Tool hooks — pre/post execution hooks for tools (permission tracking, analytics, caching).
 
-use std::collections::HashMap;
-use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Instant;
 use tracing::debug;
 
 use super::tool_execution::{ToolExecutionRequest, ToolExecutionResult};
@@ -65,7 +65,11 @@ impl ToolHookRegistry {
     }
 
     /// Run all post-execution hooks.
-    pub async fn run_post_hooks(&self, request: &ToolExecutionRequest, result: &ToolExecutionResult) {
+    pub async fn run_post_hooks(
+        &self,
+        request: &ToolExecutionRequest,
+        result: &ToolExecutionResult,
+    ) {
         for hook in &self.post_hooks {
             hook.after_execute(request, result).await;
         }
@@ -95,10 +99,13 @@ impl PostToolHook for FileReadTrackingHook {
         if request.tool_name == "Read" && !result.is_error {
             if let Some(file_path) = request.input.get("file_path").and_then(|v| v.as_str()) {
                 let mut state = self.read_state.lock().unwrap();
-                state.insert(file_path.to_string(), FileReadState {
-                    content: result.content.clone(),
-                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                });
+                state.insert(
+                    file_path.to_string(),
+                    FileReadState {
+                        content: result.content.clone(),
+                        timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                    },
+                );
             }
         }
     }

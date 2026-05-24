@@ -55,13 +55,34 @@ pub const AGENT_SOURCE_GROUPS: &[(&str, &str)] = &[
 /// Returns the ordered agent source groups.
 pub fn get_agent_source_groups() -> Vec<AgentSourceGroup> {
     vec![
-        AgentSourceGroup { label: "User agents", source: AgentSource::UserSettings },
-        AgentSourceGroup { label: "Project agents", source: AgentSource::ProjectSettings },
-        AgentSourceGroup { label: "Local agents", source: AgentSource::LocalSettings },
-        AgentSourceGroup { label: "Managed agents", source: AgentSource::PolicySettings },
-        AgentSourceGroup { label: "Plugin agents", source: AgentSource::Plugin },
-        AgentSourceGroup { label: "CLI arg agents", source: AgentSource::FlagSettings },
-        AgentSourceGroup { label: "Built-in agents", source: AgentSource::BuiltIn },
+        AgentSourceGroup {
+            label: "User agents",
+            source: AgentSource::UserSettings,
+        },
+        AgentSourceGroup {
+            label: "Project agents",
+            source: AgentSource::ProjectSettings,
+        },
+        AgentSourceGroup {
+            label: "Local agents",
+            source: AgentSource::LocalSettings,
+        },
+        AgentSourceGroup {
+            label: "Managed agents",
+            source: AgentSource::PolicySettings,
+        },
+        AgentSourceGroup {
+            label: "Plugin agents",
+            source: AgentSource::Plugin,
+        },
+        AgentSourceGroup {
+            label: "CLI arg agents",
+            source: AgentSource::FlagSettings,
+        },
+        AgentSourceGroup {
+            label: "Built-in agents",
+            source: AgentSource::BuiltIn,
+        },
     ]
 }
 
@@ -133,7 +154,10 @@ pub fn resolve_agent_overrides(
 
 /// Resolve the display model string for an agent.
 /// Returns the model alias or "inherit" for display purposes.
-pub fn resolve_agent_model_display(model: Option<&str>, default_model: Option<&str>) -> Option<String> {
+pub fn resolve_agent_model_display(
+    model: Option<&str>,
+    default_model: Option<&str>,
+) -> Option<String> {
     let effective = model.or(default_model)?;
     if effective.eq_ignore_ascii_case("inherit") {
         Some("inherit".to_string())

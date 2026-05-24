@@ -8,7 +8,7 @@ M9.1 — Custom backend agent loop e2e: 验 mossen 在 custom backend (默认就
     - fixture HOME 隔离
     - 显式注入 .mossensrc/custom-backend.env 里的 MOSSEN_CODE_CUSTOM_* env
       (subprocess 没经 run-bun-featured.sh 的 source ENV — 我们直接传, 等价)
-    - 删除 ANTHROPIC_* 任何残留, 防止干扰
+    - 删除 PROVIDER_* 任何残留, 防止干扰
     - fixture_cwd 含 target.txt (含 marker)
   步骤:
     mossen -p, prompt 让 model 用 Read 工具读 target.txt 并原样回显
@@ -63,9 +63,9 @@ def _inject_custom_backend_env(env: dict) -> dict:
     env["MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL"] = "openai-compatible"
     env["MOSSEN_CODE_DISABLE_THINKING"] = "1"
     env["MOSSEN_CODE_DISABLE_ADAPTIVE_THINKING"] = "1"
-    # 清掉 ANTHROPIC_* 残留, 避免误导路由
+    # 清掉 PROVIDER_* 残留, 避免误导路由
     for k in list(env.keys()):
-        if k.startswith("ANTHROPIC_"):
+        if k.startswith("PROVIDER_"):
             del env[k]
     return env
 
@@ -111,7 +111,7 @@ def case_custom_backend_agent_loop_real() -> dict:
 
     tool_use_read_found = False
     tool_use_read_path_match = False
-    assistant_model_observed: str | None = None
+    assistinternal_model_observed: str | None = None
     custom_model_in_session = False
 
     for log_file in session_logs:
@@ -136,7 +136,7 @@ def case_custom_backend_agent_loop_real() -> dict:
                 if isinstance(msg, dict) and msg.get("role") == "assistant":
                     model_field = msg.get("model")
                     if isinstance(model_field, str):
-                        assistant_model_observed = model_field
+                        assistinternal_model_observed = model_field
                         if "qwen" in model_field.lower():
                             custom_model_in_session = True
         except (json.JSONDecodeError, OSError):
@@ -159,7 +159,7 @@ def case_custom_backend_agent_loop_real() -> dict:
         "tool_use_read_found": tool_use_read_found,
         "tool_use_read_path_match": tool_use_read_path_match,
         "custom_model_in_session": custom_model_in_session,
-        "assistant_model_observed": assistant_model_observed,
+        "assistinternal_model_observed": assistinternal_model_observed,
         "hosted_token_in_output": hosted_token_in_output,
         "session_log_count": len(session_logs),
         "stdout_excerpt": proc.stdout[:300],
@@ -195,7 +195,7 @@ def main() -> int:
                     f"marker={r.get('marker_in_stdout')} "
                     f"tool_use_read={r.get('tool_use_read_found')} "
                     f"path_match={r.get('tool_use_read_path_match')} "
-                    f"model={r.get('assistant_model_observed')!r} "
+                    f"model={r.get('assistinternal_model_observed')!r} "
                     f"custom_model={r.get('custom_model_in_session')} "
                     f"hosted_leak={r.get('hosted_token_in_output')}"
                 ),

@@ -2,9 +2,6 @@
 //!
 //! Builds and opens deep link URLs for Mossen Desktop to resume CLI sessions.
 
-use std::path::PathBuf;
-use anyhow::{Result, anyhow};
-
 const MIN_DESKTOP_VERSION: &str = "1.1.2396";
 
 /// Check if running in dev mode.
@@ -20,8 +17,8 @@ fn is_dev_mode() -> bool {
             .unwrap_or_default(),
     ];
     let build_dirs = [
-        "/build-ant/",
-        "/build-ant-native/",
+        "/build-internal/",
+        "/build-internal-native/",
         "/build-external/",
         "/build-external-native/",
     ];
@@ -40,8 +37,8 @@ fn build_desktop_deep_link(session_id: &str, cwd: &str) -> String {
     } else {
         "mossen"
     };
-    let mut url = url::Url::parse(&format!("{protocol}://resume"))
-        .expect("static URL parse should not fail");
+    let mut url =
+        url::Url::parse(&format!("{protocol}://resume")).expect("static URL parse should not fail");
     url.query_pairs_mut()
         .append_pair("session", session_id)
         .append_pair("cwd", cwd);
@@ -187,7 +184,11 @@ pub async fn get_desktop_install_status() -> DesktopInstallStatus {
 
     let version = match get_desktop_version().await {
         Some(v) => v,
-        None => return DesktopInstallStatus::Ready { version: "unknown".to_string() },
+        None => {
+            return DesktopInstallStatus::Ready {
+                version: "unknown".to_string(),
+            }
+        }
     };
 
     if !semver_gte(&version, MIN_DESKTOP_VERSION) {
@@ -258,10 +259,7 @@ pub struct OpenDesktopResult {
 }
 
 /// Build and open a deep link to resume the current session in Mossen Desktop.
-pub async fn open_current_session_in_desktop(
-    session_id: &str,
-    cwd: &str,
-) -> OpenDesktopResult {
+pub async fn open_current_session_in_desktop(session_id: &str, cwd: &str) -> OpenDesktopResult {
     let installed = is_desktop_installed().await;
     if !installed {
         return OpenDesktopResult {

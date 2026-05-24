@@ -63,7 +63,7 @@ pub fn expand_path(path: &str, base_dir: Option<&str>) -> PathBuf {
 pub fn to_relative_path(absolute_path: &str) -> String {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let relative = cwd.join(absolute_path);
-    
+
     if let Ok(rel) = relative.strip_prefix(&cwd) {
         let rel_str = rel.to_string_lossy();
         if rel_str.starts_with("..") {
@@ -82,20 +82,26 @@ pub fn to_relative_path(absolute_path: &str) -> String {
 /// 如果路径是文件或不存在，返回父目录。
 pub fn get_directory_for_path(path: &str) -> PathBuf {
     let absolute_path = expand_path(path, None);
-    
+
     // 安全：跳过 UNC 路径的文件系统操作
     let path_str = absolute_path.to_string_lossy();
     if path_str.starts_with("\\\\") || path_str.starts_with("//") {
-        return absolute_path.parent().map(PathBuf::from).unwrap_or(absolute_path);
+        return absolute_path
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or(absolute_path);
     }
-    
+
     // 检查是否是目录
     if absolute_path.is_dir() {
         return absolute_path;
     }
-    
+
     // 如果不是目录或不存在，返回父目录
-    absolute_path.parent().map(PathBuf::from).unwrap_or(absolute_path)
+    absolute_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or(absolute_path)
 }
 
 /// 检查路径是否包含目录遍历模式。

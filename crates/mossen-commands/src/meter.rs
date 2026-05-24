@@ -40,7 +40,11 @@ impl Directive for MeterDirective {
     }
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /cost [options]\n\n                 Show token usage and cost for this session.\n\n                 Options:\n                   --detailed    Show per-message breakdown\n                   --total       Show only session totals"
                     .to_string(),

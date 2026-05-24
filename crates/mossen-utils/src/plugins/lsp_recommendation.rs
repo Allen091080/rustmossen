@@ -139,15 +139,15 @@ struct LspInfo {
 }
 
 /// Extract LSP info from inline lspServers config.
-fn extract_lsp_info_from_manifest(
-    lsp_servers: &serde_json::Value,
-) -> Option<LspInfo> {
+fn extract_lsp_info_from_manifest(lsp_servers: &serde_json::Value) -> Option<LspInfo> {
     if lsp_servers.is_null() {
         return None;
     }
 
     if lsp_servers.is_string() {
-        debug!("[lspRecommendation] Skipping string path lspServers (not readable from marketplace)");
+        debug!(
+            "[lspRecommendation] Skipping string path lspServers (not readable from marketplace)"
+        );
         return None;
     }
 
@@ -183,7 +183,10 @@ fn extract_from_server_config_record(server_configs: &serde_json::Value) -> Opti
             }
         }
 
-        if let Some(ext_mapping) = config_obj.get("extensionToLanguage").and_then(|v| v.as_object()) {
+        if let Some(ext_mapping) = config_obj
+            .get("extensionToLanguage")
+            .and_then(|v| v.as_object())
+        {
             for ext in ext_mapping.keys() {
                 extensions.insert(ext.to_lowercase());
             }
@@ -227,23 +230,28 @@ pub async fn get_matching_lsp_plugins(
     debug!("[lspRecommendation] Looking for LSP plugins for {}", ext);
 
     // Get all LSP plugins from marketplaces
-    let all_lsp_plugins =
-        get_lsp_plugins_from_marketplaces(marketplace_provider).await;
+    let all_lsp_plugins = get_lsp_plugins_from_marketplaces(marketplace_provider).await;
 
     let never_plugins: HashSet<String> = config.get_never_plugins().into_iter().collect();
 
     let mut matching_plugins: Vec<(String, LspInfo, String, bool)> = Vec::new();
 
-    for (plugin_id, lsp_info, marketplace_name, is_official, entry) in &all_lsp_plugins {
+    for (plugin_id, lsp_info, marketplace_name, is_official, _entry) in &all_lsp_plugins {
         if !lsp_info.extensions.contains(&ext) {
             continue;
         }
         if never_plugins.contains(plugin_id) {
-            debug!("[lspRecommendation] Skipping {} (in never suggest list)", plugin_id);
+            debug!(
+                "[lspRecommendation] Skipping {} (in never suggest list)",
+                plugin_id
+            );
             continue;
         }
         if marketplace_provider.is_plugin_installed(plugin_id) {
-            debug!("[lspRecommendation] Skipping {} (already installed)", plugin_id);
+            debug!(
+                "[lspRecommendation] Skipping {} (already installed)",
+                plugin_id
+            );
             continue;
         }
         matching_plugins.push((
@@ -295,7 +303,13 @@ struct LspPluginRecord {
 
 async fn get_lsp_plugins_from_marketplaces(
     provider: &dyn MarketplaceProvider,
-) -> Vec<(String, LspPluginRecord, String, bool, Option<PluginMarketplaceEntry>)> {
+) -> Vec<(
+    String,
+    LspPluginRecord,
+    String,
+    bool,
+    Option<PluginMarketplaceEntry>,
+)> {
     let mut result = Vec::new();
 
     let config = provider.load_known_marketplaces_config().await;

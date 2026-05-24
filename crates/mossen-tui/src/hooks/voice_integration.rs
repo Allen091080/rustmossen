@@ -10,21 +10,47 @@ pub struct VoiceIntegrationState {
 }
 
 impl VoiceIntegrationState {
-    pub fn new() -> Self { Self { is_recording: false, auto_submit: true, buffer: String::new(), session_count: 0 } }
-    pub fn start_session(&mut self) { self.is_recording = true; self.buffer.clear(); self.session_count += 1; }
-    pub fn append_text(&mut self, text: &str) { self.buffer.push_str(text); }
+    pub fn new() -> Self {
+        Self {
+            is_recording: false,
+            auto_submit: true,
+            buffer: String::new(),
+            session_count: 0,
+        }
+    }
+    pub fn start_session(&mut self) {
+        self.is_recording = true;
+        self.buffer.clear();
+        self.session_count += 1;
+    }
+    pub fn append_text(&mut self, text: &str) {
+        self.buffer.push_str(text);
+    }
     pub fn end_session(&mut self) -> Option<String> {
         self.is_recording = false;
-        if self.buffer.is_empty() { None } else { Some(std::mem::take(&mut self.buffer)) }
+        if self.buffer.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.buffer))
+        }
     }
-    pub fn cancel(&mut self) { self.is_recording = false; self.buffer.clear(); }
-    pub fn set_auto_submit(&mut self, auto: bool) { self.auto_submit = auto; }
+    pub fn cancel(&mut self) {
+        self.is_recording = false;
+        self.buffer.clear();
+    }
+    pub fn set_auto_submit(&mut self, auto: bool) {
+        self.auto_submit = auto;
+    }
 }
-impl Default for VoiceIntegrationState { fn default() -> Self { Self::new() } }
+impl Default for VoiceIntegrationState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ============================================================================
 // Voice keybinding handler — translated from useVoiceKeybindingHandler in
-// hooks/useVoiceIntegration.tsx.
+// Voice integration hook.
 // ============================================================================
 
 /// Default fallback (ms) when a key-down arrives with no auto-repeat yet.
@@ -180,9 +206,18 @@ mod voice_keybinding_tests {
     #[test]
     fn warmup_then_activate() {
         let mut s = VoiceKeybindingHandlerState::new();
-        assert_eq!(s.on_bare_char_press(false), VoiceKeybindingOutcome::FlowThrough);
-        assert_eq!(s.on_bare_char_press(false), VoiceKeybindingOutcome::FlowThrough);
-        assert_eq!(s.on_bare_char_press(false), VoiceKeybindingOutcome::FlowThrough);
+        assert_eq!(
+            s.on_bare_char_press(false),
+            VoiceKeybindingOutcome::FlowThrough
+        );
+        assert_eq!(
+            s.on_bare_char_press(false),
+            VoiceKeybindingOutcome::FlowThrough
+        );
+        assert_eq!(
+            s.on_bare_char_press(false),
+            VoiceKeybindingOutcome::FlowThrough
+        );
         match s.on_bare_char_press(false) {
             VoiceKeybindingOutcome::Activate { strip_chars } => {
                 assert_eq!(strip_chars, 4);
@@ -196,7 +231,10 @@ mod voice_keybinding_tests {
     fn modifier_activates_immediately() {
         let mut s = VoiceKeybindingHandlerState::new();
         let (out, ms) = s.on_modifier_combo_press();
-        assert!(matches!(out, VoiceKeybindingOutcome::Activate { strip_chars: 0 }));
+        assert!(matches!(
+            out,
+            VoiceKeybindingOutcome::Activate { strip_chars: 0 }
+        ));
         assert_eq!(ms, VOICE_FIRST_PRESS_FALLBACK_MS);
     }
 

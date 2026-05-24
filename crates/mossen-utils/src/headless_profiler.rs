@@ -8,9 +8,8 @@ use std::time::Instant;
 use once_cell::sync::Lazy;
 
 /// Whether detailed profiling is enabled.
-static DETAILED_PROFILING: Lazy<bool> = Lazy::new(|| {
-    is_env_truthy(env::var("MOSSEN_CODE_PROFILE_STARTUP").ok().as_deref())
-});
+static DETAILED_PROFILING: Lazy<bool> =
+    Lazy::new(|| is_env_truthy(env::var("MOSSEN_CODE_PROFILE_STARTUP").ok().as_deref()));
 
 fn is_env_truthy(val: Option<&str>) -> bool {
     matches!(val, Some("1") | Some("true") | Some("yes"))
@@ -18,12 +17,11 @@ fn is_env_truthy(val: Option<&str>) -> bool {
 
 /// Whether sampled for Statsig logging.
 static STATSIG_LOGGING_SAMPLED: Lazy<bool> = Lazy::new(|| {
-    env::var("USER_TYPE").ok().as_deref() == Some("ant") || rand::random::<f64>() < 0.05
+    env::var("USER_TYPE").ok().as_deref() == Some("internal") || rand::random::<f64>() < 0.05
 });
 
 /// Whether profiling should be active.
-static SHOULD_PROFILE: Lazy<bool> =
-    Lazy::new(|| *DETAILED_PROFILING || *STATSIG_LOGGING_SAMPLED);
+static SHOULD_PROFILE: Lazy<bool> = Lazy::new(|| *DETAILED_PROFILING || *STATSIG_LOGGING_SAMPLED);
 
 const MARK_PREFIX: &str = "headless_";
 
@@ -53,7 +51,9 @@ pub fn headless_profiler_start_turn(is_non_interactive: bool) {
     state.checkpoints.clear();
 
     let elapsed_ms = state.start.elapsed().as_secs_f64() * 1000.0;
-    state.checkpoints.push(("turn_start".to_string(), elapsed_ms));
+    state
+        .checkpoints
+        .push(("turn_start".to_string(), elapsed_ms));
 
     if *DETAILED_PROFILING {
         tracing::debug!(
@@ -158,7 +158,7 @@ pub fn log_headless_profiler_turn(is_non_interactive: bool) {
     }
 
     if *STATSIG_LOGGING_SAMPLED {
-        tracing::info!(event = "tengu_headless_latency", ?metadata);
+        tracing::info!(event = "mossen_headless_latency", ?metadata);
     }
 
     if *DETAILED_PROFILING {

@@ -7,6 +7,8 @@ use std::time::Duration;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use mossen_utils::string_utils::truncate_chars;
+
 const XAA_REQUEST_TIMEOUT_MS: u64 = 30000;
 const TOKEN_EXCHANGE_GRANT: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
@@ -96,7 +98,9 @@ pub async fn discover_protected_resource(
         return Err(format!("XAA: PRM discovery failed: HTTP {}", resp.status()).into());
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("XAA: PRM discovery failed: {}", e))?;
 
     let resource = body["resource"]
@@ -160,7 +164,9 @@ pub async fn discover_authorization_server(
         return Err(format!("XAA: AS metadata discovery failed: HTTP {}", resp.status()).into());
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("XAA: AS metadata discovery failed: {}", e))?;
 
     let issuer = body["issuer"]
@@ -180,22 +186,23 @@ pub async fn discover_authorization_server(
         .into());
     }
 
-    let te_url = url::Url::parse(&token_endpoint)
-        .map_err(|_| "XAA: invalid token_endpoint URL")?;
+    let te_url = url::Url::parse(&token_endpoint).map_err(|_| "XAA: invalid token_endpoint URL")?;
     if te_url.scheme() != "https" {
-        return Err(format!(
-            "XAA: refusing non-HTTPS token endpoint: {}",
-            token_endpoint
-        )
-        .into());
+        return Err(format!("XAA: refusing non-HTTPS token endpoint: {}", token_endpoint).into());
     }
 
-    let grant_types = body["grant_types_supported"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let grant_types = body["grant_types_supported"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    });
     let auth_methods = body["token_endpoint_auth_methods_supported"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
 
     Ok(AuthorizationServerMetadata {
         issuer,
@@ -262,20 +269,19 @@ pub async fn request_jwt_authorization_grant(
             message: format!(
                 "XAA: token exchange failed: HTTP {}: {}",
                 status,
-                &redacted[..redacted.len().min(200)]
+                truncate_chars(&redacted, 200)
             ),
             should_clear_id_token: should_clear,
         });
     }
 
-    let result: TokenExchangeResponse =
-        resp.json().await.map_err(|_| XaaTokenExchangeError {
-            message: format!(
-                "XAA: token exchange returned non-JSON at {}",
-                token_endpoint
-            ),
-            should_clear_id_token: false,
-        })?;
+    let result: TokenExchangeResponse = resp.json().await.map_err(|_| XaaTokenExchangeError {
+        message: format!(
+            "XAA: token exchange returned non-JSON at {}",
+            token_endpoint
+        ),
+        should_clear_id_token: false,
+    })?;
 
     let access_token = result.access_token.ok_or_else(|| XaaTokenExchangeError {
         message: "XAA: token exchange response missing access_token".to_string(),
@@ -366,7 +372,10 @@ pub async fn exchange_jwt_auth_grant(
         }
     }
 
-    let resp = builder.form(&params).send().await
+    let resp = builder
+        .form(&params)
+        .send()
+        .await
         .map_err(|e| format!("XAA: jwt-bearer grant request failed: {}", e))?;
 
     if !resp.status().is_success() {
@@ -376,12 +385,14 @@ pub async fn exchange_jwt_auth_grant(
         return Err(format!(
             "XAA: jwt-bearer grant failed: HTTP {}: {}",
             status,
-            &redacted[..redacted.len().min(200)]
+            truncate_chars(&redacted, 200)
         )
         .into());
     }
 
-    let result: JwtBearerResponse = resp.json().await
+    let result: JwtBearerResponse = resp
+        .json()
+        .await
         .map_err(|e| format!("XAA: jwt-bearer response parse failed: {}", e))?;
 
     Ok(XaaTokenResult {

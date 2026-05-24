@@ -3,7 +3,6 @@
 //! Reads credentials from file descriptors or well-known file paths,
 //! with caching and fallback between the two mechanisms.
 
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
@@ -16,10 +15,8 @@ pub const CCR_SESSION_INGRESS_TOKEN_PATH: &str =
     "/home/mossen/.mossen/remote/.session_ingress_token";
 
 /// Cached credential values.
-static OAUTH_TOKEN_FROM_FD: Lazy<Mutex<Option<Option<String>>>> =
-    Lazy::new(|| Mutex::new(None));
-static API_KEY_FROM_FD: Lazy<Mutex<Option<Option<String>>>> =
-    Lazy::new(|| Mutex::new(None));
+static OAUTH_TOKEN_FROM_FD: Lazy<Mutex<Option<Option<String>>>> = Lazy::new(|| Mutex::new(None));
+static API_KEY_FROM_FD: Lazy<Mutex<Option<Option<String>>>> = Lazy::new(|| Mutex::new(None));
 
 fn is_env_truthy(val: &str) -> bool {
     matches!(val, "1" | "true" | "yes" | "on")
@@ -27,11 +24,7 @@ fn is_env_truthy(val: &str) -> bool {
 
 /// Best-effort write of the token to a well-known location for subprocess access.
 /// CCR-gated: outside CCR there's no /home/mossen/ and no reason to persist.
-pub fn maybe_persist_token_for_subprocesses(
-    path: &str,
-    token: &str,
-    token_name: &str,
-) {
+pub fn maybe_persist_token_for_subprocesses(path: &str, token: &str, token_name: &str) {
     let is_remote = std::env::var("MOSSEN_CODE_REMOTE")
         .map(|v| is_env_truthy(&v))
         .unwrap_or(false);
@@ -45,10 +38,7 @@ pub fn maybe_persist_token_for_subprocesses(
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(
-                CCR_TOKEN_DIR,
-                std::fs::Permissions::from_mode(0o700),
-            );
+            let _ = std::fs::set_permissions(CCR_TOKEN_DIR, std::fs::Permissions::from_mode(0o700));
         }
         std::fs::write(path, token)?;
         #[cfg(unix)]
@@ -81,12 +71,7 @@ pub fn read_token_from_well_known_file(path: &str, token_name: &str) -> Option<S
         }
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(
-                    "Failed to read {} from {}: {}",
-                    token_name,
-                    path,
-                    e
-                );
+                tracing::debug!("Failed to read {} from {}: {}", token_name, path, e);
             }
             None
         }
@@ -123,8 +108,7 @@ fn get_credential_from_fd(
 
     if fd_env.is_none() {
         // No FD env var — try well-known file
-        let from_file =
-            read_token_from_well_known_file(config.well_known_path, config.label);
+        let from_file = read_token_from_well_known_file(config.well_known_path, config.label);
         *cache.lock().unwrap() = Some(from_file.clone());
         return from_file;
     }
@@ -154,10 +138,7 @@ fn get_credential_from_fd(
         Ok(content) => {
             let token = content.trim().to_string();
             if token.is_empty() {
-                tracing::error!(
-                    "File descriptor contained empty {}",
-                    config.label
-                );
+                tracing::error!("File descriptor contained empty {}", config.label);
                 *cache.lock().unwrap() = Some(None);
                 return None;
             }
@@ -167,11 +148,7 @@ fn get_credential_from_fd(
                 fd
             );
             *cache.lock().unwrap() = Some(Some(token.clone()));
-            maybe_persist_token_for_subprocesses(
-                config.well_known_path,
-                &token,
-                config.label,
-            );
+            maybe_persist_token_for_subprocesses(config.well_known_path, &token, config.label);
             Some(token)
         }
         Err(e) => {
@@ -182,8 +159,7 @@ fn get_credential_from_fd(
                 e
             );
             // FD read failed — try well-known file
-            let from_file =
-                read_token_from_well_known_file(config.well_known_path, config.label);
+            let from_file = read_token_from_well_known_file(config.well_known_path, config.label);
             *cache.lock().unwrap() = Some(from_file.clone());
             from_file
         }

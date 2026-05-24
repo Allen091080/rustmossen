@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tracing::debug;
 
@@ -65,7 +63,11 @@ pub async fn get_session_plugin_cache_path() -> Result<String, anyhow::Error> {
     }
 
     let suffix = hex::encode(rand::random::<[u8; 8]>());
-    let dir = format!("{}/mossen-plugin-session-{}", std::env::temp_dir().display(), suffix);
+    let dir = format!(
+        "{}/mossen-plugin-session-{}",
+        std::env::temp_dir().display(),
+        suffix
+    );
     fs::create_dir_all(&dir).await?;
 
     let mut guard = SESSION_PLUGIN_CACHE_PATH.lock().unwrap();
@@ -98,7 +100,10 @@ pub fn reset_session_plugin_cache() {
 }
 
 /// Write data to a file in the zip cache atomically.
-pub async fn atomic_write_to_zip_cache(target_path: &str, data: &[u8]) -> Result<(), anyhow::Error> {
+pub async fn atomic_write_to_zip_cache(
+    target_path: &str,
+    data: &[u8],
+) -> Result<(), anyhow::Error> {
     let dir = Path::new(target_path).parent().unwrap_or(Path::new("."));
     fs::create_dir_all(dir).await?;
 
@@ -129,7 +134,6 @@ pub async fn atomic_write_to_zip_cache(target_path: &str, data: &[u8]) -> Result
 
 /// Create a ZIP archive from a directory.
 pub async fn create_zip_from_directory(source_dir: &str) -> Result<Vec<u8>, anyhow::Error> {
-    use std::io::Write;
     use zip::write::FileOptions;
     use zip::ZipWriter;
 
@@ -143,11 +147,7 @@ pub async fn create_zip_from_directory(source_dir: &str) -> Result<Vec<u8>, anyh
     let cursor = zip_writer.finish()?;
     let zip_buf = cursor.into_inner();
 
-    debug!(
-        "Created ZIP from {}: {} bytes",
-        source_dir,
-        zip_buf.len()
-    );
+    debug!("Created ZIP from {}: {} bytes", source_dir, zip_buf.len());
     Ok(zip_buf)
 }
 
@@ -218,7 +218,10 @@ async fn collect_files_for_zip<W: std::io::Write + std::io::Seek>(
                 Err(_) => continue, // Broken symlink
             }
         } else if meta.is_dir() {
-            Box::pin(collect_files_for_zip(base_dir, &rel_path, zip_writer, options, visited)).await?;
+            Box::pin(collect_files_for_zip(
+                base_dir, &rel_path, zip_writer, options, visited,
+            ))
+            .await?;
         } else if meta.is_file() {
             if let Ok(content) = fs::read(&full_path).await {
                 zip_writer.start_file(&rel_path, *options)?;
@@ -231,7 +234,10 @@ async fn collect_files_for_zip<W: std::io::Write + std::io::Seek>(
 }
 
 /// Extract a ZIP file to a target directory.
-pub async fn extract_zip_to_directory(zip_path: &str, target_dir: &str) -> Result<(), anyhow::Error> {
+pub async fn extract_zip_to_directory(
+    zip_path: &str,
+    target_dir: &str,
+) -> Result<(), anyhow::Error> {
     let zip_data = fs::read(zip_path).await?;
     let reader = std::io::Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(reader)?;
@@ -262,22 +268,25 @@ pub async fn extract_zip_to_directory(zip_path: &str, target_dir: &str) -> Resul
             use std::os::unix::fs::PermissionsExt;
             if let Some(mode) = file.unix_mode() {
                 if mode & 0o111 != 0 {
-                    let _ = fs::set_permissions(&full_path, std::fs::Permissions::from_mode(mode & 0o777)).await;
+                    let _ = fs::set_permissions(
+                        &full_path,
+                        std::fs::Permissions::from_mode(mode & 0o777),
+                    )
+                    .await;
                 }
             }
         }
     }
 
-    debug!(
-        "Extracted ZIP to {}: {} entries",
-        target_dir,
-        archive.len()
-    );
+    debug!("Extracted ZIP to {}: {} entries", target_dir, archive.len());
     Ok(())
 }
 
 /// Convert a plugin directory to a ZIP in-place.
-pub async fn convert_directory_to_zip_in_place(dir_path: &str, zip_path: &str) -> Result<(), anyhow::Error> {
+pub async fn convert_directory_to_zip_in_place(
+    dir_path: &str,
+    zip_path: &str,
+) -> Result<(), anyhow::Error> {
     let zip_data = create_zip_from_directory(dir_path).await?;
     atomic_write_to_zip_cache(zip_path, &zip_data).await?;
     fs::remove_dir_all(dir_path).await?;
@@ -288,7 +297,13 @@ pub async fn convert_directory_to_zip_in_place(dir_path: &str, zip_path: &str) -
 pub fn get_marketplace_json_relative_path(marketplace_name: &str) -> String {
     let sanitized: String = marketplace_name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("marketplaces/{}.json", sanitized)
 }

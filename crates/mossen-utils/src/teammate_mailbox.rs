@@ -284,9 +284,7 @@ pub fn get_inbox_path(
     teams_dir: &Path,
     current_team: Option<&str>,
 ) -> PathBuf {
-    let team = team_name
-        .or(current_team)
-        .unwrap_or("default");
+    let team = team_name.or(current_team).unwrap_or("default");
     let safe_team = sanitize_path_component(team);
     let safe_agent = sanitize_path_component(agent_name);
     teams_dir
@@ -301,9 +299,7 @@ pub async fn ensure_inbox_dir(
     teams_dir: &Path,
     current_team: Option<&str>,
 ) -> anyhow::Result<()> {
-    let team = team_name
-        .or(current_team)
-        .unwrap_or("default");
+    let team = team_name.or(current_team).unwrap_or("default");
     let safe_team = sanitize_path_component(team);
     let inbox_dir = teams_dir.join(&safe_team).join("inboxes");
     fs::create_dir_all(&inbox_dir).await?;
@@ -337,10 +333,7 @@ pub async fn read_unread_messages(inbox_path: &Path) -> Vec<TeammateMessage> {
 
 /// Write a message to a teammate's inbox.
 /// Uses a simple retry loop for file locking.
-pub async fn write_to_mailbox(
-    inbox_path: &Path,
-    message: TeammateMessage,
-) -> anyhow::Result<()> {
+pub async fn write_to_mailbox(inbox_path: &Path, message: TeammateMessage) -> anyhow::Result<()> {
     // Ensure inbox directory exists
     if let Some(parent) = inbox_path.parent() {
         fs::create_dir_all(parent).await?;

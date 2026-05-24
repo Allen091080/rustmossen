@@ -74,10 +74,7 @@ pub fn extract_glob_base_directory(pattern: &str) -> GlobBaseDirectory {
                     // Handle Windows drive root paths (e.g., C:/*.txt)
                     if cfg!(windows) {
                         let bytes = base_dir.as_bytes();
-                        if bytes.len() == 2
-                            && bytes[0].is_ascii_alphabetic()
-                            && bytes[1] == b':'
-                        {
+                        if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
                             base_dir.push(MAIN_SEPARATOR);
                         }
                     }
@@ -161,7 +158,8 @@ pub async fn glob_search(
 
     // Execute ripgrep
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let output = crate::ripgrep::rip_grep(&args_refs, &search_dir.to_string_lossy(), cancel_token).await?;
+    let output =
+        crate::ripgrep::rip_grep(&args_refs, &search_dir.to_string_lossy(), cancel_token).await?;
 
     // ripgrep returns relative paths, convert to absolute
     let absolute_paths: Vec<PathBuf> = output
@@ -195,7 +193,15 @@ pub async fn glob(
     cancel_token: &CancellationToken,
     ignore_patterns: &[String],
 ) -> anyhow::Result<GlobResult> {
-    glob_search(file_pattern, cwd, limit, offset, cancel_token, ignore_patterns).await
+    glob_search(
+        file_pattern,
+        cwd,
+        limit,
+        offset,
+        cancel_token,
+        ignore_patterns,
+    )
+    .await
 }
 
 /// 简单的环境变量真值检查

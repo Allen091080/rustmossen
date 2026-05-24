@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tracing::debug;
 
@@ -25,11 +25,7 @@ impl Default for WalkOptions {
 /// The namespace vec tracks the subdirectory path relative to the root.
 /// When stop_at_skill_dir is true and a directory contains SKILL.md, on_file is
 /// called for all .md files in that directory but subdirectories are not scanned.
-pub async fn walk_plugin_markdown<F, Fut>(
-    root_dir: &Path,
-    on_file: &F,
-    opts: WalkOptions,
-) -> ()
+pub async fn walk_plugin_markdown<F, Fut>(root_dir: &Path, on_file: &F, opts: WalkOptions) -> ()
 where
     F: Fn(PathBuf, Vec<String>) -> Fut,
     Fut: std::future::Future<Output = ()>,
@@ -115,7 +111,14 @@ async fn scan<F, Fut>(
             if ft.is_dir() {
                 let mut child_ns = namespace.clone();
                 child_ns.push(file_name);
-                Box::pin(scan(&full_path, child_ns, label, stop_at_skill_dir, on_file)).await;
+                Box::pin(scan(
+                    &full_path,
+                    child_ns,
+                    label,
+                    stop_at_skill_dir,
+                    on_file,
+                ))
+                .await;
             } else if ft.is_file() && file_name.to_lowercase().ends_with(".md") {
                 on_file(full_path, namespace.clone()).await;
             }

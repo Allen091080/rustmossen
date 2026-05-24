@@ -1,5 +1,5 @@
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Turn interruption state.
 #[derive(Debug, Clone)]
@@ -23,12 +23,7 @@ pub struct TeleportRemoteResponse {
 }
 
 /// Permission modes.
-const PERMISSION_MODES: &[&str] = &[
-    "default",
-    "plan",
-    "bypassPermissions",
-    "autoApprove",
-];
+const PERMISSION_MODES: &[&str] = &["default", "plan", "bypassPermissions", "autoApprove"];
 
 /// Transforms legacy attachment types to current types for backward compatibility.
 fn migrate_legacy_attachment_types(message: &mut serde_json::Value, cwd: &str) {
@@ -106,8 +101,7 @@ pub fn deserialize_messages_with_interrupt_detection(
         if msg.get("type").and_then(|v| v.as_str()) == Some("user") {
             if let Some(mode) = msg.get("permissionMode").and_then(|v| v.as_str()) {
                 if !valid_modes.contains(mode) {
-                    msg.as_object_mut()
-                        .map(|o| o.remove("permissionMode"));
+                    msg.as_object_mut().map(|o| o.remove("permissionMode"));
                 }
             }
         }
@@ -149,12 +143,10 @@ pub fn deserialize_messages_with_interrupt_detection(
     };
 
     // Append synthetic assistant sentinel after last user message
-    let last_relevant_idx = messages
-        .iter()
-        .rposition(|m| {
-            let t = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            t != "system" && t != "progress"
-        });
+    let last_relevant_idx = messages.iter().rposition(|m| {
+        let t = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        t != "system" && t != "progress"
+    });
 
     if let Some(idx) = last_relevant_idx {
         let msg_type = messages[idx]
@@ -191,19 +183,16 @@ fn detect_turn_interruption(messages: &[serde_json::Value]) -> InternalInterrupt
     }
 
     // Find last turn-relevant message
-    let last_msg = messages
-        .iter()
-        .rev()
-        .find(|m| {
-            let t = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            if t == "system" || t == "progress" {
-                return false;
-            }
-            if t == "assistant" && m.get("isApiErrorMessage").and_then(|v| v.as_bool()) == Some(true) {
-                return false;
-            }
-            true
-        });
+    let last_msg = messages.iter().rev().find(|m| {
+        let t = m.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if t == "system" || t == "progress" {
+            return false;
+        }
+        if t == "assistant" && m.get("isApiErrorMessage").and_then(|v| v.as_bool()) == Some(true) {
+            return false;
+        }
+        true
+    });
 
     let last_msg = match last_msg {
         Some(m) => m,
@@ -215,7 +204,10 @@ fn detect_turn_interruption(messages: &[serde_json::Value]) -> InternalInterrupt
     match msg_type {
         "assistant" => InternalInterruptionState::None,
         "user" => {
-            let is_meta = last_msg.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_meta = last_msg
+                .get("isMeta")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let is_compact = last_msg
                 .get("isCompactSummary")
                 .and_then(|v| v.as_bool())
@@ -241,10 +233,15 @@ fn detect_turn_interruption(messages: &[serde_json::Value]) -> InternalInterrupt
 
 /// Check if a message is a tool_result message.
 fn is_tool_use_result_message(msg: &serde_json::Value) -> bool {
-    if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
-        content.iter().all(|block| {
-            block.get("type").and_then(|t| t.as_str()) == Some("tool_result")
-        }) && !content.is_empty()
+    if let Some(content) = msg
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    {
+        content
+            .iter()
+            .all(|block| block.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+            && !content.is_empty()
     } else {
         false
     }
@@ -256,7 +253,11 @@ fn filter_unresolved_tool_uses(messages: &[serde_json::Value]) -> Vec<serde_json
     let mut resolved_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     for msg in messages {
         if msg.get("type").and_then(|v| v.as_str()) == Some("user") {
-            if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            if let Some(content) = msg
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+            {
                 for block in content {
                     if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
                         if let Some(id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
@@ -272,7 +273,11 @@ fn filter_unresolved_tool_uses(messages: &[serde_json::Value]) -> Vec<serde_json
     let mut result = Vec::new();
     for msg in messages {
         if msg.get("type").and_then(|v| v.as_str()) == Some("assistant") {
-            if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            if let Some(content) = msg
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+            {
                 let has_unresolved = content.iter().any(|block| {
                     if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
                         if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
@@ -312,14 +317,20 @@ fn filter_unresolved_tool_uses(messages: &[serde_json::Value]) -> Vec<serde_json
 }
 
 /// Filter orphaned thinking-only assistant messages.
-fn filter_orphaned_thinking_only_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+fn filter_orphaned_thinking_only_messages(
+    messages: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
     messages
         .iter()
         .filter(|msg| {
             if msg.get("type").and_then(|v| v.as_str()) != Some("assistant") {
                 return true;
             }
-            if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            if let Some(content) = msg
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+            {
                 // Keep if has any non-thinking content
                 content.iter().any(|block| {
                     let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -334,14 +345,20 @@ fn filter_orphaned_thinking_only_messages(messages: &[serde_json::Value]) -> Vec
 }
 
 /// Filter whitespace-only assistant messages.
-fn filter_whitespace_only_assistant_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
+fn filter_whitespace_only_assistant_messages(
+    messages: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
     messages
         .iter()
         .filter(|msg| {
             if msg.get("type").and_then(|v| v.as_str()) != Some("assistant") {
                 return true;
             }
-            if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+            if let Some(content) = msg
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+            {
                 // Keep if any block has non-whitespace content
                 content.iter().any(|block| {
                     if block.get("type").and_then(|t| t.as_str()) == Some("text") {
@@ -456,5 +473,9 @@ pub async fn load_messages_from_jsonl_path(path: &str) -> LoadedMessages {
         }
         messages.push(value);
     }
-    LoadedMessages { messages, session_id, project_path }
+    LoadedMessages {
+        messages,
+        session_id,
+        project_path,
+    }
 }

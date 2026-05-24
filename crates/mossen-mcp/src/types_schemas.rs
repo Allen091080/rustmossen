@@ -63,7 +63,9 @@ fn ensure_string_map(v: &JsonValue) -> bool {
 
 /// `types.ts` `McpStdioServerConfigSchema`。
 pub fn mcp_stdio_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     // type optional — default 'stdio'
     let ty_ok = match obj.get("type") {
         None => true,
@@ -77,7 +79,9 @@ pub fn mcp_stdio_server_config_schema(v: &JsonValue) -> bool {
 
 /// `types.ts` `McpSSEServerConfigSchema`。
 pub fn mcp_sse_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("sse")
         && obj.get("url").map(ensure_string).unwrap_or(false)
         && obj.get("headers").map(ensure_string_map).unwrap_or(true)
@@ -85,21 +89,27 @@ pub fn mcp_sse_server_config_schema(v: &JsonValue) -> bool {
 
 /// `types.ts` `McpSSEIDEServerConfigSchema`。
 pub fn mcp_sse_ide_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("sse-ide")
         && obj.get("url").map(ensure_string).unwrap_or(false)
 }
 
 /// `types.ts` `McpWebSocketIDEServerConfigSchema`。
 pub fn mcp_websocket_ide_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("ws-ide")
         && obj.get("url").map(ensure_string).unwrap_or(false)
 }
 
 /// `types.ts` `McpHTTPServerConfigSchema`。
 pub fn mcp_http_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("http")
         && obj.get("url").map(ensure_string).unwrap_or(false)
         && obj.get("headers").map(ensure_string_map).unwrap_or(true)
@@ -107,21 +117,27 @@ pub fn mcp_http_server_config_schema(v: &JsonValue) -> bool {
 
 /// `types.ts` `McpWebSocketServerConfigSchema`。
 pub fn mcp_websocket_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("ws")
         && obj.get("url").map(ensure_string).unwrap_or(false)
 }
 
 /// `types.ts` `McpSdkServerConfigSchema`。
 pub fn mcp_sdk_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("sdk")
         && obj.get("name").map(ensure_string).unwrap_or(false)
 }
 
 /// `types.ts` `McpHostedProxyServerConfigSchema`。
 pub fn mcp_hosted_proxy_server_config_schema(v: &JsonValue) -> bool {
-    let Some(obj) = v.as_object() else { return false };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
     obj.get("type").and_then(|t| t.as_str()) == Some("hosted-proxy")
         && obj.get("url").map(ensure_string).unwrap_or(false)
         && obj.get("id").map(ensure_string).unwrap_or(false)

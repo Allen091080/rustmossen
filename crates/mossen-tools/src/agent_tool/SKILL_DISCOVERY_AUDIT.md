@@ -1,27 +1,26 @@
 # Skill Dynamic Discovery 审计 / Phase 2-2
 
-## 审计结果
+## 现有实现
 
-### 现有实现
-- `mossen-skills/src/discovery.rs:19` — `discover_skill_dirs_for_paths` **已实现**
-- `mossen-skills/src/dynamic.rs:326` — `discover_skill_dirs_for_paths` **已实现**
-- `mossen-skills/src/dynamic.rs:442` — `activate_conditional_skills_for_paths` **已实现**
-- `mossen-skills/src/dynamic.rs:257` — `emit_skills_loaded()` 信号机制存在
-- `mossen-skills/src/dynamic.rs:276` — `on_dynamic_skills_loaded` 订阅接口存在
+- `crates/mossen-skills/src/discovery.rs:19` — 独立 discovery helper 存在。
+- `crates/mossen-skills/src/dynamic.rs:330` — runtime `discover_skill_dirs_for_paths` 已实现。
+- `crates/mossen-skills/src/dynamic.rs:382` — `add_skill_directories` 可把发现的 skill 目录加载进动态 skill 集。
+- `crates/mossen-skills/src/dynamic.rs:257` — `emit_skills_loaded()` 信号机制存在。
+- `crates/mossen-skills/src/dynamic.rs:276` — `on_dynamic_skills_loaded` 订阅接口存在。
 
-### 调用覆盖
-| 调用点 | 调用了吗 | 位置 |
+## 调用覆盖
+
+| 调用点 | 状态 | 证据 |
 |---|---|---|
-| dialogue.rs 工具结果处理后 | ❌ 未调用 | mossen-agent 不依赖 mossen-skills |
-| CLI REPL 启动路径 | ❌ 未调用 | 启动时未触发 skill 发现 |
-| Tool dispatcher 中 | ❌ 未调用 | 工具调度层无 skill 发现调用 |
+| non-interactive CLI 启动 | 已调用并加载 | `crates/mossen-cli/src/main.rs:230` 调 `discover_skill_dirs_for_paths`，`main.rs:236` 调 `add_skill_directories` |
+| interactive REPL 启动 | 已调用并加载 | `crates/mossen-cli/src/repl.rs:109` 调 `discover_skill_dirs_for_paths`，`repl.rs:116` 调 `add_skill_directories` |
+| dialogue.rs 工具结果处理后 | 未调用 | `mossen-agent` 不能依赖 `mossen-skills`，否则与 `mossen-skills -> mossen-agent` 形成循环依赖 |
+| tool dispatcher 中 | 未调用 | 工具调度层在 `mossen-agent`，同样受 crate 依赖方向限制 |
 
-### 缺口
-- `discover_skill_dirs_for_paths` 和 `activate_conditional_skills_for_paths` 存在但**从未被调用**
-- 没有路径触发 skill 目录的运行时发现
-- `skills_loaded` 信号发出后无消费端
+## 判定
 
-### 接线建议
-1. 在 mossen-cli 的 REPL 或 main.rs 启动路径中调用 `discover_skill_dirs_for_paths`
-2. 在 tool 执行完成后（CLI 层回调）调用 `activate_conditional_skills_for_paths`
-3. 或在 mossen-agent 中添加 mossen-skills 依赖后在 dialogue.rs 中接线
+当前已接通启动时动态发现和加载，覆盖 oneshot/exec 与交互式 REPL 两条入口。运行中“工具产生新路径后立即发现 skill”尚未接到 agent 工具流水线，因为直接在 `dialogue.rs` 调用会造成 crate 循环依赖。
+
+## 后续建议
+
+若需要完全复刻 TS 的每次工具结果触发，应把路径事件作为 SDK/TUI 事件从 `mossen-agent` 发到 `mossen-cli` 或引入一个不依赖 agent 的轻量 skill-event crate，由 CLI 层监听并调用 `mossen-skills`。

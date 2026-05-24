@@ -8,16 +8,16 @@ use crate::auth::{is_hosted_subscriber, is_max_subscriber, is_team_premium_subsc
 use crate::config::{get_global_config, ModelOption as ConfigModelOption};
 use crate::context::has_1m_context;
 use crate::custom_backend::{get_custom_backend_model, is_custom_backend_enabled};
-use crate::model_cost::{format_model_pricing, COST_HAIKU_35, COST_HAIKU_45, COST_TIER_3_15};
+use crate::model_cost::{format_model_pricing, COST_FAST_35, COST_FAST_45, COST_TIER_3_15};
 use crate::settings::get_session_settings_cache;
 
-use super::ant_models::get_internal_models;
-use super::check_1m_access::{check_opus_1m_access, check_sonnet_1m_access};
+use super::internal_models::get_internal_models;
+use super::check_1m_access::{check_max_1m_access, check_balanced_1m_access};
 use super::model::{
-    get_canonical_name, get_default_haiku_model, get_default_main_loop_model_setting,
-    get_default_opus_model, get_default_sonnet_model, get_hosted_user_default_model_description,
-    get_marketing_name_for_model, get_opus46_pricing_suffix, get_user_specified_model_setting,
-    is_opus_1m_merge_enabled, render_default_model_setting, ModelSetting,
+    get_canonical_name, get_default_fast_model, get_default_main_loop_model_setting,
+    get_default_max_model, get_default_balanced_model, get_hosted_user_default_model_description,
+    get_marketing_name_for_model, get_max46_pricing_suffix, get_user_specified_model_setting,
+    is_max_1m_merge_enabled, render_default_model_setting, ModelSetting,
 };
 use super::model_allowlist::is_model_allowed;
 use super::model_strings::get_model_strings;
@@ -58,7 +58,7 @@ fn uses_third_party_model_surface() -> bool {
 pub fn get_default_option_for_user(fast_mode: bool) -> ModelOption {
     let default_label = localized_text("Default (recommended)", "默认（推荐）");
 
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         let current_model = render_default_model_setting(&get_default_main_loop_model_setting());
         return ModelOption {
             value: None,
@@ -137,13 +137,13 @@ fn read_env_string(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
-fn get_custom_sonnet_option() -> Option<ModelOption> {
+fn get_custom_balanced_option() -> Option<ModelOption> {
     let is_3p = uses_third_party_model_surface();
-    let custom_sonnet_model = read_env_string("MOSSEN_CODE_DEFAULT_SONNET_MODEL")?;
+    let custom_balanced_model = read_env_string("MOSSEN_CODE_DEFAULT_BALANCED_MODEL")?;
     if !is_3p {
         return None;
     }
-    let is1m = has_1m_context(&custom_sonnet_model);
+    let is1m = has_1m_context(&custom_balanced_model);
     let default_description = localized_text(
         if is1m {
             "Custom balanced model (1M context)"
@@ -156,21 +156,21 @@ fn get_custom_sonnet_option() -> Option<ModelOption> {
             "自定义均衡模型"
         },
     );
-    let label = read_env_string("MOSSEN_CODE_DEFAULT_SONNET_MODEL_NAME")
-        .unwrap_or_else(|| custom_sonnet_model.clone());
-    let description = read_env_string("MOSSEN_CODE_DEFAULT_SONNET_MODEL_DESCRIPTION")
+    let label = read_env_string("MOSSEN_CODE_DEFAULT_BALANCED_MODEL_NAME")
+        .unwrap_or_else(|| custom_balanced_model.clone());
+    let description = read_env_string("MOSSEN_CODE_DEFAULT_BALANCED_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
-    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_SONNET_MODEL_DESCRIPTION")
+    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_BALANCED_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
     Some(ModelOption {
-        value: Some("sonnet".to_string()),
+        value: Some("balanced".to_string()),
         label,
         description,
-        description_for_model: Some(format!("{} ({})", dfm, custom_sonnet_model)),
+        description_for_model: Some(format!("{} ({})", dfm, custom_balanced_model)),
     })
 }
 
-fn get_sonnet46_option() -> ModelOption {
+fn get_balanced46_option() -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let suffix = if is_3p {
         String::new()
@@ -178,9 +178,9 @@ fn get_sonnet46_option() -> ModelOption {
         format!(" · {}", format_model_pricing(&COST_TIER_3_15))
     };
     let value = if is_3p {
-        Some(get_model_strings().sonnet46)
+        Some(get_model_strings().balanced46)
     } else {
-        Some("sonnet".to_string())
+        Some("balanced".to_string())
     };
     ModelOption {
         value,
@@ -196,18 +196,18 @@ fn get_sonnet46_option() -> ModelOption {
     }
 }
 
-fn get_custom_opus_option() -> Option<ModelOption> {
+fn get_custom_max_option() -> Option<ModelOption> {
     let is_3p = uses_third_party_model_surface();
-    let custom_opus_model = read_env_string("MOSSEN_CODE_DEFAULT_OPUS_MODEL")?;
+    let custom_max_model = read_env_string("MOSSEN_CODE_DEFAULT_MAX_MODEL")?;
     if !is_3p {
         return None;
     }
-    let is1m = has_1m_context(&custom_opus_model);
+    let is1m = has_1m_context(&custom_max_model);
     let default_description = localized_text(
         if is1m {
-            "Custom frontier model (1M context)"
+            "Custom max model (1M context)"
         } else {
-            "Custom frontier model"
+            "Custom max model"
         },
         if is1m {
             "自定义前沿模型（1M 上下文）"
@@ -215,60 +215,60 @@ fn get_custom_opus_option() -> Option<ModelOption> {
             "自定义前沿模型"
         },
     );
-    let label = read_env_string("MOSSEN_CODE_DEFAULT_OPUS_MODEL_NAME")
-        .unwrap_or_else(|| custom_opus_model.clone());
-    let description = read_env_string("MOSSEN_CODE_DEFAULT_OPUS_MODEL_DESCRIPTION")
+    let label = read_env_string("MOSSEN_CODE_DEFAULT_MAX_MODEL_NAME")
+        .unwrap_or_else(|| custom_max_model.clone());
+    let description = read_env_string("MOSSEN_CODE_DEFAULT_MAX_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
-    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_OPUS_MODEL_DESCRIPTION")
+    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_MAX_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
     Some(ModelOption {
-        value: Some("opus".to_string()),
+        value: Some("max".to_string()),
         label,
         description,
-        description_for_model: Some(format!("{} ({})", dfm, custom_opus_model)),
+        description_for_model: Some(format!("{} ({})", dfm, custom_max_model)),
     })
 }
 
-fn get_opus41_option() -> ModelOption {
+fn get_max41_option() -> ModelOption {
     ModelOption {
-        value: Some("opus".to_string()),
-        label: "Mossen Frontier 4.1".to_string(),
-        description: localized_text("Mossen Frontier 4.1 · Legacy", "Mossen Frontier 4.1 · 旧版"),
+        value: Some("max".to_string()),
+        label: "Mossen Max 4.1".to_string(),
+        description: localized_text("Mossen Max 4.1 · Legacy", "Mossen Max 4.1 · 旧版"),
         description_for_model: Some(localized_text(
-            "Mossen Frontier 4.1 - legacy version",
-            "Mossen Frontier 4.1 - 旧版",
+            "Mossen Max 4.1 - legacy version",
+            "Mossen Max 4.1 - 旧版",
         )),
     }
 }
 
-fn get_opus46_option(fast_mode: bool) -> ModelOption {
+fn get_max46_option(fast_mode: bool) -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let value = if is_3p {
-        Some(get_model_strings().opus46)
+        Some(get_model_strings().max46)
     } else {
-        Some("opus".to_string())
+        Some("max".to_string())
     };
-    let suffix = get_opus46_pricing_suffix(fast_mode);
+    let suffix = get_max46_pricing_suffix(fast_mode);
     ModelOption {
         value,
-        label: "Mossen Frontier".to_string(),
+        label: "Mossen Max".to_string(),
         description: localized_text(
-            &format!("Mossen Frontier 4.6 · Most capable for complex work{}", suffix),
-            &format!("Mossen Frontier 4.6 · 最适合复杂任务{}", suffix),
+            &format!("Mossen Max 4.6 · Most capable for complex work{}", suffix),
+            &format!("Mossen Max 4.6 · 最适合复杂任务{}", suffix),
         ),
         description_for_model: Some(localized_text(
-            "Mossen Frontier 4.6 - most capable for complex work",
-            "Mossen Frontier 4.6 - 最适合复杂任务",
+            "Mossen Max 4.6 - most capable for complex work",
+            "Mossen Max 4.6 - 最适合复杂任务",
         )),
     }
 }
 
-pub fn get_sonnet46_1m_option() -> ModelOption {
+pub fn get_balanced46_1m_option() -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let value = if is_3p {
-        Some(format!("{}[1m]", get_model_strings().sonnet46))
+        Some(format!("{}[1m]", get_model_strings().balanced46))
     } else {
-        Some("sonnet[1m]".to_string())
+        Some("balanced[1m]".to_string())
     };
     let suffix = if is_3p {
         String::new()
@@ -292,61 +292,61 @@ pub fn get_sonnet46_1m_option() -> ModelOption {
     }
 }
 
-pub fn get_opus46_1m_option(fast_mode: bool) -> ModelOption {
+pub fn get_max46_1m_option(fast_mode: bool) -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let value = if is_3p {
-        Some(format!("{}[1m]", get_model_strings().opus46))
+        Some(format!("{}[1m]", get_model_strings().max46))
     } else {
-        Some("opus[1m]".to_string())
+        Some("max[1m]".to_string())
     };
-    let suffix = get_opus46_pricing_suffix(fast_mode);
+    let suffix = get_max46_pricing_suffix(fast_mode);
     ModelOption {
         value,
         label: localized_text(
-            "Mossen Frontier (1M context)",
-            "Mossen Frontier（1M 上下文）",
+            "Mossen Max (1M context)",
+            "Mossen Max（1M 上下文）",
         ),
         description: localized_text(
-            &format!("Mossen Frontier 4.6 for long sessions{}", suffix),
-            &format!("Mossen Frontier 4.6 · 适合长会话{}", suffix),
+            &format!("Mossen Max 4.6 for long sessions{}", suffix),
+            &format!("Mossen Max 4.6 · 适合长会话{}", suffix),
         ),
         description_for_model: Some(localized_text(
-            "Mossen Frontier 4.6 with 1M context window - for long sessions with large codebases",
-            "Mossen Frontier 4.6 · 1M 上下文窗口，适合大型代码库的长会话",
+            "Mossen Max 4.6 with 1M context window - for long sessions with large codebases",
+            "Mossen Max 4.6 · 1M 上下文窗口，适合大型代码库的长会话",
         )),
     }
 }
 
-fn get_custom_haiku_option() -> Option<ModelOption> {
+fn get_custom_fast_option() -> Option<ModelOption> {
     let is_3p = uses_third_party_model_surface();
-    let custom_haiku_model = read_env_string("MOSSEN_CODE_DEFAULT_HAIKU_MODEL")?;
+    let custom_fast_model = read_env_string("MOSSEN_CODE_DEFAULT_FAST_MODEL")?;
     if !is_3p {
         return None;
     }
     let default_description = localized_text("Custom fast model", "自定义快速模型");
-    let label = read_env_string("MOSSEN_CODE_DEFAULT_HAIKU_MODEL_NAME")
-        .unwrap_or_else(|| custom_haiku_model.clone());
-    let description = read_env_string("MOSSEN_CODE_DEFAULT_HAIKU_MODEL_DESCRIPTION")
+    let label = read_env_string("MOSSEN_CODE_DEFAULT_FAST_MODEL_NAME")
+        .unwrap_or_else(|| custom_fast_model.clone());
+    let description = read_env_string("MOSSEN_CODE_DEFAULT_FAST_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
-    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_HAIKU_MODEL_DESCRIPTION")
+    let dfm = read_env_string("MOSSEN_CODE_DEFAULT_FAST_MODEL_DESCRIPTION")
         .unwrap_or_else(|| default_description.clone());
     Some(ModelOption {
-        value: Some("haiku".to_string()),
+        value: Some("fast".to_string()),
         label,
         description,
-        description_for_model: Some(format!("{} ({})", dfm, custom_haiku_model)),
+        description_for_model: Some(format!("{} ({})", dfm, custom_fast_model)),
     })
 }
 
-fn get_haiku45_option() -> ModelOption {
+fn get_fast45_option() -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let suffix = if is_3p {
         String::new()
     } else {
-        format!(" · {}", format_model_pricing(&COST_HAIKU_45))
+        format!(" · {}", format_model_pricing(&COST_FAST_45))
     };
     ModelOption {
-        value: Some("haiku".to_string()),
+        value: Some("fast".to_string()),
         label: "Mossen Fast".to_string(),
         description: localized_text(
             &format!("Mossen Fast 4.5 · Fastest for quick answers{}", suffix),
@@ -359,15 +359,15 @@ fn get_haiku45_option() -> ModelOption {
     }
 }
 
-fn get_haiku35_option() -> ModelOption {
+fn get_fast35_option() -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let suffix = if is_3p {
         String::new()
     } else {
-        format!(" · {}", format_model_pricing(&COST_HAIKU_35))
+        format!(" · {}", format_model_pricing(&COST_FAST_35))
     };
     ModelOption {
-        value: Some("haiku".to_string()),
+        value: Some("fast".to_string()),
         label: "Mossen Fast".to_string(),
         description: localized_text(
             &format!("Mossen Fast 3.5 for simple tasks{}", suffix),
@@ -380,33 +380,33 @@ fn get_haiku35_option() -> ModelOption {
     }
 }
 
-fn get_haiku_option() -> ModelOption {
-    let haiku_model = get_default_haiku_model();
+fn get_fast_option() -> ModelOption {
+    let fast_model = get_default_fast_model();
     let ms = get_model_strings();
-    if haiku_model == ms.haiku45 {
-        get_haiku45_option()
+    if fast_model == ms.fast45 {
+        get_fast45_option()
     } else {
-        get_haiku35_option()
+        get_fast35_option()
     }
 }
 
-fn get_max_opus_option(fast_mode: bool) -> ModelOption {
+fn get_max_max_option(fast_mode: bool) -> ModelOption {
     let suffix = if fast_mode {
-        get_opus46_pricing_suffix(true)
+        get_max46_pricing_suffix(true)
     } else {
         String::new()
     };
     ModelOption::with_label_value(
-        Some("opus".to_string()),
-        "Mossen Frontier",
+        Some("max".to_string()),
+        "Mossen Max",
         format!(
-            "Mossen Frontier 4.6 · Most capable for complex work{}",
+            "Mossen Max 4.6 · Most capable for complex work{}",
             suffix
         ),
     )
 }
 
-pub fn get_max_sonnet46_1m_option() -> ModelOption {
+pub fn get_max_balanced46_1m_option() -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let billing_info = if is_hosted_subscriber() {
         " · Billed as extra usage"
@@ -419,7 +419,7 @@ pub fn get_max_sonnet46_1m_option() -> ModelOption {
         format!(" · {}", format_model_pricing(&COST_TIER_3_15))
     };
     ModelOption::with_label_value(
-        Some("sonnet[1m]".to_string()),
+        Some("balanced[1m]".to_string()),
         "Mossen Balanced (1M context)",
         format!(
             "Mossen Balanced 4.6 with 1M context{}{}",
@@ -428,74 +428,74 @@ pub fn get_max_sonnet46_1m_option() -> ModelOption {
     )
 }
 
-pub fn get_max_opus46_1m_option(fast_mode: bool) -> ModelOption {
+pub fn get_max_max46_1m_option(fast_mode: bool) -> ModelOption {
     let billing_info = if is_hosted_subscriber() {
         " · Billed as extra usage"
     } else {
         ""
     };
-    let pricing_suffix = get_opus46_pricing_suffix(fast_mode);
+    let pricing_suffix = get_max46_pricing_suffix(fast_mode);
     ModelOption::with_label_value(
-        Some("opus[1m]".to_string()),
-        "Mossen Frontier (1M context)",
+        Some("max[1m]".to_string()),
+        "Mossen Max (1M context)",
         format!(
-            "Mossen Frontier 4.6 with 1M context{}{}",
+            "Mossen Max 4.6 with 1M context{}{}",
             billing_info, pricing_suffix
         ),
     )
 }
 
-fn get_merged_opus_1m_option(fast_mode: bool) -> ModelOption {
+fn get_merged_max_1m_option(fast_mode: bool) -> ModelOption {
     let is_3p = uses_third_party_model_surface();
     let value = if is_3p {
-        Some(format!("{}[1m]", get_model_strings().opus46))
+        Some(format!("{}[1m]", get_model_strings().max46))
     } else {
-        Some("opus[1m]".to_string())
+        Some("max[1m]".to_string())
     };
     let pricing = if !is_3p && fast_mode {
-        get_opus46_pricing_suffix(fast_mode)
+        get_max46_pricing_suffix(fast_mode)
     } else {
         String::new()
     };
     ModelOption {
         value,
-        label: "Mossen Frontier (1M context)".to_string(),
+        label: "Mossen Max (1M context)".to_string(),
         description: format!(
-            "Mossen Frontier 4.6 with 1M context · Most capable for complex work{}",
+            "Mossen Max 4.6 with 1M context · Most capable for complex work{}",
             pricing
         ),
         description_for_model: Some(
-            "Mossen Frontier 4.6 with 1M context - most capable for complex work".to_string(),
+            "Mossen Max 4.6 with 1M context - most capable for complex work".to_string(),
         ),
     }
 }
 
-fn max_sonnet46_option() -> ModelOption {
+fn max_balanced46_option() -> ModelOption {
     ModelOption::with_label_value(
-        Some("sonnet".to_string()),
+        Some("balanced".to_string()),
         "Mossen Balanced",
         "Mossen Balanced 4.6 · Best for everyday tasks",
     )
 }
 
-fn max_haiku45_option() -> ModelOption {
+fn max_fast45_option() -> ModelOption {
     ModelOption::with_label_value(
-        Some("haiku".to_string()),
+        Some("fast".to_string()),
         "Mossen Fast",
         "Mossen Fast 4.5 · Fastest for quick answers",
     )
 }
 
-fn get_opus_plan_option() -> ModelOption {
+fn get_max_plan_option() -> ModelOption {
     ModelOption::with_label_value(
-        Some("opusplan".to_string()),
+        Some("maxplan".to_string()),
         "Mossen Plan Mode",
-        "Use Mossen Frontier 4.6 in plan mode, Mossen Balanced 4.6 otherwise",
+        "Use Mossen Max 4.6 in plan mode, Mossen Balanced 4.6 otherwise",
     )
 }
 
 fn get_model_options_base(fast_mode: bool) -> Vec<ModelOption> {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         let internal_model_options: Vec<ModelOption> = get_internal_models()
             .into_iter()
             .map(|m| ModelOption {
@@ -510,10 +510,10 @@ fn get_model_options_base(fast_mode: bool) -> Vec<ModelOption> {
 
         let mut out = vec![get_default_option_for_user(false)];
         out.extend(internal_model_options);
-        out.push(get_merged_opus_1m_option(fast_mode));
-        out.push(get_sonnet46_option());
-        out.push(get_sonnet46_1m_option());
-        out.push(get_haiku45_option());
+        out.push(get_merged_max_1m_option(fast_mode));
+        out.push(get_balanced46_option());
+        out.push(get_balanced46_1m_option());
+        out.push(get_fast45_option());
         return out;
     }
 
@@ -524,74 +524,74 @@ fn get_model_options_base(fast_mode: bool) -> Vec<ModelOption> {
     if is_hosted_subscriber() {
         if is_max_subscriber() || is_team_premium_subscriber() {
             let mut premium = vec![get_default_option_for_user(fast_mode)];
-            if !is_opus_1m_merge_enabled() && check_opus_1m_access() {
-                premium.push(get_max_opus46_1m_option(fast_mode));
+            if !is_max_1m_merge_enabled() && check_max_1m_access() {
+                premium.push(get_max_max46_1m_option(fast_mode));
             }
-            premium.push(max_sonnet46_option());
-            if check_sonnet_1m_access() {
-                premium.push(get_max_sonnet46_1m_option());
+            premium.push(max_balanced46_option());
+            if check_balanced_1m_access() {
+                premium.push(get_max_balanced46_1m_option());
             }
-            premium.push(max_haiku45_option());
+            premium.push(max_fast45_option());
             return premium;
         }
 
         let mut standard = vec![get_default_option_for_user(fast_mode)];
-        if check_sonnet_1m_access() {
-            standard.push(get_max_sonnet46_1m_option());
+        if check_balanced_1m_access() {
+            standard.push(get_max_balanced46_1m_option());
         }
-        if is_opus_1m_merge_enabled() {
-            standard.push(get_merged_opus_1m_option(fast_mode));
+        if is_max_1m_merge_enabled() {
+            standard.push(get_merged_max_1m_option(fast_mode));
         } else {
-            standard.push(get_max_opus_option(fast_mode));
-            if check_opus_1m_access() {
-                standard.push(get_max_opus46_1m_option(fast_mode));
+            standard.push(get_max_max_option(fast_mode));
+            if check_max_1m_access() {
+                standard.push(get_max_max46_1m_option(fast_mode));
             }
         }
-        standard.push(max_haiku45_option());
+        standard.push(max_fast45_option());
         return standard;
     }
 
     if !uses_third_party_model_surface() {
         let mut payg1p = vec![get_default_option_for_user(fast_mode)];
-        if check_sonnet_1m_access() {
-            payg1p.push(get_sonnet46_1m_option());
+        if check_balanced_1m_access() {
+            payg1p.push(get_balanced46_1m_option());
         }
-        if is_opus_1m_merge_enabled() {
-            payg1p.push(get_merged_opus_1m_option(fast_mode));
+        if is_max_1m_merge_enabled() {
+            payg1p.push(get_merged_max_1m_option(fast_mode));
         } else {
-            payg1p.push(get_opus46_option(fast_mode));
-            if check_opus_1m_access() {
-                payg1p.push(get_opus46_1m_option(fast_mode));
+            payg1p.push(get_max46_option(fast_mode));
+            if check_max_1m_access() {
+                payg1p.push(get_max46_1m_option(fast_mode));
             }
         }
-        payg1p.push(get_haiku45_option());
+        payg1p.push(get_fast45_option());
         return payg1p;
     }
 
     let mut payg3p = vec![get_default_option_for_user(fast_mode)];
 
-    if let Some(custom_sonnet) = get_custom_sonnet_option() {
-        payg3p.push(custom_sonnet);
+    if let Some(custom_balanced) = get_custom_balanced_option() {
+        payg3p.push(custom_balanced);
     } else {
-        payg3p.push(get_sonnet46_option());
-        if check_sonnet_1m_access() {
-            payg3p.push(get_sonnet46_1m_option());
+        payg3p.push(get_balanced46_option());
+        if check_balanced_1m_access() {
+            payg3p.push(get_balanced46_1m_option());
         }
     }
 
-    if let Some(custom_opus) = get_custom_opus_option() {
-        payg3p.push(custom_opus);
+    if let Some(custom_max) = get_custom_max_option() {
+        payg3p.push(custom_max);
     } else {
-        payg3p.push(get_opus41_option());
-        payg3p.push(get_opus46_option(fast_mode));
-        if check_opus_1m_access() {
-            payg3p.push(get_opus46_1m_option(fast_mode));
+        payg3p.push(get_max41_option());
+        payg3p.push(get_max46_option(fast_mode));
+        if check_max_1m_access() {
+            payg3p.push(get_max46_1m_option(fast_mode));
         }
     }
-    if let Some(custom_haiku) = get_custom_haiku_option() {
-        payg3p.push(custom_haiku);
+    if let Some(custom_fast) = get_custom_fast_option() {
+        payg3p.push(custom_fast);
     } else {
-        payg3p.push(get_haiku_option());
+        payg3p.push(get_fast_option());
     }
     payg3p
 }
@@ -601,25 +601,25 @@ fn get_model_options_base(fast_mode: bool) -> Vec<ModelOption> {
 fn get_model_family_info(model: &str) -> Option<(String, String)> {
     let canonical = get_canonical_name(model);
 
-    if canonical.contains("mossen-sonnet-4-6")
-        || canonical.contains("mossen-sonnet-4-5")
-        || canonical.contains("mossen-sonnet-4-")
-        || canonical.contains("mossen-3-7-sonnet")
-        || canonical.contains("mossen-3-5-sonnet")
+    if canonical.contains("mossen-balanced-4-6")
+        || canonical.contains("mossen-balanced-4-5")
+        || canonical.contains("mossen-balanced-4-")
+        || canonical.contains("mossen-3-7-balanced")
+        || canonical.contains("mossen-3-5-balanced")
     {
-        if let Some(name) = get_marketing_name_for_model(&get_default_sonnet_model()) {
+        if let Some(name) = get_marketing_name_for_model(&get_default_balanced_model()) {
             return Some(("Mossen Balanced".to_string(), name));
         }
     }
 
-    if canonical.contains("mossen-opus-4") {
-        if let Some(name) = get_marketing_name_for_model(&get_default_opus_model()) {
-            return Some(("Mossen Frontier".to_string(), name));
+    if canonical.contains("mossen-max-4") {
+        if let Some(name) = get_marketing_name_for_model(&get_default_max_model()) {
+            return Some(("Mossen Max".to_string(), name));
         }
     }
 
-    if canonical.contains("mossen-haiku") || canonical.contains("mossen-3-5-haiku") {
-        if let Some(name) = get_marketing_name_for_model(&get_default_haiku_model()) {
+    if canonical.contains("mossen-fast") || canonical.contains("mossen-3-5-fast") {
+        if let Some(name) = get_marketing_name_for_model(&get_default_fast_model()) {
             return Some(("Mossen Fast".to_string(), name));
         }
     }
@@ -751,19 +751,19 @@ pub fn get_model_options(fast_mode: bool) -> Vec<ModelOption> {
         return filter_model_options_by_allowlist(options);
     }
 
-    if custom_model == "opusplan" {
+    if custom_model == "maxplan" {
         let mut new_options = options;
-        new_options.push(get_opus_plan_option());
+        new_options.push(get_max_plan_option());
         return filter_model_options_by_allowlist(new_options);
     }
-    if custom_model == "opus" && !uses_third_party_model_surface() {
+    if custom_model == "max" && !uses_third_party_model_surface() {
         let mut new_options = options;
-        new_options.push(get_max_opus_option(fast_mode));
+        new_options.push(get_max_max_option(fast_mode));
         return filter_model_options_by_allowlist(new_options);
     }
-    if custom_model == "opus[1m]" && !uses_third_party_model_surface() {
+    if custom_model == "max[1m]" && !uses_third_party_model_surface() {
         let mut new_options = options;
-        new_options.push(get_merged_opus_1m_option(fast_mode));
+        new_options.push(get_merged_max_1m_option(fast_mode));
         return filter_model_options_by_allowlist(new_options);
     }
     if let Some(known_option) = get_known_model_option(&custom_model) {

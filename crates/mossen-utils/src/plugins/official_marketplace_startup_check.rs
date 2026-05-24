@@ -24,7 +24,7 @@ pub struct RetryConfig {
 
 pub const RETRY_CONFIG: RetryConfig = RetryConfig {
     max_attempts: 10,
-    initial_delay_ms: 60 * 60 * 1000,      // 1 hour
+    initial_delay_ms: 60 * 60 * 1000, // 1 hour
     backoff_multiplier: 2,
     max_delay_ms: 7 * 24 * 60 * 60 * 1000, // 1 week
 };
@@ -62,9 +62,15 @@ pub trait EnvironmentChecker: Send + Sync {
 /// Trait for marketplace operations.
 #[async_trait::async_trait]
 pub trait MarketplaceOps: Send + Sync {
-    async fn load_known_marketplaces_config(&self) -> std::collections::HashMap<String, serde_json::Value>;
-    async fn save_known_marketplaces_config(&self, config: &std::collections::HashMap<String, serde_json::Value>) -> Result<(), anyhow::Error>;
-    async fn add_marketplace_source(&self, source: &serde_json::Value) -> Result<(), anyhow::Error>;
+    async fn load_known_marketplaces_config(
+        &self,
+    ) -> std::collections::HashMap<String, serde_json::Value>;
+    async fn save_known_marketplaces_config(
+        &self,
+        config: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<(), anyhow::Error>;
+    async fn add_marketplace_source(&self, source: &serde_json::Value)
+        -> Result<(), anyhow::Error>;
     fn get_marketplaces_cache_dir(&self) -> PathBuf;
     fn get_official_marketplace_name(&self) -> &str;
     fn get_official_marketplace_source(&self) -> serde_json::Value;
@@ -89,8 +95,8 @@ pub trait GitChecker: Send + Sync {
 
 /// Calculate next retry delay using exponential backoff.
 fn calculate_next_retry_delay(retry_count: u32) -> u64 {
-    let delay = RETRY_CONFIG.initial_delay_ms
-        * (RETRY_CONFIG.backoff_multiplier as u64).pow(retry_count);
+    let delay =
+        RETRY_CONFIG.initial_delay_ms * (RETRY_CONFIG.backoff_multiplier as u64).pow(retry_count);
     delay.min(RETRY_CONFIG.max_delay_ms)
 }
 
@@ -195,7 +201,10 @@ pub async fn check_and_install_official_marketplace(
     let known = marketplace.load_known_marketplaces_config().await;
     let official_name = marketplace.get_official_marketplace_name();
     if known.contains_key(official_name) {
-        debug!("Official marketplace '{}' already installed, skipping", official_name);
+        debug!(
+            "Official marketplace '{}' already installed, skipping",
+            official_name
+        );
         config.save_success();
         return OfficialMarketplaceCheckResult {
             installed: false,
@@ -294,7 +303,9 @@ pub async fn check_and_install_official_marketplace(
             // macOS xcrun shim detection
             if error_msg.contains("xcrun: error:") {
                 git.mark_git_unavailable();
-                debug!("Official marketplace auto-install: git is a non-functional macOS xcrun shim");
+                debug!(
+                    "Official marketplace auto-install: git is a non-functional macOS xcrun shim"
+                );
                 return OfficialMarketplaceCheckResult {
                     installed: false,
                     skipped: true,

@@ -17,9 +17,10 @@ fn get_general_purpose_system_prompt() -> String {
 pub fn definition() -> AgentDefinition {
     AgentDefinition {
         agent_type: "general".to_string(),
-        when_to_use: "General-purpose coding agent for tasks that don't match a specialized agent. \
+        when_to_use:
+            "General-purpose coding agent for tasks that don't match a specialized agent. \
             Can handle code writing, debugging, refactoring, and analysis."
-            .to_string(),
+                .to_string(),
         tools: Some(vec!["*".to_string()]),
         disallowed_tools: None,
         skills: None,

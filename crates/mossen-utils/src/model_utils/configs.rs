@@ -55,201 +55,201 @@ fn make_config(
     }
 }
 
-pub static MOSSEN_3_7_SONNET_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_3_7_BALANCED_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-3-7-sonnet-20250219",
-        "3-7-sonnet",
+        "mossen-3-7-balanced-20250219",
+        "3-7-balanced",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20250219"),
             variant: Some("v1:0"),
         },
-        "3-7-sonnet",
+        "3-7-balanced",
         ExternalVertexOptions {
             date: Some("20250219"),
             variant: None,
         },
-        "3-7-sonnet",
+        "3-7-balanced",
     )
 });
 
-pub static MOSSEN_3_5_V2_SONNET_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_3_5_V2_BALANCED_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-3-5-sonnet-20241022",
-        "3-5-sonnet",
+        "mossen-3-5-balanced-20241022",
+        "3-5-balanced",
         ExternalBedrockOptions {
             region: None,
             date: Some("20241022"),
             variant: Some("v2:0"),
         },
-        "3-5-sonnet",
+        "3-5-balanced",
         ExternalVertexOptions {
             date: Some("20241022"),
             variant: Some("v2"),
         },
-        "3-5-sonnet",
+        "3-5-balanced",
     )
 });
 
-pub static MOSSEN_3_5_HAIKU_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_3_5_FAST_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-3-5-haiku-20241022",
-        "3-5-haiku",
+        "mossen-3-5-fast-20241022",
+        "3-5-fast",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20241022"),
             variant: Some("v1:0"),
         },
-        "3-5-haiku",
+        "3-5-fast",
         ExternalVertexOptions {
             date: Some("20241022"),
             variant: None,
         },
-        "3-5-haiku",
+        "3-5-fast",
     )
 });
 
-pub static MOSSEN_HAIKU_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_FAST_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-haiku-4-5-20251001",
-        "haiku-4-5",
+        "mossen-fast-4-5-20251001",
+        "fast-4-5",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20251001"),
             variant: Some("v1:0"),
         },
-        "haiku-4-5",
+        "fast-4-5",
         ExternalVertexOptions {
             date: Some("20251001"),
             variant: None,
         },
-        "haiku-4-5",
+        "fast-4-5",
     )
 });
 
-pub static MOSSEN_SONNET_4_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_BALANCED_4_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-sonnet-4-20250514",
-        "sonnet-4",
+        "mossen-balanced-4-20250514",
+        "balanced-4",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20250514"),
             variant: Some("v1:0"),
         },
-        "sonnet-4",
+        "balanced-4",
         ExternalVertexOptions {
             date: Some("20250514"),
             variant: None,
         },
-        "sonnet-4",
+        "balanced-4",
     )
 });
 
-pub static MOSSEN_SONNET_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_BALANCED_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-sonnet-4-5-20250929",
-        "sonnet-4-5",
+        "mossen-balanced-4-5-20250929",
+        "balanced-4-5",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20250929"),
             variant: Some("v1:0"),
         },
-        "sonnet-4-5",
+        "balanced-4-5",
         ExternalVertexOptions {
             date: Some("20250929"),
             variant: None,
         },
-        "sonnet-4-5",
+        "balanced-4-5",
     )
 });
 
-pub static MOSSEN_OPUS_4_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_MAX_4_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-opus-4-20250514",
-        "opus-4",
+        "mossen-max-4-20250514",
+        "max-4",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20250514"),
             variant: Some("v1:0"),
         },
-        "opus-4",
+        "max-4",
         ExternalVertexOptions {
             date: Some("20250514"),
             variant: None,
         },
-        "opus-4",
+        "max-4",
     )
 });
 
-pub static MOSSEN_OPUS_4_1_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_MAX_4_1_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-opus-4-1-20250805",
-        "opus-4-1",
+        "mossen-max-4-1-20250805",
+        "max-4-1",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20250805"),
             variant: Some("v1:0"),
         },
-        "opus-4-1",
+        "max-4-1",
         ExternalVertexOptions {
             date: Some("20250805"),
             variant: None,
         },
-        "opus-4-1",
+        "max-4-1",
     )
 });
 
-pub static MOSSEN_OPUS_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_MAX_4_5_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-opus-4-5-20251101",
-        "opus-4-5",
+        "mossen-max-4-5-20251101",
+        "max-4-5",
         ExternalBedrockOptions {
             region: Some("us"),
             date: Some("20251101"),
             variant: Some("v1:0"),
         },
-        "opus-4-5",
+        "max-4-5",
         ExternalVertexOptions {
             date: Some("20251101"),
             variant: None,
         },
-        "opus-4-5",
+        "max-4-5",
     )
 });
 
-pub static MOSSEN_OPUS_4_6_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_MAX_4_6_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-opus-4-6",
-        "opus-4-6",
+        "mossen-max-4-6",
+        "max-4-6",
         ExternalBedrockOptions {
             region: Some("us"),
             date: None,
             variant: Some("v1"),
         },
-        "opus-4-6",
+        "max-4-6",
         ExternalVertexOptions {
             date: None,
             variant: None,
         },
-        "opus-4-6",
+        "max-4-6",
     )
 });
 
-pub static MOSSEN_SONNET_4_6_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
+pub static MOSSEN_BALANCED_4_6_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
     make_config(
-        "mossen-sonnet-4-6",
-        "sonnet-4-6",
+        "mossen-balanced-4-6",
+        "balanced-4-6",
         ExternalBedrockOptions {
             region: Some("us"),
             date: None,
             variant: None,
         },
-        "sonnet-4-6",
+        "balanced-4-6",
         ExternalVertexOptions {
             date: None,
             variant: None,
         },
-        "sonnet-4-6",
+        "balanced-4-6",
     )
 });
 
@@ -257,66 +257,66 @@ pub static MOSSEN_SONNET_4_6_CONFIG: Lazy<ModelConfig> = Lazy::new(|| {
 /// keyof typeof ALL_MODEL_CONFIGS`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelKey {
-    Haiku35,
-    Haiku45,
-    Sonnet35,
-    Sonnet37,
-    Sonnet40,
-    Sonnet45,
-    Sonnet46,
-    Opus40,
-    Opus41,
-    Opus45,
-    Opus46,
+    Fast35,
+    Fast45,
+    Balanced35,
+    Balanced37,
+    Balanced40,
+    Balanced45,
+    Balanced46,
+    Max40,
+    Max41,
+    Max45,
+    Max46,
 }
 
 impl ModelKey {
     pub fn as_str(self) -> &'static str {
         match self {
-            ModelKey::Haiku35 => "haiku35",
-            ModelKey::Haiku45 => "haiku45",
-            ModelKey::Sonnet35 => "sonnet35",
-            ModelKey::Sonnet37 => "sonnet37",
-            ModelKey::Sonnet40 => "sonnet40",
-            ModelKey::Sonnet45 => "sonnet45",
-            ModelKey::Sonnet46 => "sonnet46",
-            ModelKey::Opus40 => "opus40",
-            ModelKey::Opus41 => "opus41",
-            ModelKey::Opus45 => "opus45",
-            ModelKey::Opus46 => "opus46",
+            ModelKey::Fast35 => "fast35",
+            ModelKey::Fast45 => "fast45",
+            ModelKey::Balanced35 => "balanced35",
+            ModelKey::Balanced37 => "balanced37",
+            ModelKey::Balanced40 => "balanced40",
+            ModelKey::Balanced45 => "balanced45",
+            ModelKey::Balanced46 => "balanced46",
+            ModelKey::Max40 => "max40",
+            ModelKey::Max41 => "max41",
+            ModelKey::Max45 => "max45",
+            ModelKey::Max46 => "max46",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "haiku35" => Some(ModelKey::Haiku35),
-            "haiku45" => Some(ModelKey::Haiku45),
-            "sonnet35" => Some(ModelKey::Sonnet35),
-            "sonnet37" => Some(ModelKey::Sonnet37),
-            "sonnet40" => Some(ModelKey::Sonnet40),
-            "sonnet45" => Some(ModelKey::Sonnet45),
-            "sonnet46" => Some(ModelKey::Sonnet46),
-            "opus40" => Some(ModelKey::Opus40),
-            "opus41" => Some(ModelKey::Opus41),
-            "opus45" => Some(ModelKey::Opus45),
-            "opus46" => Some(ModelKey::Opus46),
+            "fast35" => Some(ModelKey::Fast35),
+            "fast45" => Some(ModelKey::Fast45),
+            "balanced35" => Some(ModelKey::Balanced35),
+            "balanced37" => Some(ModelKey::Balanced37),
+            "balanced40" => Some(ModelKey::Balanced40),
+            "balanced45" => Some(ModelKey::Balanced45),
+            "balanced46" => Some(ModelKey::Balanced46),
+            "max40" => Some(ModelKey::Max40),
+            "max41" => Some(ModelKey::Max41),
+            "max45" => Some(ModelKey::Max45),
+            "max46" => Some(ModelKey::Max46),
             _ => None,
         }
     }
 
     pub fn all() -> &'static [ModelKey] {
         &[
-            ModelKey::Haiku35,
-            ModelKey::Haiku45,
-            ModelKey::Sonnet35,
-            ModelKey::Sonnet37,
-            ModelKey::Sonnet40,
-            ModelKey::Sonnet45,
-            ModelKey::Sonnet46,
-            ModelKey::Opus40,
-            ModelKey::Opus41,
-            ModelKey::Opus45,
-            ModelKey::Opus46,
+            ModelKey::Fast35,
+            ModelKey::Fast45,
+            ModelKey::Balanced35,
+            ModelKey::Balanced37,
+            ModelKey::Balanced40,
+            ModelKey::Balanced45,
+            ModelKey::Balanced46,
+            ModelKey::Max40,
+            ModelKey::Max41,
+            ModelKey::Max45,
+            ModelKey::Max46,
         ]
     }
 }
@@ -329,17 +329,17 @@ pub type CanonicalModelId = ModelName;
 /// strings. Mirrors the TS object.
 pub static ALL_MODEL_CONFIGS: Lazy<HashMap<ModelKey, &'static ModelConfig>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert(ModelKey::Haiku35, &*MOSSEN_3_5_HAIKU_CONFIG);
-    m.insert(ModelKey::Haiku45, &*MOSSEN_HAIKU_4_5_CONFIG);
-    m.insert(ModelKey::Sonnet35, &*MOSSEN_3_5_V2_SONNET_CONFIG);
-    m.insert(ModelKey::Sonnet37, &*MOSSEN_3_7_SONNET_CONFIG);
-    m.insert(ModelKey::Sonnet40, &*MOSSEN_SONNET_4_CONFIG);
-    m.insert(ModelKey::Sonnet45, &*MOSSEN_SONNET_4_5_CONFIG);
-    m.insert(ModelKey::Sonnet46, &*MOSSEN_SONNET_4_6_CONFIG);
-    m.insert(ModelKey::Opus40, &*MOSSEN_OPUS_4_CONFIG);
-    m.insert(ModelKey::Opus41, &*MOSSEN_OPUS_4_1_CONFIG);
-    m.insert(ModelKey::Opus45, &*MOSSEN_OPUS_4_5_CONFIG);
-    m.insert(ModelKey::Opus46, &*MOSSEN_OPUS_4_6_CONFIG);
+    m.insert(ModelKey::Fast35, &*MOSSEN_3_5_FAST_CONFIG);
+    m.insert(ModelKey::Fast45, &*MOSSEN_FAST_4_5_CONFIG);
+    m.insert(ModelKey::Balanced35, &*MOSSEN_3_5_V2_BALANCED_CONFIG);
+    m.insert(ModelKey::Balanced37, &*MOSSEN_3_7_BALANCED_CONFIG);
+    m.insert(ModelKey::Balanced40, &*MOSSEN_BALANCED_4_CONFIG);
+    m.insert(ModelKey::Balanced45, &*MOSSEN_BALANCED_4_5_CONFIG);
+    m.insert(ModelKey::Balanced46, &*MOSSEN_BALANCED_4_6_CONFIG);
+    m.insert(ModelKey::Max40, &*MOSSEN_MAX_4_CONFIG);
+    m.insert(ModelKey::Max41, &*MOSSEN_MAX_4_1_CONFIG);
+    m.insert(ModelKey::Max45, &*MOSSEN_MAX_4_5_CONFIG);
+    m.insert(ModelKey::Max46, &*MOSSEN_MAX_4_6_CONFIG);
     m
 });
 

@@ -94,7 +94,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
             "count": desensitized_settings.len(),
             "countAll": all_with_source.len(),
         });
-        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).unwrap_or_default()
+        );
         return (true, 0);
     }
 
@@ -104,13 +107,19 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
         if let Some(target_name) = explicit_name {
             if let Some(p) = get_profile_by_name(target_name) {
                 let output = json!({"name": target_name, "source": "settings", "profile": desensitize_profile(&p)});
-                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                );
                 return (true, 0);
             }
             if let Some(fb) = get_fallback_profile() {
                 if fb.name == *target_name {
                     let output = json!({"name": target_name, "source": fb.source, "profile": desensitize_profile(&fb.profile)});
-                    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&output).unwrap_or_default()
+                    );
                     return (true, 0);
                 }
             }
@@ -124,7 +133,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
             }
             Some(c) => {
                 let output = json!({"name": c.name, "source": c.source, "profile": desensitize_profile(&c.profile)});
-                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                );
             }
         }
         return (true, 0);
@@ -149,7 +161,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                         "profile": desensitize_profile(&profile),
                         "scope": format!("{:?}", scope).to_lowercase(),
                     });
-                    println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&output).unwrap_or_default()
+                    );
                     return (true, 0);
                 }
                 Err(e) => {
@@ -180,18 +195,33 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 let display_name = get_option_value(args, "--name");
 
                 let mut missing = Vec::new();
-                if provider.is_none() { missing.push("--provider"); }
-                if base_url.is_none() { missing.push("--baseURL"); }
-                if model.is_none() { missing.push("--model"); }
-                if api_key.is_none() { missing.push("--apiKey"); }
+                if provider.is_none() {
+                    missing.push("--provider");
+                }
+                if base_url.is_none() {
+                    missing.push("--baseURL");
+                }
+                if model.is_none() {
+                    missing.push("--model");
+                }
+                if api_key.is_none() {
+                    missing.push("--apiKey");
+                }
                 if !missing.is_empty() {
-                    eprintln!("error: --add-model-profile missing required: {}", missing.join(", "));
+                    eprintln!(
+                        "error: --add-model-profile missing required: {}",
+                        missing.join(", ")
+                    );
                     return (true, 1);
                 }
 
                 let provider = provider.unwrap();
                 if !PROFILE_PROVIDER_VALUES.contains(&provider) {
-                    eprintln!("error: --provider must be one of {}, got \"{}\"", PROFILE_PROVIDER_VALUES.join("|"), provider);
+                    eprintln!(
+                        "error: --provider must be one of {}, got \"{}\"",
+                        PROFILE_PROVIDER_VALUES.join("|"),
+                        provider
+                    );
                     return (true, 1);
                 }
 
@@ -206,7 +236,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 match set_profile(name, &schema, scope) {
                     Ok(_) => {
                         let output = json!({"ok": true, "action": "add", "name": name});
-                        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&output).unwrap_or_default()
+                        );
                         return (true, 0);
                     }
                     Err(e) => {
@@ -230,7 +263,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 let existing = match get_profile_by_name(name) {
                     Some(p) => p,
                     None => {
-                        eprintln!("error: profile \"{}\" not found; use --add-model-profile to create", name);
+                        eprintln!(
+                            "error: profile \"{}\" not found; use --add-model-profile to create",
+                            name
+                        );
                         return (true, 1);
                     }
                 };
@@ -238,7 +274,8 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 let model = get_option_value(args, "--model").unwrap_or(&existing.model);
                 let api_key = get_option_value(args, "--apiKey").unwrap_or(&existing.api_key);
                 let display_name = get_option_value(args, "--name").or(existing.name.as_deref());
-                let provider_str = get_option_value(args, "--provider").unwrap_or("openai-compatible");
+                let provider_str =
+                    get_option_value(args, "--provider").unwrap_or("openai-compatible");
 
                 let schema = json!({
                     "provider": provider_str,
@@ -251,7 +288,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 match set_profile(name, &schema, scope) {
                     Ok(_) => {
                         let output = json!({"ok": true, "action": "update", "name": name});
-                        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&output).unwrap_or_default()
+                        );
                         return (true, 0);
                     }
                     Err(e) => {
@@ -286,7 +326,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 match set_profile(name, &updated, scope) {
                     Ok(_) => {
                         let output = json!({"ok": true, "action": "set-key", "name": name});
-                        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&output).unwrap_or_default()
+                        );
                         return (true, 0);
                     }
                     Err(e) => {
@@ -321,7 +364,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                     "activeProfileCleared": active_cleared,
                     "remainingProfiles": remaining_names,
                 });
-                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                );
                 return (true, if deleted { 0 } else { 1 });
             }
         }
@@ -337,13 +383,19 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
             Some("never") => "never",
             Some("auto") | None => "auto",
             Some(other) => {
-                eprintln!("error: --activate must be one of auto|always|never, got \"{}\"", other);
+                eprintln!(
+                    "error: --activate must be one of auto|always|never, got \"{}\"",
+                    other
+                );
                 return (true, 1);
             }
         };
         let result = migrate_fallback_profile(scope, target_name, force, activate);
         let output = serde_json::to_value(&result).unwrap_or(Value::Null);
-        println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).unwrap_or_default()
+        );
         return (true, 0);
     }
 
@@ -373,7 +425,10 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                     "profile": desensitize_profile(&profile),
                     "result": result,
                 });
-                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                );
                 return (true, if result.ok { 0 } else { 1 });
             }
         }
@@ -403,7 +458,10 @@ pub async fn handle_config_cli_flag(args: &[String]) -> (bool, i32) {
         "project" => ConfigOverrideScope::Project,
         "override" => ConfigOverrideScope::Override,
         other => {
-            eprintln!("error: invalid --scope \"{}\"; expected user|project|override", other);
+            eprintln!(
+                "error: invalid --scope \"{}\"; expected user|project|override",
+                other
+            );
             return (true, 1);
         }
     };

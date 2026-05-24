@@ -104,8 +104,26 @@ impl Tool for ResultEmitter {
     }
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
+        let start = std::time::Instant::now();
         let inp: ResultEmitterInput = serde_json::from_value(input)?;
-        let output = match crate::task_store::get_task(&inp.task_id) {
+        let max_wait = std::time::Duration::from_millis(inp.timeout.min(600_000));
+        let deadline = std::time::Instant::now() + max_wait;
+
+        let record = loop {
+            let current = crate::task_store::get_task(&inp.task_id);
+            let should_wait = inp.block
+                && current
+                    .as_ref()
+                    .map(|r| !crate::task_store::is_task_ready_status(&r.status))
+                    .unwrap_or(false)
+                && std::time::Instant::now() < deadline;
+            if !should_wait {
+                break current;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+
+        let output = match record {
             None => ResultEmitterOutput {
                 retrieval_status: "not_found".to_string(),
                 task: None,
@@ -115,9 +133,10 @@ impl Tool for ResultEmitter {
                 // and `exit_code` once the agent finishes; for plain
                 // workitems they stay empty. Map status → retrieval to
                 // match the TS contract: terminal statuses become "ready".
-                let retrieval = match r.status.as_str() {
-                    "completed" | "deleted" => "ready",
-                    _ => "not_ready",
+                let retrieval = if crate::task_store::is_task_ready_status(&r.status) {
+                    "ready"
+                } else {
+                    "not_ready"
                 }
                 .to_string();
                 ResultEmitterOutput {
@@ -141,8 +160,61 @@ impl Tool for ResultEmitter {
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
-            duration_ms: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResultEmitter;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn task_output_blocks_until_background_task_is_ready() {
+        let record = crate::task_store::create_background_shell_task(
+            "printf task-output-ready".to_string(),
+            ".".to_string(),
+            None,
+            1_000,
+        );
+        let task_id = record.id.clone();
+        let task_id_for_finish = task_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            crate::task_store::finish_background_shell_task(
+                &task_id_for_finish,
+                "completed",
+                "task-output-ready".to_string(),
+                Some(0),
+                false,
+            );
+        });
+
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+        let result = ResultEmitter
+            .execute(
+                serde_json::json!({
+                    "task_id": task_id,
+                    "block": true,
+                    "timeout": 1_000,
+                }),
+                &context,
+            )
+            .await
+            .expect("TaskOutput result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+        assert_eq!(output["retrieval_status"], "ready");
+        assert_eq!(output["task"]["status"], "completed");
+        assert_eq!(output["task"]["output"], "task-output-ready");
+        assert_eq!(output["task"]["exit_code"], 0);
     }
 }

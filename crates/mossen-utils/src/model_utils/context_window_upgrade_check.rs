@@ -2,7 +2,7 @@
 //!
 //! Direct translation of `utils/model/contextWindowUpgradeCheck.ts`.
 
-use super::check_1m_access::{check_opus_1m_access, check_sonnet_1m_access};
+use super::check_1m_access::{check_max_1m_access, check_balanced_1m_access};
 use super::model::get_user_specified_model_setting;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,13 +21,13 @@ fn get_available_upgrade() -> Option<AvailableUpgrade> {
     let setting = get_user_specified_model_setting().and_then(|x| x);
     let setting = setting.as_deref()?;
     match setting {
-        "opus" if check_opus_1m_access() => Some(AvailableUpgrade {
-            alias: "opus[1m]",
-            name: "Mossen Frontier 1M",
+        "max" if check_max_1m_access() => Some(AvailableUpgrade {
+            alias: "max[1m]",
+            name: "Mossen Max 1M",
             multiplier: 5,
         }),
-        "sonnet" if check_sonnet_1m_access() => Some(AvailableUpgrade {
-            alias: "sonnet[1m]",
+        "balanced" if check_balanced_1m_access() => Some(AvailableUpgrade {
+            alias: "balanced[1m]",
             name: "Mossen Balanced 1M",
             multiplier: 5,
         }),

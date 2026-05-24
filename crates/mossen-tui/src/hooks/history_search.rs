@@ -72,15 +72,21 @@ impl HistorySearchState {
             return;
         }
         let query_lower = self.query.to_lowercase();
-        self.results = self.history.iter().enumerate().rev()
+        self.results = self
+            .history
+            .iter()
+            .enumerate()
+            .rev()
             .filter_map(|(idx, entry)| {
                 let entry_lower = entry.to_lowercase();
-                entry_lower.find(&query_lower).map(|pos| HistorySearchResult {
-                    text: entry.clone(),
-                    index: idx,
-                    match_start: pos,
-                    match_end: pos + self.query.len(),
-                })
+                entry_lower
+                    .find(&query_lower)
+                    .map(|pos| HistorySearchResult {
+                        text: entry.clone(),
+                        index: idx,
+                        match_start: pos,
+                        match_end: pos + self.query.len(),
+                    })
             })
             .collect();
         if self.selected_index >= self.results.len() {

@@ -1,7 +1,8 @@
 //! Headless plugin install — plugin installation for headless/CCR mode.
+use super::zip_cache::{
+    get_zip_cache_marketplaces_dir, get_zip_cache_plugins_dir, is_plugin_zip_cache_enabled,
+};
 use tracing::debug;
-use super::zip_cache::{is_plugin_zip_cache_enabled, get_zip_cache_marketplaces_dir, get_zip_cache_plugins_dir};
-use super::schemas::MarketplaceSource;
 
 /// Install plugins for headless/CCR mode.
 /// Returns true if any plugins were installed (caller should refresh MCP).
@@ -13,12 +14,23 @@ pub async fn install_plugins_for_headless(
     reconcile_marketplaces: impl std::future::Future<Output = ReconcileResult>,
     sync_marketplaces_to_zip_cache: impl std::future::Future<Output = ()>,
     detect_and_uninstall_delisted: impl std::future::Future<Output = Vec<String>>,
-    cleanup_session_plugin_cache: impl Fn(Box<dyn FnOnce()>),
-    mkdir: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), std::io::Error>> + Send>>,
-    log_event: impl Fn(&str, &std::collections::HashMap<String, serde_json::Value>),
+    _cleanup_session_plugin_cache: impl Fn(Box<dyn FnOnce()>),
+    mkdir: impl Fn(
+        &str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), std::io::Error>> + Send>,
+    >,
+    _log_event: impl Fn(&str, &std::collections::HashMap<String, serde_json::Value>),
 ) -> bool {
     let zip_cache_mode = is_plugin_zip_cache_enabled();
-    debug!("installPluginsForHeadless: starting{}", if zip_cache_mode { " (zip cache mode)" } else { "" });
+    debug!(
+        "installPluginsForHeadless: starting{}",
+        if zip_cache_mode {
+            " (zip cache mode)"
+        } else {
+            ""
+        }
+    );
 
     let seed_changed = register_seed_marketplaces.await;
     if seed_changed {
@@ -39,11 +51,14 @@ pub async fn install_plugins_for_headless(
             debug!("installPluginsForHeadless: no marketplaces declared");
         } else {
             let reconcile_result = reconcile_marketplaces.await;
-            let marketplaces_changed = reconcile_result.installed.len() + reconcile_result.updated.len();
+            let marketplaces_changed =
+                reconcile_result.installed.len() + reconcile_result.updated.len();
 
             if !reconcile_result.skipped.is_empty() {
-                debug!("installPluginsForHeadless: skipped {} marketplace(s) unsupported by zip cache",
-                    reconcile_result.skipped.len());
+                debug!(
+                    "installPluginsForHeadless: skipped {} marketplace(s) unsupported by zip cache",
+                    reconcile_result.skipped.len()
+                );
             }
 
             if marketplaces_changed > 0 {
@@ -67,7 +82,8 @@ pub async fn install_plugins_for_headless(
         }
 
         Ok(plugins_changed)
-    }.await;
+    }
+    .await;
 
     result.unwrap_or(false)
 }

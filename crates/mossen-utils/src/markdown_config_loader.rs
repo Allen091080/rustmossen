@@ -1,15 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
+
+use crate::string_utils::truncate_chars_with_suffix;
 
 /// Mossen configuration directory names.
-pub const MOSSEN_CONFIG_DIRECTORIES: &[&str] = &[
-    "commands",
-    "agents",
-    "output-styles",
-    "skills",
-    "workflows",
-];
+pub const MOSSEN_CONFIG_DIRECTORIES: &[&str] =
+    &["commands", "agents", "output-styles", "skills", "workflows"];
 
 /// 对应 TS `MossenConfigDirectory`：MOSSEN_CONFIG_DIRECTORIES 中合法子目录的字符串别名。
 ///
@@ -52,10 +48,7 @@ pub enum SettingSource {
 }
 
 /// Extract a description from markdown content.
-pub fn extract_description_from_markdown(
-    content: &str,
-    default_description: &str,
-) -> String {
+pub fn extract_description_from_markdown(content: &str, default_description: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
@@ -65,10 +58,7 @@ pub fn extract_description_from_markdown(
             } else {
                 trimmed
             };
-            if text.len() > 100 {
-                return format!("{}...", &text[..97]);
-            }
-            return text.to_string();
+            return truncate_chars_with_suffix(text, 97, "...");
         }
     }
     default_description.to_string()
@@ -319,11 +309,7 @@ async fn find_markdown_files(dir: &Path) -> Vec<String> {
     let mut files = Vec::new();
     let mut visited = HashSet::new();
 
-    async fn walk(
-        dir: &Path,
-        files: &mut Vec<String>,
-        visited: &mut HashSet<String>,
-    ) {
+    async fn walk(dir: &Path, files: &mut Vec<String>, visited: &mut HashSet<String>) {
         let dir_key = match tokio::fs::canonicalize(dir).await {
             Ok(p) => p.to_string_lossy().to_string(),
             Err(_) => return,

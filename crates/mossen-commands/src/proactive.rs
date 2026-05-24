@@ -39,14 +39,19 @@ impl Directive for ProactiveDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /proactive [on|off]\n\n                 Toggle proactive suggestions from the model.\n\n                 When enabled, the model may:\n                 - Suggest code improvements\n                 - Point out potential bugs\n                 - Recommend best practices\n                 - Offer alternative approaches"
                     .to_string(),
             ));
         }
 
-        let current = ctx.env_vars
+        let current = ctx
+            .env_vars
             .get("MOSSEN_PROACTIVE")
             .map(|v| matches!(v.as_str(), "1" | "true" | "on"))
             .unwrap_or(false);

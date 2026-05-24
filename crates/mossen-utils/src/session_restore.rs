@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Result of processing a resumed/continued conversation.
 #[derive(Debug, Clone)]
@@ -50,7 +50,11 @@ pub fn extract_todos_from_transcript(messages: &[serde_json::Value]) -> Vec<serd
         if msg.get("type").and_then(|v| v.as_str()) != Some("assistant") {
             continue;
         }
-        if let Some(content) = msg.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+        if let Some(content) = msg
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        {
             for block in content {
                 if block.get("type").and_then(|v| v.as_str()) == Some("tool_use")
                     && block.get("name").and_then(|v| v.as_str()) == Some("TodoWrite")
@@ -73,7 +77,7 @@ pub fn restore_session_state_from_log(
     set_file_history: &dyn Fn(Vec<serde_json::Value>),
     set_attribution: &dyn Fn(Vec<serde_json::Value>),
     set_todos: &dyn Fn(Vec<serde_json::Value>),
-    session_id: &str,
+    _session_id: &str,
 ) {
     // Restore file history state
     if let Some(ref snapshots) = result.file_history_snapshots {
@@ -101,9 +105,7 @@ pub fn restore_session_state_from_log(
 }
 
 /// Compute restored attribution state from log snapshots.
-pub fn compute_restored_attribution_state(
-    result: &ResumeResult,
-) -> Option<AttributionState> {
+pub fn compute_restored_attribution_state(result: &ResumeResult) -> Option<AttributionState> {
     if let Some(ref snapshots) = result.attribution_snapshots {
         if !snapshots.is_empty() {
             return Some(AttributionState {
@@ -166,7 +168,7 @@ pub fn restore_agent_from_session(
 /// Restore the worktree working directory on resume.
 pub fn restore_worktree_for_resume(
     worktree_path: Option<&str>,
-    original_cwd: Option<&str>,
+    _original_cwd: Option<&str>,
 ) -> Result<(), String> {
     let worktree_path = match worktree_path {
         Some(p) => p,
@@ -190,7 +192,7 @@ pub fn exit_restored_worktree(
     current_worktree: Option<&str>,
     original_cwd: Option<&str>,
 ) -> Result<(), String> {
-    let current = match current_worktree {
+    let _current = match current_worktree {
         Some(c) => c,
         None => return Ok(()),
     };
@@ -213,10 +215,7 @@ pub fn restore_project_path_for_resume(project_path: Option<&str>) -> Result<(),
     };
 
     if !Path::new(path).exists() {
-        return Err(format!(
-            "Resume project path is unavailable: {}",
-            path
-        ));
+        return Err(format!("Resume project path is unavailable: {}", path));
     }
 
     // In a real implementation, would chdir and update state
@@ -257,9 +256,9 @@ pub struct ResumeLoadResult {
 /// Process a loaded conversation for resume/continue.
 pub async fn process_resumed_conversation(
     result: ResumeLoadResult,
-    fork_session: bool,
-    session_id_override: Option<&str>,
-    transcript_path: Option<&str>,
+    _fork_session: bool,
+    _session_id_override: Option<&str>,
+    _transcript_path: Option<&str>,
     current_agent_definition: Option<&AgentDefinition>,
     active_agents: &[AgentDefinition],
 ) -> ProcessedResume {
@@ -281,9 +280,9 @@ pub async fn process_resumed_conversation(
         file_history_snapshots: result.file_history_snapshots,
         content_replacements: result.content_replacements,
         agent_name: result.agent_name,
-        agent_color: result.agent_color.and_then(|c| {
-            if c == "default" { None } else { Some(c) }
-        }),
+        agent_color: result
+            .agent_color
+            .and_then(|c| if c == "default" { None } else { Some(c) }),
         restored_agent_def: restored_agent.map(|a| serde_json::to_value(a).unwrap_or_default()),
         initial_state: serde_json::json!({}),
     }

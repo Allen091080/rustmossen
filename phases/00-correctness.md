@@ -10,7 +10,7 @@
 
 ### 1.1 Mossen 是什么
 
-**Mossen** 是一个 Rust 写的 coding agent CLI（终端编程助手），对标 Claude Code。它跑在本机，通过 `ds4-server`（在 localhost:8000 监听）调用本地部署的 DeepSeek V4 Flash 模型。
+**Mossen** 是一个 Rust 写的 coding agent CLI（终端编程助手），对标 Mossen Code。它跑在本机，通过 `ds4-server`（在 localhost:8000 监听）调用本地部署的 DeepSeek V4 Flash 模型。
 
 代码在 `/Users/allen/Documents/rustmossen/`，按 Cargo workspace 组织成 10 个 crate：
 
@@ -47,9 +47,9 @@ crates/
 
 | Task | 一句话问题描述 |
 |------|---------------|
-| 0-1 | `repl.rs` 把默认模型名硬编码成 `"claude-opus-4-5"`，custom backend 时模型以为自己是 Anthropic Opus |
+| 0-1 | `repl.rs` 把默认模型名硬编码成 `"mossen-max-4-5"`，custom backend 时模型以为自己是 Provider Max |
 | 0-2 | TUI 默认模型 `"MiniMax-M2"`，同样误导 |
-| 0-3 | 用户 `~/.claude/CLAUDE.md` 的 `@OTHER.md` import 语法不展开，用户写的项目指令被静默丢弃 |
+| 0-3 | 用户 `~/.mossen/MOSSEN.md` 的 `@OTHER.md` import 语法不展开，用户写的项目指令被静默丢弃 |
 | 0-4 | `fallback model` 触发时直接报错失败整个 turn，应当用当前 model 重试 |
 | 0-5 | custom backend 路径没 info 日志，排查问题只能猜 base URL |
 
@@ -146,9 +146,9 @@ cargo check --workspace 2>&1 | tail -3
 
 | Task | 标题 | 改动量 |
 |------|------|--------|
-| 0-1 | 修正硬编码模型名 `"claude-opus-4-5"` | ~15 行 |
+| 0-1 | 修正硬编码模型名 `"mossen-max-4-5"` | ~15 行 |
 | 0-2 | 修正 TUI 默认模型 `"MiniMax-M2"` | 1 行 |
-| 0-3 | 在 CLAUDE.md / MOSSEN.md 中支持 `@<file>` 递归 include | ~80 行 |
+| 0-3 | 在 MOSSEN.md / MOSSEN.md 中支持 `@<file>` 递归 include | ~80 行 |
 | 0-4 | 修正 fallback model 占位实现 | 5 行 |
 | 0-5 | 在 custom backend 路径加可观测日志 | 10 行 |
 
@@ -158,11 +158,11 @@ cargo check --workspace 2>&1 | tail -3
 
 ## 4. Task 详情
 
-### 0-1 修正硬编码模型名 `"claude-opus-4-5"`
+### 0-1 修正硬编码模型名 `"mossen-max-4-5"`
 
 #### 背景
 
-`crates/mossen-cli/src/repl.rs` 两处把默认模型名硬编码为 `"claude-opus-4-5"`。当用户走 custom backend（指向本地 ds4-server）时，system prompt 的 env_info section 会输出 `You are powered by the model claude-opus-4-5.` —— 这会误导模型对自己能力的判断（它可能自信地说"我是 Claude，我能做 X"）。
+`crates/mossen-cli/src/repl.rs` 两处把默认模型名硬编码为 `"mossen-max-4-5"`。当用户走 custom backend（指向本地 ds4-server）时，system prompt 的 env_info section 会输出 `You are powered by the model mossen-max-4-5.` —— 这会误导模型对自己能力的判断（它可能自信地说"我是 Mossen，我能做 X"）。
 
 正确做法：当 `MOSSEN_CODE_USE_CUSTOM_BACKEND=1` 时，优先读 `MOSSEN_CODE_CUSTOM_MODEL` 环境变量，没设再 fallback 到一个 generic 字符串。
 
@@ -174,7 +174,7 @@ cargo check --workspace 2>&1 | tail -3
 确认行号未漂移：
 
 ```bash
-grep -n 'claude-opus-4-5' crates/mossen-cli/src/repl.rs
+grep -n 'mossen-max-4-5' crates/mossen-cli/src/repl.rs
 ```
 
 **期望**：恰好 2 行命中，行号在 270-280 和 460-470 之间。0 或 > 2 行就停下报告。
@@ -188,7 +188,7 @@ grep -n 'claude-opus-4-5' crates/mossen-cli/src/repl.rs
 ///
 /// 优先级：
 /// 1. `MOSSEN_CODE_CUSTOM_MODEL` 环境变量（custom backend 场景下用户显式设置的模型名）
-/// 2. `"custom-backend-model"`（generic 占位，避免误称 claude-opus-4-5）
+/// 2. `"custom-backend-model"`（generic 占位，避免误称 mossen-max-4-5）
 fn default_model_for_unset_cli() -> String {
     std::env::var("MOSSEN_CODE_CUSTOM_MODEL")
         .ok()
@@ -199,7 +199,7 @@ fn default_model_for_unset_cli() -> String {
 
 ##### Step 2：替换两处硬编码
 
-把两处 `.unwrap_or_else(|| "claude-opus-4-5".to_string())` 都改成 `.unwrap_or_else(default_model_for_unset_cli)`。
+把两处 `.unwrap_or_else(|| "mossen-max-4-5".to_string())` 都改成 `.unwrap_or_else(default_model_for_unset_cli)`。
 
 如果闭包形式编译不过，用 `|| default_model_for_unset_cli()`。
 
@@ -223,7 +223,7 @@ MOSSEN_CODE_CUSTOM_BASE_URL=http://localhost:8000 \
 ./target/debug/mossen --oneshot "What model are you?" 2>&1 | tail -10
 ```
 
-回复中**不应**出现 `claude-opus-4-5` 字样。
+回复中**不应**出现 `mossen-max-4-5` 字样。
 
 #### 回滚
 
@@ -284,15 +284,15 @@ git checkout -- crates/mossen-cli/src/repl.rs
 
 ---
 
-### 0-3 在 CLAUDE.md / MOSSEN.md 中支持 `@<file>` 递归 include
+### 0-3 在 MOSSEN.md / MOSSEN.md 中支持 `@<file>` 递归 include
 
 #### 背景
 
-用户的 `~/.claude/CLAUDE.md` 或项目 `MOSSEN.md` 里常常写一行 `@OTHER.md` 来 import 其他文件（这是 coding agent 圈的常见约定，Claude Code 原版就支持）。
+用户的 `~/.mossen/MOSSEN.md` 或项目 `MOSSEN.md` 里常常写一行 `@OTHER.md` 来 import 其他文件（这是 coding agent 圈的常见约定，Mossen Code 原版就支持）。
 
 但 Mossen 的 Rust 端 `gather_memory_text`（在 `crates/mossen-cli/src/system_prompt.rs:192-249`）当前只是**把整个文件原文塞进 system prompt**，不展开 @-include。
 
-实际后果：当用户的 `~/.claude/CLAUDE.md` 只有一行 `@RTK.md` 时，传给模型的只是这 6 个字符（`@RTK.md`），真正的 RTK.md 内容（约 1 KB 的具体指令）完全丢失。模型收不到用户的偏好/工具说明。
+实际后果：当用户的 `~/.mossen/MOSSEN.md` 只有一行 `@RTK.md` 时，传给模型的只是这 6 个字符（`@RTK.md`），真正的 RTK.md 内容（约 1 KB 的具体指令）完全丢失。模型收不到用户的偏好/工具说明。
 
 #### 位置
 
@@ -379,7 +379,7 @@ async fn expand_at_includes(
 ##### Step 2：在 `gather_memory_text` 的 3 处读文件后加调用
 
 `gather_memory_text` 有 3 处 `tokio::fs::read_to_string(&path).await`：
-1. 读 user-global（如 `~/.claude/CLAUDE.md`）
+1. 读 user-global（如 `~/.mossen/MOSSEN.md`）
 2. 读 project-root（`./MOSSEN.md` 等 4 个候选名）
 3. 读 nested（`./.mossen/MOSSEN.md`）
 

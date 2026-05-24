@@ -1,7 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
-use tokio::task_local;
-
 /// Context for subagents (Agent tool agents).
 #[derive(Debug, Clone)]
 pub struct SubagentContext {
@@ -121,7 +117,10 @@ pub fn is_subagent_context(context: Option<&AgentContext>) -> bool {
 }
 
 /// Type guard to check if context is a TeammateAgentContext.
-pub fn is_teammate_agent_context(context: Option<&AgentContext>, agent_swarms_enabled: bool) -> bool {
+pub fn is_teammate_agent_context(
+    context: Option<&AgentContext>,
+    agent_swarms_enabled: bool,
+) -> bool {
     if agent_swarms_enabled {
         matches!(context, Some(AgentContext::Teammate(_)))
     } else {

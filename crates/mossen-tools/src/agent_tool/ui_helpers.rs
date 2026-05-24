@@ -52,10 +52,7 @@ pub fn render_tool_use_queued_message() -> &'static str {
 }
 
 /// `UI.tsx` `renderToolResultMessage`.
-pub fn render_tool_result_message(
-    agent_type: Option<&str>,
-    summary: Option<&str>,
-) -> String {
+pub fn render_tool_result_message(agent_type: Option<&str>, summary: Option<&str>) -> String {
     let kind = agent_type.unwrap_or("agent");
     match summary {
         Some(s) if !s.is_empty() => format!("Task[{}] complete: {}", kind, s),

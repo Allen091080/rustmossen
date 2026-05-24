@@ -20,10 +20,16 @@ pub fn count<T>(arr: &[T], pred: impl Fn(&T) -> bool) -> usize {
     arr.iter().filter(|x| pred(x)).count()
 }
 
-/// 返回数组的唯一元素。
-pub fn uniq<T: Eq + std::hash::Hash>(items: impl IntoIterator<Item = T>) -> Vec<T> {
-    let set: std::collections::HashSet<T> = items.into_iter().collect();
-    set.into_iter().collect()
+/// 返回数组的唯一元素，保持首次出现的顺序。
+pub fn uniq<T: Eq + std::hash::Hash + Clone>(items: impl IntoIterator<Item = T>) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for item in items {
+        if seen.insert(item.clone()) {
+            result.push(item);
+        }
+    }
+    result
 }
 
 #[cfg(test)]

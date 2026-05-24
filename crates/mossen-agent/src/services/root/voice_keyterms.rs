@@ -5,8 +5,19 @@ use std::path::Path;
 
 /// Global keyterms for STT
 const GLOBAL_KEYTERMS: &[&str] = &[
-    "MCP", "symlink", "grep", "regex", "localhost", "codebase", "TypeScript", "JSON", "webhook",
-    "gRPC", "dotfiles", "subagent", "worktree",
+    "MCP",
+    "symlink",
+    "grep",
+    "regex",
+    "localhost",
+    "codebase",
+    "TypeScript",
+    "JSON",
+    "webhook",
+    "gRPC",
+    "dotfiles",
+    "subagent",
+    "worktree",
 ];
 
 const MAX_KEYTERMS: usize = 50;
@@ -33,10 +44,7 @@ pub fn split_identifier(name: &str) -> Vec<String> {
 
 fn file_name_words(file_path: &str) -> Vec<String> {
     let path = Path::new(file_path);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     split_identifier(stem)
 }
 

@@ -197,7 +197,10 @@ pub async fn remove_cron_tasks(
     }
     let id_set: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
     let tasks = read_cron_tasks(dir, project_root).await;
-    let remaining: Vec<CronTask> = tasks.into_iter().filter(|t| !id_set.contains(t.id.as_str())).collect();
+    let remaining: Vec<CronTask> = tasks
+        .into_iter()
+        .filter(|t| !id_set.contains(t.id.as_str()))
+        .collect();
     write_cron_tasks(&remaining, dir, project_root).await
 }
 

@@ -1,13 +1,14 @@
 // Translated from utils/task/*.ts (5 files)
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+
+use crate::string_utils::safe_suffix_by_bytes;
 
 // ============================================================================
 // framework.ts
@@ -82,7 +83,10 @@ pub fn get_status_text(status: TaskStatus) -> &'static str {
 
 /// Get all running tasks.
 pub fn get_running_tasks(tasks: &HashMap<String, TaskState>) -> Vec<&TaskState> {
-    tasks.values().filter(|t| t.status == TaskStatus::Running).collect()
+    tasks
+        .values()
+        .filter(|t| t.status == TaskStatus::Running)
+        .collect()
 }
 
 // ============================================================================
@@ -109,7 +113,7 @@ pub fn format_task_output(output: &str, task_id: &str) -> (String, bool) {
     let file_path = get_task_output_path(task_id);
     let header = format!("[Truncated. Full output: {}]\n\n", file_path);
     let available_space = max_len.saturating_sub(header.len());
-    let truncated = &output[output.len().saturating_sub(available_space)..];
+    let truncated = safe_suffix_by_bytes(output, available_space);
     (format!("{}{}", header, truncated), true)
 }
 
@@ -615,4 +619,20 @@ pub async fn _clear_outputs_for_test() {
     }
     let dir = get_task_output_dir();
     let _ = tokio::fs::remove_dir_all(&dir).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_task_output;
+
+    #[test]
+    fn format_task_output_tail_truncates_multibyte_without_panic() {
+        let output = "先读代码".repeat(4_000);
+
+        let (formatted, truncated) = format_task_output(&output, "task-utf8");
+
+        assert!(truncated);
+        assert!(formatted.is_char_boundary(formatted.len()));
+        assert!(formatted.contains("Full output"));
+    }
 }

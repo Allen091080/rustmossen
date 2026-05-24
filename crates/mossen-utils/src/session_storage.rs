@@ -17,10 +17,10 @@ use serde_json::Value;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing;
 
+use crate::string_utils::truncate_chars;
 use mossen_types::logs::{
-    AttributionSnapshotMessage, ContentReplacementEntry, ContextCollapseCommitEntry,
-    ContextCollapseSnapshotEntry, Entry, FileHistorySnapshotMessage, LogOption,
-    PersistedWorktreeSession, SerializedMessage, SessionMode, TranscriptMessage,
+    AttributionSnapshotMessage, ContextCollapseCommitEntry, ContextCollapseSnapshotEntry,
+    FileHistorySnapshotMessage, LogOption, PersistedWorktreeSession, SessionMode,
 };
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,11 @@ pub struct LiteMetadata {
 
 /// Internal event writer function type.
 pub type InternalEventWriter = Arc<
-    dyn Fn(String, HashMap<String, Value>, Option<WriteOptions>) -> futures::future::BoxFuture<'static, Result<()>>
+    dyn Fn(
+            String,
+            HashMap<String, Value>,
+            Option<WriteOptions>,
+        ) -> futures::future::BoxFuture<'static, Result<()>>
         + Send
         + Sync,
 >;
@@ -449,10 +453,11 @@ impl Project {
         let tail = &content[tail_start as usize..];
 
         let needle = format!("\"uuid\":\"{}\"", target_uuid);
-        if let Some(match_idx) = tail.windows(needle.len()).rposition(|w| w == needle.as_bytes()) {
-            let prev_nl = tail[..match_idx]
-                .iter()
-                .rposition(|&b| b == b'\n');
+        if let Some(match_idx) = tail
+            .windows(needle.len())
+            .rposition(|w| w == needle.as_bytes())
+        {
+            let prev_nl = tail[..match_idx].iter().rposition(|&b| b == b'\n');
             if prev_nl.is_some() || tail_start == 0 {
                 let line_start = prev_nl.map(|p| p + 1).unwrap_or(0);
                 let next_nl = tail[match_idx + needle.len()..]
@@ -561,7 +566,7 @@ impl Project {
         }
 
         let tail = read_file_tail_sync(&session_file);
-        let tail_lines: Vec<&str> = tail.split('\n').collect();
+        let _tail_lines: Vec<&str> = tail.split('\n').collect();
 
         // Refresh SDK-mutable fields from tail (title, tag)
         // We skip this for now in the interest of a simpler implementation
@@ -733,16 +738,10 @@ impl Project {
                 );
                 if is_compact_boundary {
                     if let Some(ref pu) = parent_uuid {
-                        obj.insert(
-                            "logicalParentUuid".to_string(),
-                            Value::String(pu.clone()),
-                        );
+                        obj.insert("logicalParentUuid".to_string(), Value::String(pu.clone()));
                     }
                 }
-                obj.insert(
-                    "isSidechain".to_string(),
-                    Value::Bool(is_sidechain),
-                );
+                obj.insert("isSidechain".to_string(), Value::Bool(is_sidechain));
                 if let Some(ti) = team_info {
                     if let Some(ref tn) = ti.team_name {
                         obj.insert("teamName".to_string(), Value::String(tn.clone()));
@@ -752,7 +751,7 @@ impl Project {
                     }
                 }
                 if msg_type == "user" {
-                    if let Some(ref pid) = ctx.entrypoint {
+                    if let Some(_pid) = ctx.entrypoint.as_ref() {
                         // promptId would come from context
                     }
                 }
@@ -902,16 +901,26 @@ impl Project {
             }
         };
 
-        let entry_type = entry
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
         match entry_type {
-            "summary" | "custom-title" | "ai-title" | "last-prompt" | "task-summary" | "tag"
-            | "agent-name" | "agent-color" | "agent-setting" | "pr-link"
-            | "file-history-snapshot" | "attribution-snapshot" | "speculation-accept" | "mode"
-            | "worktree-state" | "marble-origami-commit" | "marble-origami-snapshot"
+            "summary"
+            | "custom-title"
+            | "ai-title"
+            | "last-prompt"
+            | "task-summary"
+            | "tag"
+            | "agent-name"
+            | "agent-color"
+            | "agent-setting"
+            | "pr-link"
+            | "file-history-snapshot"
+            | "attribution-snapshot"
+            | "speculation-accept"
+            | "mode"
+            | "worktree-state"
+            | "marble-origami-commit"
+            | "marble-origami-snapshot"
             | "queue-operation" => {
                 self.enqueue_write(session_file, entry);
             }
@@ -1361,9 +1370,7 @@ pub async fn delete_remote_agent_metadata(task_id: &str, ctx: &SessionContext) -
 }
 
 /// List all remote agent metadata files.
-pub async fn list_remote_agent_metadata(
-    ctx: &SessionContext,
-) -> Result<Vec<RemoteAgentMetadata>> {
+pub async fn list_remote_agent_metadata(ctx: &SessionContext) -> Result<Vec<RemoteAgentMetadata>> {
     let dir = get_remote_agents_dir(ctx);
     let mut entries = match tokio::fs::read_dir(&dir).await {
         Ok(e) => e,
@@ -1443,12 +1450,13 @@ pub async fn record_transcript(
             .await?;
     }
 
-    let last_recorded = new_messages
-        .iter()
-        .rev()
-        .find(|m| is_chain_participant(m));
+    let last_recorded = new_messages.iter().rev().find(|m| is_chain_participant(m));
     let result = last_recorded
-        .and_then(|m| m.get("uuid").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .and_then(|m| {
+            m.get("uuid")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .or(starting_parent_uuid);
     Ok(result)
 }
@@ -1477,10 +1485,7 @@ pub async fn record_queue_operation(
 }
 
 /// Remove a transcript message by UUID.
-pub async fn remove_transcript_message(
-    project: &mut Project,
-    target_uuid: &str,
-) -> Result<()> {
+pub async fn remove_transcript_message(project: &mut Project, target_uuid: &str) -> Result<()> {
     project.remove_message_by_uuid(target_uuid).await
 }
 
@@ -1529,8 +1534,14 @@ pub async fn record_context_collapse_commit(
     }
     let mut entry = commit;
     if let Some(obj) = entry.as_object_mut() {
-        obj.insert("type".to_string(), Value::String("marble-origami-commit".to_string()));
-        obj.insert("sessionId".to_string(), Value::String(ctx.session_id.clone()));
+        obj.insert(
+            "type".to_string(),
+            Value::String("marble-origami-commit".to_string()),
+        );
+        obj.insert(
+            "sessionId".to_string(),
+            Value::String(ctx.session_id.clone()),
+        );
     }
     project.append_entry(entry, &ctx.session_id, ctx).await
 }
@@ -1546,8 +1557,14 @@ pub async fn record_context_collapse_snapshot(
     }
     let mut entry = snapshot;
     if let Some(obj) = entry.as_object_mut() {
-        obj.insert("type".to_string(), Value::String("marble-origami-snapshot".to_string()));
-        obj.insert("sessionId".to_string(), Value::String(ctx.session_id.clone()));
+        obj.insert(
+            "type".to_string(),
+            Value::String("marble-origami-snapshot".to_string()),
+        );
+        obj.insert(
+            "sessionId".to_string(),
+            Value::String(ctx.session_id.clone()),
+        );
     }
     project.append_entry(entry, &ctx.session_id, ctx).await
 }
@@ -1669,7 +1686,11 @@ pub fn link_session_to_pr(
 }
 
 /// Get the current session tag.
-pub fn get_current_session_tag(project: &Project, session_id: &str, ctx: &SessionContext) -> Option<String> {
+pub fn get_current_session_tag(
+    project: &Project,
+    session_id: &str,
+    ctx: &SessionContext,
+) -> Option<String> {
     if session_id == ctx.session_id {
         return project.current_session_tag.clone();
     }
@@ -1677,7 +1698,11 @@ pub fn get_current_session_tag(project: &Project, session_id: &str, ctx: &Sessio
 }
 
 /// Get the current session title.
-pub fn get_current_session_title(project: &Project, session_id: &str, ctx: &SessionContext) -> Option<String> {
+pub fn get_current_session_title(
+    project: &Project,
+    session_id: &str,
+    ctx: &SessionContext,
+) -> Option<String> {
     if session_id == ctx.session_id {
         return project.current_session_title.clone();
     }
@@ -1690,17 +1715,18 @@ pub fn get_current_session_agent_color(project: &Project) -> Option<String> {
 }
 
 /// Restore session metadata into in-memory cache on resume.
-pub fn restore_session_metadata(
-    project: &mut Project,
-    meta: &RestoreSessionMeta,
-) {
+pub fn restore_session_metadata(project: &mut Project, meta: &RestoreSessionMeta) {
     if let Some(ref title) = meta.custom_title {
         if project.current_session_title.is_none() {
             project.current_session_title = Some(title.clone());
         }
     }
     if let Some(ref tag) = meta.tag {
-        project.current_session_tag = if tag.is_empty() { None } else { Some(tag.clone()) };
+        project.current_session_tag = if tag.is_empty() {
+            None
+        } else {
+            Some(tag.clone())
+        };
     }
     if let Some(ref name) = meta.agent_name {
         project.current_session_agent_name = Some(name.clone());
@@ -1828,17 +1854,19 @@ pub fn save_worktree_state(
     worktree_session: Option<PersistedWorktreeSession>,
     ctx: &SessionContext,
 ) {
-    let stripped = worktree_session.as_ref().map(|wt| PersistedWorktreeSession {
-        original_cwd: wt.original_cwd.clone(),
-        worktree_path: wt.worktree_path.clone(),
-        worktree_name: wt.worktree_name.clone(),
-        worktree_branch: wt.worktree_branch.clone(),
-        original_branch: wt.original_branch.clone(),
-        original_head_commit: wt.original_head_commit.clone(),
-        session_id: wt.session_id.clone(),
-        tmux_session_name: wt.tmux_session_name.clone(),
-        hook_based: wt.hook_based,
-    });
+    let stripped = worktree_session
+        .as_ref()
+        .map(|wt| PersistedWorktreeSession {
+            original_cwd: wt.original_cwd.clone(),
+            worktree_path: wt.worktree_path.clone(),
+            worktree_name: wt.worktree_name.clone(),
+            worktree_branch: wt.worktree_branch.clone(),
+            original_branch: wt.original_branch.clone(),
+            original_head_commit: wt.original_head_commit.clone(),
+            session_id: wt.session_id.clone(),
+            tmux_session_name: wt.tmux_session_name.clone(),
+            hook_based: wt.hook_based,
+        });
     project.current_session_worktree = Some(stripped.clone());
     if let Some(ref session_file) = project.session_file {
         let entry = serde_json::json!({
@@ -1849,7 +1877,6 @@ pub fn save_worktree_state(
         append_entry_to_file_sync(session_file, &entry);
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Session ID and log helpers
@@ -1878,10 +1905,11 @@ pub fn is_loggable_message(m: &Value, user_type: &str, save_hook_context: bool) 
     if msg_type == "progress" {
         return false;
     }
-    if msg_type == "attachment" && user_type != "ant" {
+    if msg_type == "attachment" && user_type != "internal" {
         if save_hook_context {
             if let Some(attachment) = m.get("attachment") {
-                if attachment.get("type").and_then(|v| v.as_str()) == Some("hook_additional_context")
+                if attachment.get("type").and_then(|v| v.as_str())
+                    == Some("hook_additional_context")
                 {
                     return true;
                 }
@@ -1904,7 +1932,7 @@ pub fn clean_messages_for_logging(
         .cloned()
         .collect();
 
-    if ctx.user_type != "ant" {
+    if ctx.user_type != "internal" {
         let all = all_messages.unwrap_or(messages);
         transform_messages_for_external_transcript(&filtered, all)
     } else {
@@ -2197,10 +2225,7 @@ fn recover_orphaned_parallel_tool_results(
         let mut orphaned_trs: Vec<Value> = Vec::new();
         if let Some(group) = group {
             for member in group {
-                let member_uuid = member
-                    .get("uuid")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let member_uuid = member.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
                 if let Some(trs) = tool_results_by_asst.get(member_uuid) {
                     for tr in trs {
                         let tr_uuid = tr.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
@@ -2240,10 +2265,7 @@ fn recover_orphaned_parallel_tool_results(
 }
 
 /// Get session messages (UUID set) for deduplication.
-async fn get_session_messages(
-    session_id: &str,
-    ctx: &SessionContext,
-) -> Result<HashSet<String>> {
+async fn get_session_messages(session_id: &str, ctx: &SessionContext) -> Result<HashSet<String>> {
     let session_file = get_transcript_path_for_session(session_id, ctx);
     match tokio::fs::read(&session_file).await {
         Ok(data) => {
@@ -2269,7 +2291,7 @@ async fn get_session_messages(
 /// Load a transcript file, extracting all messages, metadata, and snapshots.
 pub async fn load_transcript_file(
     file_path: &Path,
-    keep_all_leaves: bool,
+    _keep_all_leaves: bool,
 ) -> Result<LoadTranscriptResult> {
     let mut messages: HashMap<String, Value> = HashMap::new();
     let mut summaries: HashMap<String, String> = HashMap::new();
@@ -2326,7 +2348,11 @@ pub async fn load_transcript_file(
 
         // Check for legacy progress entries first
         if is_legacy_progress_entry(&entry) {
-            let uuid = entry.get("uuid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let uuid = entry
+                .get("uuid")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let parent = entry
                 .get("parentUuid")
                 .and_then(|v| v.as_str())
@@ -2626,12 +2652,10 @@ fn apply_preserved_segment_relinks(messages: &mut HashMap<String, Value>) {
             }
 
             match messages.get(&cur_uuid) {
-                Some(msg) => {
-                    match msg.get("parentUuid").and_then(|v| v.as_str()) {
-                        Some(parent) => cur_uuid = parent.to_string(),
-                        None => break,
-                    }
-                }
+                Some(msg) => match msg.get("parentUuid").and_then(|v| v.as_str()) {
+                    Some(parent) => cur_uuid = parent.to_string(),
+                    None => break,
+                },
                 None => break,
             }
         }
@@ -2644,10 +2668,7 @@ fn apply_preserved_segment_relinks(messages: &mut HashMap<String, Value>) {
         if let Some(head) = messages.get(&head_uuid).cloned() {
             let mut new_head = head;
             if let Some(obj) = new_head.as_object_mut() {
-                obj.insert(
-                    "parentUuid".to_string(),
-                    Value::String(anchor_uuid.clone()),
-                );
+                obj.insert("parentUuid".to_string(), Value::String(anchor_uuid.clone()));
             }
             messages.insert(head_uuid.clone(), new_head);
         }
@@ -2662,10 +2683,7 @@ fn apply_preserved_segment_relinks(messages: &mut HashMap<String, Value>) {
                 if msg.get("parentUuid").and_then(|v| v.as_str()) == Some(&anchor_uuid) {
                     let mut new_msg = msg.clone();
                     if let Some(obj) = new_msg.as_object_mut() {
-                        obj.insert(
-                            "parentUuid".to_string(),
-                            Value::String(tail_uuid.clone()),
-                        );
+                        obj.insert("parentUuid".to_string(), Value::String(tail_uuid.clone()));
                     }
                     messages.insert(uuid.clone(), new_msg);
                 }
@@ -2821,9 +2839,7 @@ pub fn get_first_meaningful_user_message_text_content(transcript: &[Value]) -> O
             continue;
         }
 
-        let content = msg
-            .get("message")
-            .and_then(|m| m.get("content"));
+        let content = msg.get("message").and_then(|m| m.get("content"));
         let content = match content {
             Some(c) => c,
             None => continue,
@@ -2848,7 +2864,7 @@ pub fn get_first_meaningful_user_message_text_content(transcript: &[Value]) -> O
             }
             // Check for command name tag
             if let Some(command_name) = extract_tag(text_content, "command-name") {
-                let clean_name = command_name.trim_start_matches('/');
+                let _clean_name = command_name.trim_start_matches('/');
                 // Built-in commands are not meaningful
                 // For custom commands, check for args
                 let command_args = extract_tag(text_content, "command-args")
@@ -2880,8 +2896,8 @@ pub fn get_first_meaningful_user_message_text_content(transcript: &[Value]) -> O
 fn extract_first_prompt(transcript: &[Value]) -> String {
     if let Some(text) = get_first_meaningful_user_message_text_content(transcript) {
         let mut result = text.replace('\n', " ").trim().to_string();
-        if result.len() > 200 {
-            result = format!("{}…", result[..200].trim());
+        if result.chars().count() > 200 {
+            result = truncate_chars(result.trim(), 200);
         }
         return result;
     }
@@ -2908,7 +2924,11 @@ fn has_visible_user_content(message: &Value) -> bool {
     if message.get("type").and_then(|v| v.as_str()) != Some("user") {
         return false;
     }
-    if message.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if message
+        .get("isMeta")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         return false;
     }
     let content = match message.get("message").and_then(|m| m.get("content")) {
@@ -3067,8 +3087,7 @@ pub async fn get_session_files_lite(
 ) -> Result<Vec<LogOption>> {
     let session_files_map = get_session_files_with_mtime(project_dir).await?;
 
-    let mut entries: Vec<(String, SessionFileInfo)> =
-        session_files_map.into_iter().collect();
+    let mut entries: Vec<(String, SessionFileInfo)> = session_files_map.into_iter().collect();
     entries.sort_by(|a, b| b.1.mtime.cmp(&a.1.mtime));
 
     if let Some(limit) = limit {
@@ -3084,7 +3103,7 @@ pub async fn get_session_files_lite(
             .map(|dt| dt.to_rfc3339())
             .unwrap_or_default();
 
-        let mut log = LogOption {
+        let log = LogOption {
             date: mtime_str.clone(),
             messages: Vec::new(),
             full_path: Some(file_info.path.to_string_lossy().to_string()),
@@ -3131,10 +3150,7 @@ pub async fn get_session_files_lite(
 }
 
 /// Fetch logs for the current project.
-pub async fn fetch_logs(
-    limit: Option<usize>,
-    ctx: &SessionContext,
-) -> Result<Vec<LogOption>> {
+pub async fn fetch_logs(limit: Option<usize>, ctx: &SessionContext) -> Result<Vec<LogOption>> {
     let project_dir = get_project_dir(&ctx.original_cwd, ctx);
     let logs = get_session_files_lite(
         &project_dir,
@@ -3160,15 +3176,11 @@ pub async fn load_full_log(log: &LogOption) -> Result<LogOption> {
             if result.messages.is_empty() {
                 return Ok(log.clone());
             }
-            let most_recent_leaf = find_latest_message(
-                result.messages.values(),
-                |msg| {
-                    let uuid = msg.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
-                    let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                    result.leaf_uuids.contains(uuid)
-                        && (msg_type == "user" || msg_type == "assistant")
-                },
-            );
+            let most_recent_leaf = find_latest_message(result.messages.values(), |msg| {
+                let uuid = msg.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
+                let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                result.leaf_uuids.contains(uuid) && (msg_type == "user" || msg_type == "assistant")
+            });
             match most_recent_leaf {
                 Some(leaf) => {
                     let transcript = build_conversation_chain(&result.messages, leaf);
@@ -3715,8 +3727,8 @@ async fn read_lite_metadata(file_path: &Path, file_size: u64) -> LiteMetadata {
 
     let pr_url = extract_last_json_string_field(&tail, "prUrl");
     let pr_repository = extract_last_json_string_field(&tail, "prRepository");
-    let pr_number = extract_last_json_string_field(&tail, "prNumber")
-        .and_then(|s| s.parse::<u64>().ok());
+    let pr_number =
+        extract_last_json_string_field(&tail, "prNumber").and_then(|s| s.parse::<u64>().ok());
 
     LiteMetadata {
         first_prompt,
@@ -3735,10 +3747,7 @@ async fn read_lite_metadata(file_path: &Path, file_size: u64) -> LiteMetadata {
 }
 
 /// Read head and tail of a file.
-async fn read_head_and_tail(
-    file_path: &Path,
-    file_size: u64,
-) -> Result<(String, String)> {
+async fn read_head_and_tail(file_path: &Path, file_size: u64) -> Result<(String, String)> {
     if file_size == 0 {
         return Ok((String::new(), String::new()));
     }
@@ -4004,7 +4013,9 @@ pub async fn get_last_session_log(
     }
 
     let last_message = find_latest_message(result.messages.values(), |m| {
-        !m.get("isSidechain").and_then(|v| v.as_bool()).unwrap_or(false)
+        !m.get("isSidechain")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     });
     let last_message = match last_message {
         Some(m) => m,
@@ -4092,10 +4103,7 @@ pub async fn get_last_session_log(
         is_lite: None,
         session_id: Some(leaf_session_id),
         team_name: None,
-        agent_name: result
-            .agent_names
-            .get(session_id)
-            .cloned(),
+        agent_name: result.agent_names.get(session_id).cloned(),
         agent_color: result.agent_colors.get(session_id).cloned(),
         agent_setting,
         is_teammate: None,
@@ -4294,8 +4302,7 @@ pub async fn load_all_projects_message_logs_progressive(
     }
 
     let sorted = deduplicate_logs_by_session_id(raw_logs);
-    let (mut enriched, next_index) =
-        enrich_logs(&sorted, 0, initial_enrich_count).await?;
+    let (mut enriched, next_index) = enrich_logs(&sorted, 0, initial_enrich_count).await?;
     for (i, log) in enriched.iter_mut().enumerate() {
         log.value = i as i64;
     }
@@ -4317,13 +4324,9 @@ pub async fn load_same_repo_message_logs(
     initial_enrich_count: usize,
     ctx: &SessionContext,
 ) -> Result<Vec<LogOption>> {
-    let result = load_same_repo_message_logs_progressive(
-        worktree_paths,
-        limit,
-        initial_enrich_count,
-        ctx,
-    )
-    .await?;
+    let result =
+        load_same_repo_message_logs_progressive(worktree_paths, limit, initial_enrich_count, ctx)
+            .await?;
     Ok(result.logs)
 }
 
@@ -4348,8 +4351,7 @@ pub async fn load_same_repo_message_logs_progressive(
         all_stat_logs.len()
     );
 
-    let (mut enriched, next_index) =
-        enrich_logs(&all_stat_logs, 0, initial_enrich_count).await?;
+    let (mut enriched, next_index) = enrich_logs(&all_stat_logs, 0, initial_enrich_count).await?;
     for (i, log) in enriched.iter_mut().enumerate() {
         log.value = i as i64;
     }
@@ -4456,12 +4458,9 @@ async fn get_stat_only_logs_for_worktrees(
         for (wt_path, prefix) in &prefix_entries {
             if &dir_key == prefix || dir_key.starts_with(&format!("{}-", prefix)) {
                 seen_dirs.insert(dir_key.clone());
-                let logs = get_session_files_lite(
-                    &projects_dir.join(&raw_name),
-                    None,
-                    Some(wt_path),
-                )
-                .await?;
+                let logs =
+                    get_session_files_lite(&projects_dir.join(&raw_name), None, Some(wt_path))
+                        .await?;
                 all_logs.extend(logs);
                 break;
             }
@@ -4501,8 +4500,10 @@ pub async fn load_all_logs_from_session_file(
             .to_string();
         if result.leaf_uuids.contains(&uuid) {
             leaf_messages.push(msg.clone());
-        } else if let Some(parent_uuid) =
-            msg.get("parentUuid").and_then(|v| v.as_str()).map(String::from)
+        } else if let Some(parent_uuid) = msg
+            .get("parentUuid")
+            .and_then(|v| v.as_str())
+            .map(String::from)
         {
             children_by_parent
                 .entry(parent_uuid)
@@ -4573,11 +4574,14 @@ pub async fn load_all_logs_from_session_file(
         let pr_number = result.pr_numbers.get(&session_id).copied();
         let pr_url = result.pr_urls.get(&session_id).cloned();
         let pr_repository = result.pr_repositories.get(&session_id).cloned();
-        let mode = result.modes.get(&session_id).and_then(|m| match m.as_str() {
-            "coordinator" => Some(SessionMode::Coordinator),
-            "normal" => Some(SessionMode::Normal),
-            _ => None,
-        });
+        let mode = result
+            .modes
+            .get(&session_id)
+            .and_then(|m| match m.as_str() {
+                "coordinator" => Some(SessionMode::Coordinator),
+                "normal" => Some(SessionMode::Normal),
+                _ => None,
+            });
         let content_replacements = result
             .content_replacements
             .get(&session_id)
@@ -4669,11 +4673,8 @@ pub async fn hydrate_from_ccrv2_internal_events(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = tokio::fs::set_permissions(
-            &project_dir,
-            std::fs::Permissions::from_mode(0o700),
-        )
-        .await;
+        let _ =
+            tokio::fs::set_permissions(&project_dir, std::fs::Permissions::from_mode(0o700)).await;
     }
 
     let session_file = get_transcript_path_for_session(session_id, ctx);
@@ -4704,8 +4705,7 @@ pub async fn hydrate_from_ccrv2_internal_events(
                         Some(id) if !id.is_empty() => id.clone(),
                         _ => continue,
                     };
-                    let payload_value =
-                        Value::Object(e.payload.clone().into_iter().collect());
+                    let payload_value = Value::Object(e.payload.clone().into_iter().collect());
                     by_agent.entry(agent_id).or_default().push(payload_value);
                 }
                 let agent_count = by_agent.len();
@@ -4754,11 +4754,8 @@ async fn write_file_secure(path: &Path, data: &[u8]) -> Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = tokio::fs::set_permissions(
-                parent,
-                std::fs::Permissions::from_mode(0o700),
-            )
-            .await;
+            let _ =
+                tokio::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).await;
         }
     }
     #[cfg(unix)]

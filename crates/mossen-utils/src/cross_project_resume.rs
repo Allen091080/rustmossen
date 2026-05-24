@@ -13,7 +13,10 @@ pub enum CrossProjectResumeResult {
     /// 是同一仓库的 worktree
     SameRepoWorktree { project_path: String },
     /// 不同的项目
-    DifferentProject { command: String, project_path: String },
+    DifferentProject {
+        command: String,
+        project_path: String,
+    },
 }
 
 /// 日志选项（简化）
@@ -44,8 +47,8 @@ pub fn check_cross_project_resume(
 
     let session_id = log.session_id.as_deref().unwrap_or("");
 
-    // 仅对 ant 用户进行 worktree 检测（分阶段推出）
-    if user_type != Some("ant") {
+    // 仅对 internal 用户进行 worktree 检测（分阶段推出）
+    if user_type != Some("internal") {
         let command = format!(
             "cd {} && mossen --resume {}",
             shell_quote(&project_path),
@@ -59,9 +62,9 @@ pub fn check_cross_project_resume(
 
     // 检查 log.projectPath 是否在同一仓库的 worktree 下
     let sep = MAIN_SEPARATOR.to_string();
-    let is_same_repo = worktree_paths.iter().any(|wt| {
-        project_path == *wt || project_path.starts_with(&format!("{}{}", wt, sep))
-    });
+    let is_same_repo = worktree_paths
+        .iter()
+        .any(|wt| project_path == *wt || project_path.starts_with(&format!("{}{}", wt, sep)));
 
     if is_same_repo {
         return CrossProjectResumeResult::SameRepoWorktree { project_path };

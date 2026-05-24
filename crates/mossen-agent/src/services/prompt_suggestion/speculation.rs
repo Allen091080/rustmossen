@@ -21,7 +21,10 @@ fn is_write_tool(name: &str) -> bool {
 
 /// Tools that are safe read-only operations.
 fn is_safe_read_only_tool(name: &str) -> bool {
-    matches!(name, "Read" | "Glob" | "Grep" | "ToolSearch" | "LSP" | "TaskGet" | "TaskList")
+    matches!(
+        name,
+        "Read" | "Glob" | "Grep" | "ToolSearch" | "LSP" | "TaskGet" | "TaskList"
+    )
 }
 
 /// Speculation state.
@@ -64,13 +67,8 @@ pub enum FileChangeKind {
 /// Decision for whether speculation should proceed.
 #[derive(Debug, Clone)]
 pub enum SpeculationDecision {
-    Allow {
-        predicted_input: String,
-    },
-    Deny {
-        message: String,
-        reason: String,
-    },
+    Allow { predicted_input: String },
+    Deny { message: String, reason: String },
 }
 
 /// Check if speculation is enabled.
@@ -247,7 +245,9 @@ async fn apply_overlay_files(overlay_path: &Path) -> Result<Vec<FileChange>, Str
             let file_name = path.file_name().unwrap_or_default().to_string_lossy();
             // Decode the original path from the overlay filename
             let original_path = PathBuf::from(
-                urlencoding::decode(&file_name).unwrap_or_default().to_string(),
+                urlencoding::decode(&file_name)
+                    .unwrap_or_default()
+                    .to_string(),
             );
 
             let kind = if original_path.exists() {
@@ -302,18 +302,23 @@ pub fn validate_speculation_tool_use(
         ));
     }
 
-    Err(format!("Tool '{}' is not allowed in speculation", tool_name))
+    Err(format!(
+        "Tool '{}' is not allowed in speculation",
+        tool_name
+    ))
 }
 
 /// Check if a bash command is read-only (heuristic).
 fn command_is_read_only(command: &str) -> bool {
     let read_only_prefixes = [
-        "ls", "cat", "head", "tail", "wc", "find", "grep", "stat", "file",
-        "pwd", "echo", "date", "whoami", "uname", "which", "type",
+        "ls", "cat", "head", "tail", "wc", "find", "grep", "stat", "file", "pwd", "echo", "date",
+        "whoami", "uname", "which", "type",
     ];
 
     let first_word = command.split_whitespace().next().unwrap_or("");
-    read_only_prefixes.iter().any(|&prefix| first_word == prefix)
+    read_only_prefixes
+        .iter()
+        .any(|&prefix| first_word == prefix)
 }
 
 // ---------------------------------------------------------------------------
@@ -321,14 +326,10 @@ fn command_is_read_only(command: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// `speculation.ts` `prepareMessagesForInjection`.
-pub fn prepare_messages_for_injection(
-    messages: Vec<serde_json::Value>,
-) -> Vec<serde_json::Value> {
+pub fn prepare_messages_for_injection(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     messages
         .into_iter()
-        .filter(|m| {
-            m.get("type").and_then(|v| v.as_str()) != Some("speculation_placeholder")
-        })
+        .filter(|m| m.get("type").and_then(|v| v.as_str()) != Some("speculation_placeholder"))
         .collect()
 }
 

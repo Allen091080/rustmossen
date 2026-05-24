@@ -3,10 +3,7 @@
 //! Detects terminal type, deployment platform, WSL environment,
 //! package managers, runtimes, and other environment properties.
 
-use once_cell::sync::Lazy;
 use std::path::Path;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 
 /// Supported platform types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,11 +132,7 @@ pub async fn has_internet_access() -> bool {
         Ok(c) => c,
         Err(_) => return false,
     };
-    client
-        .head("http://1.1.1.1")
-        .send()
-        .await
-        .is_ok()
+    client.head("http://1.1.1.1").send().await.is_ok()
 }
 
 /// Detect terminal type from environment variables.
@@ -299,9 +292,7 @@ pub fn detect_deployment_environment() -> String {
     if env_truthy("VERCEL") {
         return "vercel".to_string();
     }
-    if env_var("RAILWAY_ENVIRONMENT_NAME").is_some()
-        || env_var("RAILWAY_SERVICE_NAME").is_some()
-    {
+    if env_var("RAILWAY_ENVIRONMENT_NAME").is_some() || env_var("RAILWAY_SERVICE_NAME").is_some() {
         return "railway".to_string();
     }
     if env_truthy("RENDER") {

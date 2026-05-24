@@ -49,7 +49,11 @@ pub fn compute_initial_team_context(
 ) -> Option<TeamContext> {
     let dynamic = get_dynamic_team_context();
 
-    let (team_name, agent_name, agent_id) = match (&dynamic, team_name_override, agent_name_override) {
+    let (team_name, agent_name, agent_id) = match (
+        &dynamic,
+        team_name_override,
+        agent_name_override,
+    ) {
         (Some(ctx), _, _) if !ctx.team_name.is_empty() && !ctx.agent_name.is_empty() => (
             ctx.team_name.clone(),
             ctx.agent_name.clone(),

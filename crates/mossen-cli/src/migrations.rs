@@ -17,11 +17,11 @@ pub struct GlobalConfig {
     pub bypass_permissions_mode_accepted: Option<bool>,
     pub auto_updates: Option<bool>,
     pub auto_updates_protected_for_native: Option<bool>,
-    pub opus_pro_migration_complete: Option<bool>,
-    pub opus_pro_migration_timestamp: Option<u64>,
-    pub sonnet1m45_migration_complete: Option<bool>,
-    pub sonnet45_to46_migration_timestamp: Option<u64>,
-    pub legacy_opus_migration_timestamp: Option<u64>,
+    pub max_pro_migration_complete: Option<bool>,
+    pub max_pro_migration_timestamp: Option<u64>,
+    pub balanced1m45_migration_complete: Option<bool>,
+    pub balanced45_to46_migration_timestamp: Option<u64>,
+    pub legacy_max_migration_timestamp: Option<u64>,
     pub has_reset_auto_mode_opt_in_for_default_offer: Option<bool>,
     pub num_startups: u64,
     pub extra: serde_json::Map<String, JsonValue>,
@@ -84,10 +84,7 @@ pub trait MigrationContext {
     fn get_settings_for_source(&self, source: SettingSource) -> Option<UserSettings>;
     fn update_settings_for_source(&self, source: SettingSource, updates: UserSettings);
     fn get_current_project_config(&self) -> ProjectConfig;
-    fn save_current_project_config(
-        &self,
-        updater: Box<dyn FnOnce(ProjectConfig) -> ProjectConfig>,
-    );
+    fn save_current_project_config(&self, updater: Box<dyn FnOnce(ProjectConfig) -> ProjectConfig>);
     fn get_local_settings(&self) -> Option<LocalSettings>;
     fn update_local_settings(&self, updates: LocalSettings);
     fn get_api_provider(&self) -> String;
@@ -96,7 +93,7 @@ pub trait MigrationContext {
     fn is_team_premium_subscriber(&self) -> bool;
     fn get_user_type(&self) -> String;
     fn is_legacy_model_remap_enabled(&self) -> bool;
-    fn is_opus1m_merge_enabled(&self) -> bool;
+    fn is_max1m_merge_enabled(&self) -> bool;
     fn get_auto_mode_enabled_state(&self) -> String;
     fn get_main_loop_model_override(&self) -> Option<String>;
     fn set_main_loop_model_override(&self, model: &str);
@@ -137,7 +134,7 @@ pub fn migrate_bypass_permissions_accepted_to_settings(ctx: &dyn MigrationContex
     }
 
     ctx.log_event(
-        "tengu_migrate_bypass_permissions_accepted",
+        "mossen_migrate_bypass_permissions_accepted",
         &serde_json::Map::new(),
     );
 
@@ -150,17 +147,15 @@ pub fn migrate_bypass_permissions_accepted_to_settings(ctx: &dyn MigrationContex
 }
 
 // ---------------------------------------------------------------------------
-// Migration 2: migrateLegacyOpusToCurrent
+// Migration 2: migrateLegacyMaxToCurrent
 // ---------------------------------------------------------------------------
 
-/// 遗留 Opus 模型 ID 列表。
-const LEGACY_OPUS_FIRSTPARTY_MODEL_IDS: &[&str] = &[
-    "mossen-opus-4-0-20250514",
-    "mossen-opus-4-1-20250620",
-];
+/// 遗留 Max 模型 ID 列表。
+const LEGACY_MAX_FIRSTPARTY_MODEL_IDS: &[&str] =
+    &["mossen-max-4-0-20250514", "mossen-max-4-1-20250620"];
 
-/// 将 1P 用户从显式 Opus 4.0/4.1 模型字符串迁移到 'opus' 别名。
-pub fn migrate_legacy_opus_to_current(ctx: &dyn MigrationContext) {
+/// 将 1P 用户从显式 Max 4.0/4.1 模型字符串迁移到 'max' 别名。
+pub fn migrate_legacy_max_to_current(ctx: &dyn MigrationContext) {
     if ctx.get_api_provider() != "firstParty" {
         return;
     }
@@ -179,20 +174,20 @@ pub fn migrate_legacy_opus_to_current(ctx: &dyn MigrationContext) {
         None => return,
     };
 
-    if !LEGACY_OPUS_FIRSTPARTY_MODEL_IDS.contains(&model_str) {
+    if !LEGACY_MAX_FIRSTPARTY_MODEL_IDS.contains(&model_str) {
         return;
     }
 
     ctx.update_settings_for_source(
         SettingSource::UserSettings,
         UserSettings {
-            model: Some("opus".to_string()),
+            model: Some("max".to_string()),
             ..Default::default()
         },
     );
 
     ctx.save_global_config(Box::new(|mut config| {
-        config.legacy_opus_migration_timestamp = Some(now_millis());
+        config.legacy_max_migration_timestamp = Some(now_millis());
         config
     }));
 
@@ -201,18 +196,18 @@ pub fn migrate_legacy_opus_to_current(ctx: &dyn MigrationContext) {
         "from_model".to_string(),
         JsonValue::String(model_str.to_string()),
     );
-    ctx.log_event("tengu_legacy_opus_migration", &meta);
+    ctx.log_event("mossen_legacy_max_migration", &meta);
 
-    info!(from_model = model_str, "migrated legacy opus to current");
+    info!(from_model = model_str, "migrated legacy max to current");
 }
 
 // ---------------------------------------------------------------------------
-// Migration 3: migrateOpusToOpus1m
+// Migration 3: migrateMaxToMax1m
 // ---------------------------------------------------------------------------
 
-/// 将有资格的用户从 'opus' 迁移到 'opus[1m]'。
-pub fn migrate_opus_to_opus1m(ctx: &dyn MigrationContext) {
-    if !ctx.is_opus1m_merge_enabled() {
+/// 将有资格的用户从 'max' 迁移到 'max[1m]'。
+pub fn migrate_max_to_max1m(ctx: &dyn MigrationContext) {
+    if !ctx.is_max1m_merge_enabled() {
         return;
     }
 
@@ -221,11 +216,11 @@ pub fn migrate_opus_to_opus1m(ctx: &dyn MigrationContext) {
         None => None,
     };
 
-    if model.as_deref() != Some("opus") {
+    if model.as_deref() != Some("max") {
         return;
     }
 
-    let migrated = "opus[1m]";
+    let migrated = "max[1m]";
     let parsed_migrated = ctx.parse_user_specified_model(migrated);
     let parsed_default = ctx.parse_user_specified_model(&ctx.get_default_main_loop_model_setting());
 
@@ -243,26 +238,23 @@ pub fn migrate_opus_to_opus1m(ctx: &dyn MigrationContext) {
         },
     );
 
-    ctx.log_event(
-        "tengu_opus_to_opus1m_migration",
-        &serde_json::Map::new(),
-    );
+    ctx.log_event("mossen_max_to_max1m_migration", &serde_json::Map::new());
 
-    info!("migrated opus to opus[1m]");
+    info!("migrated max to max[1m]");
 }
 
 // ---------------------------------------------------------------------------
-// Migration 4: migrateSonnet45ToSonnet46
+// Migration 4: migrateBalanced45ToBalanced46
 // ---------------------------------------------------------------------------
 
-/// 遗留 Sonnet 4.5 模型 ID 列表。
-const LEGACY_SONNET_45_FIRSTPARTY_MODEL_IDS: &[&str] = &[
-    "mossen-sonnet-4-5-20250929",
-    "mossen-sonnet-4-5-20250929[1m]",
+/// 遗留 Balanced 4.5 模型 ID 列表。
+const LEGACY_BALANCED_45_FIRSTPARTY_MODEL_IDS: &[&str] = &[
+    "mossen-balanced-4-5-20250929",
+    "mossen-balanced-4-5-20250929[1m]",
 ];
 
-/// 将 Pro/Max/Team Premium 1P 用户从 Sonnet 4.5 迁移到 'sonnet' 别名。
-pub fn migrate_sonnet45_to_sonnet46(ctx: &dyn MigrationContext) {
+/// 将 Pro/Max/Team Premium 1P 用户从 Balanced 4.5 迁移到 'balanced' 别名。
+pub fn migrate_balanced45_to_balanced46(ctx: &dyn MigrationContext) {
     if ctx.get_api_provider() != "firstParty" {
         return;
     }
@@ -281,12 +273,12 @@ pub fn migrate_sonnet45_to_sonnet46(ctx: &dyn MigrationContext) {
         None => return,
     };
 
-    if !LEGACY_SONNET_45_FIRSTPARTY_MODEL_IDS.contains(&model_str) {
+    if !LEGACY_BALANCED_45_FIRSTPARTY_MODEL_IDS.contains(&model_str) {
         return;
     }
 
     let has_1m = model_str.ends_with("[1m]");
-    let new_model = if has_1m { "sonnet[1m]" } else { "sonnet" };
+    let new_model = if has_1m { "balanced[1m]" } else { "balanced" };
 
     ctx.update_settings_for_source(
         SettingSource::UserSettings,
@@ -299,7 +291,7 @@ pub fn migrate_sonnet45_to_sonnet46(ctx: &dyn MigrationContext) {
     let config = ctx.get_global_config();
     if config.num_startups > 1 {
         ctx.save_global_config(Box::new(|mut c| {
-            c.sonnet45_to46_migration_timestamp = Some(now_millis());
+            c.balanced45_to46_migration_timestamp = Some(now_millis());
             c
         }));
     }
@@ -310,9 +302,9 @@ pub fn migrate_sonnet45_to_sonnet46(ctx: &dyn MigrationContext) {
         JsonValue::String(model_str.to_string()),
     );
     meta.insert("has_1m".to_string(), JsonValue::Bool(has_1m));
-    ctx.log_event("tengu_sonnet45_to_46_migration", &meta);
+    ctx.log_event("mossen_balanced45_to_46_migration", &meta);
 
-    info!(from_model = model_str, "migrated sonnet 4.5 to 4.6");
+    info!(from_model = model_str, "migrated balanced 4.5 to 4.6");
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +341,7 @@ pub fn migrate_auto_updates_to_settings(ctx: &dyn MigrationContext) {
         "already_had_env_var".to_string(),
         JsonValue::Bool(already_had_env_var),
     );
-    ctx.log_event("tengu_migrate_autoupdates_to_settings", &meta);
+    ctx.log_event("mossen_migrate_autoupdates_to_settings", &meta);
 
     ctx.save_global_config(Box::new(|mut config| {
         config.auto_updates = None;
@@ -398,7 +390,7 @@ pub fn reset_auto_mode_opt_in_for_default_offer(ctx: &dyn MigrationContext) {
             },
         );
         ctx.log_event(
-            "tengu_migrate_reset_auto_opt_in_for_default_offer",
+            "mossen_migrate_reset_auto_opt_in_for_default_offer",
             &serde_json::Map::new(),
         );
     }
@@ -412,13 +404,13 @@ pub fn reset_auto_mode_opt_in_for_default_offer(ctx: &dyn MigrationContext) {
 }
 
 // ---------------------------------------------------------------------------
-// Migration 7: migrateSonnet1mToSonnet45
+// Migration 7: migrateBalanced1mToBalanced45
 // ---------------------------------------------------------------------------
 
-/// 将 "sonnet[1m]" 迁移到显式 "sonnet-4-5-20250929[1m]"。
-pub fn migrate_sonnet1m_to_sonnet45(ctx: &dyn MigrationContext) {
+/// 将 "balanced[1m]" 迁移到显式 "balanced-4-5-20250929[1m]"。
+pub fn migrate_balanced1m_to_balanced45(ctx: &dyn MigrationContext) {
     let config = ctx.get_global_config();
-    if config.sonnet1m45_migration_complete == Some(true) {
+    if config.balanced1m45_migration_complete == Some(true) {
         return;
     }
 
@@ -426,37 +418,37 @@ pub fn migrate_sonnet1m_to_sonnet45(ctx: &dyn MigrationContext) {
         .get_settings_for_source(SettingSource::UserSettings)
         .and_then(|s| s.model);
 
-    if model.as_deref() == Some("sonnet[1m]") {
+    if model.as_deref() == Some("balanced[1m]") {
         ctx.update_settings_for_source(
             SettingSource::UserSettings,
             UserSettings {
-                model: Some("sonnet-4-5-20250929[1m]".to_string()),
+                model: Some("balanced-4-5-20250929[1m]".to_string()),
                 ..Default::default()
             },
         );
     }
 
     // 同时迁移内存中的 override
-    if ctx.get_main_loop_model_override().as_deref() == Some("sonnet[1m]") {
-        ctx.set_main_loop_model_override("sonnet-4-5-20250929[1m]");
+    if ctx.get_main_loop_model_override().as_deref() == Some("balanced[1m]") {
+        ctx.set_main_loop_model_override("balanced-4-5-20250929[1m]");
     }
 
     ctx.save_global_config(Box::new(|mut c| {
-        c.sonnet1m45_migration_complete = Some(true);
+        c.balanced1m45_migration_complete = Some(true);
         c
     }));
 
-    info!("migrated sonnet[1m] to sonnet-4-5-20250929[1m]");
+    info!("migrated balanced[1m] to balanced-4-5-20250929[1m]");
 }
 
 // ---------------------------------------------------------------------------
-// Migration 8: resetProToOpusDefault
+// Migration 8: resetProToMaxDefault
 // ---------------------------------------------------------------------------
 
-/// 将 Pro 用户重置为 Opus 4.5 默认模型。
-pub fn reset_pro_to_opus_default(ctx: &dyn MigrationContext) {
+/// 将 Pro 用户重置为 Max 4.5 默认模型。
+pub fn reset_pro_to_max_default(ctx: &dyn MigrationContext) {
     let config = ctx.get_global_config();
-    if config.opus_pro_migration_complete == Some(true) {
+    if config.max_pro_migration_complete == Some(true) {
         return;
     }
 
@@ -464,12 +456,12 @@ pub fn reset_pro_to_opus_default(ctx: &dyn MigrationContext) {
 
     if api_provider != "firstParty" || !ctx.is_pro_subscriber() {
         ctx.save_global_config(Box::new(|mut c| {
-            c.opus_pro_migration_complete = Some(true);
+            c.max_pro_migration_complete = Some(true);
             c
         }));
         let mut meta = serde_json::Map::new();
         meta.insert("skipped".to_string(), JsonValue::Bool(true));
-        ctx.log_event("tengu_reset_pro_to_opus_default", &meta);
+        ctx.log_event("mossen_reset_pro_to_max_default", &meta);
         return;
     }
 
@@ -480,35 +472,35 @@ pub fn reset_pro_to_opus_default(ctx: &dyn MigrationContext) {
     if settings.model.is_none() {
         let ts = now_millis();
         ctx.save_global_config(Box::new(move |mut c| {
-            c.opus_pro_migration_complete = Some(true);
-            c.opus_pro_migration_timestamp = Some(ts);
+            c.max_pro_migration_complete = Some(true);
+            c.max_pro_migration_timestamp = Some(ts);
             c
         }));
         let mut meta = serde_json::Map::new();
         meta.insert("skipped".to_string(), JsonValue::Bool(false));
         meta.insert("had_custom_model".to_string(), JsonValue::Bool(false));
-        ctx.log_event("tengu_reset_pro_to_opus_default", &meta);
+        ctx.log_event("mossen_reset_pro_to_max_default", &meta);
     } else {
         ctx.save_global_config(Box::new(|mut c| {
-            c.opus_pro_migration_complete = Some(true);
+            c.max_pro_migration_complete = Some(true);
             c
         }));
         let mut meta = serde_json::Map::new();
         meta.insert("skipped".to_string(), JsonValue::Bool(false));
         meta.insert("had_custom_model".to_string(), JsonValue::Bool(true));
-        ctx.log_event("tengu_reset_pro_to_opus_default", &meta);
+        ctx.log_event("mossen_reset_pro_to_max_default", &meta);
     }
 
-    info!("reset pro to opus default");
+    info!("reset pro to max default");
 }
 
 // ---------------------------------------------------------------------------
-// Migration 9: migrateFennecToOpus
+// Migration 9: migrateLegacyFastToMax
 // ---------------------------------------------------------------------------
 
-/// 将已移除的 fennec 模型别名迁移到新的 Opus 4.6 别名。
-pub fn migrate_fennec_to_opus(ctx: &dyn MigrationContext) {
-    if ctx.get_user_type() != "ant" {
+/// 将已移除的 legacy_fast 模型别名迁移到新的 Max 4.6 别名。
+pub fn migrate_legacy_fast_to_max(ctx: &dyn MigrationContext) {
+    if ctx.get_user_type() != "internal" {
         return;
     }
 
@@ -521,34 +513,34 @@ pub fn migrate_fennec_to_opus(ctx: &dyn MigrationContext) {
         None => return,
     };
 
-    if model.starts_with("fennec-latest[1m]") {
+    if model.starts_with("legacy-latest[1m]") {
         ctx.update_settings_for_source(
             SettingSource::UserSettings,
             UserSettings {
-                model: Some("opus[1m]".to_string()),
+                model: Some("max[1m]".to_string()),
                 ..Default::default()
             },
         );
-    } else if model.starts_with("fennec-latest") {
+    } else if model.starts_with("legacy-latest") {
         ctx.update_settings_for_source(
             SettingSource::UserSettings,
             UserSettings {
-                model: Some("opus".to_string()),
+                model: Some("max".to_string()),
                 ..Default::default()
             },
         );
-    } else if model.starts_with("fennec-fast-latest") || model.starts_with("opus-4-5-fast") {
+    } else if model.starts_with("legacy-fast-latest") || model.starts_with("max-4-5-fast") {
         ctx.update_settings_for_source(
             SettingSource::UserSettings,
             UserSettings {
-                model: Some("opus[1m]".to_string()),
+                model: Some("max[1m]".to_string()),
                 fast_mode: Some(true),
                 ..Default::default()
             },
         );
     }
 
-    info!("migrated fennec to opus");
+    info!("migrated legacy_fast to max");
 }
 
 // ---------------------------------------------------------------------------
@@ -584,10 +576,7 @@ pub fn migrate_enable_all_project_mcp_servers_to_settings(ctx: &dyn MigrationCon
 
     // 迁移 enabledMcpjsonServers（合并，去重）
     if has_enabled_servers {
-        let mut merged: HashSet<String> = existing
-            .enabled_mcpjson_servers
-            .into_iter()
-            .collect();
+        let mut merged: HashSet<String> = existing.enabled_mcpjson_servers.into_iter().collect();
         for s in &project_config.enabled_mcpjson_servers {
             merged.insert(s.clone());
         }
@@ -598,10 +587,7 @@ pub fn migrate_enable_all_project_mcp_servers_to_settings(ctx: &dyn MigrationCon
 
     // 迁移 disabledMcpjsonServers（合并，去重）
     if has_disabled_servers {
-        let mut merged: HashSet<String> = existing
-            .disabled_mcpjson_servers
-            .into_iter()
-            .collect();
+        let mut merged: HashSet<String> = existing.disabled_mcpjson_servers.into_iter().collect();
         for s in &project_config.disabled_mcpjson_servers {
             merged.insert(s.clone());
         }
@@ -633,7 +619,7 @@ pub fn migrate_enable_all_project_mcp_servers_to_settings(ctx: &dyn MigrationCon
         "migratedCount".to_string(),
         JsonValue::Number(migrated_count.into()),
     );
-    ctx.log_event("tengu_migrate_mcp_approval_fields_success", &meta);
+    ctx.log_event("mossen_migrate_mcp_approval_fields_success", &meta);
 
     info!(
         migrated_count = migrated_count,
@@ -648,14 +634,14 @@ pub fn migrate_enable_all_project_mcp_servers_to_settings(ctx: &dyn MigrationCon
 /// 依次运行所有迁移。每个迁移内部保证幂等性。
 pub fn run_all_migrations(ctx: &dyn MigrationContext) {
     migrate_bypass_permissions_accepted_to_settings(ctx);
-    migrate_legacy_opus_to_current(ctx);
-    migrate_opus_to_opus1m(ctx);
-    migrate_sonnet45_to_sonnet46(ctx);
+    migrate_legacy_max_to_current(ctx);
+    migrate_max_to_max1m(ctx);
+    migrate_balanced45_to_balanced46(ctx);
     migrate_auto_updates_to_settings(ctx);
     reset_auto_mode_opt_in_for_default_offer(ctx);
-    migrate_sonnet1m_to_sonnet45(ctx);
-    reset_pro_to_opus_default(ctx);
-    migrate_fennec_to_opus(ctx);
+    migrate_balanced1m_to_balanced45(ctx);
+    reset_pro_to_max_default(ctx);
+    migrate_legacy_fast_to_max(ctx);
     migrate_enable_all_project_mcp_servers_to_settings(ctx);
     info!("all migrations complete");
 }

@@ -85,14 +85,8 @@ async fn execute_github_app_flow(ctx: &CommandContext) -> Result<String> {
             output.push_str("  Workflows are configured and ready.\n");
         } else {
             output.push_str("To set up GitHub Actions integration:\n\n");
-            output.push_str(&format!(
-                "1. Install the GitHub App: {}\n",
-                install_url
-            ));
-            output.push_str(&format!(
-                "2. Select the repository: {}/{}\n",
-                owner, repo
-            ));
+            output.push_str(&format!("1. Install the GitHub App: {}\n", install_url));
+            output.push_str(&format!("2. Select the repository: {}/{}\n", owner, repo));
             output.push_str("3. The workflow will be automatically configured.\n");
         }
     } else {

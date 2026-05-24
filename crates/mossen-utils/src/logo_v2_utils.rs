@@ -4,6 +4,8 @@
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::string_utils::truncate_chars;
+
 const MAX_LEFT_WIDTH: usize = 50;
 const MAX_USERNAME_LENGTH: usize = 20;
 const BORDER_PADDING: usize = 4;
@@ -121,9 +123,7 @@ pub fn truncate_path(path: &str, max_length: usize) -> String {
         );
     }
 
-    if !first.is_empty()
-        && ellipsis_width * 2 + separator_width + last_width >= max_length
-    {
+    if !first.is_empty() && ellipsis_width * 2 + separator_width + last_width >= max_length {
         return format!(
             "{}{}{}",
             ellipsis,
@@ -138,8 +138,8 @@ pub fn truncate_path(path: &str, max_length: usize) -> String {
     }
 
     if parts.len() == 2 {
-        let available_for_first = max_length
-            .saturating_sub(ellipsis_width + separator_width + last_width);
+        let available_for_first =
+            max_length.saturating_sub(ellipsis_width + separator_width + last_width);
         return format!(
             "{}{}{}{}",
             truncate_to_width_no_ellipsis(first, available_for_first),
@@ -149,14 +149,19 @@ pub fn truncate_path(path: &str, max_length: usize) -> String {
         );
     }
 
-    let mut available = max_length
-        .saturating_sub(first_width + last_width + ellipsis_width + 2 * separator_width);
+    let mut available =
+        max_length.saturating_sub(first_width + last_width + ellipsis_width + 2 * separator_width);
 
-    if available == 0 || first_width + last_width + ellipsis_width + 2 * separator_width > max_length {
-        let available_for_first = max_length
-            .saturating_sub(last_width + ellipsis_width + 2 * separator_width);
+    if available == 0
+        || first_width + last_width + ellipsis_width + 2 * separator_width > max_length
+    {
+        let available_for_first =
+            max_length.saturating_sub(last_width + ellipsis_width + 2 * separator_width);
         let truncated_first = truncate_to_width_no_ellipsis(first, available_for_first);
-        return format!("{}{}{}{}{}", truncated_first, separator, ellipsis, separator, last);
+        return format!(
+            "{}{}{}{}{}",
+            truncated_first, separator, ellipsis, separator, last
+        );
     }
 
     let mut middle_parts: Vec<&str> = Vec::new();
@@ -226,13 +231,10 @@ fn truncate_to_width_no_ellipsis(s: &str, max_width: usize) -> String {
 
 /// Truncate a string with ellipsis (character-based).
 pub fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        return s.to_string();
-    }
     if max_len <= 1 {
         return "…".to_string();
     }
-    format!("{}…", &s[..max_len - 1])
+    truncate_chars(s, max_len - 1)
 }
 
 /// Formats release note for display with smart truncation.
@@ -254,9 +256,8 @@ pub fn format_model_and_billing(
     available_width: usize,
 ) -> ModelBillingFormat {
     let separator = " · ";
-    let combined_width = UnicodeWidthStr::width(model_name)
-        + separator.len()
-        + UnicodeWidthStr::width(billing_type);
+    let combined_width =
+        UnicodeWidthStr::width(model_name) + separator.len() + UnicodeWidthStr::width(billing_type);
     let should_split = combined_width > available_width;
 
     if should_split {

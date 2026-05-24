@@ -1,13 +1,13 @@
 //! LSP client — manages JSON-RPC communication with an LSP server process via stdio.
 
+use anyhow::{bail, Result};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use anyhow::{bail, Result};
-use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, Notify, oneshot};
+use tokio::sync::{oneshot, Mutex, Notify};
 use tracing::{debug, error, warn};
 
 /// LSP client that manages communication with an LSP server process.
@@ -107,7 +107,9 @@ impl LspClient {
         }
 
         // Send initialize request
-        let result = self.send_request_inner(&mut state, "initialize", params).await?;
+        let result = self
+            .send_request_inner(&mut state, "initialize", params)
+            .await?;
 
         // Extract capabilities
         if let Some(caps) = result.get("capabilities") {
@@ -127,10 +129,7 @@ impl LspClient {
     pub async fn send_request(&self, method: &str, params: Value) -> Result<Value> {
         let mut state = self.state.lock().await;
         if state.start_failed {
-            bail!(
-                "LSP server {} failed to start",
-                self.server_name
-            );
+            bail!("LSP server {} failed to start", self.server_name);
         }
         if !state.is_initialized {
             bail!("LSP server {} not initialized", self.server_name);
@@ -144,7 +143,8 @@ impl LspClient {
         if state.start_failed {
             bail!("LSP server {} failed to start", self.server_name);
         }
-        self.send_notification_inner(&mut state, method, params).await
+        self.send_notification_inner(&mut state, method, params)
+            .await
     }
 
     /// Register a handler for notifications from the server.

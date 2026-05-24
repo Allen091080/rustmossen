@@ -58,8 +58,8 @@ impl Default for CopyOnSelectState {
 }
 
 /// `useSelectionBgColor` — applies the active theme's selection background
-/// color to the selection overlay. Returns the color value the caller
-/// should plug into Ink's style pool (or its Rust equivalent).
+/// color to the selection overlay. Returns the color value the caller should
+/// apply to the current terminal selection styling.
 ///
 /// TS source: `useSelectionBgColor(selection)`. The TS body resolves the
 /// active theme's `selectionBg` and calls `selection.setSelectionBgColor`;

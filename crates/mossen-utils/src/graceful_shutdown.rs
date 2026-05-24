@@ -3,9 +3,6 @@
 //! Translated from utils/gracefulShutdown.ts
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-
-use anyhow::anyhow;
 
 /// Error type for cleanup timeout.
 #[derive(Debug)]
@@ -77,7 +74,11 @@ pub fn print_resume_hint(session_id: &str, custom_title: Option<&str>, is_intera
         session_id.to_string()
     };
 
-    let _ = writeln!(handle, "\nResume this session with:\nmossen --resume {}", resume_arg);
+    let _ = writeln!(
+        handle,
+        "\nResume this session with:\nmossen --resume {}",
+        resume_arg
+    );
 }
 
 /// Force process exit.
@@ -101,7 +102,7 @@ where
 }
 
 /// Sync version of graceful shutdown.
-pub fn graceful_shutdown_sync(exit_code: i32) {
+pub fn graceful_shutdown_sync(_exit_code: i32) {
     if SHUTDOWN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -132,7 +133,9 @@ pub enum ExitReason {
 pub async fn graceful_shutdown(
     exit_code: i32,
     _reason: ExitReason,
-    cleanup_fns: Vec<Box<dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send>>,
+    cleanup_fns: Vec<
+        Box<dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send>,
+    >,
     session_id: &str,
     custom_title: Option<&str>,
     is_interactive: bool,

@@ -3,7 +3,6 @@
 //! 对应 TypeScript `utils/mailbox.ts`。
 //! 实现带等待者的异步消息队列。
 
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{broadcast, oneshot};
 

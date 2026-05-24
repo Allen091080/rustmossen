@@ -309,7 +309,11 @@ fn get_data_dir(ctx: &CommandContext) -> PathBuf {
         .get("MOSSEN_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            let home = ctx.env_vars.get("HOME").cloned().unwrap_or_else(|| "/tmp".to_string());
+            let home = ctx
+                .env_vars
+                .get("HOME")
+                .cloned()
+                .unwrap_or_else(|| "/tmp".to_string());
             PathBuf::from(home).join(".mossen")
         });
     config_home.join("insights")
@@ -332,7 +336,11 @@ fn get_projects_dir(ctx: &CommandContext) -> PathBuf {
         .get("MOSSEN_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            let home = ctx.env_vars.get("HOME").cloned().unwrap_or_else(|| "/tmp".to_string());
+            let home = ctx
+                .env_vars
+                .get("HOME")
+                .cloned()
+                .unwrap_or_else(|| "/tmp".to_string());
             PathBuf::from(home).join(".mossen")
         });
     config_home.join("projects")
@@ -345,9 +353,7 @@ fn get_language_from_path(file_path: &str) -> Option<&'static str> {
 }
 
 /// Deduplicate session branches by choosing the most recent session per branch.
-pub fn deduplicate_session_branches(
-    sessions: &[SessionMeta],
-) -> Vec<&SessionMeta> {
+pub fn deduplicate_session_branches(sessions: &[SessionMeta]) -> Vec<&SessionMeta> {
     let mut branch_map: HashMap<String, &SessionMeta> = HashMap::new();
     for session in sessions {
         let key = format!("{}:{}", session.project_path, session.session_id);
@@ -364,9 +370,7 @@ pub fn deduplicate_session_branches(
 }
 
 /// Detect concurrent sessions from timestamps.
-pub fn detect_concurrent_sessions(
-    sessions: &[SessionMeta],
-) -> Vec<ConcurrentSessionGroup> {
+pub fn detect_concurrent_sessions(sessions: &[SessionMeta]) -> Vec<ConcurrentSessionGroup> {
     let mut groups: Vec<ConcurrentSessionGroup> = Vec::new();
 
     // Sort sessions by start time
@@ -388,10 +392,7 @@ pub fn detect_concurrent_sessions(
                     let overlap = (a_end - b_start_dt).num_minutes() as f64;
                     if overlap > 5.0 {
                         groups.push(ConcurrentSessionGroup {
-                            session_ids: vec![
-                                a.session_id.clone(),
-                                b.session_id.clone(),
-                            ],
+                            session_ids: vec![a.session_id.clone(), b.session_id.clone()],
                             overlap_minutes: overlap,
                         });
                     }
@@ -419,10 +420,7 @@ fn parse_iso_datetime(s: &str) -> Option<DateTime<Utc>> {
 }
 
 /// Aggregate session data from all sessions and facets.
-fn aggregate_data(
-    sessions: &[SessionMeta],
-    facets: &[SessionFacets],
-) -> AggregatedData {
+fn aggregate_data(sessions: &[SessionMeta], facets: &[SessionFacets]) -> AggregatedData {
     let total_sessions = sessions.len();
     let sessions_with_facets = facets.len();
 
@@ -514,7 +512,9 @@ fn aggregate_data(
         for (sat, count) in &facet.user_satisfaction_counts {
             *satisfaction.entry(sat.clone()).or_insert(0) += count;
         }
-        *helpfulness.entry(facet.mossen_helpfulness.clone()).or_insert(0) += 1;
+        *helpfulness
+            .entry(facet.mossen_helpfulness.clone())
+            .or_insert(0) += 1;
         *session_types.entry(facet.session_type.clone()).or_insert(0) += 1;
         for (f, count) in &facet.friction_counts {
             *friction.entry(f.clone()).or_insert(0) += count;
@@ -538,8 +538,14 @@ fn aggregate_data(
     end_dates.sort();
 
     let date_range = DateRange {
-        start: start_dates.first().cloned().unwrap_or_else(|| "unknown".to_string()),
-        end: end_dates.last().cloned().unwrap_or_else(|| "unknown".to_string()),
+        start: start_dates
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string()),
+        end: end_dates
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string()),
     };
 
     let avg_session_minutes = if total_sessions > 0 {
@@ -825,10 +831,7 @@ fn is_valid_session_facets(facets: &SessionFacets) -> bool {
 }
 
 /// Build the exportable insights data.
-pub fn build_export_data(
-    aggregated: AggregatedData,
-    insights: InsightResults,
-) -> InsightsExport {
+pub fn build_export_data(aggregated: AggregatedData, insights: InsightResults) -> InsightsExport {
     InsightsExport {
         aggregated,
         insights,
@@ -920,10 +923,7 @@ pub async fn generate_usage_report(
 }
 
 /// Scan all session files from the projects directory.
-async fn scan_all_sessions(
-    projects_dir: &Path,
-    days: Option<u32>,
-) -> Result<Vec<LiteSessionInfo>> {
+async fn scan_all_sessions(projects_dir: &Path, days: Option<u32>) -> Result<Vec<LiteSessionInfo>> {
     let mut sessions = Vec::new();
 
     let mut entries = match tokio::fs::read_dir(projects_dir).await {
@@ -931,9 +931,7 @@ async fn scan_all_sessions(
         Err(_) => return Ok(sessions),
     };
 
-    let cutoff = days.map(|d| {
-        Utc::now() - chrono::Duration::days(d as i64)
-    });
+    let cutoff = days.map(|d| Utc::now() - chrono::Duration::days(d as i64));
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
@@ -1046,10 +1044,7 @@ async fn load_all_session_metas(
 }
 
 /// Load facets for all sessions (using cache or API extraction).
-async fn load_all_facets(
-    _sessions: &[SessionMeta],
-    _ctx: &CommandContext,
-) -> Vec<SessionFacets> {
+async fn load_all_facets(_sessions: &[SessionMeta], _ctx: &CommandContext) -> Vec<SessionFacets> {
     // In full implementation, this would:
     // 1. Check facets cache directory
     // 2. If not cached, format transcript and call API for extraction

@@ -67,7 +67,7 @@ pub fn is_first_party_mossen_base_url() -> bool {
         None => return false,
     };
     let mut allowed: Vec<&str> = vec!["api.mossen.invalid"];
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         allowed.push("api-staging.mossen.invalid");
     }
     allowed.contains(&host)

@@ -8,16 +8,33 @@ pub struct TypeaheadState {
 }
 
 impl TypeaheadState {
-    pub fn new() -> Self { Self { active: false, initialized: false } }
-    pub fn initialize(&mut self) { self.initialized = true; }
-    pub fn activate(&mut self) { self.active = true; }
-    pub fn deactivate(&mut self) { self.active = false; }
-    pub fn is_active(&self) -> bool { self.active }
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            initialized: false,
+        }
+    }
+    pub fn initialize(&mut self) {
+        self.initialized = true;
+    }
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
 }
-impl Default for TypeaheadState { fn default() -> Self { Self::new() } }
+impl Default for TypeaheadState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ============================================================================
-// Helper functions translated from useTypeahead.tsx
+// Helper functions for typeahead matching.
 // ============================================================================
 
 /// A completion token result from cursor scanning.
@@ -129,7 +146,10 @@ pub fn apply_shell_suggestion(
     new_input.push_str(&input[cursor_offset..]);
 
     let cursor_pos = word_start + replacement_text.len();
-    ApplySuggestionResult { new_input, cursor_pos }
+    ApplySuggestionResult {
+        new_input,
+        cursor_pos,
+    }
 }
 
 /// Apply a directory/file suggestion to the input.
@@ -153,7 +173,10 @@ pub fn apply_directory_suggestion(
     new_input.push_str(&replacement);
     new_input.push_str(after);
     let cursor_pos = before.len() + replacement.len();
-    ApplySuggestionResult { new_input, cursor_pos }
+    ApplySuggestionResult {
+        new_input,
+        cursor_pos,
+    }
 }
 
 /// True if this character is one of the path-token characters used by the
@@ -303,19 +326,31 @@ mod tests {
 
     #[test]
     fn extract_search_token_unquoted_at() {
-        let t = CompletionToken { token: "@foo".to_string(), start_pos: 0, is_quoted: false };
+        let t = CompletionToken {
+            token: "@foo".to_string(),
+            start_pos: 0,
+            is_quoted: false,
+        };
         assert_eq!(extract_search_token(&t), "foo");
     }
 
     #[test]
     fn extract_search_token_quoted() {
-        let t = CompletionToken { token: "@\"hello world\"".to_string(), start_pos: 0, is_quoted: true };
+        let t = CompletionToken {
+            token: "@\"hello world\"".to_string(),
+            start_pos: 0,
+            is_quoted: true,
+        };
         assert_eq!(extract_search_token(&t), "hello world");
     }
 
     #[test]
     fn extract_search_token_quoted_open() {
-        let t = CompletionToken { token: "@\"abc".to_string(), start_pos: 0, is_quoted: true };
+        let t = CompletionToken {
+            token: "@\"abc".to_string(),
+            start_pos: 0,
+            is_quoted: true,
+        };
         assert_eq!(extract_search_token(&t), "abc");
     }
 

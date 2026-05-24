@@ -1,8 +1,8 @@
 //! DXT (Desktop Extension) utilities — translated from utils/dxt/
 
-use std::path::{Path, PathBuf, Component};
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, bail};
+use std::path::{Component, Path};
 use tracing::debug;
 
 // --- Types ---
@@ -106,7 +106,9 @@ pub fn generate_extension_id(manifest: &McpbManifest, prefix: Option<&str>) -> S
             .collect::<Vec<_>>()
             .join("-")
             .chars()
-            .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-' || *c == '_' || *c == '.')
+            .filter(|c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-' || *c == '_' || *c == '.'
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string()
@@ -124,8 +126,8 @@ pub fn generate_extension_id(manifest: &McpbManifest, prefix: Option<&str>) -> S
 // --- Zip Utilities ---
 
 /// Limits for zip file validation during extraction
-const MAX_FILE_SIZE: u64 = 512 * 1024 * 1024;       // 512MB per file
-const MAX_TOTAL_SIZE: u64 = 1024 * 1024 * 1024;     // 1024MB total
+const MAX_FILE_SIZE: u64 = 512 * 1024 * 1024; // 512MB per file
+const MAX_TOTAL_SIZE: u64 = 1024 * 1024 * 1024; // 1024MB total
 const MAX_FILE_COUNT: usize = 100_000;
 const MAX_COMPRESSION_RATIO: f64 = 50.0;
 
@@ -156,11 +158,7 @@ pub fn is_path_safe(file_path: &str) -> bool {
 }
 
 /// Validate a single file during zip extraction
-fn validate_zip_file(
-    name: &str,
-    original_size: u64,
-    state: &mut ZipValidationState,
-) -> Result<()> {
+fn validate_zip_file(name: &str, original_size: u64, state: &mut ZipValidationState) -> Result<()> {
     state.file_count += 1;
 
     // Check file count
@@ -219,7 +217,7 @@ fn validate_zip_file(
 
 /// Unzip data and return contents as a map of file paths to bytes.
 pub fn unzip_data(zip_data: &[u8]) -> Result<std::collections::HashMap<String, Vec<u8>>> {
-    use std::io::{Read, Cursor};
+    use std::io::{Cursor, Read};
 
     let reader = Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(reader)
@@ -234,7 +232,8 @@ pub fn unzip_data(zip_data: &[u8]) -> Result<std::collections::HashMap<String, V
     let mut result = std::collections::HashMap::new();
 
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
+        let mut file = archive
+            .by_index(i)
             .map_err(|e| anyhow::anyhow!("Failed to read zip entry: {}", e))?;
 
         let name = file.name().to_string();
@@ -279,11 +278,7 @@ pub fn parse_zip_modes(data: &[u8]) -> std::collections::HashMap<String, u32> {
 
     let mut eocd: Option<usize> = None;
     for i in (min_eocd..=(data.len() - 22)).rev() {
-        if data[i] == 0x50
-            && data[i + 1] == 0x4b
-            && data[i + 2] == 0x05
-            && data[i + 3] == 0x06
-        {
+        if data[i] == 0x50 && data[i + 1] == 0x4b && data[i + 2] == 0x05 && data[i + 3] == 0x06 {
             eocd = Some(i);
             break;
         }
@@ -307,7 +302,11 @@ pub fn parse_zip_modes(data: &[u8]) -> std::collections::HashMap<String, u32> {
         if off + 46 > data.len() {
             break;
         }
-        if data[off] != 0x50 || data[off + 1] != 0x4b || data[off + 2] != 0x01 || data[off + 3] != 0x02 {
+        if data[off] != 0x50
+            || data[off + 1] != 0x4b
+            || data[off + 2] != 0x01
+            || data[off + 3] != 0x02
+        {
             break;
         }
 
@@ -342,8 +341,11 @@ pub fn parse_zip_modes(data: &[u8]) -> std::collections::HashMap<String, u32> {
 }
 
 /// Reads a zip file from disk and unzips it.
-pub async fn read_and_unzip_file(file_path: &Path) -> Result<std::collections::HashMap<String, Vec<u8>>> {
-    let zip_data = tokio::fs::read(file_path).await
+pub async fn read_and_unzip_file(
+    file_path: &Path,
+) -> Result<std::collections::HashMap<String, Vec<u8>>> {
+    let zip_data = tokio::fs::read(file_path)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))?;
     unzip_data(&zip_data)
 }

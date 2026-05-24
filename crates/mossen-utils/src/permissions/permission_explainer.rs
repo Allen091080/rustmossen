@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 
+use crate::string_utils::truncate_chars_with_suffix;
+
 /// Risk level for permission explanations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RiskLevel {
@@ -89,10 +91,7 @@ fn format_tool_input(input: &serde_json::Value) -> String {
 
 /// Extract recent conversation context from messages for the explainer.
 /// Returns a summary of recent assistant messages to provide context.
-fn extract_conversation_context(
-    messages: &[serde_json::Value],
-    max_chars: usize,
-) -> String {
+fn extract_conversation_context(messages: &[serde_json::Value], max_chars: usize) -> String {
     let assistant_messages: Vec<&serde_json::Value> = messages
         .iter()
         .filter(|m| m.get("type").and_then(|t| t.as_str()) == Some("assistant"))
@@ -119,11 +118,7 @@ fn extract_conversation_context(
 
             if !text_blocks.is_empty() && total_chars < max_chars {
                 let remaining = max_chars - total_chars;
-                let truncated = if text_blocks.len() > remaining {
-                    format!("{}...", &text_blocks[..remaining])
-                } else {
-                    text_blocks
-                };
+                let truncated = truncate_chars_with_suffix(&text_blocks, remaining, "...");
                 total_chars += truncated.len();
                 context_parts.push(truncated);
             }

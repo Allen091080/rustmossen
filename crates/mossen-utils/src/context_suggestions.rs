@@ -78,7 +78,9 @@ pub fn generate_context_suggestions(data: &ContextData) -> Vec<ContextSuggestion
         if a.severity != b.severity {
             return a.severity.cmp(&b.severity);
         }
-        b.savings_tokens.unwrap_or(0).cmp(&a.savings_tokens.unwrap_or(0))
+        b.savings_tokens
+            .unwrap_or(0)
+            .cmp(&a.savings_tokens.unwrap_or(0))
     });
 
     suggestions
@@ -89,7 +91,8 @@ fn check_near_capacity(data: &ContextData, suggestions: &mut Vec<ContextSuggesti
         let detail = if data.is_auto_compact_enabled {
             "Autocompact will trigger soon, which discards older messages. Use /compact now to control what gets kept.".to_string()
         } else {
-            "Autocompact is disabled. Use /compact to free space, or enable autocompact in /config.".to_string()
+            "Autocompact is disabled. Use /compact to free space, or enable autocompact in /config."
+                .to_string()
         };
         suggestions.push(ContextSuggestion {
             severity: SuggestionSeverity::Warning,
@@ -120,7 +123,11 @@ fn check_large_tool_results(data: &ContextData, suggestions: &mut Vec<ContextSug
     }
 }
 
-fn get_large_tool_suggestion(tool_name: &str, tokens: usize, percent: f64) -> Option<ContextSuggestion> {
+fn get_large_tool_suggestion(
+    tool_name: &str,
+    tokens: usize,
+    percent: f64,
+) -> Option<ContextSuggestion> {
     let token_str = format_tokens(tokens);
 
     match tool_name {
@@ -169,7 +176,11 @@ fn check_read_result_bloat(data: &ContextData, suggestions: &mut Vec<ContextSugg
         None => return,
     };
 
-    let read_tool = match breakdown.tool_calls_by_type.iter().find(|t| t.name == FILE_READ_TOOL_NAME) {
+    let read_tool = match breakdown
+        .tool_calls_by_type
+        .iter()
+        .find(|t| t.name == FILE_READ_TOOL_NAME)
+    {
         Some(t) => t,
         None => return,
     };
@@ -179,7 +190,9 @@ fn check_read_result_bloat(data: &ContextData, suggestions: &mut Vec<ContextSugg
     let read_percent = (read_tool.result_tokens as f64 / data.raw_max_tokens as f64) * 100.0;
 
     // Skip if already covered by large tool results
-    if total_read_percent >= LARGE_TOOL_RESULT_PERCENT && total_read_tokens >= LARGE_TOOL_RESULT_TOKENS {
+    if total_read_percent >= LARGE_TOOL_RESULT_PERCENT
+        && total_read_tokens >= LARGE_TOOL_RESULT_TOKENS
+    {
         return;
     }
 
@@ -207,7 +220,13 @@ fn check_memory_bloat(data: &ContextData, suggestions: &mut Vec<ContextSuggestio
         let largest_files: String = sorted_files
             .iter()
             .take(3)
-            .map(|f| format!("{} ({})", get_display_path(&f.path), format_tokens(f.tokens)))
+            .map(|f| {
+                format!(
+                    "{} ({})",
+                    get_display_path(&f.path),
+                    format_tokens(f.tokens)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -218,14 +237,20 @@ fn check_memory_bloat(data: &ContextData, suggestions: &mut Vec<ContextSuggestio
                 format_tokens(total_memory_tokens),
                 memory_percent
             ),
-            detail: format!("Largest: {}. Use /memory to review and prune stale entries.", largest_files),
+            detail: format!(
+                "Largest: {}. Use /memory to review and prune stale entries.",
+                largest_files
+            ),
             savings_tokens: Some(total_memory_tokens * 3 / 10),
         });
     }
 }
 
 fn check_auto_compact_disabled(data: &ContextData, suggestions: &mut Vec<ContextSuggestion>) {
-    if !data.is_auto_compact_enabled && data.percentage >= 50.0 && data.percentage < NEAR_CAPACITY_PERCENT {
+    if !data.is_auto_compact_enabled
+        && data.percentage >= 50.0
+        && data.percentage < NEAR_CAPACITY_PERCENT
+    {
         suggestions.push(ContextSuggestion {
             severity: SuggestionSeverity::Info,
             title: "Autocompact is disabled".to_string(),

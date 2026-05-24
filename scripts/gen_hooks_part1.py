@@ -38,11 +38,11 @@ impl AfterFirstRenderState {
         self.fired.load(Ordering::SeqCst)
     }
 
-    /// Check if we should exit after first render (ant user type + env flag).
+    /// Check if we should exit after first render (internal user type + env flag).
     pub fn should_exit_after_render() -> bool {
         let user_type = std::env::var("USER_TYPE").unwrap_or_default();
         let exit_flag = std::env::var("MOSSEN_CODE_EXIT_AFTER_FIRST_RENDER").unwrap_or_default();
-        user_type == "ant" && (exit_flag == "1" || exit_flag.eq_ignore_ascii_case("true"))
+        user_type == "internal" && (exit_flag == "1" || exit_flag.eq_ignore_ascii_case("true"))
     }
 
     /// Get startup time in milliseconds (from process start).

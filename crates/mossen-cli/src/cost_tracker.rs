@@ -327,9 +327,17 @@ pub fn format_total_cost(state: &BootstrapState, ext: &BootstrapStateExtended) -
         format_duration(state.total_api_duration_ms),
         format_duration(total_duration),
         state.total_lines_added,
-        if state.total_lines_added == 1 { "line" } else { "lines" },
+        if state.total_lines_added == 1 {
+            "line"
+        } else {
+            "lines"
+        },
         state.total_lines_removed,
-        if state.total_lines_removed == 1 { "line" } else { "lines" },
+        if state.total_lines_removed == 1 {
+            "line"
+        } else {
+            "lines"
+        },
         model_usage_display,
     )
 }
@@ -341,10 +349,7 @@ pub fn add_to_total_model_usage(
     usage: &ApiUsage,
     model: &str,
 ) -> ModelUsage {
-    let model_usage = ext
-        .model_usage
-        .entry(model.to_string())
-        .or_default();
+    let model_usage = ext.model_usage.entry(model.to_string()).or_default();
 
     model_usage.input_tokens += usage.input_tokens;
     model_usage.output_tokens += usage.output_tokens;

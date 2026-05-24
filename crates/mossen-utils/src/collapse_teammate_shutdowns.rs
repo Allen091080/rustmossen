@@ -60,7 +60,9 @@ pub fn collapse_teammate_shutdowns(
             let first_uuid;
             let first_timestamp;
             match &messages[i] {
-                CollapseRenderableMessage::TeammateShutdown { uuid, timestamp, .. } => {
+                CollapseRenderableMessage::TeammateShutdown {
+                    uuid, timestamp, ..
+                } => {
                     first_uuid = uuid.clone();
                     first_timestamp = timestamp.clone();
                 }

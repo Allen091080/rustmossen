@@ -148,10 +148,7 @@ pub fn clear_idp_client_secret(idp_issuer: &str) {
 /// 调用方注入 HTTP fetch；本函数负责把 issuer 拼接到
 /// `<issuer>/.well-known/openid-configuration`（避免 WHATWG URL 替换路径
 /// 的陷阱）。
-pub async fn discover_oidc<F, Fut>(
-    issuer: &str,
-    fetch_json: F,
-) -> Result<serde_json::Value, String>
+pub async fn discover_oidc<F, Fut>(issuer: &str, fetch_json: F) -> Result<serde_json::Value, String>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Result<serde_json::Value, String>>,

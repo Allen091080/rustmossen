@@ -41,9 +41,8 @@ pub struct ToolPermissionContext {
 }
 
 /// Commands automatically allowed in "acceptEdits" mode.
-const ACCEPT_EDITS_ALLOWED_COMMANDS: &[&str] = &[
-    "mkdir", "touch", "rm", "rmdir", "mv", "cp", "sed",
-];
+const ACCEPT_EDITS_ALLOWED_COMMANDS: &[&str] =
+    &["mkdir", "touch", "rm", "rmdir", "mv", "cp", "sed"];
 
 /// Check if a command is a filesystem command allowed in acceptEdits mode.
 fn is_filesystem_command(command: &str) -> bool {
@@ -224,21 +223,27 @@ mod tests {
 
     #[test]
     fn test_accept_edits_allows_mkdir() {
-        let ctx = ToolPermissionContext { mode: "acceptEdits".to_string() };
+        let ctx = ToolPermissionContext {
+            mode: "acceptEdits".to_string(),
+        };
         let result = check_permission_mode("mkdir -p /tmp/foo", &ctx);
         assert_eq!(result.behavior, PermissionBehavior::Allow);
     }
 
     #[test]
     fn test_accept_edits_passthrough_for_git() {
-        let ctx = ToolPermissionContext { mode: "acceptEdits".to_string() };
+        let ctx = ToolPermissionContext {
+            mode: "acceptEdits".to_string(),
+        };
         let result = check_permission_mode("git push", &ctx);
         assert_eq!(result.behavior, PermissionBehavior::Passthrough);
     }
 
     #[test]
     fn test_bypass_mode_passthrough() {
-        let ctx = ToolPermissionContext { mode: "bypassPermissions".to_string() };
+        let ctx = ToolPermissionContext {
+            mode: "bypassPermissions".to_string(),
+        };
         let result = check_permission_mode("rm -rf /", &ctx);
         assert_eq!(result.behavior, PermissionBehavior::Passthrough);
     }

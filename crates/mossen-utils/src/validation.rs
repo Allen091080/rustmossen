@@ -100,18 +100,15 @@ fn issue_to_error(issue: &serde_json::Value, file_path: &str) -> ValidationError
 
     match code {
         "invalid_value" => {
-            let values = issue
-                .get("values")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .map(|v| match v {
-                            serde_json::Value::String(s) => format!("\"{}\"", s),
-                            other => other.to_string(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                });
+            let values = issue.get("values").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => format!("\"{}\"", s),
+                        other => other.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            });
             if let Some(v) = values {
                 message = format!("Invalid value. Expected one of: {}", v);
                 expected = Some(v);
@@ -123,7 +120,10 @@ fn issue_to_error(issue: &serde_json::Value, file_path: &str) -> ValidationError
                 .and_then(|e| e.as_str())
                 .unwrap_or("")
                 .to_string();
-            let input = issue.get("input").cloned().unwrap_or(serde_json::Value::Null);
+            let input = issue
+                .get("input")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             let received_type = extract_received_from_message(&raw_message)
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| get_received_type(&input).to_string());
@@ -223,10 +223,7 @@ pub fn validate_settings_file_content(content: &str) -> Result<(), String> {
     }
 
     // 检查 permissions.{allow,deny,ask} 是否为字符串数组；只校验结构。
-    if let Some(perms) = json_data
-        .get("permissions")
-        .and_then(|p| p.as_object())
-    {
+    if let Some(perms) = json_data.get("permissions").and_then(|p| p.as_object()) {
         for key in ["allow", "deny", "ask"] {
             if let Some(rules) = perms.get(key) {
                 let arr = rules
@@ -234,10 +231,7 @@ pub fn validate_settings_file_content(content: &str) -> Result<(), String> {
                     .ok_or_else(|| format!("permissions.{} must be an array", key))?;
                 for rule in arr {
                     if !rule.is_string() {
-                        return Err(format!(
-                            "permissions.{} entries must be strings",
-                            key
-                        ));
+                        return Err(format!("permissions.{} entries must be strings", key));
                     }
                 }
             }
@@ -318,7 +312,10 @@ mod tests {
     fn test_get_received_type() {
         assert_eq!(get_received_type(&serde_json::Value::Null), "null");
         assert_eq!(get_received_type(&serde_json::Value::Bool(true)), "boolean");
-        assert_eq!(get_received_type(&serde_json::Value::String("test".into())), "string");
+        assert_eq!(
+            get_received_type(&serde_json::Value::String("test".into())),
+            "string"
+        );
     }
 
     #[test]

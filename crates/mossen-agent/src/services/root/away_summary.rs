@@ -73,10 +73,7 @@ pub async fn generate_away_summary(
         "content": prompt,
     }));
 
-    match ctx
-        .query_model_without_streaming(recent, "", signal)
-        .await
-    {
+    match ctx.query_model_without_streaming(recent, "", signal).await {
         Ok(Some(text)) => Some(text),
         Ok(None) => None,
         Err(AwaySummaryError::Aborted) => None,

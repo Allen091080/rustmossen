@@ -4,9 +4,13 @@ use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 use tokio::fs;
 use tracing::{debug, info, warn};
+
+use mossen_utils::auth::get_hosted_oauth_tokens;
+use mossen_utils::detect_repository::parse_git_remote;
 
 use super::secret_scanner::scan_for_secrets;
 use super::types::*;
@@ -45,8 +49,7 @@ pub fn hash_content(content: &str) -> String {
 
 /// Check if team memory sync is available (requires first-party OAuth).
 pub fn is_team_memory_sync_available() -> bool {
-    // Stub: in production, checks OAuth state and API provider
-    false
+    get_team_memory_access_token().is_some()
 }
 
 /// Configuration for team memory sync endpoints.
@@ -58,11 +61,212 @@ struct SyncConfig {
 
 fn get_sync_config() -> SyncConfig {
     SyncConfig {
-        base_api_url: std::env::var("TEAM_MEMORY_SYNC_URL")
-            .unwrap_or_else(|_| "https://api.mossen.ai".to_string()),
-        access_token: None, // Populated from OAuth tokens in production
+        base_api_url: resolve_base_api_url(get_env_config_value(&[
+            "TEAM_MEMORY_SYNC_URL",
+            "MOSSEN_TEAM_MEMORY_SYNC_URL",
+            "MOSSEN_API_BASE_URL",
+        ])),
+        access_token: get_team_memory_access_token(),
         user_agent: "mossen-agent/1.0".to_string(),
     }
+}
+
+fn clean_config_value(value: impl AsRef<str>) -> Option<String> {
+    let trimmed = value.as_ref().trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn get_env_config_value(names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| std::env::var(name).ok().and_then(clean_config_value))
+}
+
+fn resolve_base_api_url(explicit_url: Option<String>) -> String {
+    explicit_url
+        .and_then(clean_config_value)
+        .and_then(|url| clean_config_value(url.trim_end_matches('/')))
+        .unwrap_or_else(|| "https://api.mossen.ai".to_string())
+}
+
+fn resolve_access_token(
+    explicit_token: Option<String>,
+    oauth_token: Option<String>,
+) -> Option<String> {
+    explicit_token
+        .and_then(clean_config_value)
+        .or_else(|| oauth_token.and_then(clean_config_value))
+}
+
+fn get_team_memory_access_token() -> Option<String> {
+    resolve_access_token(
+        get_env_config_value(&["TEAM_MEMORY_SYNC_TOKEN", "MOSSEN_TEAM_MEMORY_SYNC_TOKEN"]),
+        get_hosted_oauth_tokens().map(|tokens| tokens.access_token),
+    )
+}
+
+fn normalize_repo_slug(slug: impl AsRef<str>) -> Option<String> {
+    let trimmed = slug.as_ref().trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(parsed) = parse_git_remote(trimmed) {
+        return Some(format!("{}/{}", parsed.owner, parsed.name));
+    }
+
+    let without_host = trimmed
+        .strip_prefix("github.com/")
+        .or_else(|| trimmed.strip_prefix("www.github.com/"))
+        .unwrap_or(trimmed);
+    let mut parts = without_host.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim().trim_end_matches(".git");
+    if owner.is_empty() || repo.is_empty() || parts.next().is_some() {
+        return None;
+    }
+    Some(format!("{}/{}", owner, repo))
+}
+
+fn repo_slug_from_git_remote(remote_url: impl AsRef<str>) -> Option<String> {
+    let parsed = parse_git_remote(remote_url.as_ref())?;
+    if parsed.owner.is_empty() || parsed.name.is_empty() {
+        return None;
+    }
+    Some(format!("{}/{}", parsed.owner, parsed.name))
+}
+
+fn resolve_repo_slug(explicit_slug: Option<String>, remote_url: Option<String>) -> Option<String> {
+    explicit_slug
+        .and_then(normalize_repo_slug)
+        .or_else(|| remote_url.and_then(repo_slug_from_git_remote))
+}
+
+fn read_git_remote_url_by_name(remote_name: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["remote", "get-url", remote_name])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .and_then(clean_config_value)
+}
+
+fn read_git_remote_url() -> Option<String> {
+    if let Some(origin) = read_git_remote_url_by_name("origin") {
+        return Some(origin);
+    }
+
+    let output = Command::new("git").arg("remote").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let remotes = String::from_utf8(output.stdout).ok()?;
+    remotes.lines().find_map(|name| {
+        clean_config_value(name).and_then(|name| read_git_remote_url_by_name(&name))
+    })
+}
+
+fn get_team_memory_repo_slug() -> Option<String> {
+    resolve_repo_slug(
+        get_env_config_value(&["TEAM_MEMORY_REPO_SLUG", "MOSSEN_TEAM_MEMORY_REPO_SLUG"]),
+        read_git_remote_url(),
+    )
+}
+
+fn validate_absolute_memory_path(raw: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(raw);
+    if !path.is_absolute() {
+        return None;
+    }
+    let normalized = path.to_string_lossy();
+    if normalized.len() < 3 || normalized.contains('\0') {
+        return None;
+    }
+    Some(path)
+}
+
+fn sanitize_project_path_for_memory(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "_")
+        .replace('\\', "_")
+        .replace(':', "_")
+}
+
+fn resolve_project_team_memory_dir(
+    project_root: &Path,
+    memory_path_override: Option<String>,
+    remote_memory_dir: Option<String>,
+    config_home_dir: PathBuf,
+) -> PathBuf {
+    if let Some(override_path) = memory_path_override
+        .and_then(clean_config_value)
+        .and_then(|path| validate_absolute_memory_path(&path))
+    {
+        return override_path.join("team");
+    }
+
+    let memory_base_dir = remote_memory_dir
+        .and_then(clean_config_value)
+        .map(PathBuf::from)
+        .unwrap_or(config_home_dir);
+    let sanitized = sanitize_project_path_for_memory(project_root);
+    memory_base_dir
+        .join("projects")
+        .join(sanitized)
+        .join("memory")
+        .join("team")
+}
+
+fn current_project_root() -> PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn resolve_team_memory_dir(explicit_dir: Option<String>, project_root: &Path) -> PathBuf {
+    if let Some(explicit_dir) = explicit_dir.and_then(clean_config_value) {
+        return PathBuf::from(explicit_dir);
+    }
+
+    resolve_project_team_memory_dir(
+        project_root,
+        get_env_config_value(&["MOSSEN_COWORK_MEMORY_PATH_OVERRIDE"]),
+        get_env_config_value(&["MOSSEN_CODE_REMOTE_MEMORY_DIR"]),
+        mossen_utils::env::get_mossen_config_home_dir(),
+    )
+}
+
+pub(crate) fn get_team_memory_dir() -> PathBuf {
+    resolve_team_memory_dir(
+        get_env_config_value(&["TEAM_MEMORY_DIR", "MOSSEN_TEAM_MEMORY_DIR"]),
+        &current_project_root(),
+    )
+}
+
+fn existing_or_absolute_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(path)
+        }
+    })
+}
+
+fn is_path_inside_dir(file_path: &Path, dir: &Path) -> bool {
+    existing_or_absolute_path(file_path).starts_with(existing_or_absolute_path(dir))
+}
+
+pub fn is_team_memory_file_path(file_path: impl AsRef<Path>) -> bool {
+    is_path_inside_dir(file_path.as_ref(), &get_team_memory_dir())
 }
 
 fn get_team_memory_sync_endpoint(base_url: &str, repo_slug: &str) -> String {
@@ -117,7 +321,10 @@ async fn fetch_team_memory_once(
         req = req.header(k.as_str(), v.as_str());
     }
     if let Some(etag_val) = etag {
-        req = req.header("If-None-Match", format!("\"{}\"", etag_val.replace('"', "")));
+        req = req.header(
+            "If-None-Match",
+            format!("\"{}\"", etag_val.replace('"', "")),
+        );
     }
 
     let response = match req.send().await {
@@ -236,7 +443,10 @@ async fn fetch_team_memory_hashes(
         }
     };
 
-    let endpoint = format!("{}&view=hashes", get_team_memory_sync_endpoint(&config.base_api_url, repo_slug));
+    let endpoint = format!(
+        "{}&view=hashes",
+        get_team_memory_sync_endpoint(&config.base_api_url, repo_slug)
+    );
     let client = Client::builder()
         .timeout(Duration::from_millis(TEAM_MEMORY_SYNC_TIMEOUT_MS))
         .build()
@@ -295,7 +505,10 @@ async fn fetch_team_memory_hashes(
         }
     };
 
-    let checksum = body.get("checksum").and_then(|v| v.as_str()).map(String::from);
+    let checksum = body
+        .get("checksum")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     if let Some(ref cs) = checksum {
         state.last_known_checksum = Some(cs.clone());
     }
@@ -486,20 +699,23 @@ async fn upload_team_memory(
     }
 
     let resp_body: serde_json::Value = response.json().await.unwrap_or_default();
-    let response_checksum = resp_body.get("checksum").and_then(|v| v.as_str()).map(String::from);
+    let response_checksum = resp_body
+        .get("checksum")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     if let Some(ref cs) = response_checksum {
         state.last_known_checksum = Some(cs.clone());
     }
 
-    debug!(
-        "team-memory-sync: uploaded {} entries",
-        entries.len()
-    );
+    debug!("team-memory-sync: uploaded {} entries", entries.len());
 
     TeamMemorySyncUploadResult {
         success: true,
         checksum: response_checksum,
-        last_modified: resp_body.get("lastModified").and_then(|v| v.as_str()).map(String::from),
+        last_modified: resp_body
+            .get("lastModified")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         ..Default::default()
     }
 }
@@ -609,17 +825,17 @@ async fn read_local_team_memory(
     Ok((entries, skipped_secrets))
 }
 
-async fn write_remote_entries_to_local(
-    team_dir: &Path,
-    entries: &HashMap<String, String>,
-) -> u64 {
+async fn write_remote_entries_to_local(team_dir: &Path, entries: &HashMap<String, String>) -> u64 {
     let mut files_written = 0u64;
 
     for (rel_path, content) in entries {
         let full_path = team_dir.join(rel_path);
 
         if content.len() as u64 > MAX_FILE_SIZE_BYTES {
-            debug!("team-memory-sync: skipping oversized remote entry \"{}\"", rel_path);
+            debug!(
+                "team-memory-sync: skipping oversized remote entry \"{}\"",
+                rel_path
+            );
             continue;
         }
 
@@ -633,7 +849,10 @@ async fn write_remote_entries_to_local(
         // Write the file
         if let Some(parent) = full_path.parent() {
             if let Err(e) = fs::create_dir_all(parent).await {
-                warn!("team-memory-sync: failed to create dir for \"{}\": {}", rel_path, e);
+                warn!(
+                    "team-memory-sync: failed to create dir for \"{}\": {}",
+                    rel_path, e
+                );
                 continue;
             }
         }
@@ -667,25 +886,25 @@ async fn pull_team_memory_with_options(state: &mut SyncState, skip_etag_cache: b
         };
     }
 
-    // In production, get repo slug from git remote
-    let repo_slug = ""; // Placeholder
-    if repo_slug.is_empty() {
-        return PullResult {
-            success: false,
-            files_written: 0,
-            entry_count: 0,
-            not_modified: false,
-            error: Some("No git remote found".to_string()),
-        };
-    }
-
+    let repo_slug = match get_team_memory_repo_slug() {
+        Some(repo_slug) => repo_slug,
+        None => {
+            return PullResult {
+                success: false,
+                files_written: 0,
+                entry_count: 0,
+                not_modified: false,
+                error: Some("No git remote found".to_string()),
+            };
+        }
+    };
     let etag = if skip_etag_cache {
         None
     } else {
         state.last_known_checksum.clone()
     };
 
-    let result = fetch_team_memory(state, repo_slug, etag.as_deref()).await;
+    let result = fetch_team_memory(state, &repo_slug, etag.as_deref()).await;
     if !result.success {
         return PullResult {
             success: false,
@@ -728,7 +947,7 @@ async fn pull_team_memory_with_options(state: &mut SyncState, skip_etag_cache: b
         }
     }
 
-    let team_dir = PathBuf::from(".mossen/team-memory"); // Placeholder path
+    let team_dir = get_team_memory_dir();
     let files_written = write_remote_entries_to_local(&team_dir, entries).await;
     let entry_count = entries.len() as u64;
 
@@ -755,29 +974,31 @@ pub async fn push_team_memory(state: &mut SyncState) -> TeamMemorySyncPushResult
         };
     }
 
-    let repo_slug = ""; // Placeholder
-    if repo_slug.is_empty() {
-        return TeamMemorySyncPushResult {
-            success: false,
-            files_uploaded: 0,
-            error: Some("No git remote found".to_string()),
-            error_type: Some(SyncErrorType::NoRepo),
-            ..Default::default()
-        };
-    }
-
-    let team_dir = PathBuf::from(".mossen/team-memory");
-    let (entries, skipped_secrets) = match read_local_team_memory(&team_dir, state.server_max_entries).await {
-        Ok(r) => r,
-        Err(e) => {
+    let repo_slug = match get_team_memory_repo_slug() {
+        Some(repo_slug) => repo_slug,
+        None => {
             return TeamMemorySyncPushResult {
                 success: false,
                 files_uploaded: 0,
-                error: Some(e),
+                error: Some("No git remote found".to_string()),
+                error_type: Some(SyncErrorType::NoRepo),
                 ..Default::default()
             };
         }
     };
+    let team_dir = get_team_memory_dir();
+    let (entries, skipped_secrets) =
+        match read_local_team_memory(&team_dir, state.server_max_entries).await {
+            Ok(r) => r,
+            Err(e) => {
+                return TeamMemorySyncPushResult {
+                    success: false,
+                    files_uploaded: 0,
+                    error: Some(e),
+                    ..Default::default()
+                };
+            }
+        };
 
     if !skipped_secrets.is_empty() {
         let summary: Vec<String> = skipped_secrets
@@ -825,13 +1046,8 @@ pub async fn push_team_memory(state: &mut SyncState) -> TeamMemorySyncPushResult
 
         for batch in &batches {
             let checksum_clone = state.last_known_checksum.clone();
-            let result = upload_team_memory(
-                state,
-                repo_slug,
-                batch,
-                checksum_clone.as_deref(),
-            )
-            .await;
+            let result =
+                upload_team_memory(state, &repo_slug, batch, checksum_clone.as_deref()).await;
 
             if !result.success {
                 last_result = Some(result);
@@ -867,7 +1083,10 @@ pub async fn push_team_memory(state: &mut SyncState) -> TeamMemorySyncPushResult
         if !result.conflict {
             if let Some(max) = result.server_max_entries {
                 state.server_max_entries = Some(max);
-                warn!("team-memory-sync: learned server max_entries={} from 413", max);
+                warn!(
+                    "team-memory-sync: learned server max_entries={} from 413",
+                    max
+                );
             }
             return TeamMemorySyncPushResult {
                 success: false,
@@ -881,7 +1100,10 @@ pub async fn push_team_memory(state: &mut SyncState) -> TeamMemorySyncPushResult
 
         // 412 conflict — refresh server checksums and retry
         if conflict_attempt >= MAX_CONFLICT_RETRIES {
-            warn!("team-memory-sync: giving up after {} conflict retries", MAX_CONFLICT_RETRIES);
+            warn!(
+                "team-memory-sync: giving up after {} conflict retries",
+                MAX_CONFLICT_RETRIES
+            );
             return TeamMemorySyncPushResult {
                 success: false,
                 files_uploaded: 0,
@@ -892,13 +1114,16 @@ pub async fn push_team_memory(state: &mut SyncState) -> TeamMemorySyncPushResult
         }
 
         info!("team-memory-sync: conflict (412), probing server hashes");
-        let probe = fetch_team_memory_hashes(state, repo_slug).await;
+        let probe = fetch_team_memory_hashes(state, &repo_slug).await;
         if !probe.success || probe.entry_checksums.is_none() {
             return TeamMemorySyncPushResult {
                 success: false,
                 files_uploaded: 0,
                 conflict: true,
-                error: Some(format!("Conflict resolution hashes probe failed: {:?}", probe.error)),
+                error: Some(format!(
+                    "Conflict resolution hashes probe failed: {:?}",
+                    probe.error
+                )),
                 ..Default::default()
             };
         }
@@ -951,5 +1176,174 @@ pub async fn sync_team_memory(state: &mut SyncState) -> SyncResult {
         files_pulled: pull_result.files_written,
         files_pushed: push_result.files_uploaded,
         error: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_access_token_prefers_explicit_token() {
+        assert_eq!(
+            resolve_access_token(Some(" explicit ".to_string()), Some("oauth".to_string()))
+                .as_deref(),
+            Some("explicit")
+        );
+        assert_eq!(
+            resolve_access_token(Some("   ".to_string()), Some(" oauth ".to_string())).as_deref(),
+            Some("oauth")
+        );
+        assert_eq!(resolve_access_token(None, Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn resolve_base_api_url_uses_clean_override_or_default() {
+        assert_eq!(
+            resolve_base_api_url(Some(" https://api.example.test/ ".to_string())),
+            "https://api.example.test"
+        );
+        assert_eq!(
+            resolve_base_api_url(Some(" / ".to_string())),
+            "https://api.mossen.ai"
+        );
+        assert_eq!(resolve_base_api_url(None), "https://api.mossen.ai");
+    }
+
+    #[test]
+    fn normalize_repo_slug_accepts_explicit_slug_or_url() {
+        assert_eq!(
+            normalize_repo_slug(" owner/repo ").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            normalize_repo_slug("github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            normalize_repo_slug("https://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(normalize_repo_slug("owner/repo/extra"), None);
+    }
+
+    #[test]
+    fn repo_slug_from_git_remote_supports_common_remote_forms() {
+        let cases = [
+            ("https://github.com/owner/repo.git", "owner/repo"),
+            ("git@github.com:owner/repo.git", "owner/repo"),
+            ("ssh://git@github.com/owner/repo.git", "owner/repo"),
+            (
+                "https://gitlab.example.com/team/project.git",
+                "team/project",
+            ),
+        ];
+
+        for (remote, expected) in cases {
+            assert_eq!(repo_slug_from_git_remote(remote).as_deref(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn resolve_repo_slug_prefers_explicit_slug_then_remote() {
+        assert_eq!(
+            resolve_repo_slug(
+                Some("manual/repo".to_string()),
+                Some("https://github.com/remote/repo.git".to_string()),
+            )
+            .as_deref(),
+            Some("manual/repo")
+        );
+        assert_eq!(
+            resolve_repo_slug(None, Some("git@github.com:remote/repo.git".to_string())).as_deref(),
+            Some("remote/repo")
+        );
+        assert_eq!(resolve_repo_slug(Some("invalid".to_string()), None), None);
+    }
+
+    #[test]
+    fn resolve_team_memory_dir_uses_override_or_default() {
+        assert_eq!(
+            resolve_team_memory_dir(
+                Some(" /tmp/team-memory ".to_string()),
+                Path::new("/workspace/project")
+            ),
+            PathBuf::from("/tmp/team-memory")
+        );
+    }
+
+    #[test]
+    fn resolve_project_team_memory_dir_matches_cli_prompt_path_shape() {
+        assert_eq!(
+            resolve_project_team_memory_dir(
+                Path::new("/Users/allen/project:one"),
+                None,
+                None,
+                PathBuf::from("/tmp/mossen-home"),
+            ),
+            PathBuf::from("/tmp/mossen-home")
+                .join("projects")
+                .join("_Users_allen_project_one")
+                .join("memory")
+                .join("team")
+        );
+    }
+
+    #[test]
+    fn resolve_project_team_memory_dir_honors_auto_memory_override_root() {
+        assert_eq!(
+            resolve_project_team_memory_dir(
+                Path::new("/workspace/project"),
+                Some(" /tmp/auto-memory ".to_string()),
+                None,
+                PathBuf::from("/tmp/mossen-home"),
+            ),
+            PathBuf::from("/tmp/auto-memory").join("team")
+        );
+        assert_eq!(
+            resolve_project_team_memory_dir(
+                Path::new("/workspace/project"),
+                Some(" relative/path ".to_string()),
+                None,
+                PathBuf::from("/tmp/mossen-home"),
+            ),
+            PathBuf::from("/tmp/mossen-home")
+                .join("projects")
+                .join("_workspace_project")
+                .join("memory")
+                .join("team")
+        );
+    }
+
+    #[test]
+    fn resolve_project_team_memory_dir_honors_remote_memory_base_dir() {
+        assert_eq!(
+            resolve_project_team_memory_dir(
+                Path::new("/workspace/project"),
+                None,
+                Some(" /remote/memory ".to_string()),
+                PathBuf::from("/tmp/mossen-home"),
+            ),
+            PathBuf::from("/remote/memory")
+                .join("projects")
+                .join("_workspace_project")
+                .join("memory")
+                .join("team")
+        );
+    }
+
+    #[test]
+    fn is_path_inside_dir_uses_path_component_boundaries() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let team_dir = tmp.path().join("team-memory");
+        let team_file = team_dir.join("notes").join("memory.md");
+        let sibling = tmp.path().join("team-memory-other").join("memory.md");
+        std::fs::create_dir_all(team_file.parent().expect("team parent")).expect("team mkdir");
+        std::fs::create_dir_all(sibling.parent().expect("sibling parent")).expect("sibling mkdir");
+        std::fs::write(&team_file, "team").expect("team write");
+        std::fs::write(&sibling, "other").expect("sibling write");
+
+        assert!(is_path_inside_dir(&team_file, &team_dir));
+        assert!(!is_path_inside_dir(&sibling, &team_dir));
     }
 }

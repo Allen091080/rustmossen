@@ -28,7 +28,10 @@ pub struct TerminalSize {
 /// Get the effective content size — modal size if inside modal, else terminal size.
 ///
 /// Translates: useModalOrTerminalSize()
-pub fn modal_or_terminal_size(modal: Option<&ModalContext>, fallback: TerminalSize) -> TerminalSize {
+pub fn modal_or_terminal_size(
+    modal: Option<&ModalContext>,
+    fallback: TerminalSize,
+) -> TerminalSize {
     match modal {
         Some(ctx) => TerminalSize {
             rows: ctx.rows,

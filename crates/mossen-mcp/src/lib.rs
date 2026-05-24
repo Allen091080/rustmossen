@@ -19,6 +19,8 @@
 //! - [`auth`] — OAuth 认证
 //! - [`normalization`] — 名称规范化工具
 
+#![allow(dead_code, unused_imports, unused_variables)]
+
 pub mod auth;
 pub mod auth_ext;
 pub mod channels;

@@ -36,11 +36,9 @@ async fn execute_teleport_flow(args: &[&str], ctx: &CommandContext) -> Result<St
     let available = check_teleport_availability(ctx).await;
 
     if !available {
-        return Ok(
-            "Teleport is not available in the current environment.\n\
+        return Ok("Teleport is not available in the current environment.\n\
              Requires remote mode or MOSSEN_TELEPORT_ENABLED=true."
-                .to_string(),
-        );
+            .to_string());
     }
 
     let target = args.join(" ");

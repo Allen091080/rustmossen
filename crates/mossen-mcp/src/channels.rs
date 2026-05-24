@@ -35,8 +35,7 @@ pub const CHANNEL_PERMISSION_METHOD: &str = "notifications/mossen/channel/permis
 pub const CHANNEL_PERMISSION_REQUEST_METHOD: &str =
     "notifications/mossen/channel/permission_request";
 
-static SAFE_META_KEY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
+static SAFE_META_KEY: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
 
 /// 频道许可请求参数 — 对应 TS `ChannelPermissionRequestParams`。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -155,7 +154,9 @@ pub fn find_channel_entry<'a>(
     let parts: Vec<&str> = server_name.split(':').collect();
     channels.iter().find(|c| match c {
         ChannelEntry::Server { name, .. } => server_name == name,
-        ChannelEntry::Plugin { name, .. } => parts.first() == Some(&"plugin") && parts.get(1) == Some(&name.as_str()),
+        ChannelEntry::Plugin { name, .. } => {
+            parts.first() == Some(&"plugin") && parts.get(1) == Some(&name.as_str())
+        }
     })
 }
 
@@ -269,9 +270,10 @@ pub fn gate_channel_server(inputs: GateInputs<'_>) -> ChannelGateResult {
                 };
             }
             if !dev
-                && !inputs.effective_allowlist.iter().any(|e| {
-                    e.plugin == *name && e.marketplace == *marketplace
-                })
+                && !inputs
+                    .effective_allowlist
+                    .iter()
+                    .any(|e| e.plugin == *name && e.marketplace == *marketplace)
             {
                 let reason = if inputs.allowlist_source == "org" {
                     format!(
@@ -386,7 +388,8 @@ pub fn relay_permission_decision(request_id: &str, behavior: &str) -> bool {
             return true;
         }
     }
-    s.decisions.insert(request_id.to_string(), behavior.to_string());
+    s.decisions
+        .insert(request_id.to_string(), behavior.to_string());
     false
 }
 
@@ -449,7 +452,10 @@ pub fn is_channels_enabled_default() -> bool {
 
 /// 给 channel notification 包一层基础 JSON 结构 — 便于上层直接喂给
 /// 传输层。
-pub fn build_channel_notification(content: &str, meta: Option<&HashMap<String, String>>) -> JsonValue {
+pub fn build_channel_notification(
+    content: &str,
+    meta: Option<&HashMap<String, String>>,
+) -> JsonValue {
     let mut params = serde_json::Map::new();
     params.insert("content".into(), JsonValue::String(content.to_string()));
     if let Some(m) = meta {

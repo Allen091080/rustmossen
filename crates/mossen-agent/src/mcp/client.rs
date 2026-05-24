@@ -141,7 +141,12 @@ impl McpServerConnector {
         tracing::debug!(name, "Connecting to MCP server");
 
         match &config.config {
-            McpServerConfig::Stdio { command, args, env, cwd } => {
+            McpServerConfig::Stdio {
+                command,
+                args,
+                env,
+                cwd,
+            } => {
                 self.connect_stdio(name, config, command, args, env.as_ref(), cwd.as_deref())
                     .await
             }
@@ -159,9 +164,7 @@ impl McpServerConnector {
                 self.connect_hosted_proxy(name, config, url, Some(id.as_str()))
                     .await
             }
-            McpServerConfig::Sdk { .. } => {
-                self.connect_sdk(name, config).await
-            }
+            McpServerConfig::Sdk { .. } => self.connect_sdk(name, config).await,
             McpServerConfig::SseIde { url, .. } | McpServerConfig::WsIde { url, .. } => {
                 self.connect_ide(name, config, url).await
             }
@@ -392,10 +395,7 @@ pub async fn reconnect_mcp_server_impl(
     name: &str,
     config: &ScopedMcpServerConfig,
 ) -> Result<ConnectionResult, McpConnectionError> {
-    let connector = McpServerConnector::new(
-        McpClientConfig::default(),
-        CancellationToken::new(),
-    );
+    let connector = McpServerConnector::new(McpClientConfig::default(), CancellationToken::new());
     connector.connect_to_server(name, config).await
 }
 
@@ -406,19 +406,13 @@ pub async fn clear_server_cache(name: &str, _config: &ScopedMcpServerConfig) {
 }
 
 /// Fetch tools for a connected MCP client.
-pub async fn fetch_tools_for_client(
-    _name: &str,
-    _client: &McpClientConnection,
-) -> Vec<Tool> {
+pub async fn fetch_tools_for_client(_name: &str, _client: &McpClientConnection) -> Vec<Tool> {
     // In a real implementation, this would call tools/list via JSON-RPC
     Vec::new()
 }
 
 /// Fetch commands (prompts) for a connected MCP client.
-pub async fn fetch_commands_for_client(
-    _name: &str,
-    _client: &McpClientConnection,
-) -> Vec<Command> {
+pub async fn fetch_commands_for_client(_name: &str, _client: &McpClientConnection) -> Vec<Command> {
     // In a real implementation, this would call prompts/list via JSON-RPC
     Vec::new()
 }
@@ -435,7 +429,11 @@ pub async fn fetch_resources_for_client(
 /// Get tools, commands, and resources for all connected MCP clients.
 pub async fn get_mcp_tools_commands_and_resources(
     clients: &[McpClientConnection],
-) -> (Vec<Tool>, Vec<Command>, HashMap<String, Vec<ServerResource>>) {
+) -> (
+    Vec<Tool>,
+    Vec<Command>,
+    HashMap<String, Vec<ServerResource>>,
+) {
     let mut all_tools = Vec::new();
     let mut all_commands = Vec::new();
     let mut all_resources = HashMap::new();
@@ -556,7 +554,10 @@ impl McpAuthProvider {
             u.to_string()
         };
 
-        tracing::debug!(self.server_name, "OAuth: opening browser to authorization URL");
+        tracing::debug!(
+            self.server_name,
+            "OAuth: opening browser to authorization URL"
+        );
         // 5. Open browser; ignore failures (CLI sessions often print the URL).
         if let Err(e) = open::that(&auth_url) {
             tracing::warn!(
@@ -1062,7 +1063,11 @@ pub fn get_server_cache_key(server_name: &str, config: &Value) -> String {
     let mut h = Sha256::new();
     h.update(s.as_bytes());
     let digest = h.finalize();
-    let hex: String = digest.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+    let hex: String = digest
+        .iter()
+        .take(8)
+        .map(|b| format!("{:02x}", b))
+        .collect();
     format!("{}|{}", server_name, hex)
 }
 

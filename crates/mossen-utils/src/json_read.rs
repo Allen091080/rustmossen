@@ -3,8 +3,8 @@
 //! 对应 TypeScript `utils/jsonRead.ts`。
 //! 剥离 UTF-8 BOM 的工具。
 
-/// UTF-8 BOM (U+FEFF)。
-const UTF8_BOM: char = '\u{FEFF}';
+/// UTF-8 BOM bytes (\xEF\xBB\xBF)。
+pub const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 
 /// 剥离字符串开头的 UTF-8 BOM。
 ///
@@ -12,8 +12,8 @@ const UTF8_BOM: char = '\u{FEFF}';
 /// 无法控制用户环境，所以在读取时剥离 BOM。
 /// 没有这个，JSON.parse 会失败并显示 "Unexpected token"。
 pub fn strip_bom(content: &str) -> &str {
-    if content.starts_with(UTF8_BOM) {
-        &content[UTF8_BOM.len_utf8()..]
+    if content.as_bytes().starts_with(UTF8_BOM) {
+        &content[UTF8_BOM.len()..]
     } else {
         content
     }
@@ -25,8 +25,8 @@ mod tests {
 
     #[test]
     fn test_strip_bom() {
-        let with_bom = format!("{} {{}}", UTF8_BOM);
-        assert_eq!(strip_bom(&with_bom), "{}");
+        let with_bom = "\u{FEFF}{}";
+        assert_eq!(strip_bom(with_bom), "{}");
     }
 
     #[test]

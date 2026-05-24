@@ -36,19 +36,21 @@ pub fn channel_message_notification_schema(v: &JsonValue) -> bool {
     if v.get("method").and_then(|m| m.as_str()) != Some(crate::channels::CHANNEL_MESSAGE_METHOD) {
         return false;
     }
-    let Some(params) = v.get("params") else { return false };
-    params
-        .get("content")
-        .and_then(|c| c.as_str())
-        .is_some()
+    let Some(params) = v.get("params") else {
+        return false;
+    };
+    params.get("content").and_then(|c| c.as_str()).is_some()
 }
 
 /// `channelNotification.ts` `ChannelPermissionNotificationSchema`。
 pub fn channel_permission_notification_schema(v: &JsonValue) -> bool {
-    if v.get("method").and_then(|m| m.as_str()) != Some(crate::channels::CHANNEL_PERMISSION_METHOD) {
+    if v.get("method").and_then(|m| m.as_str()) != Some(crate::channels::CHANNEL_PERMISSION_METHOD)
+    {
         return false;
     }
-    let Some(params) = v.get("params") else { return false };
+    let Some(params) = v.get("params") else {
+        return false;
+    };
     params.get("request_id").and_then(|c| c.as_str()).is_some()
         && matches!(
             params.get("behavior").and_then(|c| c.as_str()),
@@ -61,9 +63,8 @@ pub fn channel_permission_notification_schema(v: &JsonValue) -> bool {
 // ===========================================================================
 
 /// `channelPermissions.ts` `PERMISSION_REPLY_RE`。
-pub static PERMISSION_REPLY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^\s*(?P<verdict>y|yes|n|no)\s+(?P<token>[a-km-z]{5})\s*$").unwrap()
-});
+pub static PERMISSION_REPLY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s*(?P<verdict>y|yes|n|no)\s+(?P<token>[a-km-z]{5})\s*$").unwrap());
 
 /// `channelPermissions.ts` `ChannelPermissionResponse`。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -74,13 +75,16 @@ pub struct ChannelPermissionResponse {
 
 /// `channelPermissions.ts` `ChannelPermissionCallbacks`。
 pub struct ChannelPermissionCallbacks {
-    pub send_request: std::sync::Arc<dyn Fn(crate::channels::ChannelPermissionRequestParams) + Send + Sync>,
+    pub send_request:
+        std::sync::Arc<dyn Fn(crate::channels::ChannelPermissionRequestParams) + Send + Sync>,
     pub cancel_request: std::sync::Arc<dyn Fn(String) + Send + Sync>,
 }
 
 /// `channelPermissions.ts` `createChannelPermissionCallbacks`。
 pub fn create_channel_permission_callbacks(
-    send_request: std::sync::Arc<dyn Fn(crate::channels::ChannelPermissionRequestParams) + Send + Sync>,
+    send_request: std::sync::Arc<
+        dyn Fn(crate::channels::ChannelPermissionRequestParams) + Send + Sync,
+    >,
     cancel_request: std::sync::Arc<dyn Fn(String) + Send + Sync>,
 ) -> ChannelPermissionCallbacks {
     ChannelPermissionCallbacks {
@@ -126,7 +130,8 @@ impl SdkControlClientTransport {
         }
     }
     pub fn close(&self) {
-        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -149,7 +154,8 @@ impl SdkControlServerTransport {
         }
     }
     pub fn close(&self) {
-        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -219,7 +225,9 @@ pub fn reset_official_mcp_urls_for_testing() {
 /// `MCPConnectionManager.tsx` `useMcpReconnect`。
 ///
 /// Rust 端不暴露 React hook — 我们返回一个函数指针：调用即触发 reconnect。
-pub fn use_mcp_reconnect<F: Fn() + Send + Sync + 'static>(reconnect_impl: F) -> impl Fn() + Send + Sync + 'static {
+pub fn use_mcp_reconnect<F: Fn() + Send + Sync + 'static>(
+    reconnect_impl: F,
+) -> impl Fn() + Send + Sync + 'static {
     reconnect_impl
 }
 
@@ -232,15 +240,19 @@ pub fn use_mcp_toggle_enabled<F: Fn(&str, bool) + Send + Sync + 'static>(
 
 /// `MCPConnectionManager.tsx` `MCPConnectionManager` —— 业务逻辑只返回需要
 /// 渲染的状态视图（具体 UI 由 mossen-tui）。
-pub fn mcp_connection_manager_state(
-    clients: &[JsonValue],
-) -> Vec<(String, String)> {
+pub fn mcp_connection_manager_state(clients: &[JsonValue]) -> Vec<(String, String)> {
     clients
         .iter()
         .map(|c| {
             (
-                c.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
-                c.get("type").and_then(|n| n.as_str()).unwrap_or("connected").to_string(),
+                c.get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                c.get("type")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("connected")
+                    .to_string(),
             )
         })
         .collect()
@@ -305,9 +317,7 @@ pub fn extract_mcp_tool_display_name(tool_name: &str) -> String {
 ///
 /// 业务逻辑：给一组 (name, status) 返回排序后的列表（needs-auth 在前，
 /// disabled 在后）。UI 渲染由 mossen-tui。
-pub fn use_manage_mcp_connections(
-    rows: Vec<(String, String)>,
-) -> Vec<(String, String)> {
+pub fn use_manage_mcp_connections(rows: Vec<(String, String)>) -> Vec<(String, String)> {
     fn priority(s: &str) -> u8 {
         match s {
             "needs-auth" => 0,
@@ -319,7 +329,11 @@ pub fn use_manage_mcp_connections(
         }
     }
     let mut r = rows;
-    r.sort_by(|a, b| priority(&a.1).cmp(&priority(&b.1)).then_with(|| a.0.cmp(&b.0)));
+    r.sort_by(|a, b| {
+        priority(&a.1)
+            .cmp(&priority(&b.1))
+            .then_with(|| a.0.cmp(&b.0))
+    });
     r
 }
 
@@ -352,7 +366,10 @@ pub fn get_project_mcp_server_status(
     non_interactive: bool,
 ) -> &'static str {
     let normalized = crate::normalization::normalize_name_for_mcp(server_name);
-    if disabled.iter().any(|n| crate::normalization::normalize_name_for_mcp(n) == normalized) {
+    if disabled
+        .iter()
+        .any(|n| crate::normalization::normalize_name_for_mcp(n) == normalized)
+    {
         return "rejected";
     }
     if enable_all_project_mcp_servers
@@ -407,7 +424,11 @@ where
 }
 
 /// `client.ts` `callIdeRpc`。
-pub async fn call_ide_rpc<F, Fut>(method: &str, params: JsonValue, do_rpc: F) -> Result<JsonValue, String>
+pub async fn call_ide_rpc<F, Fut>(
+    method: &str,
+    params: JsonValue,
+    do_rpc: F,
+) -> Result<JsonValue, String>
 where
     F: FnOnce(String, JsonValue) -> Fut,
     Fut: std::future::Future<Output = Result<JsonValue, String>>,
@@ -435,7 +456,11 @@ where
 pub async fn get_mcp_tools_commands_and_resources<F, Fut>(
     clients: &[String],
     fetch_for_client: F,
-) -> (Vec<JsonValue>, Vec<JsonValue>, HashMap<String, Vec<JsonValue>>)
+) -> (
+    Vec<JsonValue>,
+    Vec<JsonValue>,
+    HashMap<String, Vec<JsonValue>>,
+)
 where
     F: Fn(String) -> Fut,
     Fut: std::future::Future<Output = (Vec<JsonValue>, Vec<JsonValue>, Vec<JsonValue>)>,
@@ -555,7 +580,8 @@ pub fn create_linked_transport_pair() -> (InProcessTransport, InProcessTransport
 /// `InProcessTransport.ts` `InProcessTransport`。
 pub struct InProcessTransport {
     pub outbound: tokio::sync::mpsc::UnboundedSender<JsonValue>,
-    pub inbound: std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<JsonValue>>>,
+    pub inbound:
+        std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<JsonValue>>>,
 }
 
 impl InProcessTransport {
@@ -664,10 +690,7 @@ where
 }
 
 /// `client.ts` `fetchToolsForClient`（memoized LRU 在 TS 中；Rust 端代理）。
-pub async fn fetch_tools_for_client<F, Fut>(
-    name: &str,
-    do_fetch: F,
-) -> Vec<JsonValue>
+pub async fn fetch_tools_for_client<F, Fut>(name: &str, do_fetch: F) -> Vec<JsonValue>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Vec<JsonValue>>,
@@ -676,10 +699,7 @@ where
 }
 
 /// `client.ts` `fetchResourcesForClient`。
-pub async fn fetch_resources_for_client<F, Fut>(
-    name: &str,
-    do_fetch: F,
-) -> Vec<JsonValue>
+pub async fn fetch_resources_for_client<F, Fut>(name: &str, do_fetch: F) -> Vec<JsonValue>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Vec<JsonValue>>,
@@ -688,10 +708,7 @@ where
 }
 
 /// `client.ts` `fetchCommandsForClient`。
-pub async fn fetch_commands_for_client<F, Fut>(
-    name: &str,
-    do_fetch: F,
-) -> Vec<JsonValue>
+pub async fn fetch_commands_for_client<F, Fut>(name: &str, do_fetch: F) -> Vec<JsonValue>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Vec<JsonValue>>,
@@ -741,9 +758,6 @@ mod tests {
 
     #[test]
     fn display_name_extraction() {
-        assert_eq!(
-            extract_mcp_tool_display_name("mcp__svr__tool"),
-            "tool"
-        );
+        assert_eq!(extract_mcp_tool_display_name("mcp__svr__tool"), "tool");
     }
 }

@@ -1,14 +1,14 @@
 //! Streaming tool executor — executes tools during streaming responses.
 
-use std::collections::VecDeque;
-use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::VecDeque;
+use tokio::sync::mpsc;
 use tracing::debug;
 
 use super::tool_execution::{
-    ToolExecutionContext, ToolExecutionRequest, ToolExecutionResult, ToolPermissionChecker,
-    execute_tool,
+    execute_tool, ToolExecutionContext, ToolExecutionRequest, ToolExecutionResult,
+    ToolPermissionChecker,
 };
 
 /// A tool use block from a streaming response.
@@ -23,7 +23,10 @@ pub struct StreamingToolUse {
 #[derive(Debug, Clone)]
 pub enum StreamingToolEvent {
     /// Tool execution started.
-    Started { tool_use_id: String, tool_name: String },
+    Started {
+        tool_use_id: String,
+        tool_name: String,
+    },
     /// Tool execution completed.
     Completed(ToolExecutionResult),
     /// All queued tools have been executed.
@@ -88,7 +91,9 @@ impl StreamingToolExecutor {
                         duration_ms: 0,
                         metadata: std::collections::HashMap::new(),
                     };
-                    let _ = self.event_tx.send(StreamingToolEvent::Completed(error_result.clone()));
+                    let _ = self
+                        .event_tx
+                        .send(StreamingToolEvent::Completed(error_result.clone()));
                     self.results.push(error_result);
                 }
             }

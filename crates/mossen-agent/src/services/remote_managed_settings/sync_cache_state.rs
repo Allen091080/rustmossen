@@ -1,7 +1,7 @@
 //! Sync cache state — in-memory state for remote managed settings sync.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Whether the user is eligible for remote managed settings.
 static ELIGIBLE: AtomicBool = AtomicBool::new(false);

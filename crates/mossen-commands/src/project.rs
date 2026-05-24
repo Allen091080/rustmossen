@@ -97,12 +97,10 @@ impl Directive for ProjectDirective {
             }
             ProjectAction::Purge(target) => {
                 match target {
-                    Some(ref path) => {
-                        Ok(CommandResult::System(format!(
-                            "Purging project data for: {}",
-                            path
-                        )))
-                    }
+                    Some(ref path) => Ok(CommandResult::System(format!(
+                        "Purging project data for: {}",
+                        path
+                    ))),
                     None => {
                         // Purge current project data
                         Ok(CommandResult::System(format!(
@@ -112,14 +110,12 @@ impl Directive for ProjectDirective {
                     }
                 }
             }
-            ProjectAction::Info => {
-                Ok(CommandResult::Text(format!(
-                    "Project root: {}\nProduct: {}\nVersion: {}",
-                    ctx.cwd.display(),
-                    ctx.product_name,
-                    ctx.version
-                )))
-            }
+            ProjectAction::Info => Ok(CommandResult::Text(format!(
+                "Project root: {}\nProduct: {}\nVersion: {}",
+                ctx.cwd.display(),
+                ctx.product_name,
+                ctx.version
+            ))),
         }
     }
 }

@@ -34,7 +34,7 @@ impl Default for SyntheticTags {
     }
 }
 
-/// Mossen-native (Claude API) capabilities.
+/// Mossen-native (Mossen API) capabilities.
 fn mossen_compatible_capabilities() -> OfficialSemanticCapabilities {
     OfficialSemanticCapabilities {
         mixed_content_tool_use: true,

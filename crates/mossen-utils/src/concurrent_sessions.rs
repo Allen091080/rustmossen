@@ -3,8 +3,8 @@
 //! When multiple Mossen sessions run, each registers a PID file.
 //! `mossen ps` enumerates them. Stale PID files from crashed sessions are swept.
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// Session kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,10 +65,7 @@ pub fn env_session_kind(bg_sessions_enabled: bool) -> Option<SessionKind> {
     if !bg_sessions_enabled {
         return None;
     }
-    match std::env::var("MOSSEN_CODE_SESSION_KIND")
-        .ok()
-        .as_deref()
-    {
+    match std::env::var("MOSSEN_CODE_SESSION_KIND").ok().as_deref() {
         Some("bg") => Some(SessionKind::Bg),
         Some("daemon") => Some(SessionKind::Daemon),
         Some("daemon-worker") => Some(SessionKind::DaemonWorker),
@@ -112,7 +109,7 @@ pub async fn register_session(
         let _ = tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).await;
     }
 
-    let mut content = PidFileContent {
+    let content = PidFileContent {
         pid,
         session_id: session_id.to_string(),
         cwd: cwd.to_string(),
@@ -189,11 +186,7 @@ pub async fn update_pid_file(
 }
 
 /// Update session name.
-pub async fn update_session_name(
-    config_home: &Path,
-    pid: u32,
-    name: &str,
-) -> Result<(), String> {
+pub async fn update_session_name(config_home: &Path, pid: u32, name: &str) -> Result<(), String> {
     update_pid_file(config_home, pid, serde_json::json!({ "name": name })).await
 }
 
@@ -254,11 +247,7 @@ fn is_process_running(pid: u32) -> bool {
 /// Count live concurrent CLI sessions.
 /// Filters out stale PID files (crashed sessions) and deletes them.
 /// Returns 0 on any error.
-pub async fn count_concurrent_sessions(
-    config_home: &Path,
-    current_pid: u32,
-    is_wsl: bool,
-) -> u32 {
+pub async fn count_concurrent_sessions(config_home: &Path, current_pid: u32, is_wsl: bool) -> u32 {
     let dir = get_sessions_dir(config_home);
     let mut entries = match tokio::fs::read_dir(&dir).await {
         Ok(e) => e,

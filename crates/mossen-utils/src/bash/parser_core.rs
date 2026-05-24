@@ -38,12 +38,14 @@ pub fn parse_source(source: &str, timeout_ms: Option<u64>) -> Option<TsNode> {
         in_backtick: 0,
         stop_token: None,
     };
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        parse_program(&mut p)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| parse_program(&mut p)));
     match result {
         Ok(program) => {
-            if p.aborted { None } else { Some(program) }
+            if p.aborted {
+                None
+            } else {
+                Some(program)
+            }
         }
         Err(_) => None,
     }
@@ -66,7 +68,13 @@ pub fn check_budget(p: &mut PState) {
 }
 
 /// Build a node. Slices text from source by byte range.
-pub fn mk(p: &mut PState, node_type: &str, start: usize, end: usize, children: Vec<TsNode>) -> TsNode {
+pub fn mk(
+    p: &mut PState,
+    node_type: &str,
+    start: usize,
+    end: usize,
+    children: Vec<TsNode>,
+) -> TsNode {
     check_budget(p);
     let text = slice_bytes(p, start, end);
     TsNode::new(node_type, text, start, end, children)
@@ -131,7 +139,8 @@ fn parse_program(p: &mut PState) -> TsNode {
             if err_tok.token_type == TokenType::Eof {
                 break;
             }
-            if err_tok.token_type == TokenType::Op && err_tok.value == ";;" && !children.is_empty() {
+            if err_tok.token_type == TokenType::Op && err_tok.value == ";;" && !children.is_empty()
+            {
                 continue;
             }
             children.push(mk(p, "ERROR", err_tok.start, err_tok.end, vec![]));
@@ -141,7 +150,11 @@ fn parse_program(p: &mut PState) -> TsNode {
             }
         }
     }
-    let prog_end = if !children.is_empty() { p.src_bytes } else { prog_start };
+    let prog_end = if !children.is_empty() {
+        p.src_bytes
+    } else {
+        prog_start
+    };
     let kids = std::mem::take(children);
     mk(p, "program", prog_start, prog_end, kids)
 }

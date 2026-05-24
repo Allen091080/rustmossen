@@ -12,7 +12,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::fs;
 use tokio::process::Command;
-use tracing::warn;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -25,10 +24,7 @@ const MAX_WORKTREE_SLUG_LENGTH: usize = 64;
 
 /// Env vars to prevent git/SSH from prompting for credentials.
 fn git_no_prompt_env() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("GIT_TERMINAL_PROMPT", "0"),
-        ("GIT_ASKPASS", ""),
-    ]
+    vec![("GIT_TERMINAL_PROMPT", "0"), ("GIT_ASKPASS", "")]
 }
 
 /// Ephemeral worktree patterns for stale cleanup.
@@ -199,12 +195,7 @@ async fn symlink_directories(
                 let err_str = e.to_string();
                 // ENOENT / EEXIST are expected; skip silently
                 if !err_str.contains("No such file") && !err_str.contains("File exists") {
-                    tracing::warn!(
-                        "Failed to symlink {} ({}): {}",
-                        dir,
-                        "unknown",
-                        err_str
-                    );
+                    tracing::warn!("Failed to symlink {} ({}): {}", dir, "unknown", err_str);
                 }
             }
         }
@@ -281,9 +272,7 @@ pub fn get_current_worktree_observability_snapshot() -> Option<WorktreeObservabi
     })
 }
 
-pub fn get_current_worktree_dev_target_snapshot(
-    project_cwd: &str,
-) -> WorktreeDevTargetSnapshot {
+pub fn get_current_worktree_dev_target_snapshot(project_cwd: &str) -> WorktreeDevTargetSnapshot {
     let session = CURRENT_WORKTREE_SESSION.lock().unwrap();
     match session.as_ref() {
         None => WorktreeDevTargetSnapshot {
@@ -306,9 +295,7 @@ pub fn get_current_worktree_dev_target_snapshot(
     }
 }
 
-pub fn get_current_worktree_ide_target_snapshot(
-    project_cwd: &str,
-) -> WorktreeIdeTargetSnapshot {
+pub fn get_current_worktree_ide_target_snapshot(project_cwd: &str) -> WorktreeIdeTargetSnapshot {
     get_current_worktree_dev_target_snapshot(project_cwd)
 }
 
@@ -437,7 +424,10 @@ async fn get_or_create_worktree(
             // Try to resolve ref locally first
             let resolve_result = exec_file_no_throw_with_cwd(
                 git_exe(),
-                &["rev-parse", &format!("refs/remotes/origin/{}", default_branch)],
+                &[
+                    "rev-parse",
+                    &format!("refs/remotes/origin/{}", default_branch),
+                ],
                 Some(repo_root),
                 None,
             )
@@ -506,13 +496,9 @@ async fn get_or_create_worktree(
         let sparse_refs: Vec<&str> = sparse_paths.iter().map(|s| s.as_str()).collect();
         sparse_args.extend(sparse_refs);
 
-        let sparse_result = exec_file_no_throw_with_cwd(
-            git_exe(),
-            &sparse_args,
-            Some(&worktree_path_str),
-            None,
-        )
-        .await;
+        let sparse_result =
+            exec_file_no_throw_with_cwd(git_exe(), &sparse_args, Some(&worktree_path_str), None)
+                .await;
         if sparse_result.code != 0 {
             // Tear down on failure
             exec_file_no_throw_with_cwd(
@@ -564,10 +550,7 @@ async fn read_worktree_head_sha(worktree_path: &str) -> Result<String> {
     let head_path = PathBuf::from(worktree_path).join(".git");
     // .git in a worktree is a file containing "gitdir: <path>"
     let content = fs::read_to_string(&head_path).await?;
-    let git_dir = content
-        .strip_prefix("gitdir: ")
-        .unwrap_or(&content)
-        .trim();
+    let git_dir = content.strip_prefix("gitdir: ").unwrap_or(&content).trim();
     let head_file = PathBuf::from(git_dir).join("HEAD");
     let head_content = fs::read_to_string(&head_file).await?;
     let trimmed = head_content.trim();
@@ -607,10 +590,7 @@ async fn get_default_branch(repo_root: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Copy gitignored files specified in .worktreeinclude from base repo to worktree.
-pub async fn copy_worktree_include_files(
-    repo_root: &str,
-    worktree_path: &str,
-) -> Vec<String> {
+pub async fn copy_worktree_include_files(repo_root: &str, worktree_path: &str) -> Vec<String> {
     let include_path = PathBuf::from(repo_root).join(".worktreeinclude");
     let include_content = match fs::read_to_string(&include_path).await {
         Ok(content) => content,
@@ -664,7 +644,11 @@ pub async fn copy_worktree_include_files(
         .collect();
 
     // Expand collapsed directories that have matching patterns
-    let collapsed_dirs: Vec<&str> = entries.iter().filter(|e| e.ends_with('/')).copied().collect();
+    let collapsed_dirs: Vec<&str> = entries
+        .iter()
+        .filter(|e| e.ends_with('/'))
+        .copied()
+        .collect();
     let mut all_files = files;
 
     let dirs_to_expand: Vec<&str> = collapsed_dirs
@@ -700,13 +684,8 @@ pub async fn copy_worktree_include_files(
         ];
         let dir_strs: Vec<&str> = dirs_to_expand.iter().copied().collect();
         expand_args.extend(dir_strs);
-        let expanded = exec_file_no_throw_with_cwd(
-            git_exe(),
-            &expand_args,
-            Some(repo_root),
-            None,
-        )
-        .await;
+        let expanded =
+            exec_file_no_throw_with_cwd(git_exe(), &expand_args, Some(repo_root), None).await;
         if expanded.code == 0 && !expanded.stdout.trim().is_empty() {
             for f in expanded.stdout.trim().lines().filter(|l| !l.is_empty()) {
                 if matcher(f) {
@@ -851,10 +830,7 @@ async fn perform_post_creation_setup(repo_root: &str, worktree_path: &str) {
 /// Parse a PR reference from a string (URL or #N format).
 pub fn parse_pr_reference(input: &str) -> Option<u64> {
     // GitHub-style PR URL
-    let url_re = Regex::new(
-        r"(?i)^https?://[^/]+/[^/]+/[^/]+/pull/(\d+)/?(?:[?#].*)?$",
-    )
-    .unwrap();
+    let url_re = Regex::new(r"(?i)^https?://[^/]+/[^/]+/[^/]+/pull/(\d+)/?(?:[?#].*)?$").unwrap();
     if let Some(caps) = url_re.captures(input) {
         if let Some(num_str) = caps.get(1) {
             return num_str.as_str().parse().ok();
@@ -1086,10 +1062,7 @@ pub async fn cleanup_worktree() {
 // ---------------------------------------------------------------------------
 
 /// Create a lightweight worktree for a subagent.
-pub async fn create_agent_worktree(
-    slug: &str,
-    git_root: &str,
-) -> Result<AgentWorktreeResult> {
+pub async fn create_agent_worktree(slug: &str, git_root: &str) -> Result<AgentWorktreeResult> {
     validate_worktree_slug(slug)?;
 
     let result = get_or_create_worktree(git_root, slug, None).await?;
@@ -1108,7 +1081,10 @@ pub async fn create_agent_worktree(
             &result.worktree_path,
             filetime::FileTime::from_system_time(now),
         );
-        tracing::debug!("Resuming existing agent worktree at: {}", result.worktree_path);
+        tracing::debug!(
+            "Resuming existing agent worktree at: {}",
+            result.worktree_path
+        );
     }
 
     Ok(AgentWorktreeResult {
@@ -1128,7 +1104,10 @@ pub async fn remove_agent_worktree(
     hook_based: bool,
 ) -> bool {
     if hook_based {
-        tracing::warn!("No WorktreeRemove hook configured, hook-based agent worktree left at: {}", worktree_path);
+        tracing::warn!(
+            "No WorktreeRemove hook configured, hook-based agent worktree left at: {}",
+            worktree_path
+        );
         return false;
     }
 
@@ -1152,13 +1131,9 @@ pub async fn remove_agent_worktree(
     tracing::debug!("Removed agent worktree at: {}", worktree_path);
 
     if let Some(branch) = worktree_branch {
-        let del_result = exec_file_no_throw_with_cwd(
-            git_exe(),
-            &["branch", "-D", branch],
-            Some(root),
-            None,
-        )
-        .await;
+        let del_result =
+            exec_file_no_throw_with_cwd(git_exe(), &["branch", "-D", branch], Some(root), None)
+                .await;
 
         if del_result.code != 0 {
             tracing::error!(
@@ -1233,13 +1208,12 @@ pub async fn cleanup_stale_agent_worktrees(
 
         // Check mtime
         let mtime_ms = match fs::metadata(&wt_path).await {
-            Ok(meta) => {
-                meta.modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0)
-            }
+            Ok(meta) => meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
             Err(_) => continue,
         };
         if mtime_ms >= cutoff_ms {
@@ -1499,7 +1473,9 @@ pub async fn exec_into_tmux_worktree(args: &[String]) -> ExecIntoTmuxResult {
     } else {
         "C-b".to_string()
     };
-    let mossen_bindings = ["C-b", "C-c", "C-d", "C-t", "C-o", "C-r", "C-s", "C-g", "C-e"];
+    let mossen_bindings = [
+        "C-b", "C-c", "C-d", "C-t", "C-o", "C-r", "C-s", "C-g", "C-e",
+    ];
     let prefix_conflicts = mossen_bindings.contains(&tmux_prefix.as_str());
 
     // 5. 内层 mossen 需要的环境变量。

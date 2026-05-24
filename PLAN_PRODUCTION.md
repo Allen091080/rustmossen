@@ -15,7 +15,7 @@
 
 | 阶段 | 文件 | 任务数 | 工期 | 一句话目标 |
 |------|------|------|------|----------|
-| **Phase 0** 正确性硬伤 | [`phases/00-correctness.md`](phases/00-correctness.md) | 5 | 1-2 天 | 模型身份正确、CLAUDE.md 完整 import、默认值合理 |
+| **Phase 0** 正确性硬伤 | [`phases/00-correctness.md`](phases/00-correctness.md) | 5 | 1-2 天 | 模型身份正确、MOSSEN.md 完整 import、默认值合理 |
 | **Phase 1** Harness 融合 | [`phases/01-harness.md`](phases/01-harness.md) | 5 | 3-5 天 | 5 类 hook 全部 wire；子 agent 隔离审计 |
 | **Phase 2** 外围 5 系统接合 | [`phases/02-peripherals.md`](phases/02-peripherals.md) | 4 | 3-5 天 | `toolPermissionContext` 单一写入端；skill 动态发现；plugin 联动 |
 | **Phase 3** 渲染层 gap 接合 | [`phases/03-rendering.md`](phases/03-rendering.md) | 5 | 3-5 天 | TodoWrite 实时渲染；sub-agent 输出占位；Ctrl+C 不撕裂；perf 基线 |
@@ -33,7 +33,7 @@
                   ⚪ 部分实现 / 边角缺失
 
 mossen-cli          ✅ main.rs / repl.rs / system_prompt.rs / handlers/
-                    ⚪ 默认模型字符串硬编码、CLAUDE.md @-include 没展开
+                    ⚪ 默认模型字符串硬编码、MOSSEN.md @-include 没展开
                        → Phase 0
 
 mossen-agent
@@ -46,7 +46,7 @@ mossen-agent
 │   │               🟡 pre/post-compact 钩子未在 compact 流程里调度
 │   ├─ tools/       ✅ streaming_tool_executor.rs
 │   └─ agent_summary
-├─ api_client.rs    ✅ OpenAI-compat 95% + Anthropic 80%
+├─ api_client.rs    ✅ OpenAI-compat 95% + Provider 80%
 └─ stop_hooks.rs    ✅ wire 到 dialogue.rs:451
                        → Phase 1
 
@@ -66,7 +66,7 @@ mossen-tui
 ├─ components/      ✅ 部分在用（dialogs / permissions / misc / root_large）
 │                   🟡 tasks.rs (TaskListV2 / SubAgentProvider) 已写但没人 emit 事件驱动
 │                   🟡 spinner_anim.rs (teammate spinner) 已写但没接
-├─ ink/             ⚪ 6934 行平移自 TS Ink，未挂入实际渲染路径（不要删，留着备用）
+├─ terminal-framework/             ⚪ 6934 行平移自 TS terminal framework，未挂入实际渲染路径（不要删，留着备用）
 └─ state.rs         🟡 foreground_task_id 在但少配套字段
                        → Phase 3
 

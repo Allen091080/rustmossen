@@ -48,7 +48,9 @@ impl CommandQueueState {
     /// Enqueue a command with the given priority.
     pub fn enqueue(&mut self, command: QueuedCommand) {
         // Insert maintaining priority order
-        let pos = self.commands.partition_point(|c| c.priority >= command.priority);
+        let pos = self
+            .commands
+            .partition_point(|c| c.priority >= command.priority);
         self.commands.insert(pos, command);
         self.version += 1;
     }

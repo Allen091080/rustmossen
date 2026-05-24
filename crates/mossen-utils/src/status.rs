@@ -88,8 +88,7 @@ pub fn build_context_observability_properties(input: &ContextObservabilityInput)
     }
 
     let window = input.effective_window.max(1);
-    let context_percent =
-        (input.current_tokens as f64 / window as f64 * 100.0).round() as u64;
+    let context_percent = (input.current_tokens as f64 / window as f64 * 100.0).round() as u64;
     let context_percent = context_percent.min(100);
 
     let mut props = vec![Property::new(
@@ -230,8 +229,8 @@ pub fn build_worktree_properties(snapshot: Option<&WorktreeSnapshotLite>) -> Vec
 #[derive(Debug, Clone, Default)]
 pub struct SandboxInput {
     /// True when the binary is the "external" build (TS gate
-    /// `("external" as string) !== 'ant'`). When `false`, the function
-    /// returns an empty list (ant build).
+    /// `("external" as string) !== 'internal'`). When `false`, the function
+    /// returns an empty list (internal build).
     pub is_external: bool,
     pub sandbox_enabled: bool,
 }
@@ -329,7 +328,10 @@ pub fn build_ide_properties(
             client.display_name.as_str()
         };
         if client.state == "connected" {
-            return vec![Property::new("IDE", format!("Connected to {} extension", name))];
+            return vec![Property::new(
+                "IDE",
+                format!("Connected to {} extension", name),
+            )];
         }
         return vec![Property::new("IDE", format!("Not connected to {}", name))];
     }
@@ -693,7 +695,7 @@ mod tests {
     #[test]
     fn context_props_with_model() {
         let input = ContextObservabilityInput {
-            main_loop_model: Some("claude-x".into()),
+            main_loop_model: Some("mossen-x".into()),
             current_tokens: 500,
             effective_window: 1000,
             auto_compact_enabled: true,
@@ -745,9 +747,9 @@ mod tests {
 
     #[test]
     fn model_label_hosted_default() {
-        let l = get_model_display_label(None, true, "Sonnet 4", "ignored");
+        let l = get_model_display_label(None, true, "Balanced 4", "ignored");
         assert!(l.contains("Default"));
-        assert!(l.contains("Sonnet 4"));
+        assert!(l.contains("Balanced 4"));
     }
 
     #[test]

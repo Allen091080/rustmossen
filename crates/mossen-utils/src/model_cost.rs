@@ -26,7 +26,7 @@ pub const COST_TIER_3_15: ModelCosts = ModelCosts {
     web_search_requests: 0.01,
 };
 
-/// Pricing tier for Opus 4/4.1: $15 input / $75 output per Mtok.
+/// Pricing tier for Max 4/4.1: $15 input / $75 output per Mtok.
 pub const COST_TIER_15_75: ModelCosts = ModelCosts {
     input_tokens: 15.0,
     output_tokens: 75.0,
@@ -35,7 +35,7 @@ pub const COST_TIER_15_75: ModelCosts = ModelCosts {
     web_search_requests: 0.01,
 };
 
-/// Pricing tier for Opus 4.5: $5 input / $25 output per Mtok.
+/// Pricing tier for Max 4.5: $5 input / $25 output per Mtok.
 pub const COST_TIER_5_25: ModelCosts = ModelCosts {
     input_tokens: 5.0,
     output_tokens: 25.0,
@@ -44,7 +44,7 @@ pub const COST_TIER_5_25: ModelCosts = ModelCosts {
     web_search_requests: 0.01,
 };
 
-/// Fast mode pricing for Opus 4.6: $30 input / $150 output per Mtok.
+/// Fast mode pricing for Max 4.6: $30 input / $150 output per Mtok.
 pub const COST_TIER_30_150: ModelCosts = ModelCosts {
     input_tokens: 30.0,
     output_tokens: 150.0,
@@ -53,8 +53,8 @@ pub const COST_TIER_30_150: ModelCosts = ModelCosts {
     web_search_requests: 0.01,
 };
 
-/// Pricing for Haiku 3.5: $0.80 input / $4 output per Mtok.
-pub const COST_HAIKU_35: ModelCosts = ModelCosts {
+/// Pricing for Fast 3.5: $0.80 input / $4 output per Mtok.
+pub const COST_FAST_35: ModelCosts = ModelCosts {
     input_tokens: 0.8,
     output_tokens: 4.0,
     prompt_cache_write_tokens: 1.0,
@@ -62,8 +62,8 @@ pub const COST_HAIKU_35: ModelCosts = ModelCosts {
     web_search_requests: 0.01,
 };
 
-/// Pricing for Haiku 4.5: $1 input / $5 output per Mtok.
-pub const COST_HAIKU_45: ModelCosts = ModelCosts {
+/// Pricing for Fast 4.5: $1 input / $5 output per Mtok.
+pub const COST_FAST_45: ModelCosts = ModelCosts {
     input_tokens: 1.0,
     output_tokens: 5.0,
     prompt_cache_write_tokens: 1.25,
@@ -99,20 +99,20 @@ pub struct ModelConfig {
 /// Static model cost registry.
 static MODEL_COSTS: Lazy<HashMap<String, ModelCosts>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    // Haiku models
-    m.insert("mossen-3-5-haiku".to_string(), COST_HAIKU_35);
-    m.insert("mossen-haiku-4-5".to_string(), COST_HAIKU_45);
-    // Sonnet models
-    m.insert("mossen-3-5-sonnet-v2".to_string(), COST_TIER_3_15);
-    m.insert("mossen-3-7-sonnet".to_string(), COST_TIER_3_15);
-    m.insert("mossen-sonnet-4".to_string(), COST_TIER_3_15);
-    m.insert("mossen-sonnet-4-5".to_string(), COST_TIER_3_15);
-    m.insert("mossen-sonnet-4-6".to_string(), COST_TIER_3_15);
-    // Opus models
-    m.insert("mossen-opus-4".to_string(), COST_TIER_15_75);
-    m.insert("mossen-opus-4-1".to_string(), COST_TIER_15_75);
-    m.insert("mossen-opus-4-5".to_string(), COST_TIER_5_25);
-    m.insert("mossen-opus-4-6".to_string(), COST_TIER_5_25);
+    // Fast models
+    m.insert("mossen-3-5-fast".to_string(), COST_FAST_35);
+    m.insert("mossen-fast-4-5".to_string(), COST_FAST_45);
+    // Balanced models
+    m.insert("mossen-3-5-balanced-v2".to_string(), COST_TIER_3_15);
+    m.insert("mossen-3-7-balanced".to_string(), COST_TIER_3_15);
+    m.insert("mossen-balanced-4".to_string(), COST_TIER_3_15);
+    m.insert("mossen-balanced-4-5".to_string(), COST_TIER_3_15);
+    m.insert("mossen-balanced-4-6".to_string(), COST_TIER_3_15);
+    // Max models
+    m.insert("mossen-max-4".to_string(), COST_TIER_15_75);
+    m.insert("mossen-max-4-1".to_string(), COST_TIER_15_75);
+    m.insert("mossen-max-4-5".to_string(), COST_TIER_5_25);
+    m.insert("mossen-max-4-6".to_string(), COST_TIER_5_25);
     m
 });
 
@@ -149,8 +149,8 @@ fn is_fast_mode_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Get the cost tier for Opus 4.6 based on fast mode.
-pub fn get_opus_46_cost_tier(fast_mode: bool) -> ModelCosts {
+/// Get the cost tier for Max 4.6 based on fast mode.
+pub fn get_max_46_cost_tier(fast_mode: bool) -> ModelCosts {
     if is_fast_mode_enabled() && fast_mode {
         COST_TIER_30_150
     } else {
@@ -162,10 +162,10 @@ pub fn get_opus_46_cost_tier(fast_mode: bool) -> ModelCosts {
 pub fn get_model_costs(model: &str, usage: &TokenUsage) -> ModelCosts {
     let short_name = get_canonical_name(model);
 
-    // Check if this is an Opus 4.6 model with fast mode active
-    if short_name == "mossen-opus-4-6" {
+    // Check if this is an Max 4.6 model with fast mode active
+    if short_name == "mossen-max-4-6" {
         let is_fast = usage.speed.as_deref() == Some("fast");
-        return get_opus_46_cost_tier(is_fast);
+        return get_max_46_cost_tier(is_fast);
     }
 
     if let Some(costs) = MODEL_COSTS.get(&short_name) {

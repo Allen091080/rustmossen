@@ -2,7 +2,12 @@
 //! Core voice input state management.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VoiceState { Idle, Listening, Processing, Error }
+pub enum VoiceState {
+    Idle,
+    Listening,
+    Processing,
+    Error,
+}
 
 #[derive(Debug, Clone)]
 pub struct VoiceInputState {
@@ -14,17 +19,45 @@ pub struct VoiceInputState {
 }
 
 impl VoiceInputState {
-    pub fn new() -> Self { Self { state: VoiceState::Idle, transcript: String::new(), confidence: 0.0, is_final: false, error: None } }
-    pub fn start_listening(&mut self) { self.state = VoiceState::Listening; self.transcript.clear(); self.is_final = false; self.error = None; }
-    pub fn update_transcript(&mut self, text: &str, confidence: f32, is_final: bool) {
-        self.transcript = text.to_string(); self.confidence = confidence; self.is_final = is_final;
-        if is_final { self.state = VoiceState::Idle; }
+    pub fn new() -> Self {
+        Self {
+            state: VoiceState::Idle,
+            transcript: String::new(),
+            confidence: 0.0,
+            is_final: false,
+            error: None,
+        }
     }
-    pub fn stop(&mut self) { self.state = VoiceState::Idle; }
-    pub fn error(&mut self, msg: String) { self.state = VoiceState::Error; self.error = Some(msg); }
-    pub fn is_active(&self) -> bool { matches!(self.state, VoiceState::Listening | VoiceState::Processing) }
+    pub fn start_listening(&mut self) {
+        self.state = VoiceState::Listening;
+        self.transcript.clear();
+        self.is_final = false;
+        self.error = None;
+    }
+    pub fn update_transcript(&mut self, text: &str, confidence: f32, is_final: bool) {
+        self.transcript = text.to_string();
+        self.confidence = confidence;
+        self.is_final = is_final;
+        if is_final {
+            self.state = VoiceState::Idle;
+        }
+    }
+    pub fn stop(&mut self) {
+        self.state = VoiceState::Idle;
+    }
+    pub fn error(&mut self, msg: String) {
+        self.state = VoiceState::Error;
+        self.error = Some(msg);
+    }
+    pub fn is_active(&self) -> bool {
+        matches!(self.state, VoiceState::Listening | VoiceState::Processing)
+    }
 }
-impl Default for VoiceInputState { fn default() -> Self { Self::new() } }
+impl Default for VoiceInputState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ============================================================================
 // Constants and helpers translated from useVoice.ts

@@ -11,7 +11,7 @@
 
 ### 1.1 Mossen 是什么
 
-**Mossen** 是 Rust 写的 coding agent CLI，对标 Claude Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。代码在 `/Users/allen/Documents/rustmossen/`。
+**Mossen** 是 Rust 写的 coding agent CLI，对标 Mossen Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。代码在 `/Users/allen/Documents/rustmossen/`。
 
 ### 1.2 什么是 "渲染层"
 
@@ -29,11 +29,11 @@
 
 ### 1.3 TS 原版 vs Rust 端的渲染范式差异（重要）
 
-| 范式 | TS / Ink（React for terminal） | Rust / ratatui |
+| 范式 | TS / terminal framework（React for terminal） | Rust / ratatui |
 |------|-------------------------------|---------------|
 | 渲染模式 | reactive（state 变 → React 局部重渲） | immediate-mode（每帧整屏重画） |
 | 状态形态 | 9 层 Context + zustand store | 单一可变 `App` 结构体 |
-| 流式增量 | token 进 React state → Ink diff → ANSI 微更新 | 整 buffer 累积 → 整帧重画 markdown |
+| 流式增量 | token 进 React state → terminal framework diff → ANSI 微更新 | 整 buffer 累积 → 整帧重画 markdown |
 | Modal 层叠 | 3 层 Context 可叠 | `ActiveModal` 单态枚举（**这是有意设计**，与 TS REPL "exactly one modal interactive" 语义一致） |
 
 注意：Rust 端的 ActiveModal 单态、InputJsonDelta `=> {}` 丢弃**都是有意设计**，不是 bug。审计代码注释里有说明，不要"修"它们。
@@ -47,11 +47,11 @@
 | MessageRow 分派 | ✅ | 按 MessageType enum |
 | Thinking block | ✅ | 灰字 shimmer + 30s fade + Ctrl+E pin |
 | ToolUse / ToolResult | ✅ | Bash/Edit/Write 有特化，其他工具走通用 |
-| Permission 弹窗 | ✅ | `components::permissions::PermissionRequest` |
-| Picker（Theme / OutputStyle） | ✅ | `components::root_large::Picker` |
+| Permission 内联审批 | ✅ | `approval_state.rs` + `widgets::approval::ApprovalBlockWidget` |
+| Picker（Theme / OutputStyle） | ✅ | `widgets::panels` / active modal widgets |
 | Spinner | ✅ | 单状态 |
-| **TaskListV2 widget**（components/tasks.rs） | 🟡 | **数据壳已写、app.rs 没驱动** |
-| **SubAgent / Teammate spinner**（spinner_anim.rs） | 🟡 | **代码已写、engine 没 emit** |
+| **TaskListV2 widget**（widgets/task_list.rs） | ✅ | 已接入 `App::render_auxiliary_panels` |
+| **SubAgent / Teammate spinner**（widgets/spinner.rs） | ✅ | 已迁入活动 widgets 路径 |
 | `foreground_task_id` 状态字段 | 🟡 | **存在但没人切换** |
 | Ctrl+B 后台任务详情 | 🟡 | **键路由未接** |
 | Ctrl+C 中断协议（TurnState） | 🟡 | **半截渲染可能撕裂** |
@@ -79,9 +79,9 @@
 
 ### 1.7 本阶段不要做的事
 
-⚠️ **不要删 `components/` 和 `ink/`**：
+⚠️ **不要删 `components/` 和 `terminal-framework/`**：
 - `components/` 大量被 app.rs 引用（dialogs / permissions / misc / root_large / root_medium 等），删了会导致编译错
-- `ink/` 是平移港没碍事，留着以后可能复用
+- `terminal-framework/` 是平移港没碍事，留着以后可能复用
 
 ⚠️ **不要"修" `ActiveModal` 单态、`InputJsonDelta => {}` 丢弃**：这两处是有意设计，匹配 TS 端语义。代码注释里说清楚了。
 
@@ -211,16 +211,13 @@ if tool_name == "TodoWrite" {
 
 ```rust
 if !self.app_state.task_list.tasks.is_empty() {
-    let widget = crate::components::tasks::TaskListV2Widget::new(&self.app_state.task_list.tasks);
+    let widget = crate::widgets::task_list::TaskListV2Widget::new(&self.app_state.task_list.tasks);
     f.render_widget(widget, area);
 }
 ```
 
-如果 `components::tasks::TaskListV2Widget` 不存在（只有 `TaskListV2` 数据结构）：
-- 在 `components/tasks.rs` 加一个 `impl Widget for TaskListV2`，或者
-- 新建一个 `TaskListV2Widget<'a>` 持有 `&'a [TodoItem]`
-
-具体形态以现有 components/tasks.rs 风格为准（看周边 widget 怎么写的）。
+当前实现必须留在 `widgets/task_list.rs` 活动路径内，不再补退役
+`components` 翻译树。
 
 #### 验证
 
@@ -336,7 +333,8 @@ pub enum TeammateState {
 
 ##### Step 4：渲染 teammate spinner 树
 
-在 render 路径里，如果 `app_state.teammate_states.len() > 0`，画 `components::spinner_anim::TeammateSpinnerTree` widget（应该已存在）。
+在 render 路径里，如果 `app_state.teammate_states.len() > 0`，画
+`widgets::spinner::TeammateSpinnerTreeWidget`。
 
 #### 验证
 

@@ -49,9 +49,7 @@ static BLOCKED_OFFICIAL_NAME_PATTERN: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Pattern to detect non-ASCII characters (homograph attack prevention).
-static NON_ASCII_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[^\x20-\x7E]").unwrap()
-});
+static NON_ASCII_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^\x20-\x7E]").unwrap());
 
 /// Check if a marketplace name impersonates an official Mossen marketplace.
 pub fn is_blocked_official_name(name: &str) -> bool {
@@ -81,7 +79,10 @@ pub fn validate_official_name_source(
 
     if source_type == "github" {
         let r = repo.unwrap_or("");
-        if !r.to_lowercase().starts_with(&format!("{}/", OFFICIAL_GITHUB_ORG)) {
+        if !r
+            .to_lowercase()
+            .starts_with(&format!("{}/", OFFICIAL_GITHUB_ORG))
+        {
             return Some(format!(
                 "The name '{}' is reserved for official Mossen marketplaces. Only repositories from 'github.com/{}/' can use this name.",
                 name, OFFICIAL_GITHUB_ORG
@@ -117,7 +118,10 @@ pub fn validate_marketplace_name(name: &str) -> Result<(), String> {
         return Err("Marketplace must have a name".into());
     }
     if name.contains(' ') {
-        return Err("Marketplace name cannot contain spaces. Use kebab-case (e.g., \"my-marketplace\")".into());
+        return Err(
+            "Marketplace name cannot contain spaces. Use kebab-case (e.g., \"my-marketplace\")"
+                .into(),
+        );
     }
     if name.contains('/') || name.contains('\\') || name.contains("..") || name == "." {
         return Err("Marketplace name cannot contain path separators (/ or \\), \"..\" sequences, or be \".\"".into());
@@ -127,7 +131,9 @@ pub fn validate_marketplace_name(name: &str) -> Result<(), String> {
     }
     let lower = name.to_lowercase();
     if lower == "inline" {
-        return Err("Marketplace name \"inline\" is reserved for --plugin-dir session plugins".into());
+        return Err(
+            "Marketplace name \"inline\" is reserved for --plugin-dir session plugins".into(),
+        );
     }
     if lower == "builtin" {
         return Err("Marketplace name \"builtin\" is reserved for built-in plugins".into());
@@ -137,9 +143,8 @@ pub fn validate_marketplace_name(name: &str) -> Result<(), String> {
 
 // ── Plugin ID validation ──
 
-static PLUGIN_ID_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^[a-z0-9][-a-z0-9._]*@[a-z0-9][-a-z0-9._]*$").unwrap()
-});
+static PLUGIN_ID_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^[a-z0-9][-a-z0-9._]*@[a-z0-9][-a-z0-9._]*$").unwrap());
 
 /// Validate a plugin ID string (format: plugin@marketplace).
 pub fn validate_plugin_id(id: &str) -> bool {
@@ -243,7 +248,10 @@ pub struct LspServerConfig {
     pub transport: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
-    #[serde(rename = "initializationOptions", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "initializationOptions",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub initialization_options: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<serde_json::Value>,
@@ -459,7 +467,10 @@ pub fn is_local_plugin_source(source: &PluginSource) -> bool {
 
 /// Whether a marketplace source points at a local filesystem path.
 pub fn is_local_marketplace_source(source: &MarketplaceSource) -> bool {
-    matches!(source, MarketplaceSource::File { .. } | MarketplaceSource::Directory { .. })
+    matches!(
+        source,
+        MarketplaceSource::File { .. } | MarketplaceSource::Directory { .. }
+    )
 }
 
 /// Settings marketplace plugin (narrow schema for inline settings).
@@ -539,11 +550,17 @@ pub struct PluginMarketplace {
     pub name: String,
     pub owner: PluginAuthor,
     pub plugins: Vec<PluginMarketplaceEntry>,
-    #[serde(rename = "forceRemoveDeletedPlugins", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "forceRemoveDeletedPlugins",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub force_remove_deleted_plugins: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<MarketplaceMetadata>,
-    #[serde(rename = "allowCrossMarketplaceDependenciesOn", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "allowCrossMarketplaceDependenciesOn",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub allow_cross_marketplace_dependencies_on: Option<Vec<String>>,
 }
 
@@ -622,7 +639,10 @@ pub type KnownMarketplacesFile = HashMap<String, KnownMarketplace>;
 pub struct SettingsJson {
     #[serde(rename = "enabledPlugins", skip_serializing_if = "Option::is_none")]
     pub enabled_plugins: Option<HashMap<String, bool>>,
-    #[serde(rename = "extraKnownMarketplaces", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "extraKnownMarketplaces",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub extra_known_marketplaces: Option<HashMap<String, serde_json::Value>>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -729,7 +749,8 @@ pub fn validate_plugin_manifest(manifest: &PluginManifest) -> Vec<String> {
         errors.push("Plugin name cannot be empty".into());
     }
     if manifest.name.contains(' ') {
-        errors.push("Plugin name cannot contain spaces. Use kebab-case (e.g., \"my-plugin\")".into());
+        errors
+            .push("Plugin name cannot contain spaces. Use kebab-case (e.g., \"my-plugin\")".into());
     }
     errors
 }

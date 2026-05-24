@@ -4,7 +4,7 @@
 3 case 全 PASS 才视为通过:
 - case 1: getInternalModelOverrideSection 函数体首行非注释行就是 `return null`
 - case 2: 函数内不含 GrowthBook / feature 字面量
-- case 3: getAntModelOverrideConfig (大写 Config) 函数仍存在 (依赖保留)
+- case 3: getInternalModelOverrideConfig (大写 Config) 函数仍存在 (依赖保留)
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = ROOT / "constants" / "prompts.ts"
-ANTMODELS = ROOT / "utils" / "model" / "antModels.ts"
+INTERNALMODELS = ROOT / "utils" / "model" / "internalModels.ts"
 
 
 def extract_function_body(src: str, fname: str) -> str | None:
@@ -88,13 +88,13 @@ def case2_no_growthbook_literals(body: str) -> tuple[bool, str]:
 
 
 def case3_config_function_preserved() -> tuple[bool, str]:
-    if not ANTMODELS.exists():
-        return False, f"antModels.ts not found at {ANTMODELS}"
-    src = ANTMODELS.read_text(encoding="utf-8")
-    has_alias = "getAntModelOverrideConfig" in src
+    if not INTERNALMODELS.exists():
+        return False, f"internalModels.ts not found at {INTERNALMODELS}"
+    src = INTERNALMODELS.read_text(encoding="utf-8")
+    has_alias = "getInternalModelOverrideConfig" in src
     has_def = "getInternalModelOverrideConfig" in src
     if has_alias and has_def:
-        return True, "getAntModelOverrideConfig (alias) + getInternalModelOverrideConfig present"
+        return True, "getInternalModelOverrideConfig (alias) + getInternalModelOverrideConfig present"
     return False, f"missing — alias={has_alias} def={has_def}"
 
 
@@ -114,7 +114,7 @@ def main() -> int:
     ok, msg = case2_no_growthbook_literals(body)
     results.append(("case2 no GrowthBook/feature literals", ok, msg))
     ok, msg = case3_config_function_preserved()
-    results.append(("case3 getAntModelOverrideConfig preserved", ok, msg))
+    results.append(("case3 getInternalModelOverrideConfig preserved", ok, msg))
 
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)

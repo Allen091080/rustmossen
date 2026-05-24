@@ -26,10 +26,7 @@ fn get_existing_statusline_command(ctx: &CommandContext) -> Option<String> {
 
     let raw = std::fs::read_to_string(&settings_path).ok()?;
     let settings: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let command = settings
-        .get("statusLine")?
-        .get("command")?
-        .as_str()?;
+    let command = settings.get("statusLine")?.get("command")?.as_str()?;
 
     if command.is_empty() {
         None
@@ -116,7 +113,10 @@ fn get_statusline_script_summary(script: &str) -> Option<String> {
     if features.is_empty() {
         None
     } else {
-        Some(format!("Current script appears to show: {}", features.join(", ")))
+        Some(format!(
+            "Current script appears to show: {}",
+            features.join(", ")
+        ))
     }
 }
 
@@ -220,16 +220,10 @@ fn build_statusline_summary(inspection: &StatusLineInspection, ctx: &CommandCont
 
     let cmd = inspection.command.as_ref().unwrap();
     let script_line = if inspection.script_readable {
-        let path = inspection
-            .script_path
-            .as_deref()
-            .unwrap_or(cmd.as_str());
+        let path = inspection.script_path.as_deref().unwrap_or(cmd.as_str());
         format!("Script file found: {}", path)
     } else {
-        format!(
-            "Configured command points to an unreadable file: {}",
-            cmd
-        )
+        format!("Configured command points to an unreadable file: {}", cmd)
     };
 
     let summary_line = inspection.script_summary.as_deref().unwrap_or_else(|| {
@@ -267,10 +261,12 @@ fn build_agent_prompt(args: &str, existing_command: Option<&str>) -> String {
              explicitly ask to replace it from PS1.",
             cmd
         ),
-        None => "Inspect my current statusLine setup first. If a statusLine is already configured, \
+        None => {
+            "Inspect my current statusLine setup first. If a statusLine is already configured, \
                  explain or update that existing setup. Only import from my shell PS1 if no \
                  statusLine is configured or if I explicitly ask to replace it from PS1."
-            .to_string(),
+                .to_string()
+        }
     }
 }
 

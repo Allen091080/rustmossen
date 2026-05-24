@@ -1,5 +1,7 @@
 use regex::Regex;
 
+use crate::string_utils::prefix_chars;
+
 /// Interrupt message constant
 pub const INTERRUPT_MESSAGE_FOR_TOOL_USE: &str =
     "The tool use was interrupted by the user. The tool was not executed.";
@@ -83,16 +85,19 @@ pub fn format_error(error: &ToolError) -> String {
 }
 
 fn truncate_error_message(msg: &str) -> String {
-    if msg.len() <= 10000 {
+    let total_chars = msg.chars().count();
+    if total_chars <= 10000 {
         return msg.to_string();
     }
     let half_length = 5000;
-    let start = &msg[..half_length];
-    let end = &msg[msg.len() - half_length..];
+    let start = prefix_chars(msg, half_length);
+    let mut tail_chars: Vec<char> = msg.chars().rev().take(half_length).collect();
+    tail_chars.reverse();
+    let end: String = tail_chars.into_iter().collect();
     format!(
         "{}\n\n... [{} characters truncated] ...\n\n{}",
         start,
-        msg.len() - 10000,
+        total_chars - 10000,
         end
     )
 }
@@ -208,7 +213,10 @@ pub fn format_zod_validation_error(tool_name: &str, issues: &[ValidationIssue]) 
         .iter()
         .filter(|err| err.code == "invalid_type" && !err.message.contains("received undefined"))
         .map(|err| {
-            let expected = err.expected.clone().unwrap_or_else(|| "unknown".to_string());
+            let expected = err
+                .expected
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
             let received_re = Regex::new(r"received (\w+)").unwrap();
             let received = received_re
                 .captures(&err.message)
@@ -226,10 +234,7 @@ pub fn format_zod_validation_error(tool_name: &str, issues: &[ValidationIssue]) 
     }
 
     for param in &unexpected_params {
-        error_parts.push(format!(
-            "An unexpected parameter `{}` was provided",
-            param
-        ));
+        error_parts.push(format!("An unexpected parameter `{}` was provided", param));
     }
 
     for (param, expected, received) in &type_mismatch_params {

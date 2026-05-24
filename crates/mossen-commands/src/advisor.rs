@@ -12,10 +12,10 @@ pub struct AdvisorDirective;
 fn model_supports_advisor(base_model: &str) -> bool {
     // Models that support extended thinking / advisor role
     let supported_prefixes = [
-        "claude-3-5-sonnet",
-        "claude-3-opus",
-        "claude-sonnet",
-        "claude-opus",
+        "mossen-3-5-balanced",
+        "mossen-3-max",
+        "mossen-balanced",
+        "mossen-max",
         "gpt-4",
         "o1",
         "o3",
@@ -28,9 +28,9 @@ fn model_supports_advisor(base_model: &str) -> bool {
 /// Check if the given model is a valid advisor model.
 fn is_valid_advisor_model(model: &str) -> bool {
     let valid_models = [
-        "opus",
-        "claude-3-opus",
-        "claude-opus",
+        "max",
+        "mossen-3-max",
+        "mossen-max",
         "o1",
         "o1-preview",
         "o3",
@@ -54,9 +54,9 @@ fn can_user_configure_advisor(ctx: &CommandContext) -> bool {
 fn normalize_model_string_for_api(input: &str) -> String {
     let lower = input.to_lowercase();
     match lower.as_str() {
-        "opus" => "claude-3-opus-20240229".to_string(),
-        "sonnet" => "claude-3-5-sonnet-20241022".to_string(),
-        "haiku" => "claude-3-haiku-20240307".to_string(),
+        "max" => "mossen-3-max-20240229".to_string(),
+        "balanced" => "mossen-3-5-balanced-20241022".to_string(),
+        "fast" => "mossen-3-fast-20240307".to_string(),
         _ => lower,
     }
 }
@@ -68,7 +68,7 @@ fn parse_user_specified_model(input: &str) -> String {
 
 /// Get the default main loop model setting.
 fn get_default_main_loop_model_setting() -> String {
-    "claude-sonnet-4-20250514".to_string()
+    "mossen-balanced-4-20250514".to_string()
 }
 
 #[async_trait]
@@ -116,12 +116,12 @@ impl Directive for AdvisorDirective {
             match current {
                 None => {
                     return Ok(CommandResult::Text(
-                        "Advisor: not set\nUse \"/advisor <model>\" to enable (e.g. \"/advisor opus\").".to_string(),
+                        "Advisor: not set\nUse \"/advisor <model>\" to enable (e.g. \"/advisor max\").".to_string(),
                     ));
                 }
                 Some(v) if v.is_empty() => {
                     return Ok(CommandResult::Text(
-                        "Advisor: not set\nUse \"/advisor <model>\" to enable (e.g. \"/advisor opus\").".to_string(),
+                        "Advisor: not set\nUse \"/advisor <model>\" to enable (e.g. \"/advisor max\").".to_string(),
                     ));
                 }
                 Some(current_model) => {

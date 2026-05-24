@@ -9,8 +9,7 @@ static BLOCK_PATTERN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"```!\s*\n?([\s\S]*?)\n?```").unwrap());
 
 /// Pattern for inline: !`command`
-static INLINE_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?m)(?:^|\s)!`([^`]+)`").unwrap());
+static INLINE_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)(?:^|\s)!`([^`]+)`").unwrap());
 
 /// Shell execution error types.
 #[derive(Debug, thiserror::Error)]
@@ -56,8 +55,14 @@ pub async fn execute_shell_commands_in_prompt(
     let mut matches: Vec<(String, String)> = Vec::new(); // (full_match, command)
 
     for caps in BLOCK_PATTERN.captures_iter(text) {
-        let full_match = caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_default();
-        let command = caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+        let full_match = caps
+            .get(0)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let command = caps
+            .get(1)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
         if !command.is_empty() {
             matches.push((full_match, command));
         }
@@ -66,8 +71,14 @@ pub async fn execute_shell_commands_in_prompt(
     // Only scan for inline pattern if text contains !`
     if text.contains("!`") {
         for caps in INLINE_PATTERN.captures_iter(text) {
-            let full_match = caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let command = caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+            let full_match = caps
+                .get(0)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let command = caps
+                .get(1)
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
             if !command.is_empty() {
                 matches.push((full_match, command));
             }

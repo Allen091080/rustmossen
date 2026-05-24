@@ -124,10 +124,7 @@ pub async fn run_agent(options: RunAgentOptions) -> RunAgentResult {
     loop {
         if state.turn_count >= max_turns {
             state.stop_reason = StoppedReason::MaxTurns;
-            warn!(
-                "Agent {} hit max turns limit ({})",
-                agent_type, max_turns
-            );
+            warn!("Agent {} hit max turns limit ({})", agent_type, max_turns);
             break;
         }
 
@@ -221,10 +218,7 @@ enum AgentTurnResult {
 }
 
 /// Process a single agent turn (model call + tool execution).
-async fn process_agent_turn(
-    messages: &[Value],
-    options: &RunAgentOptions,
-) -> AgentTurnResult {
+async fn process_agent_turn(messages: &[Value], options: &RunAgentOptions) -> AgentTurnResult {
     // In a full implementation, this would:
     // 1. Call the model API with messages + system prompt + tools
     // 2. Parse the response for tool_use blocks

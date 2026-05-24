@@ -3,7 +3,16 @@
 //! 主二进制入口，对应 TS 的 entrypoints/cli.tsx + main.tsx。
 //! 负责 CLI 参数解析、初始化序列、模式路由（REPL / oneshot / 子命令）。
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    non_snake_case,
+    non_upper_case_globals,
+    unexpected_cfgs,
+    unused_imports,
+    unused_must_use,
+    unused_mut,
+    unused_variables
+)]
 
 mod app_state;
 mod assistant;
@@ -23,7 +32,6 @@ mod memdir;
 mod migrations;
 mod native_color_diff;
 mod native_file_index;
-mod native_yoga;
 mod output_styles;
 mod platform;
 mod plugin_handlers;
@@ -37,13 +45,16 @@ mod repl;
 mod repl_mcp;
 mod root_modules;
 mod schemas_hooks;
-mod sdk_schemas;
 mod screens;
+mod sdk_schemas;
 mod server;
+mod session_hooks;
 mod setup;
-mod system_prompt;
 mod signal;
+mod stream_json_render_events;
+mod stream_json_terminal_renderer;
 mod structured_io;
+mod system_prompt;
 mod tasks;
 mod tools_registry;
 mod transports;
@@ -59,11 +70,12 @@ use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::bootstrap::{new_shared_state, SharedBootstrapState};
-use mossen_types::hooks::HookEvent;
 use crate::cli::{BridgesSubCmd, Cli, EmitFormat, PluginSubCmd, SubCmd};
 use crate::commands_registry::DirectiveRegistry;
 use crate::exit::{cli_error, cli_ok};
-use crate::repl::{launch_repl, run_oneshot, ReplConfig};
+use crate::repl::{
+    launch_repl, run_oneshot, run_oneshot_stream_json, run_oneshot_terminal_render, ReplConfig,
+};
 use crate::signal::ShutdownSignal;
 use crate::tools_registry::InstrumentRegistry;
 use mossen_commands::{CommandContext, CommandResult, Directive};
@@ -107,15 +119,22 @@ async fn main() {
 
     // The TUI owns the alternate screen + raw mode the moment we launch the
     // REPL, so any stderr writes from tracing bleed straight through ratatui
-    // and corrupt the prompt area. Detect whether this run will hit the TUI
-    // (no subcommand, no --oneshot, no -p/--print short forms) and route
-    // logs to a file in that case. The detection mirrors the dispatch at the
-    // bottom of `run()` below.
+    // and corrupt the prompt area. `--emit terminal` also owns the visible
+    // terminal surface, so diagnostics must not be mixed into the render byte
+    // stream. Detect both frontend paths and route logs to a file there. The
+    // detection mirrors the dispatch at the bottom of `run()` below.
     let oneshot_argv = std::env::args().any(|a| a == "-p" || a == "--print");
     let interactive = cli.command.is_none() && cli.oneshot.is_none() && !oneshot_argv;
+    let terminal_frontend = cli.command.is_none()
+        && cli_emit_is_terminal(&cli)
+        && (cli.oneshot.is_some() || cli.stdin || cli.input_file.is_some());
 
     // 初始化日志（必须在其他所有操作之前）
-    setup::initialize_logging(cli.verbose || cli.debug, interactive);
+    setup::initialize_logging(
+        cli.verbose || cli.debug,
+        interactive || terminal_frontend,
+        interactive,
+    );
 
     info!(version = VERSION, "mossen starting");
 
@@ -139,7 +158,10 @@ async fn run_fast_paths() -> bool {
     let args: Vec<String> = std::env::args().collect();
 
     // --tmux / --tmux=<mode>: launch into a git-worktree-backed tmux session.
-    if args.iter().any(|a| a == "--tmux" || a.starts_with("--tmux=")) {
+    if args
+        .iter()
+        .any(|a| a == "--tmux" || a.starts_with("--tmux="))
+    {
         let result = mossen_utils::worktree::exec_into_tmux_worktree(&args).await;
         if result.handled {
             return true;
@@ -151,10 +173,15 @@ async fn run_fast_paths() -> bool {
 
     // --get/set/clear/list-mossen-config: internal debug flags, hidden from
     // --help, used by support tooling to poke at the merged config tree.
-    if args
-        .iter()
-        .any(|a| matches!(a.as_str(), "--get-mossen-config" | "--set-mossen-config" | "--clear-mossen-config" | "--list-mossen-config"))
-    {
+    if args.iter().any(|a| {
+        matches!(
+            a.as_str(),
+            "--get-mossen-config"
+                | "--set-mossen-config"
+                | "--clear-mossen-config"
+                | "--list-mossen-config"
+        )
+    }) {
         let (handled, exit_code) =
             mossen_agent::services::config::profile_cli::handle_config_cli_flag(&args).await;
         if handled {
@@ -213,39 +240,25 @@ async fn run(cli: Cli) -> Result<()> {
         .await
         .context("setup failed")?;
 
-    // 7.5 SessionStart hook stub：通知 watcher 会话已启动。
-    // 当前为 stub 实现，仅记录日志。后续可替换为正式 HookManager。
-    info!(
-        target: "mossen_agent::hooks",
-        hook_event = ?HookEvent::SessionStart,
-        cwd = %cwd_path.display(),
-        is_interactive = !cli.is_non_interactive(),
-        "Session-start hook: session about to start"
-    );
-
     // 7.6 Skill 动态发现：沿 cwd 向上查找 .mossen/skills 目录。
     // Phase 2-2: wire discover_skill_dirs_for_paths
     let cwd_str = cwd_path.to_string_lossy().to_string();
     let cwd_path_clone = cwd_path.clone();
-    let discovered = mossen_skills::discover_skill_dirs_for_paths(
-        &[cwd_path_clone],
-        &cwd_path,
-        ".mossen",
-    ).await;
+    let discovered =
+        mossen_skills::discover_skill_dirs_for_paths(&[cwd_path_clone], &cwd_path, ".mossen").await;
     if !discovered.is_empty() {
+        let added = mossen_skills::add_skill_directories(&discovered).await;
         info!(
             target: "mossen_cli::skills",
             count = discovered.len(),
+            added,
             "skill directories discovered during startup"
         );
     }
 
     // 7.7 Conditional skill 激活：基于当前工作目录激活匹配的条件技能。
     // Phase 2-3: wire activate_conditional_skills_for_paths
-    let activated = mossen_skills::activate_conditional_skills_for_paths(
-        &[cwd_str],
-        &cwd_path,
-    );
+    let activated = mossen_skills::activate_conditional_skills_for_paths(&[cwd_str], &cwd_path);
     if !activated.is_empty() {
         info!(
             target: "mossen_cli::skills",
@@ -256,6 +269,7 @@ async fn run(cli: Cli) -> Result<()> {
 
     // 8. 路由到对应模式
     let result = route_command(cli, state.clone(), shutdown).await;
+    stop_session_background_services().await;
 
     // 9. 清理退出
     match result {
@@ -309,6 +323,8 @@ async fn route_command(
         return handle_subcommand(subcmd, &state).await;
     }
 
+    start_session_background_services().await;
+
     // 注册命令和工具
     let directives = DirectiveRegistry::new();
     let instruments = InstrumentRegistry::new();
@@ -333,16 +349,31 @@ async fn route_command(
 
     // oneshot 模式（-1 / --oneshot）
     if let Some(ref prompt) = cli.oneshot {
-        let result = run_oneshot(state.clone(), prompt.clone(), instruments, repl_config).await?;
-        output_oneshot_result(&result, &cli.emit);
+        if cli_emit_is_stream_json(&cli) {
+            run_oneshot_stream_json(state.clone(), prompt.clone(), instruments, repl_config)
+                .await?;
+        } else if cli_emit_is_terminal(&cli) {
+            run_oneshot_terminal_render(state.clone(), prompt.clone(), instruments, repl_config)
+                .await?;
+        } else {
+            let result =
+                run_oneshot(state.clone(), prompt.clone(), instruments, repl_config).await?;
+            output_oneshot_result(&result, &cli.emit);
+        }
         return Ok(());
     }
 
     // stdin 模式
     if cli.stdin {
         let prompt = read_stdin_prompt().await?;
-        let result = run_oneshot(state.clone(), prompt, instruments, repl_config).await?;
-        output_oneshot_result(&result, &cli.emit);
+        if cli_emit_is_stream_json(&cli) {
+            run_oneshot_stream_json(state.clone(), prompt, instruments, repl_config).await?;
+        } else if cli_emit_is_terminal(&cli) {
+            run_oneshot_terminal_render(state.clone(), prompt, instruments, repl_config).await?;
+        } else {
+            let result = run_oneshot(state.clone(), prompt, instruments, repl_config).await?;
+            output_oneshot_result(&result, &cli.emit);
+        }
         return Ok(());
     }
 
@@ -351,14 +382,28 @@ async fn route_command(
         let prompt = tokio::fs::read_to_string(input_file)
             .await
             .context("failed to read input file")?;
-        let result = run_oneshot(state.clone(), prompt, instruments, repl_config).await?;
-        output_oneshot_result(&result, &cli.emit);
+        if cli_emit_is_stream_json(&cli) {
+            run_oneshot_stream_json(state.clone(), prompt, instruments, repl_config).await?;
+        } else if cli_emit_is_terminal(&cli) {
+            run_oneshot_terminal_render(state.clone(), prompt, instruments, repl_config).await?;
+        } else {
+            let result = run_oneshot(state.clone(), prompt, instruments, repl_config).await?;
+            output_oneshot_result(&result, &cli.emit);
+        }
         return Ok(());
     }
 
     // 默认：交互式 REPL 模式
     info!("entering interactive REPL mode");
     launch_repl(state, directives, instruments, repl_config).await
+}
+
+async fn start_session_background_services() {
+    mossen_agent::services::team_memory_sync::start_team_memory_watcher().await;
+}
+
+async fn stop_session_background_services() {
+    mossen_agent::services::team_memory_sync::stop_team_memory_watcher().await;
 }
 
 /// 构建子命令执行所需的 CommandContext。
@@ -460,7 +505,11 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
             println!("Auto-updates: {}", diag.auto_updates);
             println!(
                 "Ripgrep: {} ({})",
-                if diag.ripgrep_status.working { "ok" } else { "broken" },
+                if diag.ripgrep_status.working {
+                    "ok"
+                } else {
+                    "broken"
+                },
                 diag.ripgrep_status.mode
             );
             if !diag.multiple_installations.is_empty() {
@@ -505,10 +554,8 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                         .clone()
                         .ok_or_else(|| anyhow::anyhow!("config set requires VALUE"))?;
                     // 通过 save_global_config 写入；对 GlobalConfig 的字段以 JSON merge 形式更新
-                    let parsed: serde_json::Value =
-                        serde_json::from_str(&target_value).unwrap_or_else(|_| {
-                            serde_json::Value::String(target_value.clone())
-                        });
+                    let parsed: serde_json::Value = serde_json::from_str(&target_value)
+                        .unwrap_or_else(|_| serde_json::Value::String(target_value.clone()));
                     let key_for_update = target_key.clone();
                     mossen_utils::config::save_global_config(move |current| {
                         let mut as_json =
@@ -562,9 +609,8 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
             match action {
                 Some(BridgesSubCmd::List) | None => {
                     // 加载已合并的 MCP 配置
-                    let global_dir = std::path::PathBuf::from(
-                        mossen_utils::config::get_user_mossen_rules_dir(),
-                    );
+                    let global_dir =
+                        std::path::PathBuf::from(mossen_utils::config::get_user_mossen_rules_dir());
                     let cwd = ctx.cwd.clone();
                     match mossen_mcp::config::load_merged_configs(&cwd, &global_dir).await {
                         Ok(configs) => {
@@ -582,7 +628,9 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                                         mossen_mcp::config::McpServerConfig::Http(_) => "http",
                                         mossen_mcp::config::McpServerConfig::Ws(_) => "ws",
                                         mossen_mcp::config::McpServerConfig::Sdk(_) => "sdk",
-                                        mossen_mcp::config::McpServerConfig::HostedProxy(_) => "hosted-proxy",
+                                        mossen_mcp::config::McpServerConfig::HostedProxy(_) => {
+                                            "hosted-proxy"
+                                        }
                                     };
                                     println!(
                                         "  - {} [{:?}] transport={}",
@@ -600,17 +648,15 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                 }
                 Some(BridgesSubCmd::Add { name, uri }) => {
                     // 写入项目级 .mcp.json
-                    let mcp_path =
-                        mossen_mcp::config::get_project_mcp_file_path(&ctx.cwd);
-                    let mut existing: mossen_mcp::config::McpJsonConfig =
-                        if mcp_path.exists() {
-                            let txt = tokio::fs::read_to_string(&mcp_path)
-                                .await
-                                .unwrap_or_default();
-                            serde_json::from_str(&txt).unwrap_or_default()
-                        } else {
-                            Default::default()
-                        };
+                    let mcp_path = mossen_mcp::config::get_project_mcp_file_path(&ctx.cwd);
+                    let mut existing: mossen_mcp::config::McpJsonConfig = if mcp_path.exists() {
+                        let txt = tokio::fs::read_to_string(&mcp_path)
+                            .await
+                            .unwrap_or_default();
+                        serde_json::from_str(&txt).unwrap_or_default()
+                    } else {
+                        Default::default()
+                    };
                     // 构造一个最小 server 配置：URL 使用 http/ws，否则视为 stdio command
                     let server_value: serde_json::Value = if uri.starts_with("http") {
                         serde_json::json!({
@@ -634,8 +680,7 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                     println!("MCP server '{}' added: {}", name, uri);
                 }
                 Some(BridgesSubCmd::Remove { name }) => {
-                    let mcp_path =
-                        mossen_mcp::config::get_project_mcp_file_path(&ctx.cwd);
+                    let mcp_path = mossen_mcp::config::get_project_mcp_file_path(&ctx.cwd);
                     if mcp_path.exists() {
                         let txt = tokio::fs::read_to_string(&mcp_path)
                             .await
@@ -643,8 +688,7 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                         let mut existing: mossen_mcp::config::McpJsonConfig =
                             serde_json::from_str(&txt).unwrap_or_default();
                         existing.mcp_servers.remove(&name);
-                        mossen_mcp::config::save_project_mcp_config(&ctx.cwd, &existing)
-                            .await?;
+                        mossen_mcp::config::save_project_mcp_config(&ctx.cwd, &existing).await?;
                         println!("MCP server '{}' removed.", name);
                     } else {
                         println!("No project .mcp.json found; nothing to remove.");
@@ -683,13 +727,11 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
                     }
                 }
                 Some(PluginSubCmd::Install { name }) => {
-                    let result =
-                        directive.execute(&["install", &name], &ctx).await?;
+                    let result = directive.execute(&["install", &name], &ctx).await?;
                     render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Uninstall { name }) => {
-                    let result =
-                        directive.execute(&["remove", &name], &ctx).await?;
+                    let result = directive.execute(&["remove", &name], &ctx).await?;
                     render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Enable { name }) => {
@@ -716,6 +758,14 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
     Ok(())
 }
 
+fn cli_emit_is_stream_json(cli: &Cli) -> bool {
+    matches!(&cli.emit, EmitFormat::StreamJson)
+}
+
+fn cli_emit_is_terminal(cli: &Cli) -> bool {
+    matches!(&cli.emit, EmitFormat::Terminal)
+}
+
 /// 输出 oneshot 结果。
 fn output_oneshot_result(result: &str, format: &EmitFormat) {
     match format {
@@ -738,6 +788,9 @@ fn output_oneshot_result(result: &str, format: &EmitFormat) {
                 "data": result,
             });
             println!("{}", serde_json::to_string(&json).unwrap_or_default());
+        }
+        EmitFormat::Terminal => {
+            println!("{}", result);
         }
     }
 }

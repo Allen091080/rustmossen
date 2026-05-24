@@ -157,7 +157,10 @@ pub struct CreateSkillCommandInput {
 pub fn create_skill_command(input: CreateSkillCommandInput) -> CraftCommand {
     let content_length = input.markdown_content.len();
     let is_hidden = !input.user_invocable;
-    let base_dir_str = input.base_dir.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let base_dir_str = input
+        .base_dir
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned());
     // `effort` and `shell` are accepted in the input for parity with TS but the
     // current `CraftCommand` does not have a dedicated `shell` field — shell is
     // tracked at the executor layer when the skill runs. We forward `effort`
@@ -325,7 +328,7 @@ pub fn get_conditional_skill_count() -> usize {
 
 /// `loadSkillsDir.ts` `discoverSkillDirsForPaths`。
 ///
-/// 从每个 file_path 的父目录向 cwd 方向回溯（不包含 cwd 自身），寻找
+/// 从每个 file_path 的父目录向 cwd 方向回溯（包含 cwd 自身），寻找
 /// `<canonical>/skills` 目录。已检查过的目录不会再次 stat。
 pub async fn discover_skill_dirs_for_paths(
     file_paths: &[PathBuf],
@@ -336,11 +339,13 @@ pub async fn discover_skill_dirs_for_paths(
     let mut new_dirs: Vec<PathBuf> = Vec::new();
 
     for file_path in file_paths {
-        let mut current_dir = file_path.parent().map(Path::to_path_buf);
+        let mut current_dir = discovery_start_dir(file_path, &resolved_cwd);
 
         while let Some(dir) = current_dir.clone() {
-            // continue only while dir is strictly under cwd
-            if !is_strictly_under(&dir, &resolved_cwd) {
+            // Continue only while dir is at or below cwd. The cwd-level
+            // `.mossen/skills` directory is the common case and must be
+            // checked both during startup and after tools touch root files.
+            if !is_at_or_under(&dir, &resolved_cwd) {
                 break;
             }
 
@@ -377,6 +382,14 @@ pub async fn discover_skill_dirs_for_paths(
     new_dirs
 }
 
+fn discovery_start_dir(file_path: &Path, cwd: &Path) -> Option<PathBuf> {
+    if file_path == cwd || file_path.is_dir() {
+        Some(file_path.to_path_buf())
+    } else {
+        file_path.parent().map(Path::to_path_buf)
+    }
+}
+
 fn strip_trailing_sep(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
     if s.ends_with(MAIN_SEPARATOR) {
@@ -386,11 +399,8 @@ fn strip_trailing_sep(p: &Path) -> PathBuf {
     }
 }
 
-fn is_strictly_under(child: &Path, parent: &Path) -> bool {
-    let cs = child.to_string_lossy();
-    let ps = parent.to_string_lossy();
-    let needle = format!("{}{}", ps, MAIN_SEPARATOR);
-    cs.starts_with(needle.as_str())
+fn is_at_or_under(child: &Path, parent: &Path) -> bool {
+    child == parent || child.starts_with(parent)
 }
 
 fn path_depth(p: &Path) -> usize {
@@ -525,7 +535,9 @@ fn matches_patterns_with_negation(patterns: &[String], candidate: &str) -> bool 
         let Ok(glob) = globset::GlobBuilder::new(pat)
             .literal_separator(true)
             .build()
-        else { continue };
+        else {
+            continue;
+        };
         if glob.compile_matcher().is_match(candidate) {
             included = !negate;
         }
@@ -561,5 +573,28 @@ mod tests {
     fn pathdiff_resolves_prefix() {
         let r = pathdiff_relative(Path::new("/repo/src/foo.ts"), Path::new("/repo"));
         assert_eq!(r, Some(PathBuf::from("src/foo.ts")));
+    }
+
+    #[tokio::test]
+    async fn discover_skill_dirs_checks_cwd_level_skills() {
+        clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cwd = temp.path();
+        let skills = cwd.join(".mossen").join("skills");
+        tokio::fs::create_dir_all(&skills)
+            .await
+            .expect("create skills dir");
+
+        let from_cwd = discover_skill_dirs_for_paths(&[cwd.to_path_buf()], cwd, ".mossen").await;
+        assert_eq!(from_cwd, vec![skills.clone()]);
+
+        clear_dynamic_skills();
+        let src = cwd.join("src").join("main.rs");
+        tokio::fs::create_dir_all(src.parent().unwrap())
+            .await
+            .expect("create src");
+        let from_child = discover_skill_dirs_for_paths(&[src], cwd, ".mossen").await;
+        assert_eq!(from_child, vec![skills]);
+        clear_dynamic_skills();
     }
 }

@@ -6,14 +6,14 @@
 //! - Git 状态校验、分支切换（teleport resume 的本地副作用）
 //! - 远程会话的创建、轮询、归档（Sessions API 调用）
 //! - 仓库匹配校验（防止跨仓库 teleport）
-//! - Haiku 自动生成标题 + 分支名
+//! - Fast 自动生成标题 + 分支名
 //!
 //! ## 子模块
 //! - [`api`] — Sessions API 的底层 HTTP 与类型定义（来自旧版 `teleport/mod.rs`）。
 
 pub mod api;
-pub mod environments;
 pub mod environment_selection;
+pub mod environments;
 pub mod git_bundle;
 
 use std::collections::HashMap;
@@ -38,11 +38,11 @@ use crate::json::safe_parse_json_value;
 use crate::log::log_error_str;
 use crate::messages::{create_system_message, create_user_message, CreateUserMessageParams};
 use crate::session_storage::is_transcript_message;
-use crate::truncate::truncate_to_width;
 use crate::teleport::api::{
-    GitRepositoryOutcome, OutcomeGitInfo, SessionContextSource, SessionResource,
-    get_branch_from_session,
+    get_branch_from_session, GitRepositoryOutcome, OutcomeGitInfo, SessionContextSource,
+    SessionResource,
 };
+use crate::truncate::truncate_to_width;
 
 // ---------------------------------------------------------------------------
 // 公开类型
@@ -87,7 +87,7 @@ pub struct TeleportToRemoteResponse {
     pub title: String,
 }
 
-/// 由 Haiku 模型生成的标题和分支名。
+/// 由 Fast 模型生成的标题和分支名。
 #[derive(Debug, Clone)]
 pub struct TitleAndBranch {
     pub title: String,
@@ -229,7 +229,10 @@ impl std::fmt::Debug for TeleportToRemoteOptions {
             .field("environment_id", &self.environment_id)
             .field("environment_variables", &self.environment_variables)
             .field("use_bundle", &self.use_bundle)
-            .field("on_bundle_fail", &self.on_bundle_fail.as_ref().map(|_| "<callback>"))
+            .field(
+                "on_bundle_fail",
+                &self.on_bundle_fail.as_ref().map(|_| "<callback>"),
+            )
             .field("skip_bundle", &self.skip_bundle)
             .field("reuse_outcome_branch", &self.reuse_outcome_branch)
             .field("github_pr", &self.github_pr)
@@ -296,30 +299,30 @@ Here is the session description:
 <description>{description}</description>
 Please generate a title and branch name for this session."#;
 
-/// Haiku 客户端接口：调用方需提供（在 mossen-agent 中已有实现）。
-/// 默认实现：无 Haiku 可用，直接走回退路径。
+/// Fast 客户端接口：调用方需提供（在 mossen-agent 中已有实现）。
+/// 默认实现：无 Fast 可用，直接走回退路径。
 #[async_trait::async_trait]
-pub trait HaikuTitleClient: Send + Sync {
+pub trait FastTitleClient: Send + Sync {
     /// 生成 JSON 文本（必须能被 `serde_json::from_str` 解析）。
     async fn generate(&self, prompt: &str) -> Result<String>;
 }
 
-/// Haiku 不可用时的 no-op 实现：返回错误，让调用方走 fallback。
-pub struct NoopHaikuClient;
+/// Fast 不可用时的 no-op 实现：返回错误，让调用方走 fallback。
+pub struct NoopFastClient;
 
 #[async_trait::async_trait]
-impl HaikuTitleClient for NoopHaikuClient {
+impl FastTitleClient for NoopFastClient {
     async fn generate(&self, _prompt: &str) -> Result<String> {
-        anyhow::bail!("Haiku title client not configured")
+        anyhow::bail!("Fast title client not configured")
     }
 }
 
-/// 用 Mossen Haiku 给会话生成标题和分支名。
+/// 用 Mossen Fast 给会话生成标题和分支名。
 ///
 /// 失败时回退到从描述截取（title）和 `mossen/task`（branch）。
 pub async fn generate_title_and_branch(
     description: &str,
-    client: &dyn HaikuTitleClient,
+    client: &dyn FastTitleClient,
 ) -> TitleAndBranch {
     let fallback_title = truncate_to_width(description, 75);
     let fallback_branch = "mossen/task".to_string();
@@ -599,7 +602,10 @@ pub async fn check_out_teleported_session_branch(
             DebugLogLevel::Debug,
         );
     } else {
-        log_for_debugging("No branch specified, staying on current branch", DebugLogLevel::Debug);
+        log_for_debugging(
+            "No branch specified, staying on current branch",
+            DebugLogLevel::Debug,
+        );
     }
 
     let final_branch = get_current_branch().await;
@@ -827,7 +833,7 @@ pub async fn teleport_from_sessions_api(
 /// 由调用方注入：完成 Sessions API 的 HTTP 调用 + 鉴权 +
 /// 仓库 detection / bundle 上传等高层动作。
 ///
-/// 该 trait 把 React/Ink 渲染、analytics、growthbook 等保留在 CLI 层（mossen-cli），
+/// 该 trait 把终端渲染、analytics、growthbook 等保留在 CLI 层（mossen-cli），
 /// 让 mossen-utils 保持纯逻辑。
 #[async_trait::async_trait]
 pub trait TeleportRemoteClient: Send + Sync {
@@ -855,10 +861,8 @@ pub trait TeleportRemoteClient: Send + Sync {
     ) -> Result<Vec<(String, String, String)>>;
 
     /// `(success, file_id, bundle_size_bytes, scope, has_wip, fail_reason, error_text)`
-    async fn create_and_upload_git_bundle(
-        &self,
-        access_token: &str,
-    ) -> Result<BundleUploadOutcome>;
+    async fn create_and_upload_git_bundle(&self, access_token: &str)
+        -> Result<BundleUploadOutcome>;
 
     /// 检查 GitHub App 是否已安装，决定 GitHub 路径是否可行。
     async fn check_github_app_installed(&self, owner: &str, name: &str) -> bool;
@@ -934,18 +938,18 @@ impl SourceReason {
 
 /// 创建远程 hosted 会话。
 ///
-/// 该函数承担「选型」（GitHub vs bundle vs 空沙盒）+ Haiku 标题生成 +
+/// 该函数承担「选型」（GitHub vs bundle vs 空沙盒）+ Fast 标题生成 +
 /// environment 选择，然后把组装好的请求委托给 `client.create_remote_session`。
 pub async fn teleport_to_remote(
     options: TeleportToRemoteOptions,
     client: &dyn TeleportRemoteClient,
-    haiku: &dyn HaikuTitleClient,
+    fast: &dyn FastTitleClient,
 ) -> Option<TeleportToRemoteResponse> {
     client.refresh_oauth_if_needed().await;
     let access_token = client.get_access_token().await?;
     let org_uuid = client.get_organization_uuid().await?;
 
-    // 1) 显式 environmentId 短路：跳过 Haiku、跳过 env 选择。
+    // 1) 显式 environmentId 短路：跳过 Fast、跳过 env 选择。
     if let Some(ref environment_id) = options.environment_id {
         return create_explicit_env_session(
             &options,
@@ -959,7 +963,7 @@ pub async fn teleport_to_remote(
 
     // 2) Source 选型
     let repo_info = detect_repo_in_cwd().await;
-    let (title, branch_name) = resolve_title_and_branch(&options, haiku).await;
+    let (title, branch_name) = resolve_title_and_branch(&options, fast).await;
 
     let force_bundle = !options.skip_bundle && is_truthy_env("CCR_FORCE_BUNDLE");
     let git_root = find_git_root(&get_cwd());
@@ -973,7 +977,9 @@ pub async fn teleport_to_remote(
     if repo_info.is_some() && !force_bundle {
         let info = repo_info.as_ref().unwrap();
         if info.host == "github.com" {
-            gh_viable = client.check_github_app_installed(&info.owner, &info.name).await;
+            gh_viable = client
+                .check_github_app_installed(&info.owner, &info.name)
+                .await;
             source_reason = if gh_viable {
                 SourceReason::GithubPreflightOk
             } else {
@@ -1037,7 +1043,10 @@ pub async fn teleport_to_remote(
     let mut seed_bundle_file_id: Option<String> = None;
     if sources.is_empty() && bundle_seed_gate_on {
         log_for_debugging(
-            &format!("[teleportToRemote] Bundling (reason: {})", source_reason.as_str()),
+            &format!(
+                "[teleportToRemote] Bundling (reason: {})",
+                source_reason.as_str()
+            ),
             DebugLogLevel::Debug,
         );
         match client.create_and_upload_git_bundle(&access_token).await {
@@ -1101,7 +1110,12 @@ pub async fn teleport_to_remote(
     } else {
         cloud_env.clone()
     }
-    .or_else(|| environments.iter().find(|(_, kind, _)| kind != "bridge").cloned())
+    .or_else(|| {
+        environments
+            .iter()
+            .find(|(_, kind, _)| kind != "bridge")
+            .cloned()
+    })
     .or_else(|| environments.first().cloned());
 
     let Some((environment_id, kind, env_name)) = selected else {
@@ -1109,7 +1123,10 @@ pub async fn teleport_to_remote(
         return None;
     };
     log_for_debugging(
-        &format!("Selected environment: {} ({}, {})", environment_id, env_name, kind),
+        &format!(
+            "Selected environment: {} ({}, {})",
+            environment_id, env_name, kind
+        ),
         DebugLogLevel::Debug,
     );
 
@@ -1209,12 +1226,11 @@ fn bundle_failure_message(bundle: &BundleUploadOutcome, has_repo_info: bool) -> 
 
 async fn resolve_title_and_branch(
     options: &TeleportToRemoteOptions,
-    haiku: &dyn HaikuTitleClient,
+    fast: &dyn FastTitleClient,
 ) -> (String, String) {
-    if let (Some(title), Some(branch)) = (
-        options.title.clone(),
-        options.reuse_outcome_branch.clone(),
-    ) {
+    if let (Some(title), Some(branch)) =
+        (options.title.clone(), options.reuse_outcome_branch.clone())
+    {
         return (title, branch);
     }
     let description = options
@@ -1222,7 +1238,7 @@ async fn resolve_title_and_branch(
         .clone()
         .or_else(|| options.initial_message.clone())
         .unwrap_or_else(|| "Background task".to_string());
-    let generated = generate_title_and_branch(&description, haiku).await;
+    let generated = generate_title_and_branch(&description, fast).await;
     let title = options.title.clone().unwrap_or(generated.title);
     let branch = options
         .reuse_outcome_branch
@@ -1307,7 +1323,10 @@ async fn create_explicit_env_session(
     {
         Ok(r) => r,
         Err(e) => {
-            log_error_str(&format!("create_remote_session (explicit env) error: {}", e));
+            log_error_str(&format!(
+                "create_remote_session (explicit env) error: {}",
+                e
+            ));
             None
         }
     }
@@ -1594,7 +1613,10 @@ pub async fn archive_remote_session(
             );
         }
         None => {
-            log_error_str(&format!("[archiveRemoteSession] {} request error", session_id));
+            log_error_str(&format!(
+                "[archiveRemoteSession] {} request error",
+                session_id
+            ));
         }
     }
 }
@@ -1707,15 +1729,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn noop_haiku_client_returns_error() {
-        let client = NoopHaikuClient;
+    async fn noop_fast_client_returns_error() {
+        let client = NoopFastClient;
         let result = client.generate("prompt").await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn generate_title_and_branch_falls_back_when_haiku_fails() {
-        let client = NoopHaikuClient;
+    async fn generate_title_and_branch_falls_back_when_fast_fails() {
+        let client = NoopFastClient;
         let result = generate_title_and_branch("Implement a long feature", &client).await;
         assert!(result.title.contains("Implement"));
         assert_eq!(result.branch_name, "mossen/task");
@@ -1740,7 +1762,7 @@ pub async fn teleport_to_remote_with_error_handling(
     let resolved_branch = match branch_name {
         Some(b) if !b.is_empty() => b.to_string(),
         _ => {
-            // 没有外部 HaikuClient 时回退到 NoopHaikuClient 行为。
+            // 没有外部 FastClient 时回退到 NoopFastClient 行为。
             "mossen/task".to_string()
         }
     };

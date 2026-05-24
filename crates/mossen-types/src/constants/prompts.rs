@@ -5,10 +5,9 @@
 
 use super::cyber_risk::CYBER_RISK_INSTRUCTION;
 use super::tools::{
-    AGENT_TOOL_NAME, ASK_USER_QUESTION_TOOL_NAME, BASH_TOOL_NAME,
-    FILE_EDIT_TOOL_NAME, FILE_READ_TOOL_NAME, FILE_WRITE_TOOL_NAME,
-    GLOB_TOOL_NAME, GREP_TOOL_NAME, SKILL_TOOL_NAME, SLEEP_TOOL_NAME,
-    TASK_CREATE_TOOL_NAME, TODO_WRITE_TOOL_NAME, VERIFICATION_AGENT_TYPE,
+    AGENT_TOOL_NAME, ASK_USER_QUESTION_TOOL_NAME, BASH_TOOL_NAME, FILE_EDIT_TOOL_NAME,
+    FILE_READ_TOOL_NAME, FILE_WRITE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, SKILL_TOOL_NAME,
+    SLEEP_TOOL_NAME, TASK_CREATE_TOOL_NAME, TODO_WRITE_TOOL_NAME, VERIFICATION_AGENT_TYPE,
 };
 use super::xml::TICK_TAG;
 
@@ -26,8 +25,8 @@ pub fn get_docs_map_url(remote_base_url: &str) -> String {
 /// - src/services/api/mossen.ts (buildSystemPromptBlocks)
 pub const SYSTEM_PROMPT_DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
 
-/// @[MODEL LAUNCH]: Update the latest frontier model.
-pub const FRONTIER_MODEL_NAME: &str = "Mossen Opus 4.6";
+/// @[MODEL LAUNCH]: Update the latest max model.
+pub const MAX_MODEL_NAME: &str = "Mossen Max 4.6";
 
 /// Internal product issue guidance for custom backend mode.
 pub fn get_internal_product_issue_guidance(is_custom_backend: bool, product_name: &str) -> String {
@@ -41,14 +40,14 @@ pub fn get_internal_product_issue_guidance(is_custom_backend: bool, product_name
 /// Model family guidance.
 pub fn get_model_family_guidance(
     is_custom_backend: bool,
-    opus_id: &str,
-    sonnet_id: &str,
-    haiku_id: &str,
+    max_id: &str,
+    balanced_id: &str,
+    fast_id: &str,
 ) -> String {
     if is_custom_backend {
-        "Use the latest and most capable models available on the current backend. Prefer the platform-recommended frontier model family when one is configured, and otherwise follow the backend's documented model capabilities and limits.".to_string()
+        "Use the latest and most capable models available on the current backend. Prefer the platform-recommended max model family when one is configured, and otherwise follow the backend's documented model capabilities and limits.".to_string()
     } else {
-        format!("The most recent Mossen model family is Mossen 4.5/4.6. Model IDs — Opus 4.6: '{}', Sonnet 4.6: '{}', Haiku 4.5: '{}'. When building AI applications, default to the latest and most capable Mossen models.", opus_id, sonnet_id, haiku_id)
+        format!("The most recent Mossen model family is Mossen 4.5/4.6. Model IDs — Max 4.6: '{}', Balanced 4.6: '{}', Fast 4.5: '{}'. When building AI applications, default to the latest and most capable Mossen models.", max_id, balanced_id, fast_id)
     }
 }
 
@@ -66,7 +65,7 @@ pub fn get_fast_mode_guidance(is_custom_backend: bool) -> String {
     if is_custom_backend {
         "Fast mode keeps the same configured backend and model path while favoring faster output. It can be toggled with /fast.".to_string()
     } else {
-        format!("Fast mode for Mossen uses the same {} model with faster output. It does NOT switch to a different model. It can be toggled with /fast.", FRONTIER_MODEL_NAME)
+        format!("Fast mode for Mossen uses the same {} model with faster output. It does NOT switch to a different model. It can be toggled with /fast.", MAX_MODEL_NAME)
     }
 }
 
@@ -105,13 +104,13 @@ pub fn get_output_style_section(
 }
 
 /// MCP instructions section.
-pub fn get_mcp_instructions(
-    connected_clients: &[(String, Option<String>)],
-) -> Option<String> {
+pub fn get_mcp_instructions(connected_clients: &[(String, Option<String>)]) -> Option<String> {
     let clients_with_instructions: Vec<_> = connected_clients
         .iter()
         .filter_map(|(name, instructions)| {
-            instructions.as_ref().map(|instr| (name.as_str(), instr.as_str()))
+            instructions
+                .as_ref()
+                .map(|instr| (name.as_str(), instr.as_str()))
         })
         .collect();
 
@@ -136,9 +135,7 @@ pub fn prepend_bullets(items: &[BulletItem]) -> Vec<String> {
         .iter()
         .flat_map(|item| match item {
             BulletItem::Single(s) => vec![format!(" - {}", s)],
-            BulletItem::SubItems(subs) => {
-                subs.iter().map(|sub| format!("  - {}", sub)).collect()
-            }
+            BulletItem::SubItems(subs) => subs.iter().map(|sub| format!("  - {}", sub)).collect(),
         })
         .collect()
 }
@@ -184,7 +181,7 @@ pub fn get_simple_system_section() -> String {
 /// Simple doing tasks section.
 pub fn get_simple_doing_tasks_section(
     product_name: &str,
-    is_ant: bool,
+    is_internal: bool,
     is_custom_backend: bool,
     issues_explainer: &str,
 ) -> String {
@@ -194,7 +191,7 @@ pub fn get_simple_doing_tasks_section(
         "Don't create helpers, utilities, or abstractions for one-time operations. Don't design for hypothetical future requirements. The right amount of complexity is what the task actually requires—no speculative abstractions, but no half-finished implementations either. Three similar lines of code is better than a premature abstraction.".to_string(),
     ];
 
-    if is_ant {
+    if is_internal {
         code_style_subitems.push("Default to writing no comments. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. If removing the comment wouldn't confuse a future reader, don't write it.".to_string());
         code_style_subitems.push("Don't explain WHAT the code does, since well-named identifiers already do that. Don't reference the current task, fix, or callers (\"used by X\", \"added for the Y flow\", \"handles the case from issue #123\"), since those belong in the PR description and rot as the codebase evolves.".to_string());
         code_style_subitems.push("Don't remove existing comments unless you're removing the code they describe or you know they're wrong. A comment that looks pointless to you may encode a constraint or a lesson from a past bug that isn't visible in the current diff.".to_string());
@@ -211,7 +208,7 @@ pub fn get_simple_doing_tasks_section(
         "You are highly capable and often allow users to complete ambitious tasks that would otherwise be too complex or take too long. You should defer to user judgement about whether a task is too large to attempt.".to_string(),
     ];
 
-    if is_ant {
+    if is_internal {
         items.push("If you notice the user's request is based on a misconception, or spot a bug adjacent to what they asked about, say so. You're a collaborator, not just an executor—users benefit from your judgment, not just your compliance.".to_string());
     }
 
@@ -223,12 +220,18 @@ pub fn get_simple_doing_tasks_section(
     items.extend(code_style_subitems);
     items.push("Avoid backwards-compatibility hacks like renaming unused _vars, re-exporting types, adding // removed comments for removed code, etc. If you are certain that something is unused, you can delete it completely.".to_string());
 
-    if is_ant {
+    if is_internal {
         items.push("Report outcomes faithfully: if tests fail, say so with the relevant output; if you did not run a verification step, say that rather than implying it succeeded. Never claim \"all tests pass\" when output shows failures, never suppress or simplify failing checks (tests, lints, type errors) to manufacture a green result, and never characterize incomplete or broken work as done. Equally, when a check did pass or a task is complete, state it plainly — do not hedge confirmed results with unnecessary disclaimers, downgrade finished work to \"partial,\" or re-verify things you already checked. The goal is an accurate report, not a defensive one.".to_string());
-        items.push(get_internal_product_issue_guidance(is_custom_backend, product_name));
+        items.push(get_internal_product_issue_guidance(
+            is_custom_backend,
+            product_name,
+        ));
     }
 
-    items.push("If the user asks for help or wants to give feedback inform them of the following:".to_string());
+    items.push(
+        "If the user asks for help or wants to give feedback inform them of the following:"
+            .to_string(),
+    );
     for sub in &user_help_subitems {
         items.push(format!("  - {}", sub));
     }
@@ -285,14 +288,29 @@ pub fn get_using_your_tools_section(
     }
 
     let mut provided_tool_subitems = vec![
-        format!("To read files use {} instead of cat, head, tail, or sed", FILE_READ_TOOL_NAME),
-        format!("To edit files use {} instead of sed or awk", FILE_EDIT_TOOL_NAME),
-        format!("To create files use {} instead of cat with heredoc or echo redirection", FILE_WRITE_TOOL_NAME),
+        format!(
+            "To read files use {} instead of cat, head, tail, or sed",
+            FILE_READ_TOOL_NAME
+        ),
+        format!(
+            "To edit files use {} instead of sed or awk",
+            FILE_EDIT_TOOL_NAME
+        ),
+        format!(
+            "To create files use {} instead of cat with heredoc or echo redirection",
+            FILE_WRITE_TOOL_NAME
+        ),
     ];
 
     if !has_embedded_search {
-        provided_tool_subitems.push(format!("To search for files use {} instead of find or ls", GLOB_TOOL_NAME));
-        provided_tool_subitems.push(format!("To search the content of files, use {} instead of grep or rg", GREP_TOOL_NAME));
+        provided_tool_subitems.push(format!(
+            "To search for files use {} instead of find or ls",
+            GLOB_TOOL_NAME
+        ));
+        provided_tool_subitems.push(format!(
+            "To search the content of files, use {} instead of grep or rg",
+            GREP_TOOL_NAME
+        ));
     }
 
     provided_tool_subitems.push(format!("Reserve using the {} exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool and only fallback on using the {} tool for these if it is absolutely necessary.", BASH_TOOL_NAME, BASH_TOOL_NAME));
@@ -349,7 +367,10 @@ pub fn get_session_specific_guidance_section(
     let mut items = Vec::new();
 
     if has_ask {
-        items.push(format!("If you do not understand why the user has denied a tool call, use the {} to ask them.", ASK_USER_QUESTION_TOOL_NAME));
+        items.push(format!(
+            "If you do not understand why the user has denied a tool call, use the {} to ask them.",
+            ASK_USER_QUESTION_TOOL_NAME
+        ));
     }
 
     if !is_non_interactive {
@@ -385,8 +406,8 @@ pub fn get_session_specific_guidance_section(
 }
 
 /// Output efficiency section.
-pub fn get_output_efficiency_section(is_ant: bool) -> String {
-    if is_ant {
+pub fn get_output_efficiency_section(is_internal: bool) -> String {
+    if is_internal {
         r#"# Communicating with the user
 When sending user-facing text, you're writing for a person, not logging to a console. Assume users can't see most tool calls or thinking - only your text output. Before your first tool call, briefly state what you're about to do. While working, give short updates at key moments: when you find something load-bearing (a bug, a root cause), when changing direction, when you've made progress without an update.
 
@@ -414,15 +435,15 @@ If you can say it in one sentence, don't use three. Prefer short, direct sentenc
 }
 
 /// Tone and style section.
-pub fn get_simple_tone_and_style_section(is_ant: bool) -> String {
+pub fn get_simple_tone_and_style_section(is_internal: bool) -> String {
     let mut items = vec![
         "Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.".to_string(),
     ];
-    if !is_ant {
+    if !is_internal {
         items.push("Your responses should be short and concise.".to_string());
     }
     items.push("When referencing specific functions or pieces of code include the pattern file_path:line_number to allow the user to easily navigate to the source code location.".to_string());
-    items.push("When referencing GitHub issues or pull requests, use the owner/repo#123 format (e.g. mossen/mossen-code#100) so they render as clickable links.".to_string());
+    items.push("When referencing GitHub issues or pull requests, use the owner/repo#123 format (e.g. mossen/cli#100) so they render as clickable links.".to_string());
     items.push("Do not use a colon before tool calls. Your tool calls may not be shown directly in the output, so text like \"Let me read the file:\" followed by a read tool call should just be \"Let me read the file.\" with a period.".to_string());
 
     let mut result = vec!["# Tone and style".to_string()];
@@ -458,7 +479,10 @@ pub fn compute_env_info(
     };
 
     let additional_dirs_info = if !additional_dirs.is_empty() {
-        format!("Additional working directories: {}\n", additional_dirs.join(", "))
+        format!(
+            "Additional working directories: {}\n",
+            additional_dirs.join(", ")
+        )
     } else {
         String::new()
     };
@@ -549,16 +573,16 @@ pub fn compute_simple_env_info(
 
 /// @[MODEL LAUNCH]: Add a knowledge cutoff date for the new model.
 pub fn get_knowledge_cutoff(canonical_model_name: &str) -> Option<&'static str> {
-    if canonical_model_name.contains("mossen-sonnet-4-6") {
+    if canonical_model_name.contains("mossen-balanced-4-6") {
         Some("August 2025")
-    } else if canonical_model_name.contains("mossen-opus-4-6") {
+    } else if canonical_model_name.contains("mossen-max-4-6") {
         Some("May 2025")
-    } else if canonical_model_name.contains("mossen-opus-4-5") {
+    } else if canonical_model_name.contains("mossen-max-4-5") {
         Some("May 2025")
-    } else if canonical_model_name.contains("mossen-haiku-4") {
+    } else if canonical_model_name.contains("mossen-fast-4") {
         Some("February 2025")
-    } else if canonical_model_name.contains("mossen-opus-4")
-        || canonical_model_name.contains("mossen-sonnet-4")
+    } else if canonical_model_name.contains("mossen-max-4")
+        || canonical_model_name.contains("mossen-balanced-4")
     {
         Some("January 2025")
     } else {

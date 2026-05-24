@@ -17,15 +17,24 @@ fn get_explore_system_prompt() -> String {
         .unwrap_or(false);
 
     let glob_guidance = if embedded {
-        format!("- Use `find` via {} for broad file pattern matching", BASH_TOOL_NAME)
+        format!(
+            "- Use `find` via {} for broad file pattern matching",
+            BASH_TOOL_NAME
+        )
     } else {
         format!("- Use {} for broad file pattern matching", GLOB_TOOL_NAME)
     };
 
     let grep_guidance = if embedded {
-        format!("- Use `grep` via {} for searching file contents with regex", BASH_TOOL_NAME)
+        format!(
+            "- Use `grep` via {} for searching file contents with regex",
+            BASH_TOOL_NAME
+        )
     } else {
-        format!("- Use {} for searching file contents with regex", GREP_TOOL_NAME)
+        format!(
+            "- Use {} for searching file contents with regex",
+            GREP_TOOL_NAME
+        )
     };
 
     let grep_extra = if embedded { ", grep" } else { "" };

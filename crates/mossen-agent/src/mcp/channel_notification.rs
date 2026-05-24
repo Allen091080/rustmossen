@@ -15,7 +15,8 @@ pub const CHANNEL_MESSAGE_METHOD: &str = "notifications/mossen/channel";
 pub const CHANNEL_CAPABILITY_KEY: &str = "mossen/channel";
 pub const CHANNEL_PERMISSION_CAPABILITY_KEY: &str = "mossen/channel/permission";
 pub const CHANNEL_PERMISSION_METHOD: &str = "notifications/mossen/channel/permission";
-pub const CHANNEL_PERMISSION_REQUEST_METHOD: &str = "notifications/mossen/channel/permission_request";
+pub const CHANNEL_PERMISSION_REQUEST_METHOD: &str =
+    "notifications/mossen/channel/permission_request";
 pub const CHANNEL_TAG: &str = "channel";
 
 /// Channel message notification params.
@@ -114,8 +115,7 @@ pub fn get_effective_channel_allowlist(
     org_list: Option<&[ChannelAllowlistEntry]>,
     ledger_raw: &serde_json::Value,
 ) -> EffectiveAllowlist {
-    if (sub == SubscriptionType::Team || sub == SubscriptionType::Enterprise)
-        && org_list.is_some()
+    if (sub == SubscriptionType::Team || sub == SubscriptionType::Enterprise) && org_list.is_some()
     {
         EffectiveAllowlist {
             entries: org_list.unwrap().to_vec(),
@@ -173,7 +173,9 @@ pub fn find_channel_entry<'a>(
     let parts: Vec<&str> = server_name.split(':').collect();
     channels.iter().find(|c| match c.kind {
         ChannelEntryKind::Server => server_name == c.name,
-        ChannelEntryKind::Plugin => parts.first() == Some(&"plugin") && parts.get(1) == Some(&c.name.as_str()),
+        ChannelEntryKind::Plugin => {
+            parts.first() == Some(&"plugin") && parts.get(1) == Some(&c.name.as_str())
+        }
     })
 }
 
@@ -227,7 +229,9 @@ pub fn gate_channel_server(
     if managed && channels_policy_enabled != Some(true) {
         return ChannelGateResult::Skip {
             kind: ChannelGateSkipKind::Policy,
-            reason: "channels not enabled by org policy (set channelsEnabled: true in managed settings)".to_string(),
+            reason:
+                "channels not enabled by org policy (set channelsEnabled: true in managed settings)"
+                    .to_string(),
         };
     }
 
@@ -247,7 +251,9 @@ pub fn gate_channel_server(
 
     if entry.kind == ChannelEntryKind::Plugin {
         // Marketplace verification
-        let actual = plugin_source.map(|s| parse_plugin_identifier(s).marketplace).flatten();
+        let actual = plugin_source
+            .map(|s| parse_plugin_identifier(s).marketplace)
+            .flatten();
         if actual.as_deref() != entry.marketplace.as_deref() {
             return ChannelGateResult::Skip {
                 kind: ChannelGateSkipKind::Marketplace,
@@ -281,6 +287,21 @@ pub fn gate_channel_server(
                         entry.marketplace.as_deref().unwrap_or("?")
                     ),
                 };
+                let approval_id = super::channel_approval::approval_id(
+                    server_name,
+                    Some(&entry.name),
+                    entry.marketplace.as_deref(),
+                );
+                if super::channel_approval::is_allowed(&approval_id) {
+                    return ChannelGateResult::Register;
+                }
+                super::channel_approval::enqueue(super::channel_approval::ChannelApprovalRequest {
+                    id: approval_id,
+                    server_name: server_name.to_string(),
+                    plugin: Some(entry.name.clone()),
+                    marketplace: entry.marketplace.clone(),
+                    reason: reason.clone(),
+                });
                 return ChannelGateResult::Skip {
                     kind: ChannelGateSkipKind::Allowlist,
                     reason,
@@ -290,12 +311,24 @@ pub fn gate_channel_server(
     } else {
         // server-kind: allowlist schema is {marketplace, plugin} — a server entry can never match.
         if !entry.dev {
+            let reason = format!(
+                "server {} is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)",
+                entry.name
+            );
+            let approval_id = super::channel_approval::approval_id(server_name, None, None);
+            if super::channel_approval::is_allowed(&approval_id) {
+                return ChannelGateResult::Register;
+            }
+            super::channel_approval::enqueue(super::channel_approval::ChannelApprovalRequest {
+                id: approval_id,
+                server_name: server_name.to_string(),
+                plugin: None,
+                marketplace: None,
+                reason: reason.clone(),
+            });
             return ChannelGateResult::Skip {
                 kind: ChannelGateSkipKind::Allowlist,
-                reason: format!(
-                    "server {} is not on the approved channels allowlist (use --dangerously-load-development-channels for local dev)",
-                    entry.name
-                ),
+                reason,
             };
         }
     }

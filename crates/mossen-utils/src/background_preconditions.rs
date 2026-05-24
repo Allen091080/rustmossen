@@ -3,7 +3,9 @@
 //! 对应 TypeScript `utils/background/remote/preconditions.ts`。
 //! 检查远程会话的前提条件（登录状态、Git 状态、GitHub App 安装等）。
 
-use crate::auth::{check_and_refresh_oauth_token_if_needed, get_hosted_oauth_tokens, is_hosted_subscriber};
+use crate::auth::{
+    check_and_refresh_oauth_token_if_needed, get_hosted_oauth_tokens, is_hosted_subscriber,
+};
 use crate::cwd::get_cwd;
 use crate::git::{find_git_root, get_is_clean};
 
@@ -152,18 +154,15 @@ pub enum RepoAccessMethod {
 /// 1. GitHub App 安装在仓库上
 /// 2. 通过 /web-setup 同步的 GitHub token
 /// 3. 两者都没有 — 调用者应提示用户设置访问权限
-pub async fn check_repo_for_remote_access(
-    owner: &str,
-    repo: &str,
-) -> (bool, RepoAccessMethod) {
+pub async fn check_repo_for_remote_access(owner: &str, repo: &str) -> (bool, RepoAccessMethod) {
     if check_github_app_installed(owner, repo).await {
         return (true, RepoAccessMethod::GithubApp);
     }
 
-    // `tengu_cobalt_lantern` feature flag — Rust 端通过环境变量启用，没有时
+    // `mossen_cobalt_lantern` feature flag — Rust 端通过环境变量启用，没有时
     // 默认为 false（与 TS `getFeatureValue_CACHED_MAY_BE_STALE(_, false)` 等价）。
     let cobalt_lantern_on = matches!(
-        std::env::var("MOSSEN_FEATURE_TENGU_COBALT_LANTERN")
+        std::env::var("MOSSEN_FEATURE_MOSSEN_COBALT_LANTERN")
             .ok()
             .as_deref(),
         Some("1") | Some("true") | Some("yes")
@@ -187,7 +186,11 @@ async fn fetch_origin_url() -> Option<String> {
         return None;
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if url.is_empty() { None } else { Some(url) }
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
 }
 
 #[cfg(test)]

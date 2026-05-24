@@ -131,9 +131,9 @@ fn backing_model_cache() -> &'static Mutex<std::collections::HashMap<String, Opt
 /// a given inference profile. Uses an in-memory cache.
 ///
 /// Without the AWS SDK we cannot reach Bedrock at runtime; we instead resolve
-/// the backing model from the profile ID by stripping the cross-region prefix
-/// (e.g. `us.anthropic.claude-...` → `anthropic.claude-...`). This matches the
-/// shape the AWS API would return in practice for system-defined profiles.
+/// the backing model from the profile ID by stripping any cross-region prefix.
+/// This matches the shape the AWS API would return in practice for
+/// system-defined profiles.
 pub async fn get_inference_profile_backing_model(profile_id: &str) -> Option<String> {
     if let Some(cached) = backing_model_cache().lock().unwrap().get(profile_id).cloned() {
         return cached;

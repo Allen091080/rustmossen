@@ -95,8 +95,7 @@ static DANGEROUS_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(
 });
 
 /// Type literal extraction pattern.
-static TYPE_LITERAL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\[([^\[\]]+)\]").unwrap());
+static TYPE_LITERAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[([^\[\]]+)\]").unwrap());
 
 /// Run all security checks on a PowerShell command.
 pub fn check_security(command: &str) -> SecurityCheckResult {
@@ -196,8 +195,11 @@ fn check_git_internal_writes(command: &str) -> Option<SecurityCheckResult> {
 /// Check for dangerous environment variable manipulation.
 fn check_env_manipulation(command: &str) -> Option<SecurityCheckResult> {
     let dangerous_env_vars = [
-        "PSModulePath", "PATH", "PATHEXT",
-        "COMSPEC", "PROCESSOR_ARCHITECTURE",
+        "PSModulePath",
+        "PATH",
+        "PATHEXT",
+        "COMSPEC",
+        "PROCESSOR_ARCHITECTURE",
     ];
 
     let re = Regex::new(r"(?i)\$env:(\w+)\s*=").ok()?;

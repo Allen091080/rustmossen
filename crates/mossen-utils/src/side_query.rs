@@ -4,7 +4,6 @@
 //! model betas, API metadata, and model string normalization.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Options for a side query API call.
 #[derive(Debug, Clone)]
@@ -162,9 +161,7 @@ pub fn build_thinking_param(
     max_tokens: u32,
 ) -> Option<serde_json::Value> {
     match thinking {
-        Some(ThinkingConfig::Disabled) => {
-            Some(serde_json::json!({ "type": "disabled" }))
-        }
+        Some(ThinkingConfig::Disabled) => Some(serde_json::json!({ "type": "disabled" })),
         Some(ThinkingConfig::Enabled { budget_tokens }) => {
             let budget = (*budget_tokens).min(max_tokens.saturating_sub(1));
             Some(serde_json::json!({
@@ -247,7 +244,8 @@ pub fn side_query(
         opts.skip_system_prompt_prefix,
         opts.system.as_ref(),
     );
-    let thinking_param = build_thinking_param(opts.thinking.as_ref(), opts.max_tokens.unwrap_or(1024));
+    let thinking_param =
+        build_thinking_param(opts.thinking.as_ref(), opts.max_tokens.unwrap_or(1024));
     build_side_query_request(
         opts,
         &system_blocks,

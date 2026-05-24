@@ -69,10 +69,7 @@ pub fn is_tmux_control_mode() -> bool {
         }
     }
     probe_tmux_control_mode_sync();
-    TMUX_CONTROL_MODE_PROBED
-        .lock()
-        .unwrap()
-        .unwrap_or(false)
+    TMUX_CONTROL_MODE_PROBED.lock().unwrap().unwrap_or(false)
 }
 
 /// Reset tmux control mode probe for testing.
@@ -113,7 +110,7 @@ pub fn is_fullscreen_env_enabled(user_type: Option<&str>) -> bool {
         }
         return false;
     }
-    user_type == Some("ant")
+    user_type == Some("internal")
 }
 
 /// Whether fullscreen mode should enable SGR mouse tracking.

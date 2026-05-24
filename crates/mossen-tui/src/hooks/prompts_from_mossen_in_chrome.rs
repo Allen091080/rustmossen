@@ -1,4 +1,4 @@
-//! Prompts from Mossen in Chrome (usePromptsFromMossenInChrome.tsx).
+//! Prompts from Mossen in Chrome.
 //! Receives and processes prompts forwarded from the Chrome extension.
 
 use std::collections::VecDeque;
@@ -22,11 +22,19 @@ pub struct PromptsFromChromeState {
 
 impl PromptsFromChromeState {
     pub fn new() -> Self {
-        Self { pending_prompts: VecDeque::new(), processed_ids: Vec::new(), enabled: false }
+        Self {
+            pending_prompts: VecDeque::new(),
+            processed_ids: Vec::new(),
+            enabled: false,
+        }
     }
     pub fn receive(&mut self, prompt: ChromePrompt) {
-        if !self.enabled { return; }
-        if self.processed_ids.contains(&prompt.id) { return; }
+        if !self.enabled {
+            return;
+        }
+        if self.processed_ids.contains(&prompt.id) {
+            return;
+        }
         self.pending_prompts.push_back(prompt);
     }
     pub fn take_next(&mut self) -> Option<ChromePrompt> {
@@ -34,7 +42,15 @@ impl PromptsFromChromeState {
         self.processed_ids.push(prompt.id.clone());
         Some(prompt)
     }
-    pub fn has_pending(&self) -> bool { !self.pending_prompts.is_empty() }
-    pub fn set_enabled(&mut self, enabled: bool) { self.enabled = enabled; }
+    pub fn has_pending(&self) -> bool {
+        !self.pending_prompts.is_empty()
+    }
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
 }
-impl Default for PromptsFromChromeState { fn default() -> Self { Self::new() } }
+impl Default for PromptsFromChromeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

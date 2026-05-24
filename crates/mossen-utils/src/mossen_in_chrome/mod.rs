@@ -9,7 +9,6 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, UnixListener, UnixStream};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -76,7 +75,13 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
             name: "Google Chrome",
             macos_app_name: "Google Chrome",
             macos_data_path: &["Library", "Application Support", "Google", "Chrome"],
-            macos_native_messaging_path: &["Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "Google",
+                "Chrome",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["google-chrome", "google-chrome-stable"],
             linux_data_path: &[".config", "google-chrome"],
             linux_native_messaging_path: &[".config", "google-chrome", "NativeMessagingHosts"],
@@ -87,20 +92,43 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
         ChromiumBrowser::Brave => BrowserConfig {
             name: "Brave",
             macos_app_name: "Brave Browser",
-            macos_data_path: &["Library", "Application Support", "BraveSoftware", "Brave-Browser"],
-            macos_native_messaging_path: &["Library", "Application Support", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts"],
+            macos_data_path: &[
+                "Library",
+                "Application Support",
+                "BraveSoftware",
+                "Brave-Browser",
+            ],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "BraveSoftware",
+                "Brave-Browser",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["brave-browser", "brave"],
             linux_data_path: &[".config", "BraveSoftware", "Brave-Browser"],
-            linux_native_messaging_path: &[".config", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts"],
+            linux_native_messaging_path: &[
+                ".config",
+                "BraveSoftware",
+                "Brave-Browser",
+                "NativeMessagingHosts",
+            ],
             windows_data_path: &["BraveSoftware", "Brave-Browser", "User Data"],
-            windows_registry_key: "HKCU\\Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts",
+            windows_registry_key:
+                "HKCU\\Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts",
             windows_use_roaming: false,
         },
         ChromiumBrowser::Arc => BrowserConfig {
             name: "Arc",
             macos_app_name: "Arc",
             macos_data_path: &["Library", "Application Support", "Arc", "User Data"],
-            macos_native_messaging_path: &["Library", "Application Support", "Arc", "User Data", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "Arc",
+                "User Data",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &[],
             linux_data_path: &[],
             linux_native_messaging_path: &[],
@@ -112,7 +140,12 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
             name: "Chromium",
             macos_app_name: "Chromium",
             macos_data_path: &["Library", "Application Support", "Chromium"],
-            macos_native_messaging_path: &["Library", "Application Support", "Chromium", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "Chromium",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["chromium", "chromium-browser"],
             linux_data_path: &[".config", "chromium"],
             linux_native_messaging_path: &[".config", "chromium", "NativeMessagingHosts"],
@@ -124,7 +157,12 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
             name: "Microsoft Edge",
             macos_app_name: "Microsoft Edge",
             macos_data_path: &["Library", "Application Support", "Microsoft Edge"],
-            macos_native_messaging_path: &["Library", "Application Support", "Microsoft Edge", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "Microsoft Edge",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["microsoft-edge", "microsoft-edge-stable"],
             linux_data_path: &[".config", "microsoft-edge"],
             linux_native_messaging_path: &[".config", "microsoft-edge", "NativeMessagingHosts"],
@@ -136,7 +174,12 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
             name: "Vivaldi",
             macos_app_name: "Vivaldi",
             macos_data_path: &["Library", "Application Support", "Vivaldi"],
-            macos_native_messaging_path: &["Library", "Application Support", "Vivaldi", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "Vivaldi",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["vivaldi", "vivaldi-stable"],
             linux_data_path: &[".config", "vivaldi"],
             linux_native_messaging_path: &[".config", "vivaldi", "NativeMessagingHosts"],
@@ -148,12 +191,18 @@ pub fn get_browser_config(browser: ChromiumBrowser) -> BrowserConfig {
             name: "Opera",
             macos_app_name: "Opera",
             macos_data_path: &["Library", "Application Support", "com.operasoftware.Opera"],
-            macos_native_messaging_path: &["Library", "Application Support", "com.operasoftware.Opera", "NativeMessagingHosts"],
+            macos_native_messaging_path: &[
+                "Library",
+                "Application Support",
+                "com.operasoftware.Opera",
+                "NativeMessagingHosts",
+            ],
             linux_binaries: &["opera"],
             linux_data_path: &[".config", "opera"],
             linux_native_messaging_path: &[".config", "opera", "NativeMessagingHosts"],
             windows_data_path: &["Opera Software", "Opera Stable"],
-            windows_registry_key: "HKCU\\Software\\Opera Software\\Opera Stable\\NativeMessagingHosts",
+            windows_registry_key:
+                "HKCU\\Software\\Opera Software\\Opera Stable\\NativeMessagingHosts",
             windows_use_roaming: true,
         },
     }
@@ -241,7 +290,11 @@ pub async fn detect_available_browser() -> Option<ChromiumBrowser> {
         let config = get_browser_config(browser_id);
         if cfg!(target_os = "macos") {
             let app_path = format!("/Applications/{}.app", config.macos_app_name);
-            if fs::metadata(&app_path).await.map(|m| m.is_dir()).unwrap_or(false) {
+            if fs::metadata(&app_path)
+                .await
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
+            {
                 eprintln!("[Mossen in Chrome] Detected browser: {}", config.name);
                 return Some(browser_id);
             }
@@ -298,10 +351,7 @@ pub async fn open_in_chrome(url: &str) -> bool {
         return status.map(|s| s.success()).unwrap_or(false);
     } else if cfg!(target_os = "linux") {
         for binary in config.linux_binaries {
-            let status = tokio::process::Command::new(binary)
-                .arg(url)
-                .status()
-                .await;
+            let status = tokio::process::Command::new(binary).arg(url).status().await;
             if status.map(|s| s.success()).unwrap_or(false) {
                 return true;
             }
@@ -369,9 +419,7 @@ pub struct ChromeMessageReader {
 
 impl ChromeMessageReader {
     pub fn new() -> Self {
-        Self {
-            buffer: Vec::new(),
-        }
+        Self { buffer: Vec::new() }
     }
 
     pub fn read_message(&mut self) -> Option<String> {
@@ -474,10 +522,13 @@ impl ChromeNativeHost {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("Invalid JSON from Chrome: {}", e);
-                send_chrome_message(&serde_json::json!({
-                    "type": "error",
-                    "error": "Invalid message format"
-                }).to_string());
+                send_chrome_message(
+                    &serde_json::json!({
+                        "type": "error",
+                        "error": "Invalid message format"
+                    })
+                    .to_string(),
+                );
                 return;
             }
         };
@@ -492,16 +543,22 @@ impl ChromeNativeHost {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_millis();
-                send_chrome_message(&serde_json::json!({
-                    "type": "pong",
-                    "timestamp": now
-                }).to_string());
+                send_chrome_message(
+                    &serde_json::json!({
+                        "type": "pong",
+                        "timestamp": now
+                    })
+                    .to_string(),
+                );
             }
             "get_status" => {
-                send_chrome_message(&serde_json::json!({
-                    "type": "status_response",
-                    "native_host_version": VERSION
-                }).to_string());
+                send_chrome_message(
+                    &serde_json::json!({
+                        "type": "status_response",
+                        "native_host_version": VERSION
+                    })
+                    .to_string(),
+                );
             }
             "tool_response" | "notification" => {
                 // Forward to MCP clients
@@ -509,10 +566,13 @@ impl ChromeNativeHost {
             }
             _ => {
                 eprintln!("Unknown message type: {}", msg_type);
-                send_chrome_message(&serde_json::json!({
-                    "type": "error",
-                    "error": format!("Unknown message type: {}", msg_type)
-                }).to_string());
+                send_chrome_message(
+                    &serde_json::json!({
+                        "type": "error",
+                        "error": format!("Unknown message type: {}", msg_type)
+                    })
+                    .to_string(),
+                );
             }
         }
     }
@@ -544,7 +604,7 @@ const DEV_EXTENSION_ID: &str = "dihbgbndebgnbjfmelmegjepbnkhlgni";
 const ANT_EXTENSION_ID: &str = "dngcpimnedloihjnnfngkgjoidhnaolf";
 
 fn get_extension_ids() -> Vec<&'static str> {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         vec![PROD_EXTENSION_ID, DEV_EXTENSION_ID, ANT_EXTENSION_ID]
     } else {
         vec![PROD_EXTENSION_ID]
@@ -569,7 +629,12 @@ pub async fn detect_extension_installation(
         let mut dir_entries = entries;
         while let Ok(Some(entry)) = dir_entries.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
-            if entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
+            if entry
+                .file_type()
+                .await
+                .map(|ft| ft.is_dir())
+                .unwrap_or(false)
+            {
                 if name == "Default" || name.starts_with("Profile ") {
                     profile_dirs.push(name);
                 }
@@ -636,9 +701,7 @@ pub struct McpServerConfig {
 }
 
 pub fn setup_mossen_in_chrome() -> ChromeSetupResult {
-    let allowed_tools = get_mossen_chrome_mcp_allowed_tool_names(
-        MOSSEN_IN_CHROME_MCP_SERVER_NAME,
-    );
+    let allowed_tools = get_mossen_chrome_mcp_allowed_tool_names(MOSSEN_IN_CHROME_MCP_SERVER_NAME);
 
     let command = std::env::current_exe()
         .unwrap_or_default()
@@ -663,9 +726,7 @@ pub fn setup_mossen_in_chrome() -> ChromeSetupResult {
 
 // ─── Native Host Manifest ────────────────────────────────────────────────────
 
-pub async fn install_chrome_native_host_manifest(
-    manifest_binary_path: &str,
-) -> Result<()> {
+pub async fn install_chrome_native_host_manifest(manifest_binary_path: &str) -> Result<()> {
     let manifest_dirs: Vec<PathBuf> = get_all_native_messaging_hosts_dirs()
         .iter()
         .map(|bp| bp.path.clone())
@@ -786,7 +847,7 @@ pub enum MossenChromePermissionMode {
 pub fn get_mossen_chrome_mcp_allowed_tool_names(server_name: &str) -> Vec<String> {
     FALLBACK_CHROME_MCP_TOOL_NAMES
         .iter()
-        .map(|tool| format!("mcp__{}__{}",server_name, tool))
+        .map(|tool| format!("mcp__{}__{}", server_name, tool))
         .collect()
 }
 
@@ -925,7 +986,7 @@ pub fn create_mossen_chrome_mcp_server(context: MossenChromeMcpContext) -> serde
 
 /// 对应 TS `CHROME_EXTENSION_URL`：Chrome 商店中扩展的安装 URL。
 pub const CHROME_EXTENSION_URL: &str =
-    "https://chromewebstore.google.com/detail/mossen-code-for-chrome/fcoeoabgfenejglbffodgkkbkcdhcgfn";
+    "https://chromewebstore.google.com/detail/cli-for-chrome/fcoeoabgfenejglbffodgkkbkcdhcgfn";
 
 /// 对应 TS `getAllBrowserDataPathsPortable`：portable 安装下的浏览器数据路径，
 /// 与 [`get_all_browser_data_paths`] 等价（Rust 端单二进制无 portable 差异）。
@@ -951,10 +1012,7 @@ pub async fn is_chrome_extension_installed_portable() -> bool {
 pub type ChromeToolName = String;
 
 /// 对应 TS `renderChromeToolResultMessage`：渲染 mossen-in-chrome 工具返回结果的纯文本。
-pub fn render_chrome_tool_result_message(
-    tool_name: &str,
-    result: &serde_json::Value,
-) -> String {
+pub fn render_chrome_tool_result_message(tool_name: &str, result: &serde_json::Value) -> String {
     if let Some(text) = result.get("text").and_then(|v| v.as_str()) {
         return text.to_string();
     }

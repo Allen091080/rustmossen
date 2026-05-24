@@ -57,8 +57,7 @@ pub fn parse_sed_edit_command(command: &str) -> Option<SedEditInfo> {
             // On macOS, -i requires a suffix argument (even if empty string)
             if i < tokens.len() {
                 let next_arg = &tokens[i];
-                if !next_arg.starts_with('-')
-                    && (next_arg.is_empty() || next_arg.starts_with('.'))
+                if !next_arg.starts_with('-') && (next_arg.is_empty() || next_arg.starts_with('.'))
                 {
                     i += 1; // Skip the backup suffix
                 }

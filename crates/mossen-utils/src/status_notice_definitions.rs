@@ -361,8 +361,8 @@ mod tests {
     fn large_memory_triggers_notice() {
         let ctx = StatusNoticeContext {
             memory_files: vec![MemoryFileInfo {
-                path: "/tmp/CLAUDE.md".into(),
-                display_path: "CLAUDE.md".into(),
+                path: "/tmp/MOSSEN.md".into(),
+                display_path: "MOSSEN.md".into(),
                 content_len: MAX_MEMORY_CHARACTER_COUNT + 10,
             }],
             ..Default::default()

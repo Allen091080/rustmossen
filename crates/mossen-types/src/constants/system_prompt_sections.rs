@@ -7,7 +7,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 /// Compute function type for system prompt sections.
-pub type ComputeFn = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync>;
+pub type ComputeFn =
+    Box<dyn Fn() -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync>;
 
 /// A system prompt section definition.
 pub struct SystemPromptSection {
@@ -18,10 +19,7 @@ pub struct SystemPromptSection {
 
 /// Create a memoized system prompt section.
 /// Computed once, cached until /clear or /compact.
-pub fn system_prompt_section(
-    name: &str,
-    compute: ComputeFn,
-) -> SystemPromptSection {
+pub fn system_prompt_section(name: &str, compute: ComputeFn) -> SystemPromptSection {
     SystemPromptSection {
         name: name.to_string(),
         compute,

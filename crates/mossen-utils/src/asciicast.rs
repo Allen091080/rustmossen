@@ -100,7 +100,7 @@ impl AsciicastRecorder {
         original_cwd: &str,
         session_id: &str,
     ) -> Option<PathBuf> {
-        if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+        if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") {
             return None;
         }
 

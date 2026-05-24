@@ -128,7 +128,9 @@ fn parse_shell_tokens(input: &str) -> Option<Vec<String>> {
             }
             '#' => {
                 // Comment — rest of line is ignored
-                if current.is_empty() && (tokens.is_empty() || tokens.last().map(|s| s.as_str()) == Some("\n")) {
+                if current.is_empty()
+                    && (tokens.is_empty() || tokens.last().map(|s| s.as_str()) == Some("\n"))
+                {
                     while i < len && chars[i] != '\n' {
                         i += 1;
                     }
@@ -173,26 +175,54 @@ pub fn has_malformed_tokens(cmd: &str) -> bool {
                 while i < len && chars[i] != '\'' {
                     i += 1;
                 }
-                if i >= len { return true; }
+                if i >= len {
+                    return true;
+                }
                 i += 1;
             }
             '"' => {
                 i += 1;
                 while i < len && chars[i] != '"' {
-                    if chars[i] == '\\' && i + 1 < len { i += 1; }
+                    if chars[i] == '\\' && i + 1 < len {
+                        i += 1;
+                    }
                     i += 1;
                 }
-                if i >= len { return true; }
+                if i >= len {
+                    return true;
+                }
                 i += 1;
             }
-            '(' => { paren_depth += 1; i += 1; }
-            ')' => { paren_depth -= 1; i += 1; }
-            '[' => { bracket_depth += 1; i += 1; }
-            ']' => { bracket_depth -= 1; i += 1; }
-            '{' => { brace_depth += 1; i += 1; }
-            '}' => { brace_depth -= 1; i += 1; }
-            '\\' => { i += 2; }
-            _ => { i += 1; }
+            '(' => {
+                paren_depth += 1;
+                i += 1;
+            }
+            ')' => {
+                paren_depth -= 1;
+                i += 1;
+            }
+            '[' => {
+                bracket_depth += 1;
+                i += 1;
+            }
+            ']' => {
+                bracket_depth -= 1;
+                i += 1;
+            }
+            '{' => {
+                brace_depth += 1;
+                i += 1;
+            }
+            '}' => {
+                brace_depth -= 1;
+                i += 1;
+            }
+            '\\' => {
+                i += 2;
+            }
+            _ => {
+                i += 1;
+            }
         }
         if paren_depth < 0 || bracket_depth < 0 || brace_depth < 0 {
             return true;

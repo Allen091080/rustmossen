@@ -197,7 +197,10 @@ pub async fn ensure_socket_initialized() -> anyhow::Result<()> {
     match result {
         Ok(()) => Ok(()),
         Err(e) => {
-            debug!("[Socket] Failed to initialize tmux socket: {}. Tmux isolation will be disabled.", e);
+            debug!(
+                "[Socket] Failed to initialize tmux socket: {}. Tmux isolation will be disabled.",
+                e
+            );
             Ok(())
         }
     }
@@ -243,8 +246,7 @@ async fn do_initialize() -> anyhow::Result<()> {
 
     if result.code != 0 {
         // Session might already exist — check
-        let check_result =
-            exec_tmux(&["-L", &socket, "has-session", "-t", "base"], false).await;
+        let check_result = exec_tmux(&["-L", &socket, "has-session", "-t", "base"], false).await;
         if check_result.code != 0 {
             anyhow::bail!(
                 "Failed to create tmux session on socket {}: {}",
@@ -286,7 +288,13 @@ async fn do_initialize() -> anyhow::Result<()> {
 
     // Get the socket path and server PID
     let info_result = exec_tmux(
-        &["-L", &socket, "display-message", "-p", "#{socket_path},#{pid}"],
+        &[
+            "-L",
+            &socket,
+            "display-message",
+            "-p",
+            "#{socket_path},#{pid}",
+        ],
         false,
     )
     .await;
@@ -320,11 +328,7 @@ async fn do_initialize() -> anyhow::Result<()> {
     let fallback_path_str = fallback_path.to_string_lossy().to_string();
 
     // Get server PID separately
-    let pid_result = exec_tmux(
-        &["-L", &socket, "display-message", "-p", "#{pid}"],
-        false,
-    )
-    .await;
+    let pid_result = exec_tmux(&["-L", &socket, "display-message", "-p", "#{pid}"], false).await;
 
     if pid_result.code == 0 {
         if let Ok(pid) = pid_result.stdout.trim().parse::<u32>() {

@@ -176,20 +176,45 @@ struct TimeInterval {
 }
 
 const INTERVALS: &[TimeInterval] = &[
-    TimeInterval { unit: "year", seconds: 31536000, short_unit: "y" },
-    TimeInterval { unit: "month", seconds: 2592000, short_unit: "mo" },
-    TimeInterval { unit: "week", seconds: 604800, short_unit: "w" },
-    TimeInterval { unit: "day", seconds: 86400, short_unit: "d" },
-    TimeInterval { unit: "hour", seconds: 3600, short_unit: "h" },
-    TimeInterval { unit: "minute", seconds: 60, short_unit: "m" },
-    TimeInterval { unit: "second", seconds: 1, short_unit: "s" },
+    TimeInterval {
+        unit: "year",
+        seconds: 31536000,
+        short_unit: "y",
+    },
+    TimeInterval {
+        unit: "month",
+        seconds: 2592000,
+        short_unit: "mo",
+    },
+    TimeInterval {
+        unit: "week",
+        seconds: 604800,
+        short_unit: "w",
+    },
+    TimeInterval {
+        unit: "day",
+        seconds: 86400,
+        short_unit: "d",
+    },
+    TimeInterval {
+        unit: "hour",
+        seconds: 3600,
+        short_unit: "h",
+    },
+    TimeInterval {
+        unit: "minute",
+        seconds: 60,
+        short_unit: "m",
+    },
+    TimeInterval {
+        unit: "second",
+        seconds: 1,
+        short_unit: "s",
+    },
 ];
 
 /// Format a relative time difference.
-pub fn format_relative_time(
-    date: &DateTime<Local>,
-    options: &RelativeTimeOptions,
-) -> String {
+pub fn format_relative_time(date: &DateTime<Local>, options: &RelativeTimeOptions) -> String {
     let now = options.now.unwrap_or_else(Local::now);
     let diff_ms = date.signed_duration_since(now).num_milliseconds();
     let diff_in_seconds = diff_ms / 1000; // truncate towards zero
@@ -234,10 +259,7 @@ pub fn format_relative_time(
 }
 
 /// Format a relative time that happened in the past.
-pub fn format_relative_time_ago(
-    date: &DateTime<Local>,
-    options: &RelativeTimeOptions,
-) -> String {
+pub fn format_relative_time_ago(date: &DateTime<Local>, options: &RelativeTimeOptions) -> String {
     let now = options.now.unwrap_or_else(Local::now);
     if *date > now {
         return format_relative_time(date, options);
@@ -267,15 +289,13 @@ pub fn format_log_metadata(log: &LogMetadata) -> String {
         format!("{} messages", log.message_count)
     };
 
-    let mut parts = vec![
-        format_relative_time_ago(
-            &log.modified,
-            &RelativeTimeOptions {
-                style: RelativeTimeStyle::Short,
-                ..Default::default()
-            },
-        ),
-    ];
+    let mut parts = vec![format_relative_time_ago(
+        &log.modified,
+        &RelativeTimeOptions {
+            style: RelativeTimeStyle::Short,
+            ..Default::default()
+        },
+    )];
 
     if let Some(ref branch) = log.git_branch {
         parts.push(branch.clone());
@@ -310,11 +330,9 @@ pub fn format_reset_time(
         return None;
     }
 
-    let date = DateTime::from_timestamp(ts as i64, 0)?
-        .with_timezone(&Local);
+    let date = DateTime::from_timestamp(ts as i64, 0)?.with_timezone(&Local);
     let now = Local::now();
-    let hours_until_reset =
-        (date.signed_duration_since(now).num_seconds() as f64) / 3600.0;
+    let hours_until_reset = (date.signed_duration_since(now).num_seconds() as f64) / 3600.0;
 
     let tz_suffix = if show_timezone {
         format!(" ({})", now.format("%Z"))
@@ -333,7 +351,11 @@ pub fn format_reset_time(
             };
             // Add year if different
             let result = if date.year() != now.year() {
-                format!("{} {}", date.format("%b %-d, %Y %-I:%M%P"), tz_suffix.trim())
+                format!(
+                    "{} {}",
+                    date.format("%b %-d, %Y %-I:%M%P"),
+                    tz_suffix.trim()
+                )
             } else {
                 format!("{}{}", fmt, tz_suffix)
             };
@@ -362,8 +384,7 @@ pub fn format_reset_time(
 pub fn format_reset_text(resets_at: &str, show_timezone: bool, show_time: bool) -> String {
     if let Ok(dt) = resets_at.parse::<DateTime<Utc>>() {
         let ts = dt.timestamp() as u64;
-        format_reset_time(Some(ts), show_timezone, show_time)
-            .unwrap_or_default()
+        format_reset_time(Some(ts), show_timezone, show_time).unwrap_or_default()
     } else {
         String::new()
     }

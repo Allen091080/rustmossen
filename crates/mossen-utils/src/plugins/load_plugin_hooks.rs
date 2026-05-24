@@ -5,25 +5,80 @@ use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::debug;
 
 /// Hook events that plugins can register for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HookEvent {
-    PreToolUse, PostToolUse, PostToolUseFailure, PermissionDenied,
-    Notification, UserPromptSubmit, SessionStart, SessionEnd,
-    Stop, StopFailure, SubagentStart, SubagentStop,
-    PreCompact, PostCompact, PermissionRequest, Setup,
-    TeammateIdle, TaskCreated, TaskCompleted, Elicitation,
-    ElicitationResult, ConfigChange, WorktreeCreate, WorktreeRemove,
-    InstructionsLoaded, CwdChanged, FileChanged,
+    PreToolUse,
+    PostToolUse,
+    PostToolUseFailure,
+    PermissionDenied,
+    Notification,
+    UserPromptSubmit,
+    SessionStart,
+    SessionEnd,
+    Stop,
+    StopFailure,
+    SubagentStart,
+    SubagentStop,
+    PreCompact,
+    PostCompact,
+    PermissionRequest,
+    Setup,
+    TeammateIdle,
+    TaskCreated,
+    TaskCompleted,
+    Elicitation,
+    ElicitationResult,
+    ConfigChange,
+    WorktreeCreate,
+    WorktreeRemove,
+    InstructionsLoaded,
+    CwdChanged,
+    FileChanged,
+}
+
+impl HookEvent {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PreToolUse => "PreToolUse",
+            Self::PostToolUse => "PostToolUse",
+            Self::PostToolUseFailure => "PostToolUseFailure",
+            Self::PermissionDenied => "PermissionDenied",
+            Self::Notification => "Notification",
+            Self::UserPromptSubmit => "UserPromptSubmit",
+            Self::SessionStart => "SessionStart",
+            Self::SessionEnd => "SessionEnd",
+            Self::Stop => "Stop",
+            Self::StopFailure => "StopFailure",
+            Self::SubagentStart => "SubagentStart",
+            Self::SubagentStop => "SubagentStop",
+            Self::PreCompact => "PreCompact",
+            Self::PostCompact => "PostCompact",
+            Self::PermissionRequest => "PermissionRequest",
+            Self::Setup => "Setup",
+            Self::TeammateIdle => "TeammateIdle",
+            Self::TaskCreated => "TaskCreated",
+            Self::TaskCompleted => "TaskCompleted",
+            Self::Elicitation => "Elicitation",
+            Self::ElicitationResult => "ElicitationResult",
+            Self::ConfigChange => "ConfigChange",
+            Self::WorktreeCreate => "WorktreeCreate",
+            Self::WorktreeRemove => "WorktreeRemove",
+            Self::InstructionsLoaded => "InstructionsLoaded",
+            Self::CwdChanged => "CwdChanged",
+            Self::FileChanged => "FileChanged",
+        }
+    }
 }
 
 /// A plugin hook matcher entry.
 #[derive(Debug, Clone)]
 pub struct PluginHookMatcher {
     pub matcher: Option<String>,
-    pub hooks: Vec<String>,
+    pub hooks: Vec<Value>,
     pub plugin_root: String,
     pub plugin_name: String,
     pub plugin_id: String,
@@ -41,7 +96,7 @@ pub struct LoadedPluginForHooks {
 #[derive(Debug, Clone)]
 pub struct HookMatcherConfig {
     pub matcher: Option<String>,
-    pub hooks: Vec<String>,
+    pub hooks: Vec<Value>,
 }
 
 static HOT_RELOAD_SUBSCRIBED: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
@@ -164,7 +219,8 @@ pub fn get_plugin_affecting_settings_snapshot(
 
     let mut enabled: Vec<(String, bool)> = merged.enabled_plugins.into_iter().collect();
     enabled.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut extra: Vec<(String, serde_json::Value)> = merged.extra_known_marketplaces.into_iter().collect();
+    let mut extra: Vec<(String, serde_json::Value)> =
+        merged.extra_known_marketplaces.into_iter().collect();
     extra.sort_by(|a, b| a.0.cmp(&b.0));
 
     serde_json::to_string(&serde_json::json!({
@@ -230,14 +286,32 @@ pub struct PolicySettings {
 
 fn all_hook_events() -> Vec<HookEvent> {
     vec![
-        HookEvent::PreToolUse, HookEvent::PostToolUse, HookEvent::PostToolUseFailure,
-        HookEvent::PermissionDenied, HookEvent::Notification, HookEvent::UserPromptSubmit,
-        HookEvent::SessionStart, HookEvent::SessionEnd, HookEvent::Stop,
-        HookEvent::StopFailure, HookEvent::SubagentStart, HookEvent::SubagentStop,
-        HookEvent::PreCompact, HookEvent::PostCompact, HookEvent::PermissionRequest,
-        HookEvent::Setup, HookEvent::TeammateIdle, HookEvent::TaskCreated,
-        HookEvent::TaskCompleted, HookEvent::Elicitation, HookEvent::ElicitationResult,
-        HookEvent::ConfigChange, HookEvent::WorktreeCreate, HookEvent::WorktreeRemove,
-        HookEvent::InstructionsLoaded, HookEvent::CwdChanged, HookEvent::FileChanged,
+        HookEvent::PreToolUse,
+        HookEvent::PostToolUse,
+        HookEvent::PostToolUseFailure,
+        HookEvent::PermissionDenied,
+        HookEvent::Notification,
+        HookEvent::UserPromptSubmit,
+        HookEvent::SessionStart,
+        HookEvent::SessionEnd,
+        HookEvent::Stop,
+        HookEvent::StopFailure,
+        HookEvent::SubagentStart,
+        HookEvent::SubagentStop,
+        HookEvent::PreCompact,
+        HookEvent::PostCompact,
+        HookEvent::PermissionRequest,
+        HookEvent::Setup,
+        HookEvent::TeammateIdle,
+        HookEvent::TaskCreated,
+        HookEvent::TaskCompleted,
+        HookEvent::Elicitation,
+        HookEvent::ElicitationResult,
+        HookEvent::ConfigChange,
+        HookEvent::WorktreeCreate,
+        HookEvent::WorktreeRemove,
+        HookEvent::InstructionsLoaded,
+        HookEvent::CwdChanged,
+        HookEvent::FileChanged,
     ]
 }

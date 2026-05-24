@@ -78,9 +78,7 @@ impl AuthCodeListener {
                 .map_err(|e| format!("Read failed: {}", e))?;
             let _ = n;
             let stream_ref = &stream;
-            let n = stream_ref
-                .try_read(&mut buf)
-                .unwrap_or(0);
+            let n = stream_ref.try_read(&mut buf).unwrap_or(0);
 
             let request = String::from_utf8_lossy(&buf[..n]);
             let first_line = request.lines().next().unwrap_or("");
@@ -94,10 +92,7 @@ impl AuthCodeListener {
             }
 
             // Extract query parameters
-            let path_and_query = first_line
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or("");
+            let path_and_query = first_line.split_whitespace().nth(1).unwrap_or("");
             let url = format!("http://localhost{}", path_and_query);
             let parsed = url::Url::parse(&url).map_err(|e| format!("URL parse: {}", e))?;
 

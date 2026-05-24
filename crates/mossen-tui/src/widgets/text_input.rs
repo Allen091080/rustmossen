@@ -1,7 +1,6 @@
 //! Text input widget — base component for line editing.
 //!
-//! Translates useTextInput.ts + BaseTextInput.tsx into a Rust struct
-//! with cursor management, history navigation, and input handling.
+//! Provides cursor management, history navigation, and input handling.
 
 use ratatui::{
     buffer::Buffer,
@@ -14,8 +13,6 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 /// Text input state — manages buffer, cursor, and selection.
-///
-/// Translates: useTextInput.ts (18.3KB) hook state.
 #[derive(Debug, Clone)]
 pub struct TextInputState {
     /// The text content
@@ -249,42 +246,134 @@ impl<'a> Widget for TextInputWidget<'a> {
         }
 
         if self.state.value.is_empty() && !self.state.placeholder.is_empty() {
-            // Render placeholder
-            let placeholder = &self.state.placeholder;
-            let truncated: String = placeholder
-                .graphemes(true)
-                .take(area.width as usize)
-                .collect();
-            buf.set_string(area.x, area.y, &truncated, self.placeholder_style);
-            // Show cursor at start if focused
-            if self.state.focused {
+            // Keep the placeholder readable; drawing the cursor over it hides
+            // the first character in real terminals.
+            let (placeholder_x, placeholder_width) = if self.state.focused {
                 buf.set_string(area.x, area.y, " ", self.cursor_style);
+                (area.x.saturating_add(1), area.width.saturating_sub(1))
+            } else {
+                (area.x, area.width)
+            };
+            let truncated =
+                truncate_to_display_width(&self.state.placeholder, placeholder_width as usize);
+            if placeholder_width > 0 {
+                buf.set_string(placeholder_x, area.y, &truncated, self.placeholder_style);
             }
             return;
         }
 
-        // Render value with cursor
+        // Render value with horizontal scrolling that keeps the cursor/tail
+        // visible in a one-line prompt.
         let graphemes: Vec<&str> = self.state.value.graphemes(true).collect();
+        let widths: Vec<usize> = graphemes
+            .iter()
+            .map(|g| UnicodeWidthStr::width(*g))
+            .collect();
+        let area_width = area.width as usize;
+        let cursor = self.state.cursor.min(graphemes.len());
+        let cursor_width: usize = widths.iter().take(cursor).sum();
+        let mut start_idx = 0usize;
+        let mut skipped_width = 0usize;
+
+        if cursor_width >= area_width && area_width > 0 {
+            let target_skip = cursor_width + 1 - area_width;
+            while start_idx < cursor {
+                let next_width = widths[start_idx].max(1);
+                if skipped_width + next_width > target_skip {
+                    break;
+                }
+                skipped_width += next_width;
+                start_idx += 1;
+            }
+        }
+
         let mut x = area.x;
         let max_x = area.x + area.width;
 
-        for (i, g) in graphemes.iter().enumerate() {
-            let w = UnicodeWidthStr::width(*g) as u16;
+        for (i, g) in graphemes.iter().enumerate().skip(start_idx) {
+            let w = widths[i] as u16;
+            if w == 0 {
+                continue;
+            }
             if x + w > max_x {
                 break;
             }
-            let style = if self.state.focused && i == self.state.cursor {
-                self.cursor_style
+            if self.state.focused && i == cursor {
+                buf.set_string(x, area.y, g, self.cursor_style);
             } else {
-                self.style
-            };
-            buf.set_string(x, area.y, g, style);
+                buf.set_string(x, area.y, g, self.style);
+            }
             x += w;
         }
 
-        // Cursor at end
-        if self.state.focused && self.state.cursor >= graphemes.len() && x < max_x {
-            buf.set_string(x, area.y, " ", self.cursor_style);
+        // Cursor at end.
+        if self.state.focused && cursor >= graphemes.len() && x < max_x {
+            if self.state.focused {
+                buf.set_string(x, area.y, " ", self.cursor_style);
+            }
         }
+    }
+}
+
+fn truncate_to_display_width(text: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut width = 0usize;
+    for grapheme in text.graphemes(true) {
+        let w = UnicodeWidthStr::width(grapheme);
+        if width + w > max_width {
+            break;
+        }
+        width += w;
+        out.push_str(grapheme);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TextInputState, TextInputWidget};
+    use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
+
+    fn render_line(state: &TextInputState, width: u16) -> String {
+        let mut buf = Buffer::empty(Rect::new(0, 0, width, 1));
+        TextInputWidget::new(state).render(Rect::new(0, 0, width, 1), &mut buf);
+        let mut out = String::new();
+        for x in 0..width {
+            out.push_str(buf[(x, 0)].symbol());
+        }
+        out
+    }
+
+    #[test]
+    fn focused_placeholder_keeps_first_character_visible() {
+        let state = TextInputState::new().with_placeholder("Ask anything...");
+
+        let rendered = render_line(&state, 16);
+
+        assert!(
+            rendered.contains("Ask anything"),
+            "placeholder should not lose its first character:\n{rendered:?}"
+        );
+    }
+
+    #[test]
+    fn long_multibyte_input_keeps_tail_and_cursor_visible() {
+        let mut state = TextInputState::new();
+        state.insert_str("0123456789读代码");
+        state.move_end();
+
+        let rendered = render_line(&state, 8);
+
+        assert!(
+            rendered.contains('读') && rendered.contains('代') && rendered.contains('码'),
+            "tail should stay visible for long multibyte input:\n{rendered:?}"
+        );
+        assert!(
+            !rendered.contains("0123"),
+            "head should scroll away when cursor is at the tail:\n{rendered:?}"
+        );
     }
 }

@@ -57,14 +57,12 @@ pub fn get_system_directories(options: Option<&SystemDirectoriesOptions>) -> Sys
         .and_then(|o| o.platform)
         .unwrap_or_else(get_platform);
 
-    let home_dir = options
-        .and_then(|o| o.homedir.clone())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("/"))
-                .to_string_lossy()
-                .to_string()
-        });
+    let home_dir = options.and_then(|o| o.homedir.clone()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/"))
+            .to_string_lossy()
+            .to_string()
+    });
 
     let env_get = |key: &str| -> Option<String> {
         if let Some(opts) = options {
@@ -99,14 +97,12 @@ pub fn get_system_directories(options: Option<&SystemDirectoriesOptions>) -> Sys
                 downloads: join(&user_profile, "Downloads"),
             }
         }
-        Platform::Linux | Platform::Wsl => {
-            SystemDirectories {
-                home: home_dir,
-                desktop: env_get("XDG_DESKTOP_DIR").unwrap_or(defaults.desktop),
-                documents: env_get("XDG_DOCUMENTS_DIR").unwrap_or(defaults.documents),
-                downloads: env_get("XDG_DOWNLOAD_DIR").unwrap_or(defaults.downloads),
-            }
-        }
+        Platform::Linux | Platform::Wsl => SystemDirectories {
+            home: home_dir,
+            desktop: env_get("XDG_DESKTOP_DIR").unwrap_or(defaults.desktop),
+            documents: env_get("XDG_DOCUMENTS_DIR").unwrap_or(defaults.documents),
+            downloads: env_get("XDG_DOWNLOAD_DIR").unwrap_or(defaults.downloads),
+        },
         Platform::Macos | Platform::Unknown => defaults,
     }
 }

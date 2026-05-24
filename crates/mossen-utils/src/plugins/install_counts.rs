@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::debug;
 
-use super::fetch_telemetry::{classify_fetch_error, log_plugin_fetch, PluginFetchOutcome, PluginFetchSource};
+use super::fetch_telemetry::{
+    classify_fetch_error, log_plugin_fetch, PluginFetchOutcome, PluginFetchSource,
+};
 use super::plugin_directories::get_plugins_directory;
 
 const INSTALL_COUNTS_CACHE_VERSION: u32 = 1;
@@ -70,7 +72,10 @@ async fn load_install_counts_cache() -> Option<InstallCountsCache> {
     // Validate structure
     let version = parsed.get("version")?.as_u64()?;
     if version != INSTALL_COUNTS_CACHE_VERSION as u64 {
-        debug!("Install counts cache version mismatch (got {}, expected {})", version, INSTALL_COUNTS_CACHE_VERSION);
+        debug!(
+            "Install counts cache version mismatch (got {}, expected {})",
+            version, INSTALL_COUNTS_CACHE_VERSION
+        );
         return None;
     }
 

@@ -266,7 +266,10 @@ pub fn mcp_add_template(template_name: &str, params: &JsonValue) -> McpAddTempla
     // We reuse the mcp crate's logic. Avoid hard dep on mossen-mcp by
     // duplicating the minimal lookup.
     match template_name {
-        "filesystem-readonly" | "git-readonly" | "local-docs" | "playwright-local"
+        "filesystem-readonly"
+        | "git-readonly"
+        | "local-docs"
+        | "playwright-local"
         | "sqlite-readonly" => {
             let root = params.get("root").and_then(|v| v.as_str());
             let db = params.get("db").and_then(|v| v.as_str());
@@ -341,10 +344,7 @@ pub const INSTALL: &str = "install";
 /// `clear/conversation.ts` `clearConversation`。
 ///
 /// 调用方提供 messages 与 keep-system flag；返回截断后的消息数组。
-pub fn clear_conversation(
-    messages: Vec<JsonValue>,
-    keep_system: bool,
-) -> Vec<JsonValue> {
+pub fn clear_conversation(messages: Vec<JsonValue>, keep_system: bool) -> Vec<JsonValue> {
     if keep_system {
         messages
             .into_iter()
@@ -389,8 +389,14 @@ pub fn mcp_status(clients: &[JsonValue]) -> Vec<(String, String)> {
         .iter()
         .map(|c| {
             (
-                c.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string(),
-                c.get("type").and_then(|t| t.as_str()).unwrap_or("connected").to_string(),
+                c.get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                c.get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("connected")
+                    .to_string(),
             )
         })
         .collect()
@@ -494,7 +500,9 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<JsonValue, String>>,
 {
-    fetch_status().await.unwrap_or_else(|e| json!({ "error": e }))
+    fetch_status()
+        .await
+        .unwrap_or_else(|e| json!({ "error": e }))
 }
 
 /// `mcp/McpTemplates.tsx` `McpTemplates` 业务逻辑。
@@ -554,12 +562,7 @@ pub fn create_moved_to_plugin_command(name: &str, plugin_id: &str) -> JsonValue 
 
 /// `assistant/assistant.tsx` `NewInstallWizard`。
 pub fn new_install_wizard() -> Vec<&'static str> {
-    vec![
-        "welcome",
-        "choose-model",
-        "configure-tools",
-        "ready",
-    ]
+    vec!["welcome", "choose-model", "configure-tools", "ready"]
 }
 
 // install-github-app/*Step.tsx 入口（业务都很薄：返回下一步标识）

@@ -145,7 +145,10 @@ pub fn classify_image_error(error: &str) -> ImageErrorType {
 pub fn hash_string(s: &str) -> u32 {
     let mut hash: u32 = 5381;
     for byte in s.bytes() {
-        hash = hash.wrapping_shl(5).wrapping_add(hash).wrapping_add(byte as u32);
+        hash = hash
+            .wrapping_shl(5)
+            .wrapping_add(hash)
+            .wrapping_add(byte as u32);
     }
     hash
 }
@@ -304,11 +307,7 @@ pub fn constrain_dimensions(
 }
 
 /// Check if an image buffer needs resizing based on size and dimensions.
-pub fn needs_resize(
-    original_size: usize,
-    width: u32,
-    height: u32,
-) -> bool {
+pub fn needs_resize(original_size: usize, width: u32, height: u32) -> bool {
     original_size > IMAGE_TARGET_RAW_SIZE || width > IMAGE_MAX_WIDTH || height > IMAGE_MAX_HEIGHT
 }
 
@@ -377,14 +376,9 @@ pub struct ImageBlockParam {
 #[serde(tag = "type")]
 pub enum ImageSource {
     #[serde(rename = "base64")]
-    Base64 {
-        media_type: String,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
     #[serde(rename = "url")]
-    Url {
-        url: String,
-    },
+    Url { url: String },
 }
 
 /// Image block with dimension information.

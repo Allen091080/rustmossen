@@ -90,15 +90,19 @@ pub struct IdeStatusIndicatorEvent {
 /// `removeNotification`s based on the combination of IDE status, install
 /// error, and JetBrains hint. We compute the four notifications it can
 /// emit and return them.
-pub fn use_ide_status_indicator(inputs: &IdeStatusIndicatorInputs) -> (Vec<IdeStatusIndicatorEvent>, Vec<String>) {
+pub fn use_ide_status_indicator(
+    inputs: &IdeStatusIndicatorInputs,
+) -> (Vec<IdeStatusIndicatorEvent>, Vec<String>) {
     let mut events = Vec::new();
     let mut clear_keys = Vec::new();
     if inputs.is_remote_mode {
         return (events, clear_keys);
     }
 
-    let should_show_selection = inputs.ide_status == Some(IdeStatus::Connected) && inputs.selection_present;
-    let should_show_connected = inputs.ide_status == Some(IdeStatus::Connected) && !should_show_selection;
+    let should_show_selection =
+        inputs.ide_status == Some(IdeStatus::Connected) && inputs.selection_present;
+    let should_show_connected =
+        inputs.ide_status == Some(IdeStatus::Connected) && !should_show_selection;
     let show_install_error = (inputs.install_error_present || inputs.is_jet_brains)
         && !inputs.is_jet_brains
         && !should_show_connected
@@ -116,7 +120,8 @@ pub fn use_ide_status_indicator(inputs: &IdeStatusIndicatorInputs) -> (Vec<IdeSt
     }
 
     // ide-status-disconnected
-    if show_install_error || show_jet_brains_info
+    if show_install_error
+        || show_jet_brains_info
         || inputs.ide_status != Some(IdeStatus::Disconnected)
         || inputs.ide_name.is_none()
     {

@@ -1,8 +1,8 @@
 //! Sync cache — persistent on-disk cache for remote managed settings.
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// On-disk sync cache state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

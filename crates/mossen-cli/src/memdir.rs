@@ -3,8 +3,8 @@
 // memdir/paths.ts, memdir/teamMemPaths.ts, memdir/teamMemPrompts.ts,
 // memdir/memdir.ts, memdir/findRelevantMemories.ts
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // ============================================================================
 // memoryTypes.ts — Memory Type Taxonomy
@@ -125,8 +125,10 @@ pub fn when_to_access_section() -> Vec<String> {
     vec![
         "## When to access memories".into(),
         "- When memories seem relevant, or the user references prior-conversation work.".into(),
-        "- You MUST access memory when the user explicitly asks you to check, recall, or remember.".into(),
-        "- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty.".into(),
+        "- You MUST access memory when the user explicitly asks you to check, recall, or remember."
+            .into(),
+        "- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty."
+            .into(),
         MEMORY_DRIFT_CAVEAT.into(),
     ]
 }
@@ -169,7 +171,9 @@ pub fn memory_age_days(mtime_ms: i64) -> u64 {
         .unwrap_or_default()
         .as_millis() as i64;
     let diff = now - mtime_ms;
-    if diff < 0 { return 0; }
+    if diff < 0 {
+        return 0;
+    }
     (diff / 86_400_000) as u64
 }
 
@@ -184,7 +188,9 @@ pub fn memory_age(mtime_ms: i64) -> String {
 
 pub fn memory_freshness_text(mtime_ms: i64) -> String {
     let d = memory_age_days(mtime_ms);
-    if d <= 1 { return String::new(); }
+    if d <= 1 {
+        return String::new();
+    }
     format!(
         "This memory is {} days old. Memories are point-in-time observations, not live state — \
          claims about code behavior or file:line citations may be outdated. \
@@ -195,7 +201,9 @@ pub fn memory_freshness_text(mtime_ms: i64) -> String {
 
 pub fn memory_freshness_note(mtime_ms: i64) -> String {
     let text = memory_freshness_text(mtime_ms);
-    if text.is_empty() { return String::new(); }
+    if text.is_empty() {
+        return String::new();
+    }
     format!("<system-reminder>{}</system-reminder>\n", text)
 }
 
@@ -222,7 +230,11 @@ pub async fn scan_memory_files(memory_dir: &Path) -> Vec<MemoryHeader> {
             while let Ok(Some(entry)) = rd.next_entry().await {
                 let path = entry.path();
                 if path.extension().map(|e| e == "md").unwrap_or(false) {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     if name != "MEMORY.md" {
                         files.push(path);
                     }
@@ -248,7 +260,11 @@ pub async fn scan_memory_files(memory_dir: &Path) -> Vec<MemoryHeader> {
             let (description, memory_type) = parse_frontmatter_fields(&lines);
 
             headers.push(MemoryHeader {
-                filename: file_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                filename: file_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
                 file_path,
                 mtime_ms,
                 description,
@@ -292,7 +308,10 @@ pub fn format_memory_manifest(memories: &[MemoryHeader]) -> String {
     memories
         .iter()
         .map(|m| {
-            let tag = m.memory_type.map(|t| format!("[{}] ", t.as_str())).unwrap_or_default();
+            let tag = m
+                .memory_type
+                .map(|t| format!("[{}] ", t.as_str()))
+                .unwrap_or_default();
             let ts = chrono::DateTime::from_timestamp_millis(m.mtime_ms)
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
@@ -312,11 +331,17 @@ pub fn format_memory_manifest(memories: &[MemoryHeader]) -> String {
 
 pub fn is_auto_memory_enabled() -> bool {
     if let Ok(val) = std::env::var("MOSSEN_CODE_DISABLE_AUTO_MEMORY") {
-        if is_env_truthy(&val) { return false; }
-        if is_env_defined_falsy(&val) { return true; }
+        if is_env_truthy(&val) {
+            return false;
+        }
+        if is_env_defined_falsy(&val) {
+            return true;
+        }
     }
     if let Ok(val) = std::env::var("MOSSEN_CODE_SIMPLE") {
-        if is_env_truthy(&val) { return false; }
+        if is_env_truthy(&val) {
+            return false;
+        }
     }
     if let Ok(remote) = std::env::var("MOSSEN_CODE_REMOTE") {
         if is_env_truthy(&remote) && std::env::var("MOSSEN_CODE_REMOTE_MEMORY_DIR").is_err() {
@@ -352,7 +377,11 @@ pub fn get_auto_mem_daily_log_path(auto_mem_path: &Path) -> PathBuf {
     let yyyy = now.format("%Y").to_string();
     let mm = now.format("%m").to_string();
     let dd = now.format("%Y-%m-%d").to_string();
-    auto_mem_path.join("logs").join(&yyyy).join(&mm).join(format!("{}.md", dd))
+    auto_mem_path
+        .join("logs")
+        .join(&yyyy)
+        .join(&mm)
+        .join(format!("{}.md", dd))
 }
 
 pub fn get_auto_mem_entrypoint(project_root: &Path) -> PathBuf {
@@ -371,13 +400,25 @@ pub fn has_auto_mem_path_override() -> bool {
         .is_some()
 }
 
+fn path_starts_with_dir(path: &Path, dir: &Path) -> bool {
+    path == dir || path.strip_prefix(dir).is_ok()
+}
+
 fn validate_memory_path(raw: &str, _expand_tilde: bool) -> Option<PathBuf> {
-    if raw.is_empty() { return None; }
+    if raw.is_empty() {
+        return None;
+    }
     let path = PathBuf::from(raw);
-    if !path.is_absolute() { return None; }
+    if !path.is_absolute() {
+        return None;
+    }
     let normalized = path.to_string_lossy().to_string();
-    if normalized.len() < 3 { return None; }
-    if normalized.contains('\0') { return None; }
+    if normalized.len() < 3 {
+        return None;
+    }
+    if normalized.contains('\0') {
+        return None;
+    }
     Some(path)
 }
 
@@ -395,10 +436,16 @@ fn is_env_defined_falsy(val: &str) -> bool {
 }
 
 pub fn is_extract_mode_active() -> bool {
-    if !is_auto_memory_enabled() { return false; }
+    if !is_auto_memory_enabled() {
+        return false;
+    }
     if let Ok(val) = std::env::var("MOSSEN_CODE_ENABLE_EXTRACT_MEMORIES") {
-        if is_env_truthy(&val) { return true; }
-        if is_env_defined_falsy(&val) { return false; }
+        if is_env_truthy(&val) {
+            return true;
+        }
+        if is_env_defined_falsy(&val) {
+            return false;
+        }
     }
     false
 }
@@ -422,24 +469,71 @@ impl std::error::Error for PathTraversalError {}
 
 pub fn sanitize_path_key(key: &str) -> Result<String, PathTraversalError> {
     if key.contains('\0') {
-        return Err(PathTraversalError { message: format!("Null byte in path key: \"{}\"", key) });
+        return Err(PathTraversalError {
+            message: format!("Null byte in path key: \"{}\"", key),
+        });
     }
     if key.contains('\\') {
-        return Err(PathTraversalError { message: format!("Backslash in path key: \"{}\"", key) });
+        return Err(PathTraversalError {
+            message: format!("Backslash in path key: \"{}\"", key),
+        });
     }
     if key.starts_with('/') {
-        return Err(PathTraversalError { message: format!("Absolute path key: \"{}\"", key) });
+        return Err(PathTraversalError {
+            message: format!("Absolute path key: \"{}\"", key),
+        });
     }
     if key.contains("..") {
-        return Err(PathTraversalError { message: format!("Traversal in path key: \"{}\"", key) });
+        return Err(PathTraversalError {
+            message: format!("Traversal in path key: \"{}\"", key),
+        });
     }
     Ok(key.to_string())
 }
 
 pub fn is_team_memory_enabled() -> bool {
-    if !is_auto_memory_enabled() { return false; }
-    // Feature-gated: default false
-    false
+    is_auto_memory_enabled() && is_team_memory_rollout_enabled()
+}
+
+pub fn is_team_memory_rollout_enabled() -> bool {
+    resolve_team_memory_rollout_enabled(
+        env_flag(&["MOSSEN_CODE_DISABLE_TEAM_MEMORY"]),
+        env_flag(&[
+            "MOSSEN_CODE_ENABLE_TEAM_MEMORY",
+            "MOSSEN_TEAM_MEMORY",
+            "MOSSEN_MEMORY_TEAM_MEMORY_ENABLED",
+            "MOSSEN_TEAM_MEMORY_ENABLED",
+        ]),
+        mossen_agent::services::team_memory_sync::is_team_memory_sync_available(),
+    )
+}
+
+fn resolve_team_memory_rollout_enabled(
+    disable_flag: Option<bool>,
+    enable_flag: Option<bool>,
+    sync_available: bool,
+) -> bool {
+    if disable_flag == Some(true) {
+        return false;
+    }
+    if let Some(enabled) = enable_flag {
+        return enabled;
+    }
+    sync_available
+}
+
+fn env_flag(names: &[&str]) -> Option<bool> {
+    names.iter().find_map(|name| {
+        std::env::var(name).ok().and_then(|value| {
+            if is_env_truthy(&value) {
+                Some(true)
+            } else if is_env_defined_falsy(&value) {
+                Some(false)
+            } else {
+                None
+            }
+        })
+    })
 }
 
 pub fn get_team_mem_path(project_root: &Path) -> PathBuf {
@@ -447,25 +541,30 @@ pub fn get_team_mem_path(project_root: &Path) -> PathBuf {
 }
 
 pub fn get_team_mem_entrypoint(project_root: &Path) -> PathBuf {
-    get_auto_mem_path(project_root).join("team").join("MEMORY.md")
+    get_auto_mem_path(project_root)
+        .join("team")
+        .join("MEMORY.md")
 }
 
 pub fn is_team_mem_path(file_path: &Path, project_root: &Path) -> bool {
     let team_dir = get_team_mem_path(project_root);
-    file_path.starts_with(&team_dir)
+    path_starts_with_dir(file_path, &team_dir)
 }
 
 pub async fn validate_team_mem_write_path(
-    file_path: &Path, project_root: &Path,
+    file_path: &Path,
+    project_root: &Path,
 ) -> Result<PathBuf, PathTraversalError> {
     if file_path.to_string_lossy().contains('\0') {
-        return Err(PathTraversalError { message: format!("Null byte in path: {:?}", file_path) });
+        return Err(PathTraversalError {
+            message: format!("Null byte in path: {:?}", file_path),
+        });
     }
     let resolved = file_path.canonicalize().map_err(|_| PathTraversalError {
         message: format!("Cannot resolve path: {:?}", file_path),
     })?;
     let team_dir = get_team_mem_path(project_root);
-    if !resolved.starts_with(&team_dir) {
+    if !path_starts_with_dir(&resolved, &team_dir) {
         return Err(PathTraversalError {
             message: format!("Path escapes team memory directory: {:?}", file_path),
         });
@@ -474,7 +573,8 @@ pub async fn validate_team_mem_write_path(
 }
 
 pub async fn validate_team_mem_key(
-    relative_key: &str, project_root: &Path,
+    relative_key: &str,
+    project_root: &Path,
 ) -> Result<PathBuf, PathTraversalError> {
     sanitize_path_key(relative_key)?;
     let team_dir = get_team_mem_path(project_root);
@@ -528,7 +628,10 @@ pub fn build_combined_memory_prompt(
 
     lines.push("## When to access memories".into());
     lines.push("- When memories seem relevant, or the user references prior work.".into());
-    lines.push("- You MUST access memory when the user explicitly asks you to check, recall, or remember.".into());
+    lines.push(
+        "- You MUST access memory when the user explicitly asks you to check, recall, or remember."
+            .into(),
+    );
     lines.push(MEMORY_DRIFT_CAVEAT.into());
     lines.push(String::new());
     lines.extend(trusting_recall_section());
@@ -588,12 +691,17 @@ pub fn truncate_entrypoint_content(raw: &str) -> EntrypointTruncation {
     };
 
     if truncated.len() > MAX_ENTRYPOINT_BYTES {
-        let cut_at = truncated[..MAX_ENTRYPOINT_BYTES].rfind('\n').unwrap_or(MAX_ENTRYPOINT_BYTES);
+        let cut_at = truncated[..MAX_ENTRYPOINT_BYTES]
+            .rfind('\n')
+            .unwrap_or(MAX_ENTRYPOINT_BYTES);
         truncated = truncated[..cut_at].to_string();
     }
 
     let reason = if was_byte_truncated && !was_line_truncated {
-        format!("{} bytes (limit: {}) — index entries are too long", byte_count, MAX_ENTRYPOINT_BYTES)
+        format!(
+            "{} bytes (limit: {}) — index entries are too long",
+            byte_count, MAX_ENTRYPOINT_BYTES
+        )
     } else if was_line_truncated && !was_byte_truncated {
         format!("{} lines (limit: {})", line_count, MAX_ENTRYPOINT_LINES)
     } else {
@@ -675,7 +783,10 @@ pub fn build_memory_prompt(display_name: &str, memory_dir: &Path) -> String {
     } else {
         lines.push(format!("## {}", ENTRYPOINT_NAME));
         lines.push(String::new());
-        lines.push(format!("Your {} is currently empty. When you save new memories, they will appear here.", ENTRYPOINT_NAME));
+        lines.push(format!(
+            "Your {} is currently empty. When you save new memories, they will appear here.",
+            ENTRYPOINT_NAME
+        ));
     }
 
     lines.join("\n")
@@ -687,7 +798,9 @@ pub async fn load_memory_prompt(project_root: &Path) -> Option<String> {
     }
 
     if is_team_memory_enabled() {
+        let auto_dir = get_auto_mem_path(project_root);
         let team_dir = get_team_mem_path(project_root);
+        ensure_memory_dir_exists(&auto_dir).await;
         ensure_memory_dir_exists(&team_dir).await;
         return Some(build_combined_memory_prompt(project_root, None, false));
     }
@@ -748,7 +861,7 @@ pub async fn find_relevant_memories(
         return Vec::new();
     }
 
-    // In the TS version, this does a sideQuery to Sonnet for relevance selection.
+    // In the TS version, this does a sideQuery to Balanced for relevance selection.
     // Here we return all memories (up to 5) sorted by recency as a reasonable default.
     filtered
         .into_iter()
@@ -758,4 +871,41 @@ pub async fn find_relevant_memories(
             mtime_ms: m.mtime_ms,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn team_memory_rollout_uses_explicit_flags_before_sync_availability() {
+        assert!(!resolve_team_memory_rollout_enabled(
+            Some(true),
+            Some(true),
+            true
+        ));
+        assert!(resolve_team_memory_rollout_enabled(None, Some(true), false));
+        assert!(!resolve_team_memory_rollout_enabled(
+            None,
+            Some(false),
+            true
+        ));
+        assert!(resolve_team_memory_rollout_enabled(None, None, true));
+        assert!(!resolve_team_memory_rollout_enabled(None, None, false));
+    }
+
+    #[test]
+    fn team_memory_path_detection_uses_component_boundaries() {
+        let project_root = Path::new("/workspace/project");
+        let team_dir = get_team_mem_path(project_root);
+        assert!(is_team_mem_path(&team_dir.join("MEMORY.md"), project_root));
+        assert!(!is_team_mem_path(
+            &team_dir
+                .parent()
+                .expect("team parent")
+                .join("team-other")
+                .join("MEMORY.md"),
+            project_root,
+        ));
+    }
 }

@@ -14,9 +14,15 @@ struct PortRange {
 /// Get the redirect port range based on platform.
 fn get_redirect_port_range() -> PortRange {
     if cfg!(target_os = "windows") {
-        PortRange { min: 39152, max: 49151 }
+        PortRange {
+            min: 39152,
+            max: 49151,
+        }
     } else {
-        PortRange { min: 49152, max: 65535 }
+        PortRange {
+            min: 49152,
+            max: 65535,
+        }
     }
 }
 

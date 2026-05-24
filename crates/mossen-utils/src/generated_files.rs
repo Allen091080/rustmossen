@@ -87,12 +87,7 @@ static EXCLUDED_FILENAME_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 /// Returns true if the file should be excluded from attribution
 pub fn is_generated_file(file_path: &str) -> bool {
     // Normalize path separators for consistent pattern matching
-    let normalized_path = format!(
-        "/{}",
-        file_path
-            .replace('\\', "/")
-            .trim_start_matches('/')
-    );
+    let normalized_path = format!("/{}", file_path.replace('\\', "/").trim_start_matches('/'));
 
     let path = Path::new(file_path);
     let file_name = path

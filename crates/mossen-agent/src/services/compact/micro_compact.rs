@@ -138,20 +138,18 @@ pub fn estimate_message_tokens(messages: &[Message]) -> usize {
                 ContentBlock::Text(t) => {
                     total_tokens += rough_token_count_estimation(&t.text, 4) as usize;
                 }
-                ContentBlock::ToolResult(tr) => {
-                    match &tr.content {
-                        ToolResultContent::Text(text) => {
-                            total_tokens += rough_token_count_estimation(text, 4) as usize;
-                        }
-                        ToolResultContent::Blocks(blocks) => {
-                            for b in blocks {
-                                if let ContentBlock::Text(t) = b {
-                                    total_tokens += rough_token_count_estimation(&t.text, 4) as usize;
-                                }
+                ContentBlock::ToolResult(tr) => match &tr.content {
+                    ToolResultContent::Text(text) => {
+                        total_tokens += rough_token_count_estimation(text, 4) as usize;
+                    }
+                    ToolResultContent::Blocks(blocks) => {
+                        for b in blocks {
+                            if let ContentBlock::Text(t) = b {
+                                total_tokens += rough_token_count_estimation(&t.text, 4) as usize;
                             }
                         }
                     }
-                }
+                },
                 ContentBlock::Image(_) => {
                     total_tokens += IMAGE_MAX_TOKEN_SIZE;
                 }
@@ -160,10 +158,9 @@ pub fn estimate_message_tokens(messages: &[Message]) -> usize {
                 }
                 ContentBlock::ToolUse(tu) => {
                     let input_str = tu.input.to_string();
-                    total_tokens += rough_token_count_estimation(
-                        &format!("{}{}", tu.name, input_str),
-                        4,
-                    ) as usize;
+                    total_tokens +=
+                        rough_token_count_estimation(&format!("{}{}", tu.name, input_str), 4)
+                            as usize;
                 }
             }
         }
@@ -277,13 +274,15 @@ fn maybe_time_based_microcompact(
                                 if text != TIME_BASED_MC_CLEARED_MESSAGE {
                                     tokens_saved += calculate_tool_result_tokens(text);
                                     touched = true;
-                                    return ContentBlock::ToolResult(mossen_types::ToolResultBlock {
-                                        tool_use_id: tr.tool_use_id.clone(),
-                                        content: ToolResultContent::Text(
-                                            TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
-                                        ),
-                                        is_error: tr.is_error,
-                                    });
+                                    return ContentBlock::ToolResult(
+                                        mossen_types::ToolResultBlock {
+                                            tool_use_id: tr.tool_use_id.clone(),
+                                            content: ToolResultContent::Text(
+                                                TIME_BASED_MC_CLEARED_MESSAGE.to_string(),
+                                            ),
+                                            is_error: tr.is_error,
+                                        },
+                                    );
                                 }
                             }
                         }

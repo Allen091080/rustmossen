@@ -153,50 +153,52 @@ fn generate_purge_token() -> String {
 /// Create a timestamp suitable for archive dir names.
 fn timestamp_for_archive_dir(now_ms: u64) -> String {
     let secs = now_ms / 1000;
-    let dt = chrono::DateTime::from_timestamp(secs as i64, 0)
-        .unwrap_or_else(|| chrono::Utc::now());
+    let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(|| chrono::Utc::now());
     dt.format("%Y-%m-%dT%H-%M-%S")
         .to_string()
         .replace([':', '.'], "-")
 }
 
 /// Compute total size of an entry (recursively for directories).
-fn compute_entry_size_bytes(abs_path: &Path, kind: EntryKind) -> std::pin::Pin<Box<dyn std::future::Future<Output = i64> + Send + '_>> {
+fn compute_entry_size_bytes(
+    abs_path: &Path,
+    kind: EntryKind,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = i64> + Send + '_>> {
     Box::pin(async move {
-    match kind {
-        EntryKind::File => match fs::metadata(abs_path).await {
-            Ok(meta) => meta.len() as i64,
-            Err(_) => -1,
-        },
-        EntryKind::Directory => {
-            let mut total: i64 = 0;
-            let mut entries = match fs::read_dir(abs_path).await {
-                Ok(e) => e,
-                Err(_) => return -1,
-            };
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let ft = match entry.file_type().await {
-                    Ok(ft) => ft,
+        match kind {
+            EntryKind::File => match fs::metadata(abs_path).await {
+                Ok(meta) => meta.len() as i64,
+                Err(_) => -1,
+            },
+            EntryKind::Directory => {
+                let mut total: i64 = 0;
+                let mut entries = match fs::read_dir(abs_path).await {
+                    Ok(e) => e,
                     Err(_) => return -1,
                 };
-                let child_path = entry.path();
-                if ft.is_dir() {
-                    let sub = compute_entry_size_bytes(&child_path, EntryKind::Directory).await;
-                    if sub < 0 {
-                        return -1;
-                    }
-                    total += sub;
-                } else if ft.is_file() {
-                    match fs::metadata(&child_path).await {
-                        Ok(meta) => total += meta.len() as i64,
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let ft = match entry.file_type().await {
+                        Ok(ft) => ft,
                         Err(_) => return -1,
+                    };
+                    let child_path = entry.path();
+                    if ft.is_dir() {
+                        let sub = compute_entry_size_bytes(&child_path, EntryKind::Directory).await;
+                        if sub < 0 {
+                            return -1;
+                        }
+                        total += sub;
+                    } else if ft.is_file() {
+                        match fs::metadata(&child_path).await {
+                            Ok(meta) => total += meta.len() as i64,
+                            Err(_) => return -1,
+                        }
                     }
                 }
+                total
             }
-            total
+            EntryKind::Other => -1,
         }
-        EntryKind::Other => -1,
-    }
     }) // end Box::pin
 }
 
@@ -353,7 +355,8 @@ pub async fn get_project_purge_plan(
         }
     };
 
-    let should_include_memory = include_memory && memory_status == ProjectPurgeMemoryStatus::InProject;
+    let should_include_memory =
+        include_memory && memory_status == ProjectPurgeMemoryStatus::InProject;
 
     let mut to_archive = Vec::new();
     let mut to_skip = Vec::new();
@@ -437,7 +440,9 @@ pub async fn execute_project_purge_plan(
     evict_expired_plans(now);
 
     let plan = {
-        let mut store = PLAN_STORE.lock().map_err(|_| ProjectPurgeError::UnknownToken)?;
+        let mut store = PLAN_STORE
+            .lock()
+            .map_err(|_| ProjectPurgeError::UnknownToken)?;
         match store.remove(token) {
             Some(p) => p,
             None => return Err(ProjectPurgeError::UnknownToken),
@@ -513,9 +518,10 @@ pub async fn execute_project_purge_plan(
     let mut archive_set: Vec<(String, PathBuf, EntryKind, i64)> = Vec::new();
     while let Ok(Some(entry)) = entries_reader.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
-        let ft = entry.file_type().await.unwrap_or_else(|_| {
-            std::fs::metadata(entry.path()).unwrap().file_type()
-        });
+        let ft = entry
+            .file_type()
+            .await
+            .unwrap_or_else(|_| std::fs::metadata(entry.path()).unwrap().file_type());
         let kind = if ft.is_dir() {
             EntryKind::Directory
         } else if ft.is_file() {

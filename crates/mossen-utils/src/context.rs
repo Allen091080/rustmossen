@@ -38,7 +38,7 @@ pub fn has_1m_context(model: &str) -> bool {
 /// `custom_backend_max_input`: the custom backend's max input tokens, if set
 /// `canonical_name`: the canonical model name
 pub fn model_supports_1m(
-    model: &str,
+    _model: &str,
     custom_backend_enabled: bool,
     custom_backend_applies: bool,
     custom_backend_max_input: Option<u64>,
@@ -50,7 +50,7 @@ pub fn model_supports_1m(
     if custom_backend_enabled && custom_backend_applies {
         return custom_backend_max_input.unwrap_or(0) >= 1_000_000;
     }
-    canonical_name.contains("mossen-sonnet-4") || canonical_name.contains("mossen-opus-4-6")
+    canonical_name.contains("mossen-balanced-4") || canonical_name.contains("mossen-max-4-6")
 }
 
 /// Get the context window size for a model.
@@ -64,7 +64,7 @@ pub fn model_supports_1m(
 /// - `custom_backend_max_input`: custom backend max input tokens
 /// - `model_cap_max_input`: capability-provided max_input_tokens
 /// - `context_1m_beta_header`: the beta header string for 1M context
-/// - `sonnet_1m_exp_enabled`: whether the sonnet 1M experiment is enabled
+/// - `balanced_1m_exp_enabled`: whether the balanced 1M experiment is enabled
 pub fn get_context_window_for_model(
     model: &str,
     betas: Option<&[String]>,
@@ -74,7 +74,7 @@ pub fn get_context_window_for_model(
     custom_backend_max_input: Option<u64>,
     model_cap_max_input: Option<u64>,
     context_1m_beta_header: &str,
-    sonnet_1m_exp_enabled: bool,
+    balanced_1m_exp_enabled: bool,
 ) -> u64 {
     // Allow override via environment variable
     if let Ok(val) = std::env::var("MOSSEN_CODE_MAX_CONTEXT_TOKENS") {
@@ -129,15 +129,15 @@ pub fn get_context_window_for_model(
         }
     }
 
-    if sonnet_1m_exp_enabled {
+    if balanced_1m_exp_enabled {
         return 1_000_000;
     }
 
     MODEL_CONTEXT_WINDOW_DEFAULT
 }
 
-/// Check if sonnet 1M experiment treatment is enabled for a model.
-pub fn get_sonnet_1m_exp_treatment_enabled(
+/// Check if balanced 1M experiment treatment is enabled for a model.
+pub fn get_balanced_1m_exp_treatment_enabled(
     model: &str,
     canonical_name: &str,
     client_data_coral_reef: Option<&str>,
@@ -148,7 +148,7 @@ pub fn get_sonnet_1m_exp_treatment_enabled(
     if has_1m_context(model) {
         return false;
     }
-    if !canonical_name.contains("sonnet-4-6") {
+    if !canonical_name.contains("balanced-4-6") {
         return false;
     }
     client_data_coral_reef == Some("true")
@@ -208,26 +208,26 @@ pub fn get_model_max_output_tokens(
     canonical_name: &str,
     model_cap_max_tokens: Option<u64>,
 ) -> ModelMaxOutputTokens {
-    let (mut default_tokens, mut upper_limit) = if canonical_name.contains("opus-4-6") {
+    let (mut default_tokens, mut upper_limit) = if canonical_name.contains("max-4-6") {
         (64_000, 128_000)
-    } else if canonical_name.contains("sonnet-4-6") {
+    } else if canonical_name.contains("balanced-4-6") {
         (32_000, 128_000)
-    } else if canonical_name.contains("opus-4-5")
-        || canonical_name.contains("sonnet-4")
-        || canonical_name.contains("haiku-4")
+    } else if canonical_name.contains("max-4-5")
+        || canonical_name.contains("balanced-4")
+        || canonical_name.contains("fast-4")
     {
         (32_000, 64_000)
-    } else if canonical_name.contains("opus-4-1") || canonical_name.contains("opus-4") {
+    } else if canonical_name.contains("max-4-1") || canonical_name.contains("max-4") {
         (32_000, 32_000)
-    } else if canonical_name.contains("mossen-3-opus") {
+    } else if canonical_name.contains("mossen-3-max") {
         (4_096, 4_096)
-    } else if canonical_name.contains("mossen-3-sonnet") {
+    } else if canonical_name.contains("mossen-3-balanced") {
         (8_192, 8_192)
-    } else if canonical_name.contains("mossen-3-haiku") {
+    } else if canonical_name.contains("mossen-3-fast") {
         (4_096, 4_096)
-    } else if canonical_name.contains("3-5-sonnet") || canonical_name.contains("3-5-haiku") {
+    } else if canonical_name.contains("3-5-balanced") || canonical_name.contains("3-5-fast") {
         (8_192, 8_192)
-    } else if canonical_name.contains("3-7-sonnet") {
+    } else if canonical_name.contains("3-7-balanced") {
         (32_000, 64_000)
     } else {
         (MAX_OUTPUT_TOKENS_DEFAULT, MAX_OUTPUT_TOKENS_UPPER_LIMIT)

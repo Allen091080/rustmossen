@@ -19,15 +19,31 @@ pub struct ToolUseBlock {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    ToolUse { name: String, input: Value, id: Option<String> },
-    ToolResult { tool_use_id: String, content: Value },
-    Image { source: Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        name: String,
+        input: Value,
+        id: Option<String>,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: Value,
+    },
+    Image {
+        source: Value,
+    },
 }
 
 /// Extract tool use block from message content by tool name.
-pub fn extract_tool_use_block<'a>(content: &'a [ContentBlock], tool_name: &str) -> Option<&'a ContentBlock> {
-    content.iter().find(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == tool_name))
+pub fn extract_tool_use_block<'a>(
+    content: &'a [ContentBlock],
+    tool_name: &str,
+) -> Option<&'a ContentBlock> {
+    content
+        .iter()
+        .find(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == tool_name))
 }
 
 /// Parse and validate classifier response from tool use block.

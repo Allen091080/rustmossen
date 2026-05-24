@@ -16,9 +16,10 @@ fn is_valid_session_id(id: &str) -> bool {
         return false;
     }
     let expected_lens = [8, 4, 4, 4, 12];
-    parts.iter().zip(expected_lens.iter()).all(|(part, &len)| {
-        part.len() == len && part.chars().all(|c| c.is_ascii_hexdigit())
-    })
+    parts
+        .iter()
+        .zip(expected_lens.iter())
+        .all(|(part, &len)| part.len() == len && part.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// Parse the resume argument — could be a session ID, number (index), or empty (picker).
@@ -116,10 +117,7 @@ impl Directive for RestoreDirective {
             }
             ResumeTarget::SessionId(id) => {
                 // In full implementation: load the session transcript and resume
-                Ok(CommandResult::System(format!(
-                    "Resuming session {}...",
-                    id
-                )))
+                Ok(CommandResult::System(format!("Resuming session {}...", id)))
             }
             ResumeTarget::Search(query) => {
                 // In full implementation: search sessions by title and show matches

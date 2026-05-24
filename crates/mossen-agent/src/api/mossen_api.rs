@@ -273,18 +273,16 @@ fn is_hosted_subscriber() -> bool {
 }
 
 fn get_small_fast_model() -> String {
-    env::var("MOSSEN_SMALL_FAST_MODEL")
-        .unwrap_or_else(|_| "claude-3-5-haiku-latest".to_string())
+    env::var("MOSSEN_SMALL_FAST_MODEL").unwrap_or_else(|_| "mossen-3-5-fast-latest".to_string())
 }
 
-fn get_default_sonnet_model() -> String {
-    env::var("MOSSEN_DEFAULT_SONNET_MODEL")
-        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string())
+fn get_default_balanced_model() -> String {
+    env::var("MOSSEN_DEFAULT_BALANCED_MODEL")
+        .unwrap_or_else(|_| "mossen-balanced-4-20250514".to_string())
 }
 
-fn get_default_opus_model() -> String {
-    env::var("MOSSEN_DEFAULT_OPUS_MODEL")
-        .unwrap_or_else(|_| "claude-opus-4-20250514".to_string())
+fn get_default_max_model() -> String {
+    env::var("MOSSEN_DEFAULT_MAX_MODEL").unwrap_or_else(|_| "mossen-max-4-20250514".to_string())
 }
 
 fn get_or_create_user_id() -> String {
@@ -308,9 +306,9 @@ fn get_prompt_cache_1h_allowlist() -> Vec<String> {
 
 fn model_supports_effort(model: &str) -> bool {
     // Models that support effort parameter
-    model.contains("claude-sonnet-4")
-        || model.contains("claude-opus-4")
-        || model.contains("claude-3-5-sonnet")
+    model.contains("mossen-balanced-4")
+        || model.contains("mossen-max-4")
+        || model.contains("mossen-3-5-balanced")
 }
 
 fn should_include_first_party_only_betas() -> bool {
@@ -323,17 +321,17 @@ fn is_max_tokens_cap_enabled() -> bool {
 
 fn get_model_max_output_tokens(model: &str) -> ModelMaxOutputTokens {
     // Default output token limits by model family
-    if model.contains("opus") {
+    if model.contains("max") {
         ModelMaxOutputTokens {
             default: 16_000,
             upper_limit: 64_000,
         }
-    } else if model.contains("sonnet") {
+    } else if model.contains("balanced") {
         ModelMaxOutputTokens {
             default: 16_000,
             upper_limit: 64_000,
         }
-    } else if model.contains("haiku") {
+    } else if model.contains("fast") {
         ModelMaxOutputTokens {
             default: 8_000,
             upper_limit: 16_000,
@@ -350,22 +348,22 @@ fn normalize_model_string_for_api(model: &str) -> String {
     model.to_string()
 }
 
-/// Default Anthropic-version header value.
+/// Default provider protocol header value.
 ///
-/// Mirrors the version the JS SDK sends. Override with `MOSSEN_ANTHROPIC_VERSION`.
-const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
+/// Mirrors the version the JS SDK sends.
+const DEFAULT_PROVIDER_VERSION: &str = "2023-06-01";
 
-/// Default Anthropic API base URL. Used when no MOSSEN_CODE_API_BASE_URL or
-/// custom backend URL is configured. The JS SDK uses the same default.
-const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
+/// Default Mossen API base URL. Used when no MOSSEN_CODE_API_BASE_URL or
+/// custom backend URL is configured.
+const DEFAULT_PROVIDER_BASE_URL: &str = "https://api.mossen.ai";
 
 /// Decide the effective base URL for the API request.
 ///
 /// Priority (mirrors `services/api/client.ts` `getMossenClient` selection):
 /// 1. Custom backend (`MOSSEN_CODE_CUSTOM_BASE_URL`) when enabled.
 /// 2. `MOSSEN_CODE_API_BASE_URL` (explicit hosted adapter).
-/// 3. `ANTHROPIC_BASE_URL` (SDK convention).
-/// 4. Default Anthropic public endpoint.
+/// 3. Provider SDK base URL env convention.
+/// 4. Default Provider public endpoint.
 fn resolve_base_url() -> String {
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
         if let Some(url) = mossen_utils::custom_backend::get_custom_backend_base_url() {
@@ -377,12 +375,7 @@ fn resolve_base_url() -> String {
             return url.trim_end_matches('/').to_string();
         }
     }
-    if let Ok(url) = env::var("ANTHROPIC_BASE_URL") {
-        if !url.is_empty() {
-            return url.trim_end_matches('/').to_string();
-        }
-    }
-    DEFAULT_ANTHROPIC_BASE_URL.to_string()
+    DEFAULT_PROVIDER_BASE_URL.to_string()
 }
 
 /// Decide which headers to apply for auth.
@@ -396,7 +389,10 @@ fn apply_auth_headers(headers: &mut ReqHeaderMap) {
     use reqwest::header::{HeaderName, HeaderValue};
 
     let insert_header = |headers: &mut ReqHeaderMap, name: &str, value: String| {
-        if let (Ok(h), Ok(v)) = (HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(&value)) {
+        if let (Ok(h), Ok(v)) = (
+            HeaderName::from_bytes(name.as_bytes()),
+            HeaderValue::from_str(&value),
+        ) {
             headers.insert(h, v);
         }
     };
@@ -421,11 +417,10 @@ fn apply_auth_headers(headers: &mut ReqHeaderMap) {
             return;
         }
     }
-    // ANTHROPIC_API_KEY is the SDK env name; MOSSEN_CODE_API_KEY is the mossen-specific one.
+    // Keep the provider SDK env fallback without exposing retired branding.
     let api_key = env::var("MOSSEN_CODE_API_KEY")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| env::var("ANTHROPIC_API_KEY").ok().filter(|s| !s.is_empty()))
         .or_else(mossen_utils::auth::get_mossen_api_key);
     if let Some(key) = api_key {
         insert_header(headers, "x-api-key", key);
@@ -437,10 +432,10 @@ fn build_request_headers(betas: Option<&[String]>) -> ReqHeaderMap {
     use reqwest::header::{HeaderName, HeaderValue};
     let mut headers = ReqHeaderMap::new();
 
-    let version =
-        env::var("MOSSEN_ANTHROPIC_VERSION").unwrap_or_else(|_| DEFAULT_ANTHROPIC_VERSION.to_string());
+    let version = env::var("MOSSEN_CODE_API_VERSION")
+        .unwrap_or_else(|_| DEFAULT_PROVIDER_VERSION.to_string());
     if let Ok(v) = HeaderValue::from_str(&version) {
-        headers.insert("anthropic-version", v);
+        headers.insert("mossen-version", v);
     }
     headers.insert(
         reqwest::header::CONTENT_TYPE,
@@ -453,13 +448,14 @@ fn build_request_headers(betas: Option<&[String]>) -> ReqHeaderMap {
     headers.insert("x-app", HeaderValue::from_static("cli"));
     headers.insert(
         "X-Mossen-Code-Session-Id",
-        HeaderValue::from_str(&get_session_id()).unwrap_or_else(|_| HeaderValue::from_static("unknown")),
+        HeaderValue::from_str(&get_session_id())
+            .unwrap_or_else(|_| HeaderValue::from_static("unknown")),
     );
 
     if let Some(betas) = betas {
         if !betas.is_empty() {
             if let Ok(v) = HeaderValue::from_str(&betas.join(",")) {
-                headers.insert("anthropic-beta", v);
+                headers.insert("mossen-beta", v);
             }
         }
     }
@@ -475,9 +471,10 @@ fn build_request_headers(betas: Option<&[String]>) -> ReqHeaderMap {
                 let name = name.trim();
                 let value = value.trim();
                 if !name.is_empty() {
-                    if let (Ok(h), Ok(v)) =
-                        (HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(value))
-                    {
+                    if let (Ok(h), Ok(v)) = (
+                        HeaderName::from_bytes(name.as_bytes()),
+                        HeaderValue::from_str(value),
+                    ) {
                         headers.insert(h, v);
                     }
                 }
@@ -502,7 +499,7 @@ fn classify_reqwest_error(err: reqwest::Error) -> ApiError {
     ApiError::Other(err.to_string())
 }
 
-/// Aggregate SSE events from an Anthropic streaming response into a final
+/// Aggregate SSE events from an Provider streaming response into a final
 /// message JSON. Mirrors the SDK's `Stream.finalMessage()` accumulator.
 ///
 /// We collect:
@@ -582,14 +579,8 @@ async fn collect_stream_to_final_message(
                 }
             }
             "content_block_start" => {
-                let index = payload
-                    .get("index")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                let block = payload
-                    .get("content_block")
-                    .cloned()
-                    .unwrap_or(json!({}));
+                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let block = payload.get("content_block").cloned().unwrap_or(json!({}));
                 while blocks.len() <= index {
                     blocks.push(json!({}));
                 }
@@ -597,10 +588,7 @@ async fn collect_stream_to_final_message(
                 partial_json.remove(&index);
             }
             "content_block_delta" => {
-                let index = payload
-                    .get("index")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
+                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 while blocks.len() <= index {
                     blocks.push(json!({}));
                 }
@@ -623,10 +611,7 @@ async fn collect_stream_to_final_message(
                     }
                     "input_json_delta" => {
                         if let Some(p) = delta.get("partial_json").and_then(|t| t.as_str()) {
-                            partial_json
-                                .entry(index)
-                                .or_default()
-                                .push_str(p);
+                            partial_json.entry(index).or_default().push_str(p);
                         }
                     }
                     "thinking_delta" => {
@@ -648,10 +633,7 @@ async fn collect_stream_to_final_message(
                 }
             }
             "content_block_stop" => {
-                let index = payload
-                    .get("index")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
+                let index = payload.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 if let Some(buf) = partial_json.remove(&index) {
                     if blocks.len() > index {
                         let block = &mut blocks[index];
@@ -663,8 +645,7 @@ async fn collect_stream_to_final_message(
             "message_delta" => {
                 if let Some(msg) = message.as_mut() {
                     if let Some(delta) = payload.get("delta") {
-                        if let Some(stop_reason) =
-                            delta.get("stop_reason").and_then(|v| v.as_str())
+                        if let Some(stop_reason) = delta.get("stop_reason").and_then(|v| v.as_str())
                         {
                             msg["stop_reason"] = Value::String(stop_reason.to_string());
                         }
@@ -729,8 +710,8 @@ async fn make_api_request(params: &Value) -> Result<Value, ApiError> {
 
     // ─── Route through OpenAI-compatible adapter when custom backend is enabled ───
     // Custom backends (MiniMax / Qwen / GLM / etc.) typically expose only the
-    // OpenAI-format `/chat/completions` endpoint, not Anthropic's `/v1/messages`.
-    // We use the existing OpenAI compat client to convert Anthropic-style
+    // OpenAI-format `/chat/completions` endpoint, not Provider's `/v1/messages`.
+    // We use the existing OpenAI compat client to convert Provider-style
     // `params` → OpenAI body, hit `/chat/completions`, and convert the response
     // back to `MossenBetaMessage` JSON shape so downstream code is unchanged.
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
@@ -739,18 +720,15 @@ async fn make_api_request(params: &Value) -> Result<Value, ApiError> {
 
     let url = format!("{}/v1/messages", base_url);
 
-    // Extract betas → header; remove from body since Anthropic accepts them
+    // Extract betas → header; remove from body since Provider accepts them
     // either as a header or in the body. We mirror the SDK and send the
     // header.
     let mut body = params.clone();
-    let betas: Option<Vec<String>> = body
-        .get("betas")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        });
+    let betas: Option<Vec<String>> = body.get("betas").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect()
+    });
     if let Some(obj) = body.as_object_mut() {
         obj.remove("betas");
     }
@@ -790,7 +768,8 @@ async fn make_api_request(params: &Value) -> Result<Value, ApiError> {
     if !status.is_success() {
         let status_code = status.as_u16();
         let body_text = response.text().await.unwrap_or_default();
-        let parsed: Value = serde_json::from_str(&body_text).unwrap_or(Value::String(body_text.clone()));
+        let parsed: Value =
+            serde_json::from_str(&body_text).unwrap_or(Value::String(body_text.clone()));
         let message = parsed
             .get("error")
             .and_then(|e| e.get("message"))
@@ -810,8 +789,12 @@ async fn make_api_request(params: &Value) -> Result<Value, ApiError> {
     }
 
     let raw = response.text().await.map_err(classify_reqwest_error)?;
-    let parsed: Value = serde_json::from_str(&raw)
-        .map_err(|e| ApiError::Other(format!("Failed to parse API response JSON: {} ({})", e, raw)))?;
+    let parsed: Value = serde_json::from_str(&raw).map_err(|e| {
+        ApiError::Other(format!(
+            "Failed to parse API response JSON: {} ({})",
+            e, raw
+        ))
+    })?;
 
     // Some errors come back as 200 OK with `{"type":"error","error":{...}}` —
     // surface those as API errors so retry/categorisation handles them.
@@ -934,23 +917,23 @@ pub fn get_prompt_caching_enabled(model: &str) -> bool {
         return false;
     }
 
-    if is_env_truthy("DISABLE_PROMPT_CACHING_HAIKU") {
+    if is_env_truthy("DISABLE_PROMPT_CACHING_FAST") {
         let small_fast = get_small_fast_model();
         if model == small_fast {
             return false;
         }
     }
 
-    if is_env_truthy("DISABLE_PROMPT_CACHING_SONNET") {
-        let default_sonnet = get_default_sonnet_model();
-        if model == default_sonnet {
+    if is_env_truthy("DISABLE_PROMPT_CACHING_BALANCED") {
+        let default_balanced = get_default_balanced_model();
+        if model == default_balanced {
             return false;
         }
     }
 
-    if is_env_truthy("DISABLE_PROMPT_CACHING_OPUS") {
-        let default_opus = get_default_opus_model();
-        if model == default_opus {
+    if is_env_truthy("DISABLE_PROMPT_CACHING_MAX") {
+        let default_max = get_default_max_model();
+        if model == default_max {
             return false;
         }
     }
@@ -980,7 +963,7 @@ fn should_1h_cache_ttl(query_source: Option<&str>) -> bool {
     }
 
     let user_type = get_user_type();
-    let user_eligible = user_type == "ant" || is_hosted_subscriber();
+    let user_eligible = user_type == "internal" || is_hosted_subscriber();
 
     if !user_eligible {
         return false;
@@ -1020,7 +1003,7 @@ pub fn configure_effort_params(
             betas.push(EFFORT_BETA_HEADER.to_string());
         }
         Some(EffortValue::Numeric(value)) => {
-            if get_user_type() == "ant" {
+            if get_user_type() == "internal" {
                 let existing = extra_body_params
                     .entry("mossen_internal".to_string())
                     .or_insert_with(|| json!({}));
@@ -1616,8 +1599,7 @@ pub fn add_cache_breakpoints(
                             if let Some(tool_use_id) =
                                 block.get("tool_use_id").and_then(|t| t.as_str())
                             {
-                                block["cache_reference"] =
-                                    Value::String(tool_use_id.to_string());
+                                block["cache_reference"] = Value::String(tool_use_id.to_string());
                             }
                         }
                     }
@@ -1677,8 +1659,8 @@ pub fn cleanup_stream(_stream: Option<&mut MossenStreamHandle>) {
     // In Rust, dropping the handle cleans up resources automatically.
 }
 
-/// Query a specific model (Haiku-class, non-streaming).
-pub async fn query_haiku(
+/// Query a specific model (Fast-class, non-streaming).
+pub async fn query_fast(
     system_prompt: &SystemPrompt,
     user_prompt: &str,
     output_format: Option<&Value>,
@@ -1794,7 +1776,15 @@ pub async fn query_model_with_streaming(
     cancel: &CancellationToken,
     options: &Options,
 ) -> Result<mpsc::Receiver<QueryModelOutput>, ApiError> {
-    query_model_stream(messages, system_prompt, thinking_config, tools, cancel, options).await
+    query_model_stream(
+        messages,
+        system_prompt,
+        thinking_config,
+        tools,
+        cancel,
+        options,
+    )
+    .await
 }
 
 /// Internal: launch the query model pipeline and return a channel of outputs.
@@ -1900,13 +1890,16 @@ async fn run_query_model(
         || query_source == "verification_agent";
 
     // Determine prompt caching
-    let caching_enabled = enable_prompt_caching.unwrap_or_else(|| get_prompt_caching_enabled(model));
+    let caching_enabled =
+        enable_prompt_caching.unwrap_or_else(|| get_prompt_caching_enabled(model));
 
     // Build system prompt blocks
-    let system = build_system_prompt_blocks(system_prompt, caching_enabled, false, Some(query_source));
+    let system =
+        build_system_prompt_blocks(system_prompt, caching_enabled, false, Some(query_source));
 
     // Determine max output tokens
-    let max_output_tokens = max_output_override.unwrap_or_else(|| get_max_output_tokens_for_model(model));
+    let max_output_tokens =
+        max_output_override.unwrap_or_else(|| get_max_output_tokens_for_model(model));
 
     // Build thinking config for params
     let has_thinking = !matches!(thinking_config, ThinkingConfig::Disabled)
@@ -1936,7 +1929,13 @@ async fn run_query_model(
     let mut extra_body = get_extra_body_params(None);
     let mut output_config: HashMap<String, Value> = HashMap::new();
 
-    configure_effort_params(effort_value, &mut output_config, &mut extra_body, &mut betas, model);
+    configure_effort_params(
+        effort_value,
+        &mut output_config,
+        &mut extra_body,
+        &mut betas,
+        model,
+    );
     configure_task_budget_params(task_budget, &mut output_config, &mut betas);
 
     if let Some(fmt) = output_format {
@@ -2010,9 +2009,7 @@ async fn run_query_model(
                 advisor_model.map(|s| s.to_string()),
             )?;
 
-            let _ = tx
-                .send(QueryModelOutput::AssistantMessage(msg))
-                .await;
+            let _ = tx.send(QueryModelOutput::AssistantMessage(msg)).await;
         }
         Err(ApiError::UserAbort(_)) => {
             if cancel.is_cancelled() {
@@ -2055,9 +2052,7 @@ async fn run_query_model(
                         advisor_model.map(|s| s.to_string()),
                     )?;
 
-                    let _ = tx
-                        .send(QueryModelOutput::AssistantMessage(msg))
-                        .await;
+                    let _ = tx.send(QueryModelOutput::AssistantMessage(msg)).await;
                 }
                 Ok(Err(fallback_err)) => {
                     return Err(fallback_err);
@@ -2112,9 +2107,8 @@ pub async fn execute_non_streaming_request(
         e
     })?;
 
-    let message: MossenBetaMessage = serde_json::from_value(response).map_err(|e| {
-        ApiError::Other(format!("Failed to parse API response: {}", e))
-    })?;
+    let message: MossenBetaMessage = serde_json::from_value(response)
+        .map_err(|e| ApiError::Other(format!("Failed to parse API response: {}", e)))?;
 
     Ok((message, system_messages))
 }
@@ -2125,12 +2119,9 @@ pub async fn execute_non_streaming_request(
 ///   1. Override `model` field with `MOSSEN_CODE_CUSTOM_MODEL` if set.
 ///   2. Force `stream:false` (streaming wiring deferred to a follow-up).
 ///   3. Build `OpenAICompatibleClient` with auth headers from custom_backend module.
-///   4. Convert Anthropic-style params → OpenAI body → call /chat/completions →
+///   4. Convert Provider-style params → OpenAI body → call /chat/completions →
 ///      OpenAI response → `MossenBetaMessage` shape that downstream expects.
-async fn openai_compat_make_api_request(
-    params: &Value,
-    base_url: &str,
-) -> Result<Value, ApiError> {
+async fn openai_compat_make_api_request(params: &Value, base_url: &str) -> Result<Value, ApiError> {
     use crate::api::openai::{
         OpenAICompatibleClient, OpenAICompatibleClientOptions, RequestOptions,
     };

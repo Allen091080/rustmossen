@@ -50,7 +50,11 @@ impl Directive for ExtractDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let fmts = EXPORT_FORMATS.join(", ");
             return Ok(CommandResult::Text(format!(
                 "Usage: /export [format] [filename]\n\n                 Export the conversation transcript.\n\n                 Formats: {}\n                 Default format: markdown\n                 Default filename: {}.md",
@@ -58,7 +62,10 @@ impl Directive for ExtractDirective {
             )));
         }
 
-        let format = args.first().map(|s| s.to_lowercase()).unwrap_or_else(|| "md".to_string());
+        let format = args
+            .first()
+            .map(|s| s.to_lowercase())
+            .unwrap_or_else(|| "md".to_string());
         let filename = args.get(1).map(|s| s.to_string()).unwrap_or_else(|| {
             let ext = match format.as_str() {
                 "json" => "json",
@@ -71,13 +78,15 @@ impl Directive for ExtractDirective {
         if !EXPORT_FORMATS.contains(&format.as_str()) {
             let fmts = EXPORT_FORMATS.join(", ");
             return Ok(CommandResult::Error(format!(
-                "Unknown format: \"{}\". Supported: {}", format, fmts
+                "Unknown format: \"{}\". Supported: {}",
+                format, fmts
             )));
         }
 
         let export_path = ctx.cwd.join(&filename);
         Ok(CommandResult::System(format!(
-            "Exported conversation to: {}", export_path.display()
+            "Exported conversation to: {}",
+            export_path.display()
         )))
     }
 }

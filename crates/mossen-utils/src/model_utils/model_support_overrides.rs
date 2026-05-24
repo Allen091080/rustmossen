@@ -36,16 +36,16 @@ struct Tier {
 
 const TIERS: &[Tier] = &[
     Tier {
-        model_env_var: "MOSSEN_CODE_DEFAULT_OPUS_MODEL",
-        capabilities_env_var: "MOSSEN_CODE_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES",
+        model_env_var: "MOSSEN_CODE_DEFAULT_MAX_MODEL",
+        capabilities_env_var: "MOSSEN_CODE_DEFAULT_MAX_MODEL_SUPPORTED_CAPABILITIES",
     },
     Tier {
-        model_env_var: "MOSSEN_CODE_DEFAULT_SONNET_MODEL",
-        capabilities_env_var: "MOSSEN_CODE_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES",
+        model_env_var: "MOSSEN_CODE_DEFAULT_BALANCED_MODEL",
+        capabilities_env_var: "MOSSEN_CODE_DEFAULT_BALANCED_MODEL_SUPPORTED_CAPABILITIES",
     },
     Tier {
-        model_env_var: "MOSSEN_CODE_DEFAULT_HAIKU_MODEL",
-        capabilities_env_var: "MOSSEN_CODE_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES",
+        model_env_var: "MOSSEN_CODE_DEFAULT_FAST_MODEL",
+        capabilities_env_var: "MOSSEN_CODE_DEFAULT_FAST_MODEL_SUPPORTED_CAPABILITIES",
     },
 ];
 

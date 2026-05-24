@@ -1,9 +1,9 @@
 //! LSP server instance — manages lifecycle of a single LSP server.
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use anyhow::{bail, Result};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, error};
 
@@ -123,11 +123,12 @@ impl LspServerInstance {
         }
 
         // Build initialize params
-        let workspace_folder = self
-            .config
-            .workspace_folder
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().unwrap().to_string_lossy().to_string());
+        let workspace_folder = self.config.workspace_folder.clone().unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        });
 
         let workspace_uri = format!("file://{}", workspace_folder);
         let folder_name = std::path::Path::new(&workspace_folder)
@@ -242,7 +243,10 @@ impl LspServerInstance {
     /// Manually restart the server.
     pub async fn restart(&mut self) -> Result<()> {
         if let Err(e) = self.stop().await {
-            error!("Failed to stop LSP server '{}' during restart: {}", self.name, e);
+            error!(
+                "Failed to stop LSP server '{}' during restart: {}",
+                self.name, e
+            );
             return Err(e);
         }
 

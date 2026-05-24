@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::string_utils::suffix_chars;
+
 const MAX_CONVERSATION_TEXT: usize = 1000;
 
 /// Message content block
@@ -26,7 +28,7 @@ pub enum TitleMessageContent {
     Blocks(Vec<TextBlock>),
 }
 
-/// Flatten a message array into a single text string for Haiku title input.
+/// Flatten a message array into a single text string for Fast title input.
 /// Skips meta/non-human messages. Tail-slices to the last 1000 chars.
 pub fn extract_conversation_text(messages: &[TitleMessage]) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -58,8 +60,8 @@ pub fn extract_conversation_text(messages: &[TitleMessage]) -> String {
     }
 
     let text = parts.join("\n");
-    if text.len() > MAX_CONVERSATION_TEXT {
-        text[text.len() - MAX_CONVERSATION_TEXT..].to_string()
+    if text.chars().count() > MAX_CONVERSATION_TEXT {
+        suffix_chars(&text, MAX_CONVERSATION_TEXT)
     } else {
         text
     }
@@ -103,10 +105,7 @@ pub fn parse_session_title_response(response_text: &str) -> Option<String> {
 }
 
 /// Generate session title (async, requires a query function to be provided)
-pub async fn generate_session_title<F, Fut>(
-    description: &str,
-    query_fn: F,
-) -> Option<String>
+pub async fn generate_session_title<F, Fut>(description: &str, query_fn: F) -> Option<String>
 where
     F: FnOnce(&str, &str) -> Fut,
     Fut: std::future::Future<Output = Result<String, Box<dyn std::error::Error + Send + Sync>>>,
@@ -119,5 +118,26 @@ where
     match query_fn(SESSION_TITLE_PROMPT, trimmed).await {
         Ok(response_text) => parse_session_title_response(&response_text),
         Err(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_conversation_text, TitleMessage, TitleMessageContent};
+
+    #[test]
+    fn extract_conversation_text_tail_truncates_multibyte_without_panic() {
+        let text = format!("开头{}", "读代码".repeat(500));
+        let messages = vec![TitleMessage {
+            msg_type: "user".to_string(),
+            is_meta: false,
+            origin_kind: Some("human".to_string()),
+            content: TitleMessageContent::Text(text),
+        }];
+
+        let extracted = extract_conversation_text(&messages);
+
+        assert!(extracted.chars().count() <= 1000);
+        assert!(extracted.ends_with("读代码"));
     }
 }

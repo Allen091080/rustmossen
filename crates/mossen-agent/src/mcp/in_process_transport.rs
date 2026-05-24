@@ -4,9 +4,9 @@
 //! `send()` on one side delivers to `onmessage` on the other.
 //! `close()` on either side calls `onclose` on both.
 
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Notify};
-use serde_json::Value;
 
 /// A JSON-RPC message (opaque Value for transport layer).
 pub type JsonRpcMessage = Value;

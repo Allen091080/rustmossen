@@ -58,7 +58,9 @@ impl ElapsedTimeState {
     /// Get formatted duration string (e.g., "1m 23s").
     pub fn formatted(&mut self) -> &str {
         let now = Instant::now();
-        if now.duration_since(self.last_update) >= self.update_interval || self.cached_display.is_empty() {
+        if now.duration_since(self.last_update) >= self.update_interval
+            || self.cached_display.is_empty()
+        {
             self.cached_display = format_duration(self.elapsed());
             self.last_update = now;
         }

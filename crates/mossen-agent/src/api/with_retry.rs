@@ -3,12 +3,12 @@
 //! 翻译自 `services/api/withRetry.ts` (830行)
 //! 提供带指数退避的重试逻辑、错误分类和重试决策。
 
-use std::time::Duration;
 use rand::Rng;
+use std::time::Duration;
 
+use super::sdk::{ApiError, MossenAPIError, MossenAPIUserAbortError};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
-use super::sdk::{ApiError, MossenAPIError, MossenAPIUserAbortError};
 
 pub const DEFAULT_MAX_RETRIES: u32 = 10;
 const FLOOR_OUTPUT_TOKENS: u64 = 3000;
@@ -115,9 +115,7 @@ pub fn get_retry_delay_default(attempt: u32, retry_after_header: Option<&str>) -
 }
 
 /// Parse max_tokens context overflow error to extract token counts.
-pub fn parse_max_tokens_context_overflow_error(
-    error: &MossenAPIError,
-) -> Option<(u64, u64, u64)> {
+pub fn parse_max_tokens_context_overflow_error(error: &MossenAPIError) -> Option<(u64, u64, u64)> {
     if error.status != 400 {
         return None;
     }
@@ -324,8 +322,9 @@ where
                         parse_max_tokens_context_overflow_error(api_err)
                     {
                         let safety_buffer = 1000u64;
-                        let available =
-                            context_limit.saturating_sub(input_tokens).saturating_sub(safety_buffer);
+                        let available = context_limit
+                            .saturating_sub(input_tokens)
+                            .saturating_sub(safety_buffer);
                         if available < FLOOR_OUTPUT_TOKENS {
                             return Err(CannotRetryError::new(error, retry_context.clone()));
                         }
@@ -340,8 +339,7 @@ where
 
                     // Calculate delay
                     let retry_after = get_retry_after(api_err);
-                    let delay_ms =
-                        get_retry_delay(attempt, retry_after.as_deref(), 32000);
+                    let delay_ms = get_retry_delay(attempt, retry_after.as_deref(), 32000);
 
                     // Sleep with cancellation support
                     tokio::select! {

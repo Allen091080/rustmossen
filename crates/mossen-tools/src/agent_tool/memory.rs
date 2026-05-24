@@ -78,8 +78,8 @@ fn find_canonical_git_root(start: &Path) -> Option<PathBuf> {
 fn get_local_agent_memory_dir(dir_name: &str) -> String {
     if let Ok(remote_dir) = env::var("MOSSEN_CODE_REMOTE_MEMORY_DIR") {
         let project_root = get_project_root();
-        let canonical = find_canonical_git_root(&project_root)
-            .unwrap_or_else(|| project_root.clone());
+        let canonical =
+            find_canonical_git_root(&project_root).unwrap_or_else(|| project_root.clone());
         let sanitized = sanitize_path(&canonical.to_string_lossy());
         let path = PathBuf::from(&remote_dir)
             .join("projects")
@@ -104,7 +104,10 @@ pub fn get_agent_memory_dir(agent_type: &str, scope: AgentMemoryScope) -> String
     let dir_name = sanitize_agent_type_for_path(agent_type);
     match scope {
         AgentMemoryScope::Project => {
-            let path = get_cwd().join(".mossen").join("agent-memory").join(&dir_name);
+            let path = get_cwd()
+                .join(".mossen")
+                .join("agent-memory")
+                .join(&dir_name);
             format!("{}{}", path.display(), MAIN_SEPARATOR_STR)
         }
         AgentMemoryScope::Local => get_local_agent_memory_dir(&dir_name),
@@ -125,25 +128,14 @@ pub fn is_agent_memory_path(absolute_path: &str) -> bool {
 
     // User scope: check memory base
     let memory_base = get_memory_base_dir();
-    let user_prefix = format!(
-        "{}{}agent-memory{}",
-        memory_base.display(),
-        sep,
-        sep
-    );
+    let user_prefix = format!("{}{}agent-memory{}", memory_base.display(), sep, sep);
     if normalized_str.starts_with(&user_prefix) {
         return true;
     }
 
     // Project scope: always cwd-based
     let cwd = get_cwd();
-    let project_prefix = format!(
-        "{}{}.mossen{}agent-memory{}",
-        cwd.display(),
-        sep,
-        sep,
-        sep
-    );
+    let project_prefix = format!("{}{}.mossen{}agent-memory{}", cwd.display(), sep, sep, sep);
     if normalized_str.starts_with(&project_prefix) {
         return true;
     }
@@ -228,7 +220,12 @@ pub async fn load_agent_memory_prompt(agent_type: &str, scope: AgentMemoryScope)
         guidelines.push(extra);
     }
 
-    build_memory_prompt("Persistent Agent Memory", &memory_dir, &memory_content, &guidelines)
+    build_memory_prompt(
+        "Persistent Agent Memory",
+        &memory_dir,
+        &memory_content,
+        &guidelines,
+    )
 }
 
 /// Read all .md files in a memory directory and concatenate their contents.

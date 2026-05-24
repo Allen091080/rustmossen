@@ -1,7 +1,6 @@
 /// Query I/O dependencies.
 ///
 /// Passing a `deps` override into QueryParams lets tests inject fakes directly.
-
 use std::future::Future;
 use std::pin::Pin;
 

@@ -4,7 +4,7 @@
 //! deterministic `generateExtensionId` algorithm shared with the directory
 //! backend.
 //!
-//! NOTE: The TS source defers to an external `@anthropic-ai/mcpb` validator
+//! NOTE: The TS source defers to an external `@provider-ai/mcpb` validator
 //! (`McpbManifestSchema.safeParse` + `getMcpConfigForManifest`). The Rust port
 //! does not bind that JS package; instead we run a focused field-level
 //! validation that mirrors the schema's required-field contract. This keeps
@@ -220,7 +220,7 @@ pub struct CreateMossenMcpbServerConfigOptions<'a> {
 /// `createMossenMcpbServerConfig` from the TS source.
 ///
 /// The TS version delegates to the external `getMcpConfigForManifest` from
-/// the upstream `@anthropic-ai/mcpb` package. Since that JS package is not
+/// the upstream `@provider-ai/mcpb` package. Since that JS package is not
 /// linked into the Rust runtime, we surface the manifest's `server` field
 /// directly when present — that is the same payload the upstream helper
 /// returns for the common case, with no system-dirs / user-config rewriting.

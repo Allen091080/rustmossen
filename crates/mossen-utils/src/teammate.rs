@@ -3,9 +3,8 @@
 //! Identifies whether this instance runs as a spawned teammate in a swarm,
 //! manages dynamic team context, and provides team coordination helpers.
 
-use parking_lot::RwLock;
 use once_cell::sync::Lazy;
-use std::sync::Arc;
+use parking_lot::RwLock;
 
 /// Teammate context for in-process teammates.
 #[derive(Debug, Clone)]
@@ -135,7 +134,11 @@ pub fn get_team_name(team_context: Option<&str>) -> Option<String> {
     if let Some(ctx) = get_teammate_context() {
         return Some(ctx.team_name);
     }
-    if let Some(name) = DYNAMIC_TEAM_CONTEXT.read().as_ref().map(|c| c.team_name.clone()) {
+    if let Some(name) = DYNAMIC_TEAM_CONTEXT
+        .read()
+        .as_ref()
+        .map(|c| c.team_name.clone())
+    {
         if !name.is_empty() {
             return Some(name);
         }
@@ -211,7 +214,9 @@ pub struct TeammateTask {
 
 /// Check if there are active in-process teammates.
 pub fn has_active_in_process_teammates(tasks: &[TeammateTask]) -> bool {
-    tasks.iter().any(|t| t.task_type == "in_process_teammate" && t.status == "running")
+    tasks
+        .iter()
+        .any(|t| t.task_type == "in_process_teammate" && t.status == "running")
 }
 
 /// Check if there are working (non-idle) in-process teammates.

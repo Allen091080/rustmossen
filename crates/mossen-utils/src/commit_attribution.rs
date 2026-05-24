@@ -3,7 +3,7 @@
 //! Provides file modification tracking, content hash computation, attribution
 //! state management, and commit attribution calculation for git notes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -249,26 +249,26 @@ pub fn sanitize_surface_key(surface_key: &str) -> String {
 
 /// Sanitize a model name to its public equivalent.
 pub fn sanitize_model_name(short_name: &str) -> &'static str {
-    if short_name.contains("opus-4-6") {
-        "mossen-opus-4-6"
-    } else if short_name.contains("opus-4-5") {
-        "mossen-opus-4-5"
-    } else if short_name.contains("opus-4-1") {
-        "mossen-opus-4-1"
-    } else if short_name.contains("opus-4") {
-        "mossen-opus-4"
-    } else if short_name.contains("sonnet-4-6") {
-        "mossen-sonnet-4-6"
-    } else if short_name.contains("sonnet-4-5") {
-        "mossen-sonnet-4-5"
-    } else if short_name.contains("sonnet-4") {
-        "mossen-sonnet-4"
-    } else if short_name.contains("sonnet-3-7") {
-        "mossen-sonnet-3-7"
-    } else if short_name.contains("haiku-4-5") {
-        "mossen-haiku-4-5"
-    } else if short_name.contains("haiku-3-5") {
-        "mossen-haiku-3-5"
+    if short_name.contains("max-4-6") {
+        "mossen-max-4-6"
+    } else if short_name.contains("max-4-5") {
+        "mossen-max-4-5"
+    } else if short_name.contains("max-4-1") {
+        "mossen-max-4-1"
+    } else if short_name.contains("max-4") {
+        "mossen-max-4"
+    } else if short_name.contains("balanced-4-6") {
+        "mossen-balanced-4-6"
+    } else if short_name.contains("balanced-4-5") {
+        "mossen-balanced-4-5"
+    } else if short_name.contains("balanced-4") {
+        "mossen-balanced-4"
+    } else if short_name.contains("balanced-3-7") {
+        "mossen-balanced-3-7"
+    } else if short_name.contains("fast-4-5") {
+        "mossen-fast-4-5"
+    } else if short_name.contains("fast-3-5") {
+        "mossen-fast-3-5"
     } else {
         "mossen"
     }
@@ -314,10 +314,7 @@ pub fn create_empty_attribution_state() -> AttributionState {
 }
 
 /// Compute the character contribution for a file modification.
-fn compute_file_modification_contribution(
-    old_content: &str,
-    new_content: &str,
-) -> usize {
+fn compute_file_modification_contribution(old_content: &str, new_content: &str) -> usize {
     if old_content.is_empty() || new_content.is_empty() {
         // New file or full deletion
         return if old_content.is_empty() {
@@ -339,7 +336,8 @@ fn compute_file_modification_contribution(
 
     let mut suffix_len = 0;
     while suffix_len < min_len - prefix_end
-        && old_bytes[old_bytes.len() - 1 - suffix_len] == new_bytes[new_bytes.len() - 1 - suffix_len]
+        && old_bytes[old_bytes.len() - 1 - suffix_len]
+            == new_bytes[new_bytes.len() - 1 - suffix_len]
     {
         suffix_len += 1;
     }
@@ -480,11 +478,9 @@ pub fn is_file_deleted(file_path: &str, cwd: &str, git_exe: &str) -> bool {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout)
-                .trim()
-                .starts_with("D\t")
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .starts_with("D\t"),
         _ => false,
     }
 }
@@ -611,17 +607,18 @@ pub fn calculate_commit_attribution(state: &AttributionState) -> String {
     format!(
         "🤖 Mossen-shotted ({}{})",
         state.prompt_count,
-        if state.prompt_count == 1 { " prompt" } else { " prompts" }
+        if state.prompt_count == 1 {
+            " prompt"
+        } else {
+            " prompts"
+        }
     )
 }
 
 /// 对应 TS `attributionRestoreStateFromLog`：从 jsonl 日志恢复 attribution state。
 ///
 /// 调用方负责重新解析 log；本函数返回空状态作为安全回退。
-pub async fn attribution_restore_state_from_log(
-    _path: &str,
-    surface: &str,
-) -> AttributionState {
+pub async fn attribution_restore_state_from_log(_path: &str, surface: &str) -> AttributionState {
     AttributionState {
         file_states: HashMap::new(),
         session_baselines: HashMap::new(),

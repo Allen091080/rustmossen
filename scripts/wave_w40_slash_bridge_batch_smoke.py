@@ -87,7 +87,7 @@ def check_clear_safety(failures: list[str]) -> None:
         return
 
     # Must NOT call TUI interactive path
-    for forbidden in ("interactive", "ModelPicker", "ink/", "React"):
+    for forbidden in ("interactive", "ModelPicker", "terminal-framework/", "React"):
         if forbidden in branch:
             fail(failures, f"/clear 分支禁止引用: {forbidden}")
 

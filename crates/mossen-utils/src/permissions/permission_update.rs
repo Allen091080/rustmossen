@@ -2,14 +2,14 @@
 //!
 //! Applies permission updates to the in-memory context and persists them to disk.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use super::permission_result::{
     AdditionalWorkingDirectory, ExternalPermissionMode, PermissionBehavior, PermissionMode,
-    PermissionRule, PermissionRuleSource, PermissionRuleValue, PermissionUpdate,
-    PermissionUpdateDestination, ToolPermissionContext, ToolPermissionRulesBySource,
+    PermissionRuleSource, PermissionRuleValue, PermissionUpdate, PermissionUpdateDestination,
+    ToolPermissionContext, ToolPermissionRulesBySource,
 };
-use super::permission_rule_parser::{permission_rule_value_from_string, permission_rule_value_to_string};
+use super::permission_rule_parser::permission_rule_value_to_string;
 
 /// Extract rules from permission updates (only addRules type).
 pub fn extract_rules(updates: Option<&[PermissionUpdate]>) -> Vec<PermissionRuleValue> {
@@ -91,8 +91,10 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: Vec<String> =
-                rules.iter().map(|r| permission_rule_value_to_string(r)).collect();
+            let rule_strings: Vec<String> = rules
+                .iter()
+                .map(|r| permission_rule_value_to_string(r))
+                .collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,
@@ -108,8 +110,10 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: Vec<String> =
-                rules.iter().map(|r| permission_rule_value_to_string(r)).collect();
+            let rule_strings: Vec<String> = rules
+                .iter()
+                .map(|r| permission_rule_value_to_string(r))
+                .collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,
@@ -124,8 +128,10 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: HashSet<String> =
-                rules.iter().map(|r| permission_rule_value_to_string(r)).collect();
+            let rule_strings: HashSet<String> = rules
+                .iter()
+                .map(|r| permission_rule_value_to_string(r))
+                .collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,

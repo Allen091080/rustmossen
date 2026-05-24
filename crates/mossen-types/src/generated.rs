@@ -36,8 +36,7 @@ impl ProtoTimestamp {
     /// 从 `ProtoTimestamp` 转换为 `DateTime<Utc>`。
     /// 对应 TS `fromTimestamp()`。
     pub fn to_datetime(&self) -> DateTime<Utc> {
-        DateTime::from_timestamp(self.seconds, self.nanos as u32)
-            .unwrap_or_default()
+        DateTime::from_timestamp(self.seconds, self.nanos as u32).unwrap_or_default()
     }
 
     /// 从 `DateTime<Utc>` 创建 `ProtoTimestamp`。
@@ -287,7 +286,7 @@ pub struct SlackContext {
 /// 对应 TS `MossenCodeInternalEvent` 接口。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MossenCodeInternalEvent {
-    /// 事件名称（如 "tengu_binary_feedback"、"tengu_api_success"）。
+    /// 事件名称（如 "mossen_binary_feedback"、"mossen_api_success"）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_name: Option<String>,
     /// 客户端时间戳。

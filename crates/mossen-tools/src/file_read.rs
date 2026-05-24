@@ -161,8 +161,9 @@ impl Tool for FileInspector {
         true
     }
 
-    async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
+    async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
         let inp: FileInspectorInput = serde_json::from_value(input)?;
+        let observed_file_path = inp.file_path.clone();
         let full_path = expand_path(&inp.file_path);
 
         // 检查被阻塞的设备路径。
@@ -216,11 +217,17 @@ impl Tool for FileInspector {
                 media_type: media_type.to_string(),
                 size_bytes: metadata.len(),
             };
+            let metadata = crate::skill_discovery::observe_tool_file_paths(
+                [observed_file_path.as_str()],
+                &context.cwd,
+            )
+            .await
+            .to_metadata();
             return Ok(ToolResult {
                 output: serde_json::to_string(&output)?,
                 is_error: false,
                 duration_ms: 0,
-                metadata: HashMap::new(),
+                metadata,
             });
         }
 
@@ -237,11 +244,17 @@ impl Tool for FileInspector {
                 message: "File appears to be binary. Use appropriate tools to handle binary files."
                     .to_string(),
             };
+            let metadata = crate::skill_discovery::observe_tool_file_paths(
+                [observed_file_path.as_str()],
+                &context.cwd,
+            )
+            .await
+            .to_metadata();
             return Ok(ToolResult {
                 output: serde_json::to_string(&output)?,
                 is_error: false,
                 duration_ms: 0,
-                metadata: HashMap::new(),
+                metadata,
             });
         }
 
@@ -275,12 +288,18 @@ impl Tool for FileInspector {
                 None
             },
         };
+        let metadata = crate::skill_discovery::observe_tool_file_paths(
+            [observed_file_path.as_str()],
+            &context.cwd,
+        )
+        .await
+        .to_metadata();
 
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
             duration_ms: 0,
-            metadata: HashMap::new(),
+            metadata,
         })
     }
 }

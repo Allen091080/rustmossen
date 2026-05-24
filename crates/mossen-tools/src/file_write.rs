@@ -93,6 +93,16 @@ impl Tool for FileComposer {
 
         let full_path = shellexpand::tilde(&inp.file_path).to_string();
         let path = std::path::Path::new(&full_path);
+        if let Some(message) =
+            mossen_agent::services::team_memory_sync::check_team_mem_secrets(path, &inp.content)
+        {
+            return Ok(ToolResult {
+                output: message,
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        }
 
         // Ensure parent directory exists.
         if let Some(parent) = path.parent() {
@@ -113,6 +123,7 @@ impl Tool for FileComposer {
         let mut tmp = tempfile::NamedTempFile::new_in(parent_dir)?;
         std::io::Write::write_all(&mut tmp, inp.content.as_bytes())?;
         tmp.persist(path)?;
+        mossen_agent::services::team_memory_sync::notify_team_memory_file_write(&full_path).await;
 
         let op_type = if is_update { "update" } else { "create" };
 
@@ -128,12 +139,18 @@ impl Tool for FileComposer {
                 output.file_path
             ),
         };
+        let metadata = crate::skill_discovery::observe_tool_file_paths(
+            [output.file_path.as_str()],
+            &context.cwd,
+        )
+        .await
+        .to_metadata();
 
         Ok(ToolResult {
             output: result_msg,
             is_error: false,
             duration_ms: start.elapsed().as_millis() as u64,
-            metadata: HashMap::new(),
+            metadata,
         })
     }
 }

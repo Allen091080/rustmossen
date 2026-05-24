@@ -104,12 +104,18 @@ fn format_profile_list(profiles: &[ProfileEntry], cli_name: &str) -> String {
     if profiles.iter().any(|e| e.source == "fallback-env") {
         lines.push(String::new());
         lines.push("Tip: this profile comes from legacy env (MOSSEN_CODE_CUSTOM_*).".to_string());
-        lines.push("     Migrate it to ~/.mossen/settings.json so it lives alongside your other profiles:".to_string());
+        lines.push(
+            "     Migrate it to ~/.mossen/settings.json so it lives alongside your other profiles:"
+                .to_string(),
+        );
         lines.push("       mossen --migrate-fallback-profile".to_string());
     }
     lines.push(String::new());
     lines.push("Usage:".to_string());
-    lines.push("  /model <profileName>           Switch session profile (this conversation only)".to_string());
+    lines.push(
+        "  /model <profileName>           Switch session profile (this conversation only)"
+            .to_string(),
+    );
     lines.push(format!(
         "  {} --set-model-profile <n> Set global default (persists in ~/.mossen/settings.json)",
         cli_name
@@ -167,7 +173,9 @@ impl Directive for SwitchModelDirective {
             // No args → list all profiles
             // In a real implementation, this would call listAllProfiles()
             let profiles = Vec::new(); // Would be populated from config
-            return Ok(CommandResult::Text(format_profile_list(&profiles, cli_name)));
+            return Ok(CommandResult::Text(format_profile_list(
+                &profiles, cli_name,
+            )));
         }
 
         // Split into profile name and any extra args

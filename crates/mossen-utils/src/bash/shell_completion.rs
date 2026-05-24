@@ -55,7 +55,8 @@ fn find_last_string_token(tokens: &[String]) -> Option<(String, usize)> {
     for (i, token) in tokens.iter().enumerate().rev() {
         // In our simplified parser, all tokens are strings
         // We need to distinguish operators from values
-        if !is_command_operator(token) && !matches!(token.as_str(), ">" | ">>" | "<" | "<<" | ">&") {
+        if !is_command_operator(token) && !matches!(token.as_str(), ">" | ">>" | "<" | "<<" | ">&")
+        {
             return Some((token.clone(), i));
         }
     }
@@ -159,7 +160,11 @@ pub fn parse_input_context(input: &str, cursor_offset: usize) -> InputContext {
 pub fn get_bash_completion_command(prefix: &str, completion_type: ShellCompletionType) -> String {
     match completion_type {
         ShellCompletionType::Variable => {
-            let var_name = if prefix.starts_with('$') { &prefix[1..] } else { prefix };
+            let var_name = if prefix.starts_with('$') {
+                &prefix[1..]
+            } else {
+                prefix
+            };
             format!("compgen -v {} 2>/dev/null", quote(&[var_name]))
         }
         ShellCompletionType::File => {
@@ -179,7 +184,11 @@ pub fn get_bash_completion_command(prefix: &str, completion_type: ShellCompletio
 pub fn get_zsh_completion_command(prefix: &str, completion_type: ShellCompletionType) -> String {
     match completion_type {
         ShellCompletionType::Variable => {
-            let var_name = if prefix.starts_with('$') { &prefix[1..] } else { prefix };
+            let var_name = if prefix.starts_with('$') {
+                &prefix[1..]
+            } else {
+                prefix
+            };
             format!(
                 "print -rl -- ${{(k)parameters[(I){}*]}} 2>/dev/null",
                 quote(&[var_name])

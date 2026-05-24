@@ -91,7 +91,11 @@ pub struct MossenAPIError {
 
 impl fmt::Display for MossenAPIError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "API request failed with status {}: {}", self.status, self.message)
+        write!(
+            f,
+            "API request failed with status {}: {}",
+            self.status, self.message
+        )
     }
 }
 
@@ -175,7 +179,10 @@ impl ApiError {
     }
 
     pub fn is_connection_error(&self) -> bool {
-        matches!(self, ApiError::Connection(_) | ApiError::ConnectionTimeout(_))
+        matches!(
+            self,
+            ApiError::Connection(_) | ApiError::ConnectionTimeout(_)
+        )
     }
 
     pub fn is_user_abort(&self) -> bool {

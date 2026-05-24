@@ -5,11 +5,13 @@
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
+
+use crate::string_utils::truncate_chars_with_suffix;
 
 /// Threshold in milliseconds for logging slow operations.
 static SLOW_OPERATION_THRESHOLD_MS: Lazy<f64> = Lazy::new(|| {
@@ -20,10 +22,16 @@ static SLOW_OPERATION_THRESHOLD_MS: Lazy<f64> = Lazy::new(|| {
             }
         }
     }
-    if std::env::var("NODE_ENV").map(|v| v == "development").unwrap_or(false) {
+    if std::env::var("NODE_ENV")
+        .map(|v| v == "development")
+        .unwrap_or(false)
+    {
         return 20.0;
     }
-    if std::env::var("USER_TYPE").map(|v| v == "ant").unwrap_or(false) {
+    if std::env::var("USER_TYPE")
+        .map(|v| v == "internal")
+        .unwrap_or(false)
+    {
         return 300.0;
     }
     f64::INFINITY
@@ -36,7 +44,8 @@ static IS_LOGGING: AtomicBool = AtomicBool::new(false);
 pub type SlowOperationCallback = Box<dyn Fn(&str, f64) + Send + Sync>;
 
 /// Global callback for slow operations.
-static SLOW_OP_CALLBACK: Lazy<Mutex<Option<SlowOperationCallback>>> = Lazy::new(|| Mutex::new(None));
+static SLOW_OP_CALLBACK: Lazy<Mutex<Option<SlowOperationCallback>>> =
+    Lazy::new(|| Mutex::new(None));
 
 /// Set the slow operation callback.
 pub fn set_slow_operation_callback(cb: SlowOperationCallback) {
@@ -59,7 +68,13 @@ pub fn caller_frame() -> String {
         if let Some(idx) = line.rfind('/') {
             let rest = &line[idx + 1..];
             if let Some(colon) = rest.find(':') {
-                return format!(" @ {}", &rest[..colon + rest[colon + 1..].find(':').map_or(rest.len() - colon - 1, |i| i + 1)]);
+                return format!(
+                    " @ {}",
+                    &rest[..colon
+                        + rest[colon + 1..]
+                            .find(':')
+                            .map_or(rest.len() - colon - 1, |i| i + 1)]
+                );
             }
         }
     }
@@ -85,9 +100,7 @@ impl SlowOperationGuard {
 impl Drop for SlowOperationGuard {
     fn drop(&mut self) {
         let duration_ms = self.start.elapsed().as_secs_f64() * 1000.0;
-        if duration_ms > *SLOW_OPERATION_THRESHOLD_MS
-            && !IS_LOGGING.swap(true, Ordering::SeqCst)
-        {
+        if duration_ms > *SLOW_OPERATION_THRESHOLD_MS && !IS_LOGGING.swap(true, Ordering::SeqCst) {
             let desc = format!("{}{}", self.description, caller_frame());
             tracing::debug!("[SLOW OPERATION DETECTED] {} ({:.1}ms)", desc, duration_ms);
             if let Some(ref cb) = *SLOW_OP_CALLBACK.lock() {
@@ -117,11 +130,10 @@ pub fn json_stringify_pretty(value: &serde_json::Value) -> String {
 
 /// Wrapped JSON parse with slow operation logging.
 pub fn json_parse(text: &str) -> Result<serde_json::Value, serde_json::Error> {
-    let desc = if text.len() > 80 {
-        format!("JSON.parse({}...)", &text[..80])
-    } else {
-        format!("JSON.parse({})", text)
-    };
+    let desc = format!(
+        "JSON.parse({})",
+        truncate_chars_with_suffix(text, 80, "...")
+    );
     let _guard = slow_logging(desc);
     serde_json::from_str(text)
 }
@@ -140,7 +152,11 @@ pub fn clone_deep<T: Clone>(value: &T, description: &str) -> T {
 
 /// Write file sync with slow operation logging and optional flush.
 pub fn write_file_sync(file_path: &Path, data: &[u8], flush: bool) -> std::io::Result<()> {
-    let desc = format!("fs.writeFileSync({}, {} bytes)", file_path.display(), data.len());
+    let desc = format!(
+        "fs.writeFileSync({}, {} bytes)",
+        file_path.display(),
+        data.len()
+    );
     let _guard = slow_logging(desc);
 
     if flush {
@@ -163,11 +179,7 @@ fn describe_value(value: &serde_json::Value) -> String {
         serde_json::Value::Array(arr) => format!("Array[{}]", arr.len()),
         serde_json::Value::Object(obj) => format!("Object{{{} keys}}", obj.len()),
         serde_json::Value::String(s) => {
-            if s.len() > 80 {
-                format!("\"{}…\"", &s[..80])
-            } else {
-                format!("\"{}\"", s)
-            }
+            format!("\"{}\"", truncate_chars_with_suffix(s, 80, "…"))
         }
         serde_json::Value::Null => "null".to_string(),
         serde_json::Value::Bool(b) => b.to_string(),

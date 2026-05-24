@@ -7,6 +7,8 @@
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 /// Maximum number of subcommands to check for security (prevents DoS on complex commands).
 pub const MAX_SUBCOMMANDS_FOR_SECURITY_CHECK: usize = 50;
 
@@ -15,15 +17,23 @@ pub const MAX_SUGGESTED_RULES_FOR_COMPOUND: usize = 5;
 
 /// Environment variables that could hijack binary execution.
 pub const BINARY_HIJACK_VARS: &[&str] = &[
-    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
-    "DYLD_LIBRARY_PATH", "PYTHONPATH", "NODE_PATH", "RUBYLIB",
-    "PERL5LIB", "CLASSPATH", "HOME", "XDG_CONFIG_HOME",
+    "PATH",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "PYTHONPATH",
+    "NODE_PATH",
+    "RUBYLIB",
+    "PERL5LIB",
+    "CLASSPATH",
+    "HOME",
+    "XDG_CONFIG_HOME",
 ];
 
 /// Safe wrapper commands that can be stripped for permission matching.
 const SAFE_WRAPPERS: &[&str] = &[
-    "timeout", "nice", "ionice", "time", "strace", "ltrace",
-    "nohup", "setsid", "env", "sudo",
+    "timeout", "nice", "ionice", "time", "strace", "ltrace", "nohup", "setsid", "env", "sudo",
 ];
 
 /// Env var assignment regex pattern.
@@ -346,10 +356,7 @@ pub fn bash_tool_has_permission(
     for rule_str in deny_rules {
         let rule = bash_permission_rule(rule_str);
         if rule_matches_command(&rule, command) {
-            return PermissionResult::deny(format!(
-                "Command denied by rule: {}",
-                rule_str
-            ));
+            return PermissionResult::deny(format!("Command denied by rule: {}", rule_str));
         }
     }
 
@@ -380,13 +387,10 @@ fn rule_matches_command(rule: &BashPermissionRule, command: &str) -> bool {
     for candidate in &candidates {
         let matched = match rule {
             BashPermissionRule::Prefix { prefix } => {
-                *candidate == prefix.as_str()
-                    || candidate.starts_with(&format!("{} ", prefix))
+                *candidate == prefix.as_str() || candidate.starts_with(&format!("{} ", prefix))
             }
             BashPermissionRule::Exact { command: cmd } => *candidate == cmd.as_str(),
-            BashPermissionRule::Wildcard { pattern } => {
-                match_wildcard_pattern(pattern, candidate)
-            }
+            BashPermissionRule::Wildcard { pattern } => match_wildcard_pattern(pattern, candidate),
         };
         if matched {
             return true;
@@ -397,11 +401,7 @@ fn rule_matches_command(rule: &BashPermissionRule, command: &str) -> bool {
 
 /// Truncate a command for display.
 fn truncate_command(command: &str, max_len: usize) -> String {
-    if command.len() <= max_len {
-        command.to_string()
-    } else {
-        format!("{}...", &command[..max_len])
-    }
+    truncate_chars_with_suffix(command, max_len, "...")
 }
 
 /// Generate a suggestion for an exact command rule.
@@ -440,10 +440,7 @@ pub fn get_command_subcommand_prefix(command: &str) -> Option<String> {
 }
 
 /// Filter rules that match the given input (for suggestion deduplication).
-pub fn filter_rules_by_contents_matching_input(
-    rules: &[String],
-    command: &str,
-) -> Vec<String> {
+pub fn filter_rules_by_contents_matching_input(rules: &[String], command: &str) -> Vec<String> {
     rules
         .iter()
         .filter(|rule| {
@@ -532,11 +529,7 @@ mod tests {
 
     #[test]
     fn test_permission_deny() {
-        let result = bash_tool_has_permission(
-            "rm -rf /",
-            &[],
-            &["rm *".to_string()],
-        );
+        let result = bash_tool_has_permission("rm -rf /", &[], &["rm *".to_string()]);
         assert_eq!(result.behavior, PermissionBehavior::Deny);
     }
 
@@ -664,7 +657,11 @@ pub fn strip_wrappers_from_argv(argv: &[String]) -> Vec<String> {
         }
         match a[0].as_str() {
             "time" | "nohup" => {
-                let skip = if a.get(1).map(|s| s.as_str()) == Some("--") { 2 } else { 1 };
+                let skip = if a.get(1).map(|s| s.as_str()) == Some("--") {
+                    2
+                } else {
+                    1
+                };
                 a = a[skip..].to_vec();
             }
             "timeout" => {
@@ -689,7 +686,11 @@ pub fn strip_wrappers_from_argv(argv: &[String]) -> Vec<String> {
                     .map(|s| Regex::new(r"^-?\d+$").unwrap().is_match(s))
                     .unwrap_or(false);
                 if n_flag && num_ok {
-                    let skip = if a.get(3).map(|s| s.as_str()) == Some("--") { 4 } else { 3 };
+                    let skip = if a.get(3).map(|s| s.as_str()) == Some("--") {
+                        4
+                    } else {
+                        3
+                    };
                     a = a[skip..].to_vec();
                 } else {
                     return a;
@@ -734,8 +735,8 @@ pub async fn check_command_and_suggest_rules(
 
 // --- Speculative classifier cache (memo for repeated calls per session) ---
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct PendingClassifierCheck {

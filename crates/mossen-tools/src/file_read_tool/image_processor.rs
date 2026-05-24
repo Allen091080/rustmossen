@@ -4,8 +4,8 @@
 //! Rust port we don't ship a built-in image processor; these helpers expose
 //! pluggable closures so the runtime can swap in an `image`-crate backend.
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 /// `imageProcessor.ts` `SharpInstance` — opaque processor handle.
 #[derive(Debug, Clone)]

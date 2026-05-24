@@ -7,14 +7,8 @@ use std::path::Path;
 // ============================================================================
 
 /// Memory type values.
-pub const MEMORY_TYPE_VALUES: &[&str] = &[
-    "User",
-    "Project",
-    "Local",
-    "Managed",
-    "AutoMem",
-    "TeamMem",
-];
+pub const MEMORY_TYPE_VALUES: &[&str] =
+    &["User", "Project", "Local", "Managed", "AutoMem", "TeamMem"];
 
 /// Represents the type of memory entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

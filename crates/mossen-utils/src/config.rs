@@ -11,10 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use tracing::{error, warn};
+use tracing::warn;
 
 use crate::env::get_mossen_config_home_dir;
-use crate::json::{safe_parse_json, safe_parse_json_value, strip_bom};
+use crate::json::{safe_parse_json_value, strip_bom};
 
 // ---------------------------------------------------------------------------
 // External dependency stubs (types referenced from other TS modules)
@@ -130,7 +130,8 @@ pub type DiffTool = String; // "terminal" | "auto"
 pub type OutputStyle = String;
 
 pub const EDITOR_MODES: &[&str] = &["normal", "vim", "emacs"];
-pub const NOTIFICATION_CHANNELS: &[&str] = &["auto", "iterm2", "terminal_bell", "terminal_notifier"];
+pub const NOTIFICATION_CHANNELS: &[&str] =
+    &["auto", "iterm2", "terminal_bell", "terminal_notifier"];
 
 // ---------------------------------------------------------------------------
 // AccountInfo
@@ -552,15 +553,15 @@ pub struct GlobalConfig {
     pub voice_lang_hint_last_language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice_footer_hint_seen_count: Option<i64>,
-    // Opus 1M
+    // Max 1M
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub opus1m_merge_notice_seen_count: Option<i64>,
+    pub max1m_merge_notice_seen_count: Option<i64>,
     // Experiment enrollment
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experiment_notices_seen_count: Option<HashMap<String, i64>>,
-    // OpusPlan
+    // MaxPlan
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_shown_opus_plan_welcome: Option<HashMap<String, bool>>,
+    pub has_shown_max_plan_welcome: Option<HashMap<String, bool>>,
     // Queue usage
     #[serde(default)]
     pub prompt_queue_use_count: i64,
@@ -641,15 +642,15 @@ pub struct GlobalConfig {
     pub idle_return_dismissed: Option<bool>,
     // Migration tracking
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub opus_pro_migration_complete: Option<bool>,
+    pub max_pro_migration_complete: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub opus_pro_migration_timestamp: Option<u64>,
+    pub max_pro_migration_timestamp: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sonnet1m45_migration_complete: Option<bool>,
+    pub balanced1m45_migration_complete: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub legacy_opus_migration_timestamp: Option<u64>,
+    pub legacy_max_migration_timestamp: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sonnet45_to46_migration_timestamp: Option<u64>,
+    pub balanced45_to46_migration_timestamp: Option<u64>,
     // Cached gates/configs
     #[serde(default)]
     pub cached_statsig_gates: HashMap<String, bool>,
@@ -767,10 +768,18 @@ pub struct CustomApiKeyResponses {
     pub rejected: Option<Vec<String>>,
 }
 
-fn default_theme() -> String { "dark".to_string() }
-fn default_preferred_notif_channel() -> String { "auto".to_string() }
-fn default_true() -> bool { true }
-fn default_idle_notif_threshold() -> u64 { 60000 }
+fn default_theme() -> String {
+    "dark".to_string()
+}
+fn default_preferred_notif_channel() -> String {
+    "auto".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_idle_notif_threshold() -> u64 {
+    60000
+}
 
 // ---------------------------------------------------------------------------
 // Factory + constants
@@ -854,9 +863,9 @@ pub fn create_default_global_config() -> GlobalConfig {
         voice_lang_hint_shown_count: None,
         voice_lang_hint_last_language: None,
         voice_footer_hint_seen_count: None,
-        opus1m_merge_notice_seen_count: None,
+        max1m_merge_notice_seen_count: None,
         experiment_notices_seen_count: None,
-        has_shown_opus_plan_welcome: None,
+        has_shown_max_plan_welcome: None,
         prompt_queue_use_count: 0,
         btw_use_count: 0,
         last_plan_mode_use: None,
@@ -889,11 +898,11 @@ pub fn create_default_global_config() -> GlobalConfig {
         desktop_upsell_seen_count: None,
         desktop_upsell_dismissed: None,
         idle_return_dismissed: None,
-        opus_pro_migration_complete: None,
-        opus_pro_migration_timestamp: None,
-        sonnet1m45_migration_complete: None,
-        legacy_opus_migration_timestamp: None,
-        sonnet45_to46_migration_timestamp: None,
+        max_pro_migration_complete: None,
+        max_pro_migration_timestamp: None,
+        balanced1m45_migration_complete: None,
+        legacy_max_migration_timestamp: None,
+        balanced45_to46_migration_timestamp: None,
         cached_statsig_gates: HashMap::new(),
         cached_dynamic_configs: Some(HashMap::new()),
         cached_growth_book_features: Some(HashMap::new()),
@@ -948,22 +957,50 @@ pub fn default_global_config() -> &'static GlobalConfig {
 
 /// Known global config keys (user-editable via /config).
 pub const GLOBAL_CONFIG_KEYS: &[&str] = &[
-    "apiKeyHelper", "installMethod", "autoUpdates", "autoUpdatesProtectedForNative",
-    "theme", "verbose", "preferredNotifChannel", "shiftEnterKeyBindingInstalled",
-    "editorMode", "hasUsedBackslashReturn", "autoCompactEnabled", "showTurnDuration",
-    "diffTool", "env", "tipsHistory", "todoFeatureEnabled", "showExpandedTodos",
-    "messageIdleNotifThresholdMs", "autoConnectIde", "autoInstallIdeExtension",
-    "fileCheckpointingEnabled", "terminalProgressBarEnabled", "showStatusInTerminalTab",
-    "taskCompleteNotifEnabled", "inputNeededNotifEnabled", "agentPushNotifEnabled",
-    "respectGitignore", "mossenInChromeDefaultEnabled",
-    "hasCompletedMossenInChromeOnboarding", "lspRecommendationDisabled",
-    "lspRecommendationNeverPlugins", "lspRecommendationIgnoredCount",
-    "copyFullResponse", "copyOnSelect", "permissionExplainerEnabled",
-    "prStatusFooterEnabled", "remoteControlAtStartup", "remoteDialogSeen",
+    "apiKeyHelper",
+    "installMethod",
+    "autoUpdates",
+    "autoUpdatesProtectedForNative",
+    "theme",
+    "verbose",
+    "preferredNotifChannel",
+    "shiftEnterKeyBindingInstalled",
+    "editorMode",
+    "hasUsedBackslashReturn",
+    "autoCompactEnabled",
+    "showTurnDuration",
+    "diffTool",
+    "env",
+    "tipsHistory",
+    "todoFeatureEnabled",
+    "showExpandedTodos",
+    "messageIdleNotifThresholdMs",
+    "autoConnectIde",
+    "autoInstallIdeExtension",
+    "fileCheckpointingEnabled",
+    "terminalProgressBarEnabled",
+    "showStatusInTerminalTab",
+    "taskCompleteNotifEnabled",
+    "inputNeededNotifEnabled",
+    "agentPushNotifEnabled",
+    "respectGitignore",
+    "mossenInChromeDefaultEnabled",
+    "hasCompletedMossenInChromeOnboarding",
+    "lspRecommendationDisabled",
+    "lspRecommendationNeverPlugins",
+    "lspRecommendationIgnoredCount",
+    "copyFullResponse",
+    "copyOnSelect",
+    "permissionExplainerEnabled",
+    "prStatusFooterEnabled",
+    "remoteControlAtStartup",
+    "remoteDialogSeen",
 ];
 
 pub const PROJECT_CONFIG_KEYS: &[&str] = &[
-    "allowedTools", "hasTrustDialogAccepted", "hasCompletedProjectOnboarding",
+    "allowedTools",
+    "hasTrustDialogAccepted",
+    "hasCompletedProjectOnboarding",
 ];
 
 pub const CONFIG_WRITE_DISPLAY_THRESHOLD: u64 = 20;
@@ -1066,8 +1103,7 @@ fn compute_trust_dialog_accepted() -> bool {
 /// Check trust for an arbitrary directory (not the session cwd).
 pub fn is_path_trusted(dir: &str) -> bool {
     let config = get_global_config();
-    let resolved = std::path::absolute(Path::new(dir))
-        .unwrap_or_else(|_| PathBuf::from(dir));
+    let resolved = std::path::absolute(Path::new(dir)).unwrap_or_else(|_| PathBuf::from(dir));
     let mut current = normalize_path_for_config_key(&resolved.to_string_lossy());
     loop {
         if let Some(projects) = &config.projects {
@@ -1101,8 +1137,8 @@ fn would_lose_auth_state(fresh: &GlobalConfig) -> bool {
         None => return false,
     };
     let lost_oauth = cached.oauth_account.is_some() && fresh.oauth_account.is_none();
-    let lost_onboarding =
-        cached.has_completed_onboarding == Some(true) && fresh.has_completed_onboarding != Some(true);
+    let lost_onboarding = cached.has_completed_onboarding == Some(true)
+        && fresh.has_completed_onboarding != Some(true);
     lost_oauth || lost_onboarding
 }
 
@@ -1220,11 +1256,7 @@ pub fn get_custom_api_key_status(truncated_api_key: &str) -> &'static str {
 // saveConfig / getConfig (low level)
 // ---------------------------------------------------------------------------
 
-fn save_config_inner(
-    file: &str,
-    config: &GlobalConfig,
-    default_config: &GlobalConfig,
-) {
+fn save_config_inner(file: &str, config: &GlobalConfig, _default_config: &GlobalConfig) {
     let dir = Path::new(file).parent().unwrap_or_else(|| Path::new("."));
     let _ = std::fs::create_dir_all(dir);
 
@@ -1245,7 +1277,7 @@ fn save_config_with_lock<F>(
 where
     F: FnOnce(&GlobalConfig) -> GlobalConfig,
 {
-    let default_config = create_default();
+    let _default_config = create_default();
     let dir = Path::new(file).parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
 
@@ -1312,10 +1344,12 @@ fn get_config(file: &str, create_default: fn() -> GlobalConfig) -> GlobalConfig 
             let clean = strip_bom(&content);
             match serde_json::from_str::<JsonValue>(clean) {
                 Ok(val) => {
-                    let mut default = create_default();
+                    let default = create_default();
                     if let Some(obj) = val.as_object() {
                         // Merge parsed values over defaults
-                        if let Ok(parsed) = serde_json::from_value::<GlobalConfig>(JsonValue::Object(obj.clone())) {
+                        if let Ok(parsed) =
+                            serde_json::from_value::<GlobalConfig>(JsonValue::Object(obj.clone()))
+                        {
                             return parsed;
                         }
                     }
@@ -1376,7 +1410,9 @@ fn migrate_config_fields(config: &GlobalConfig) -> GlobalConfig {
 // removeProjectHistory
 // ---------------------------------------------------------------------------
 
-fn remove_project_history(projects: &HashMap<String, ProjectConfig>) -> HashMap<String, ProjectConfig> {
+fn remove_project_history(
+    projects: &HashMap<String, ProjectConfig>,
+) -> HashMap<String, ProjectConfig> {
     // In Rust, the ProjectConfig struct doesn't have a `history` field,
     // so we just clone as-is.
     projects.clone()
@@ -1568,18 +1604,24 @@ pub fn get_memory_path(memory_type: MemoryType) -> String {
             let home = get_mossen_config_home_dir();
             home.join("MOSSEN.md").to_string_lossy().to_string()
         }
-        MemoryType::Local => {
-            PathBuf::from(&cwd).join("MOSSEN.local.md").to_string_lossy().to_string()
-        }
-        MemoryType::Project => {
-            PathBuf::from(&cwd).join("MOSSEN.md").to_string_lossy().to_string()
-        }
-        MemoryType::Managed => {
-            get_mossen_config_home_dir().join("managed").join("MOSSEN.md").to_string_lossy().to_string()
-        }
-        MemoryType::AutoMem => {
-            get_mossen_config_home_dir().join("memory").join("MEMORY.md").to_string_lossy().to_string()
-        }
+        MemoryType::Local => PathBuf::from(&cwd)
+            .join("MOSSEN.local.md")
+            .to_string_lossy()
+            .to_string(),
+        MemoryType::Project => PathBuf::from(&cwd)
+            .join("MOSSEN.md")
+            .to_string_lossy()
+            .to_string(),
+        MemoryType::Managed => get_mossen_config_home_dir()
+            .join("managed")
+            .join("MOSSEN.md")
+            .to_string_lossy()
+            .to_string(),
+        MemoryType::AutoMem => get_mossen_config_home_dir()
+            .join("memory")
+            .join("MEMORY.md")
+            .to_string_lossy()
+            .to_string(),
     }
 }
 
@@ -1791,7 +1833,9 @@ pub fn _get_config_for_testing() -> serde_json::Value {
 #[doc(hidden)]
 pub fn _set_global_config_cache_for_testing(_value: serde_json::Value) {
     // SAFETY: 仅在测试路径调用，单线程上下文。
-    unsafe { std::env::remove_var("MOSSEN_CONFIG_HOME"); }
+    unsafe {
+        std::env::remove_var("MOSSEN_CONFIG_HOME");
+    }
 }
 
 /// 测试用：判断给定 config 切换是否会丢失 auth 状态（对应 TS

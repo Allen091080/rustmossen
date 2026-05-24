@@ -66,9 +66,7 @@ impl Directive for WipeDirective {
             }
             WipeAction::Caches => {
                 // Clear file state cache, tool results cache, etc.
-                Ok(CommandResult::System(
-                    "Caches cleared.".to_string(),
-                ))
+                Ok(CommandResult::System("Caches cleared.".to_string()))
             }
             WipeAction::All => {
                 // Clear both conversation and caches

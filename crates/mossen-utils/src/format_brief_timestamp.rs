@@ -3,7 +3,7 @@
 //! 对应 TypeScript `utils/formatBriefTimestamp.ts`。
 //! 将 ISO 时间戳格式化为适合消息标签的简要展示。
 
-use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 
 /// 格式化 ISO 时间戳为简要显示。
 ///

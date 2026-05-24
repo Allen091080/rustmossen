@@ -30,8 +30,7 @@ fn can_use_chrome_integration() -> bool {
 
 /// Check if running in WSL environment.
 fn is_wsl() -> bool {
-    std::env::var("WSL_DISTRO_NAME").is_ok()
-        || std::env::var("WSLENV").is_ok()
+    std::env::var("WSL_DISTRO_NAME").is_ok() || std::env::var("WSLENV").is_ok()
 }
 
 /// `/chrome` command.
@@ -77,7 +76,9 @@ impl Directive for ChromeDirective {
 
         if !extension_installed {
             output.push_str("  1. Install Chrome Extension\n");
-            output.push_str("     Download from the Chrome Web Store to enable browser integration.\n\n");
+            output.push_str(
+                "     Download from the Chrome Web Store to enable browser integration.\n\n",
+            );
         }
 
         if extension_installed {
@@ -94,7 +95,9 @@ impl Directive for ChromeDirective {
         // WSL warning
         if wsl {
             output.push_str("Note: Chrome integration in WSL requires Chrome to be running on the Windows host.\n");
-            output.push_str("The extension communicates with the CLI through a native messaging host.\n\n");
+            output.push_str(
+                "The extension communicates with the CLI through a native messaging host.\n\n",
+            );
         }
 
         // Subscription check

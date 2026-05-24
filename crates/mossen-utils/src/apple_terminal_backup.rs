@@ -3,10 +3,7 @@ use tokio::fs;
 use tokio::process::Command;
 
 /// Mark terminal setup in progress in global config
-pub fn mark_terminal_setup_in_progress(
-    backup_path: &str,
-    save_config: impl FnOnce(Option<&str>),
-) {
+pub fn mark_terminal_setup_in_progress(backup_path: &str, save_config: impl FnOnce(Option<&str>)) {
     save_config(Some(backup_path));
 }
 
@@ -31,9 +28,7 @@ pub fn get_terminal_plist_path() -> PathBuf {
 }
 
 /// Backup terminal preferences
-pub async fn backup_terminal_preferences(
-    mark_in_progress: impl FnOnce(&str),
-) -> Option<String> {
+pub async fn backup_terminal_preferences(mark_in_progress: impl FnOnce(&str)) -> Option<String> {
     let terminal_plist_path = get_terminal_plist_path();
     let backup_path = format!("{}.bak", terminal_plist_path.to_string_lossy());
 
@@ -111,10 +106,7 @@ pub async fn check_and_restore_terminal_backup(
     match result {
         Ok(output) if output.status.success() => {
             // Kill cfprefsd to apply changes
-            let _ = Command::new("killall")
-                .arg("cfprefsd")
-                .output()
-                .await;
+            let _ = Command::new("killall").arg("cfprefsd").output().await;
 
             mark_complete();
             RestoreResult::Restored

@@ -194,8 +194,7 @@ pub fn handle_session_file_access(
         return HookJsonOutput;
     }
 
-    let file_type =
-        get_session_file_type_from_input(&input.tool_name, &input.tool_input, hooks);
+    let file_type = get_session_file_type_from_input(&input.tool_name, &input.tool_input, hooks);
 
     let subagent_name = (hooks.get_subagent_log_name)();
     let mut props = HashMap::new();
@@ -205,10 +204,10 @@ pub fn handle_session_file_access(
 
     match file_type {
         Some(SessionFileType::SessionMemory) => {
-            (hooks.log_event)("tengu_session_memory_accessed", &props);
+            (hooks.log_event)("mossen_session_memory_accessed", &props);
         }
         Some(SessionFileType::SessionTranscript) => {
-            (hooks.log_event)("tengu_transcript_accessed", &props);
+            (hooks.log_event)("mossen_transcript_accessed", &props);
         }
         None => {}
     }
@@ -217,17 +216,17 @@ pub fn handle_session_file_access(
     if let Some(file_path) = get_file_path_from_input(&input.tool_name, &input.tool_input) {
         if (hooks.is_auto_mem_file)(&file_path) {
             props.insert("tool".to_string(), input.tool_name.clone());
-            (hooks.log_event)("tengu_memdir_accessed", &props);
+            (hooks.log_event)("mossen_memdir_accessed", &props);
 
             match input.tool_name.as_str() {
                 FILE_READ_TOOL_NAME => {
-                    (hooks.log_event)("tengu_memdir_file_read", &props);
+                    (hooks.log_event)("mossen_memdir_file_read", &props);
                 }
                 FILE_EDIT_TOOL_NAME => {
-                    (hooks.log_event)("tengu_memdir_file_edit", &props);
+                    (hooks.log_event)("mossen_memdir_file_edit", &props);
                 }
                 FILE_WRITE_TOOL_NAME => {
-                    (hooks.log_event)("tengu_memdir_file_write", &props);
+                    (hooks.log_event)("mossen_memdir_file_write", &props);
                 }
                 _ => {}
             }
@@ -238,20 +237,20 @@ pub fn handle_session_file_access(
             if let Some(ref is_team) = hooks.is_team_mem_file {
                 if is_team(&file_path) {
                     props.insert("tool".to_string(), input.tool_name.clone());
-                    (hooks.log_event)("tengu_team_mem_accessed", &props);
+                    (hooks.log_event)("mossen_team_mem_accessed", &props);
 
                     match input.tool_name.as_str() {
                         FILE_READ_TOOL_NAME => {
-                            (hooks.log_event)("tengu_team_mem_file_read", &props);
+                            (hooks.log_event)("mossen_team_mem_file_read", &props);
                         }
                         FILE_EDIT_TOOL_NAME => {
-                            (hooks.log_event)("tengu_team_mem_file_edit", &props);
+                            (hooks.log_event)("mossen_team_mem_file_edit", &props);
                             if let Some(ref notify) = hooks.notify_team_memory_write {
                                 notify();
                             }
                         }
                         FILE_WRITE_TOOL_NAME => {
-                            (hooks.log_event)("tengu_team_mem_file_write", &props);
+                            (hooks.log_event)("mossen_team_mem_file_write", &props);
                             if let Some(ref notify) = hooks.notify_team_memory_write {
                                 notify();
                             }
@@ -266,8 +265,7 @@ pub fn handle_session_file_access(
         if hooks.memory_shape_telemetry_enabled {
             let scope = (hooks.memory_scope_for_path)(&file_path);
             if let Some(scope) = scope {
-                if input.tool_name == FILE_EDIT_TOOL_NAME
-                    || input.tool_name == FILE_WRITE_TOOL_NAME
+                if input.tool_name == FILE_EDIT_TOOL_NAME || input.tool_name == FILE_WRITE_TOOL_NAME
                 {
                     if let Some(ref log_shape) = hooks.log_memory_write_shape {
                         log_shape(&input.tool_name, &input.tool_input, &file_path, scope);

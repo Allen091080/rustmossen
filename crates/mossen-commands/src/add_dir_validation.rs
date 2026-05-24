@@ -13,8 +13,8 @@ const MAX_FILES: usize = 10_000;
 
 /// Directories that should never be added to session context.
 const BLOCKED_DIRS: &[&str] = &[
-    "/", "/bin", "/sbin", "/usr", "/etc", "/var", "/tmp",
-    "/System", "/Library", "/proc", "/sys", "/dev",
+    "/", "/bin", "/sbin", "/usr", "/etc", "/var", "/tmp", "/System", "/Library", "/proc", "/sys",
+    "/dev",
 ];
 
 /// Result of directory validation.
@@ -255,7 +255,8 @@ pub fn add_dir_help_message(result: &AddDirectoryResult) -> String {
 
 /// Check if a directory is within the allowed traversal depth.
 pub fn check_depth(path: &Path, root: &Path) -> bool {
-    let depth = path.strip_prefix(root)
+    let depth = path
+        .strip_prefix(root)
         .map(|rel| rel.components().count())
         .unwrap_or(0);
     depth <= MAX_DEPTH

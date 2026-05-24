@@ -96,10 +96,7 @@ pub fn format_agent_line(agent: &AgentDefinition) -> String {
 }
 
 /// Generate the full Agent tool prompt.
-pub fn get_agent_tool_prompt(
-    effective_agents: &[AgentDefinition],
-    is_coordinator: bool,
-) -> String {
+pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinator: bool) -> String {
     let fork_enabled = is_fork_subagent_enabled();
     let list_via_attachment = should_inject_agent_list_in_messages();
 

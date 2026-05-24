@@ -1,7 +1,7 @@
 //! Bash classifier stub for external builds.
 //!
 //! Translates `utils/permissions/bashClassifier.ts`.
-//! Classifier permissions feature is ANT-ONLY; this stub provides
+//! Classifier permissions feature is INTERNAL-ONLY; this stub provides
 //! the interface for external builds.
 
 pub const PROMPT_PREFIX: &str = "prompt:";

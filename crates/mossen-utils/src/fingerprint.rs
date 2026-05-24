@@ -83,12 +83,7 @@ pub fn compute_fingerprint(message_text: &str, version: &str) -> String {
     let indices = [4, 7, 20];
     let chars: String = indices
         .iter()
-        .map(|&i| {
-            message_text
-                .chars()
-                .nth(i)
-                .unwrap_or('0')
-        })
+        .map(|&i| message_text.chars().nth(i).unwrap_or('0'))
         .collect();
 
     let fingerprint_input = format!("{}{}{}", FINGERPRINT_SALT, chars, version);

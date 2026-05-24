@@ -15,9 +15,7 @@ use std::sync::LazyLock;
 /// options between `git` and the subcommand (e.g. `-c key=val`, `-C path`,
 /// `--git-dir=path`).
 fn git_cmd_re(subcmd: &str, suffix: &str) -> Regex {
-    let pattern = format!(
-        r"\bgit(?:\s+-[cC]\s+\S+|\s+--\S+=\S+)*\s+{subcmd}\b{suffix}"
-    );
+    let pattern = format!(r"\bgit(?:\s+-[cC]\s+\S+|\s+--\S+=\S+)*\s+{subcmd}\b{suffix}");
     Regex::new(&pattern).expect("invalid git regex pattern")
 }
 
@@ -160,9 +158,8 @@ fn parse_pr_url(url: &str) -> Option<(u64, String, String)> {
 
 /// Find a GitHub PR URL embedded anywhere in stdout and parse it.
 fn find_pr_in_stdout(stdout: &str) -> Option<(u64, String, String)> {
-    static PR_FIND_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https://github\.com/[^/\s]+/[^/\s]+/pull/\d+").unwrap()
-    });
+    static PR_FIND_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"https://github\.com/[^/\s]+/[^/\s]+/pull/\d+").unwrap());
     let m = PR_FIND_RE.find(stdout)?;
     parse_pr_url(m.as_str())
 }
@@ -170,10 +167,12 @@ fn find_pr_in_stdout(stdout: &str) -> Option<(u64, String, String)> {
 /// Parse a git commit SHA from output. Matches `[branch abc1234] message` or
 /// `[branch (root-commit) abc1234] message`.
 pub fn parse_git_commit_id(stdout: &str) -> Option<&str> {
-    static COMMIT_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\[[\w./-]+(?: \(root-commit\))? ([0-9a-f]+)\]").unwrap()
-    });
-    COMMIT_ID_RE.captures(stdout).and_then(|c| c.get(1)).map(|m| m.as_str())
+    static COMMIT_ID_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\[[\w./-]+(?: \(root-commit\))? ([0-9a-f]+)\]").unwrap());
+    COMMIT_ID_RE
+        .captures(stdout)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str())
 }
 
 /// Parse branch name from git push output.
@@ -182,7 +181,10 @@ fn parse_git_push_branch(output: &str) -> Option<&str> {
         Regex::new(r"(?m)^\s*[+\-*!= ]?\s*(?:\[new branch\]|\S+\.\.+\S+)\s+\S+\s*->\s*(\S+)")
             .unwrap()
     });
-    PUSH_BRANCH_RE.captures(output).and_then(|c| c.get(1)).map(|m| m.as_str())
+    PUSH_BRANCH_RE
+        .captures(output)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str())
 }
 
 /// Parse PR number from text like "Pull request owner/repo#1234".
@@ -202,8 +204,11 @@ fn parse_ref_from_command(command: &str, verb: &str) -> Option<String> {
     let parts: Vec<&str> = re.split(command).collect();
     let after = parts.get(1)?;
     for token in after.trim().split_whitespace() {
-        if token.starts_with('&') || token.starts_with('|') || token.starts_with(';')
-            || token.starts_with('>') || token.starts_with('<')
+        if token.starts_with('&')
+            || token.starts_with('|')
+            || token.starts_with(';')
+            || token.starts_with('>')
+            || token.starts_with('<')
         {
             break;
         }
@@ -306,19 +311,19 @@ pub fn track_git_operations(command: &str, exit_code: i32, stdout: Option<&str>)
     }
 
     if GIT_COMMIT_RE.is_match(command) {
-        log_event("tengu_git_operation", &[("operation", "commit")]);
+        log_event("mossen_git_operation", &[("operation", "commit")]);
         if GIT_AMEND_RE.is_match(command) {
-            log_event("tengu_git_operation", &[("operation", "commit_amend")]);
+            log_event("mossen_git_operation", &[("operation", "commit_amend")]);
         }
     }
 
     if GIT_PUSH_RE.is_match(command) {
-        log_event("tengu_git_operation", &[("operation", "push")]);
+        log_event("mossen_git_operation", &[("operation", "push")]);
     }
 
     let pr_hit = find_pr_action(command);
     if let Some((_action, op)) = pr_hit {
-        log_event("tengu_git_operation", &[("operation", op)]);
+        log_event("mossen_git_operation", &[("operation", op)]);
 
         if matches!(_action, PrAction::Created) {
             // Auto-link session to PR if we can extract PR URL from stdout
@@ -332,26 +337,23 @@ pub fn track_git_operations(command: &str, exit_code: i32, stdout: Option<&str>)
     }
 
     if GLAB_MR_CREATE_RE.is_match(command) {
-        log_event("tengu_git_operation", &[("operation", "pr_create")]);
+        log_event("mossen_git_operation", &[("operation", "pr_create")]);
     }
 
     // Detect PR creation via curl to REST APIs
     let is_curl_post = command.contains("curl")
-        && (Regex::new(r"-X\s*POST\b")
-            .unwrap()
-            .is_match(command)
+        && (Regex::new(r"-X\s*POST\b").unwrap().is_match(command)
             || Regex::new(r"--request\s*=?\s*POST\b")
                 .unwrap()
                 .is_match(command)
             || command.contains(" -d "));
 
     static PR_ENDPOINT_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://[^\s']*/(pulls|pull-requests|merge[-_]requests)(?!/\d)")
-            .unwrap()
+        Regex::new(r"https?://[^\s']*/(pulls|pull-requests|merge[-_]requests)(?!/\d)").unwrap()
     });
     let is_pr_endpoint = PR_ENDPOINT_RE.is_match(command);
 
     if is_curl_post && is_pr_endpoint {
-        log_event("tengu_git_operation", &[("operation", "pr_create")]);
+        log_event("mossen_git_operation", &[("operation", "pr_create")]);
     }
 }

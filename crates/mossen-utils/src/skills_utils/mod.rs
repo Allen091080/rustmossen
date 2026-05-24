@@ -1,12 +1,11 @@
 // Translated from utils/skills/githubSkillInstall.ts and utils/skills/skillChangeDetector.ts
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 // ============================================================================
 // githubSkillInstall.ts
@@ -160,7 +159,11 @@ pub fn to_skill_slug(value: &str) -> String {
 
 fn basename_no_ext(value: &str) -> String {
     let normalized = normalize_github_path(value);
-    let last = normalized.split('/').filter(|s| !s.is_empty()).last().unwrap_or("skill");
+    let last = normalized
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .last()
+        .unwrap_or("skill");
     if last.to_lowercase().ends_with(".md") {
         last[..last.len() - 3].to_string()
     } else {
@@ -212,7 +215,12 @@ pub async fn get_github_skill_install_plan<F, Fut>(
 ) -> Result<Option<GitHubSkillInstallPlan>>
 where
     F: FnOnce(GitHubSkillInstallTarget) -> Fut,
-    Fut: std::future::Future<Output = Result<(Vec<GitHubSkillInstallFile>, HashMap<String, serde_json::Value>)>>,
+    Fut: std::future::Future<
+        Output = Result<(
+            Vec<GitHubSkillInstallFile>,
+            HashMap<String, serde_json::Value>,
+        )>,
+    >,
 {
     let target = match parse_github_skill_target(input) {
         Some(t) => t,
@@ -223,7 +231,11 @@ where
         return Ok(None);
     }
     if files.len() > MAX_FILES {
-        bail!("Skill exceeds maximum file count ({} > {})", files.len(), MAX_FILES);
+        bail!(
+            "Skill exceeds maximum file count ({} > {})",
+            files.len(),
+            MAX_FILES
+        );
     }
     let total_bytes: usize = files.iter().map(|f| f.size_bytes).sum();
     if total_bytes > MAX_TOTAL_BYTES {
@@ -347,8 +359,7 @@ fn build_warnings(frontmatter: &HashMap<String, serde_json::Value>) -> Vec<Strin
     }
 
     if frontmatter.get("disable-model-invocation") == Some(&serde_json::Value::Bool(false)) {
-        warnings
-            .push("Skill allows model invocation; confirm the trigger is narrow.".to_string());
+        warnings.push("Skill allows model invocation; confirm the trigger is narrow.".to_string());
     }
 
     warnings
@@ -401,7 +412,7 @@ impl SkillChangeDetector {
     pub fn subscribe(&self, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Fn() + Send + Sync> {
         let mut listeners = self.listeners.lock().unwrap();
         listeners.push(listener);
-        let idx = listeners.len() - 1;
+        let _idx = listeners.len() - 1;
         // Return unsubscribe function (simplified)
         Box::new(move || {})
     }

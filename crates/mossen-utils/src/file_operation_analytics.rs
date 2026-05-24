@@ -133,5 +133,5 @@ pub fn log_file_operation(params: LogFileOperationParams<'_>) {
         );
     }
 
-    log_event("tengu_file_operation", serde_json::Value::Object(metadata));
+    log_event("mossen_file_operation", serde_json::Value::Object(metadata));
 }

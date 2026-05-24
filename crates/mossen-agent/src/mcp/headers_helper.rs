@@ -5,7 +5,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::mcp::types::{McpHttpServerConfig, McpSseServerConfig, McpWebSocketServerConfig, ScopedMcpServerConfig, ConfigScope};
+use crate::mcp::types::{
+    ConfigScope, McpHttpServerConfig, McpSseServerConfig, McpWebSocketServerConfig,
+    ScopedMcpServerConfig,
+};
 
 /// Check if the MCP server config comes from project settings (projectSettings or localSettings).
 fn is_mcp_server_from_project_or_local_settings(config: &ScopedMcpServerConfig) -> bool {
@@ -53,7 +56,10 @@ pub async fn get_mcp_headers_from_helper(
         }
     }
 
-    tracing::debug!(server_name, "Executing headersHelper to get dynamic headers");
+    tracing::debug!(
+        server_name,
+        "Executing headersHelper to get dynamic headers"
+    );
 
     let mut cmd = tokio::process::Command::new("sh");
     cmd.arg("-c").arg(helper);
@@ -65,10 +71,7 @@ pub async fn get_mcp_headers_from_helper(
     match result {
         Ok(Ok(output)) => {
             if !output.status.success() || output.stdout.is_empty() {
-                tracing::error!(
-                    server_name,
-                    "headersHelper did not return a valid value"
-                );
+                tracing::error!(server_name, "headersHelper did not return a valid value");
                 return None;
             }
 

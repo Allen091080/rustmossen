@@ -3,9 +3,9 @@
 pub mod prompts;
 pub mod utils;
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 /// Session memory configuration.
@@ -59,13 +59,16 @@ impl SessionMemory {
             entry.content = content;
             entry.updated_at = now;
         } else {
-            self.entries.insert(key.clone(), SessionMemoryEntry {
-                key,
-                content,
-                created_at: now,
-                updated_at: now,
-                source,
-            });
+            self.entries.insert(
+                key.clone(),
+                SessionMemoryEntry {
+                    key,
+                    content,
+                    created_at: now,
+                    updated_at: now,
+                    source,
+                },
+            );
         }
     }
 
@@ -117,9 +120,7 @@ impl SessionMemory {
     pub async fn load(config: SessionMemoryConfig) -> Self {
         let path = config.memory_dir.join("session_memory.json");
         let entries = match tokio::fs::read_to_string(&path).await {
-            Ok(content) => {
-                serde_json::from_str(&content).unwrap_or_default()
-            }
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
             Err(_) => HashMap::new(),
         };
         Self { entries, config }

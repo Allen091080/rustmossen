@@ -381,10 +381,7 @@ where
     }
 
     let parsed: JsonValue = serde_json::from_str(&body).map_err(|_| {
-        XaaTokenExchangeError::new(
-            "XAA: JWT bearer response was not JSON".to_string(),
-            false,
-        )
+        XaaTokenExchangeError::new("XAA: JWT bearer response was not JSON".to_string(), false)
     })?;
     let access_token = parsed
         .get("access_token")
@@ -455,13 +452,9 @@ where
     let prm = discover_protected_resource(&cfg.server_url, prm_fetch)
         .await
         .map_err(|m| XaaTokenExchangeError::new(m, false))?;
-    let authorization_server_url = prm
-        .authorization_servers
-        .first()
-        .cloned()
-        .ok_or_else(|| {
-            XaaTokenExchangeError::new("PRM yielded no authorization_servers".to_string(), false)
-        })?;
+    let authorization_server_url = prm.authorization_servers.first().cloned().ok_or_else(|| {
+        XaaTokenExchangeError::new("PRM yielded no authorization_servers".to_string(), false)
+    })?;
 
     let grant = request_jwt_authorization_grant(
         RequestJwtAuthGrantOpts {

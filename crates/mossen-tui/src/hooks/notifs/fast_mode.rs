@@ -120,7 +120,10 @@ pub fn use_fast_mode_notification_on_org_change(
     org_enabled: bool,
 ) -> OrgChangeOutcome {
     if inputs.is_remote_mode || !inputs.fast_mode_enabled {
-        return OrgChangeOutcome { notification: None, disable_fast_mode: false };
+        return OrgChangeOutcome {
+            notification: None,
+            disable_fast_mode: false,
+        };
     }
     if org_enabled {
         OrgChangeOutcome {
@@ -145,7 +148,10 @@ pub fn use_fast_mode_notification_on_org_change(
             disable_fast_mode: true,
         }
     } else {
-        OrgChangeOutcome { notification: None, disable_fast_mode: false }
+        OrgChangeOutcome {
+            notification: None,
+            disable_fast_mode: false,
+        }
     }
 }
 
@@ -186,15 +192,27 @@ pub fn use_fast_mode_notification_on_cooldown_expired(
 /// the current inputs plus an event variant and returns the resulting
 /// notification (if any).
 pub enum FastModeEvent {
-    OrgChange { org_enabled: bool },
-    CooldownTriggered { reason: CooldownReason, reset_in: String },
+    OrgChange {
+        org_enabled: bool,
+    },
+    CooldownTriggered {
+        reason: CooldownReason,
+        reset_in: String,
+    },
     CooldownExpired,
 }
 
-pub fn use_fast_mode_notification(inputs: &FastModeNotificationInputs, event: &FastModeEvent) -> Option<FastModeNotificationEvent> {
+pub fn use_fast_mode_notification(
+    inputs: &FastModeNotificationInputs,
+    event: &FastModeEvent,
+) -> Option<FastModeNotificationEvent> {
     match event {
-        FastModeEvent::OrgChange { org_enabled } => use_fast_mode_notification_on_org_change(inputs, *org_enabled).notification,
-        FastModeEvent::CooldownTriggered { reason, reset_in } => use_fast_mode_notification_on_cooldown_triggered(inputs, *reason, reset_in),
+        FastModeEvent::OrgChange { org_enabled } => {
+            use_fast_mode_notification_on_org_change(inputs, *org_enabled).notification
+        }
+        FastModeEvent::CooldownTriggered { reason, reset_in } => {
+            use_fast_mode_notification_on_cooldown_triggered(inputs, *reason, reset_in)
+        }
         FastModeEvent::CooldownExpired => use_fast_mode_notification_on_cooldown_expired(inputs),
     }
 }

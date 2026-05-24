@@ -79,8 +79,7 @@ pub fn cached_read_file(file_path: &Path) -> anyhow::Result<FileReadResult> {
 
     // Cache miss or stale data - read the file
     let encoding = detect_encoding(file_path);
-    let content = std::fs::read_to_string(file_path)
-        .map(|s| s.replace("\r\n", "\n"))?;
+    let content = std::fs::read_to_string(file_path).map(|s| s.replace("\r\n", "\n"))?;
 
     // Update cache
     cache.cache.insert(
@@ -117,10 +116,7 @@ pub fn invalidate_file_cache(file_path: &Path) {
 /// 获取缓存统计信息，用于调试/监控。
 pub fn get_file_cache_stats() -> (usize, Vec<PathBuf>) {
     let cache = FILE_READ_CACHE.lock();
-    (
-        cache.cache.len(),
-        cache.cache.keys().cloned().collect(),
-    )
+    (cache.cache.len(), cache.cache.keys().cloned().collect())
 }
 
 /// 简单编码检测

@@ -6,11 +6,14 @@ pub const OFFICIAL_GITHUB_ACTION_USAGE_DOCS_URL: &str =
     "https://github.com/mossen/mossen-action/blob/main/docs/usage.md";
 pub const OFFICIAL_GITHUB_WORKFLOW_EXAMPLES_URL: &str =
     "https://github.com/mossen/mossen-action/blob/main/examples/";
-pub const CUSTOM_BACKEND_GITHUB_CREDENTIAL_PLACEHOLDER: &str =
-    "__MOSSEN_CODE_CUSTOM_CREDENTIAL__";
+pub const CUSTOM_BACKEND_GITHUB_CREDENTIAL_PLACEHOLDER: &str = "__MOSSEN_CODE_CUSTOM_CREDENTIAL__";
 
 pub fn get_workflow_mention_handle(is_custom_backend: bool) -> &'static str {
-    if is_custom_backend { "@assistant" } else { "@mossen" }
+    if is_custom_backend {
+        "@assistant"
+    } else {
+        "@mossen"
+    }
 }
 
 pub fn get_workflow_display_name(is_custom_backend: bool, product_name: &str) -> String {
@@ -89,13 +92,12 @@ pub fn get_github_workflow_readiness(
         issues.push("GitHub app install URL still points to a placeholder domain.".to_string());
     }
     if is_placeholder(github_actions_docs_url) {
-        issues.push(
-            "GitHub workflow docs URL still points to a placeholder domain.".to_string(),
-        );
+        issues.push("GitHub workflow docs URL still points to a placeholder domain.".to_string());
     }
     if is_placeholder(bootstrap_url) {
         issues.push(
-            "GitHub workflow bootstrap runner URL still points to a placeholder domain.".to_string(),
+            "GitHub workflow bootstrap runner URL still points to a placeholder domain."
+                .to_string(),
         );
     }
 
@@ -174,7 +176,11 @@ fn get_github_workflow_runner_step(
         } else {
             get_workflow_display_name(false, product_name)
         };
-        let actor_id = if kind == "review" { "mossen-review" } else { "mossen" };
+        let actor_id = if kind == "review" {
+            "mossen-review"
+        } else {
+            "mossen"
+        };
 
         let review_only_inputs = if kind == "review" {
             "          plugin_marketplaces: 'https://github.com/mossen/mossen.git'\n          plugins: 'code-review@mossen-plugins'\n          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'\n"
@@ -199,7 +205,11 @@ fn get_github_workflow_runner_step(
         );
     }
 
-    let workflow_kind = if kind == "review" { "review" } else { "comment" };
+    let workflow_kind = if kind == "review" {
+        "review"
+    } else {
+        "comment"
+    };
     let actor_name = if kind == "review" {
         get_review_workflow_display_name(true, product_name)
     } else {
@@ -245,11 +255,25 @@ pub fn workflow_content(
 ) -> String {
     let display_name = get_workflow_display_name(is_custom_backend, product_name);
     let mention = get_workflow_mention_handle(is_custom_backend);
-    let job_name = if is_custom_backend { "assistant" } else { "mossen" };
-    let actor_label = if is_custom_backend { "the assistant" } else { "Mossen" };
+    let job_name = if is_custom_backend {
+        "assistant"
+    } else {
+        "mossen"
+    };
+    let actor_label = if is_custom_backend {
+        "the assistant"
+    } else {
+        "Mossen"
+    };
     let action_docs = get_github_action_usage_docs_url(is_custom_backend, remote_base_url);
     let cli_docs = get_cli_reference_docs_url(remote_base_url);
-    let runner_step = get_github_workflow_runner_step("comment", is_custom_backend, product_name, &action_docs, &cli_docs);
+    let runner_step = get_github_workflow_runner_step(
+        "comment",
+        is_custom_backend,
+        product_name,
+        &action_docs,
+        &cli_docs,
+    );
 
     format!(
         r#"name: {display_name}
@@ -386,10 +410,20 @@ pub fn code_review_plugin_workflow_content(
     remote_base_url: &str,
 ) -> String {
     let review_display = get_review_workflow_display_name(is_custom_backend, product_name);
-    let job_name = if is_custom_backend { "assistant-review" } else { "mossen-review" };
+    let job_name = if is_custom_backend {
+        "assistant-review"
+    } else {
+        "mossen-review"
+    };
     let action_docs = get_github_action_usage_docs_url(is_custom_backend, remote_base_url);
     let cli_docs = get_cli_reference_docs_url(remote_base_url);
-    let runner_step = get_github_workflow_runner_step("review", is_custom_backend, product_name, &action_docs, &cli_docs);
+    let runner_step = get_github_workflow_runner_step(
+        "review",
+        is_custom_backend,
+        product_name,
+        &action_docs,
+        &cli_docs,
+    );
 
     format!(
         r#"name: {review_display}

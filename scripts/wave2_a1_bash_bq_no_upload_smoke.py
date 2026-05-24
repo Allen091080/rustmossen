@@ -6,7 +6,7 @@ has been emptied to a single `return` statement (S2 阶段:保留签名,移除 B
 上报副作用),while:
   * 函数签名仍存在 (后续 Wave 3 才 hard remove)
   * 4 处 callsites 仍调用此函数 (signature 保留正是为了不动 callsite)
-  * tengu_internal_bash_classifier_result 字面量在该函数体内已消失
+  * mossen_internal_bash_classifier_result 字面量在该函数体内已消失
   * AnalyticsMetadata_I_VERIFIED... import 已删 (仅在被置空函数内被引用)
   * jsonStringify import 已删 (同上)
   * logEvent import 仍保留 (该文件另有 3 处合法调用 — line 1700/1725/2335)
@@ -41,7 +41,7 @@ def static_assertion() -> dict[str, object]:
         "signature_present": False,
         "body_is_return_only": False,
         "logevent_call_in_body": True,  # default true → fail unless proven absent
-        "tengu_literal_in_body": True,
+        "mossen_literal_in_body": True,
         "callsite_count": 0,
         "logevent_import_present": False,  # must remain True (3 other callers)
         "analytics_metadata_import_present": False,  # must remain False
@@ -67,8 +67,8 @@ def static_assertion() -> dict[str, object]:
         # Body should be exactly: return
         findings["body_is_return_only"] = stripped == "return"
         findings["logevent_call_in_body"] = "logEvent(" in body
-        findings["tengu_literal_in_body"] = (
-            "tengu_internal_bash_classifier_result" in body
+        findings["mossen_literal_in_body"] = (
+            "mossen_internal_bash_classifier_result" in body
         )
 
     # Count occurrences of `logClassifierResultForMossen(` — should be 5:
@@ -111,10 +111,10 @@ def main() -> int:
                 "logClassifierResultForMossen 函数体内仍含 logEvent( 调用 "
                 "(S2 要求移除 BQ 上报副作用)"
             )
-        if findings["tengu_literal_in_body"]:
+        if findings["mossen_literal_in_body"]:
             failures.append(
                 "logClassifierResultForMossen 函数体内仍含 "
-                "'tengu_internal_bash_classifier_result' 字面量 (S2 不允许)"
+                "'mossen_internal_bash_classifier_result' 字面量 (S2 不允许)"
             )
 
     if findings["callsite_count"] != 5:
@@ -124,13 +124,13 @@ def main() -> int:
         )
 
     # logEvent import MUST remain — file 另有 3 处合法 logEvent 调用
-    # (lines 1700 tengu_tree_sitter_shadow / 1725 tengu_bash_ast_too_complex /
-    #  2335 tengu_tree_sitter_security_divergence)
+    # (lines 1700 mossen_tree_sitter_shadow / 1725 mossen_bash_ast_too_complex /
+    #  2335 mossen_tree_sitter_security_divergence)
     if not findings["logevent_import_present"]:
         failures.append(
             "logEvent import 不应被删除 — 文件另有 3 处合法 logEvent 调用 "
-            "(tengu_tree_sitter_shadow / tengu_bash_ast_too_complex / "
-            "tengu_tree_sitter_security_divergence) 不属于 BQ 真命令上报范畴"
+            "(mossen_tree_sitter_shadow / mossen_bash_ast_too_complex / "
+            "mossen_tree_sitter_security_divergence) 不属于 BQ 真命令上报范畴"
         )
     if findings["analytics_metadata_import_present"]:
         failures.append(

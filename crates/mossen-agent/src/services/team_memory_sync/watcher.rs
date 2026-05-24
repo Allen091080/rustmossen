@@ -7,7 +7,11 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify};
 use tracing::{debug, info, warn};
 
-use super::types::{TeamMemorySyncPushResult, SyncErrorType};
+use super::service::{
+    create_sync_state, get_team_memory_dir, is_team_memory_sync_available, push_team_memory,
+    SyncState,
+};
+use super::types::{SyncErrorType, TeamMemorySyncPushResult};
 
 const DEBOUNCE_MS: u64 = 2000;
 
@@ -63,6 +67,7 @@ impl TeamMemoryWatcher {
         if state.watcher_started {
             return Ok(());
         }
+        let debounce_notify = Arc::clone(&state.debounce_notify);
         state.watcher_started = true;
         drop(state);
 
@@ -81,33 +86,40 @@ impl TeamMemoryWatcher {
             Self::watch_loop(team_dir, state_clone, shutdown).await;
         });
 
+        let state_clone = Arc::clone(&self.state);
+        let shutdown = Arc::clone(&self.shutdown_notify);
+        tokio::spawn(async move {
+            Self::push_loop(state_clone, debounce_notify, shutdown).await;
+        });
+
         Ok(())
     }
 
-    async fn watch_loop(
-        team_dir: PathBuf,
-        state: Arc<Mutex<WatcherState>>,
-        shutdown: Arc<Notify>,
-    ) {
-        use notify::{Watcher, RecursiveMode, Event};
+    async fn watch_loop(team_dir: PathBuf, state: Arc<Mutex<WatcherState>>, shutdown: Arc<Notify>) {
+        use notify::{Event, RecursiveMode, Watcher};
         use tokio::sync::mpsc;
 
         let (tx, mut rx) = mpsc::channel::<Event>(100);
 
-        let mut watcher = match notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
-                let _ = tx.blocking_send(event);
-            }
-        }) {
-            Ok(w) => w,
-            Err(e) => {
-                warn!("team-memory-watcher: failed to create watcher: {}", e);
-                return;
-            }
-        };
+        let mut watcher =
+            match notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+                if let Ok(event) = res {
+                    let _ = tx.blocking_send(event);
+                }
+            }) {
+                Ok(w) => w,
+                Err(e) => {
+                    warn!("team-memory-watcher: failed to create watcher: {}", e);
+                    return;
+                }
+            };
 
         if let Err(e) = watcher.watch(&team_dir, RecursiveMode::Recursive) {
-            warn!("team-memory-watcher: failed to watch {}: {}", team_dir.display(), e);
+            warn!(
+                "team-memory-watcher: failed to watch {}: {}",
+                team_dir.display(),
+                e
+            );
             return;
         }
 
@@ -120,13 +132,17 @@ impl TeamMemoryWatcher {
                 }
                 event = rx.recv() => {
                     match event {
-                        Some(_evt) => {
+                        Some(evt) => {
                             let mut s = state.lock().await;
                             if s.push_suppressed_reason.is_some() {
-                                // Check if it's an unlink (file removal) to clear suppression
-                                // For simplicity, we just schedule push on any event
-                                // when not suppressed
-                                continue;
+                                if Self::is_remove_event(&evt) {
+                                    debug!(
+                                        "team-memory-watcher: clearing push suppression after remove event"
+                                    );
+                                    s.push_suppressed_reason = None;
+                                } else {
+                                    continue;
+                                }
                             }
                             s.has_pending_changes = true;
                             let notify = Arc::clone(&s.debounce_notify);
@@ -138,6 +154,87 @@ impl TeamMemoryWatcher {
                 }
             }
         }
+    }
+
+    fn is_remove_event(event: &notify::Event) -> bool {
+        matches!(event.kind, notify::EventKind::Remove(_))
+    }
+
+    async fn push_loop(
+        state: Arc<Mutex<WatcherState>>,
+        debounce_notify: Arc<Notify>,
+        shutdown: Arc<Notify>,
+    ) {
+        let mut sync_state = create_sync_state();
+
+        loop {
+            tokio::select! {
+                _ = shutdown.notified() => {
+                    let _ = Self::push_pending_once(&state, &mut sync_state).await;
+                    break;
+                }
+                _ = debounce_notify.notified() => {
+                    tokio::select! {
+                        _ = shutdown.notified() => {
+                            let _ = Self::push_pending_once(&state, &mut sync_state).await;
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)) => {}
+                    }
+
+                    loop {
+                        if !Self::push_pending_once(&state, &mut sync_state).await {
+                            break;
+                        }
+
+                        let has_more_changes = state.lock().await.has_pending_changes;
+                        if !has_more_changes {
+                            break;
+                        }
+
+                        tokio::select! {
+                            _ = shutdown.notified() => {
+                                let _ = Self::push_pending_once(&state, &mut sync_state).await;
+                                return;
+                            }
+                            _ = tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)) => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn push_pending_once(
+        state: &Arc<Mutex<WatcherState>>,
+        sync_state: &mut SyncState,
+    ) -> bool {
+        {
+            let mut s = state.lock().await;
+            if s.push_suppressed_reason.is_some() || s.push_in_progress || !s.has_pending_changes {
+                return false;
+            }
+            s.has_pending_changes = false;
+            s.push_in_progress = true;
+        }
+
+        let result = push_team_memory(sync_state).await;
+        if result.success {
+            debug!(
+                "team-memory-watcher: pushed {} changed file(s)",
+                result.files_uploaded
+            );
+        } else {
+            warn!(
+                "team-memory-watcher: push failed: {}",
+                result.error.as_deref().unwrap_or("unknown error")
+            );
+        }
+
+        let mut s = state.lock().await;
+        s.push_in_progress = false;
+        Self::suppress_permanent_failure(&mut s, &result);
+        true
     }
 
     /// Notify the watcher that a team memory file was written.
@@ -152,35 +249,42 @@ impl TeamMemoryWatcher {
 
     /// Stop the watcher and flush pending changes.
     pub async fn stop(&self) {
-        self.shutdown_notify.notify_one();
+        self.shutdown_notify.notify_waiters();
 
-        let state = self.state.lock().await;
-        if state.has_pending_changes {
+        let has_pending_changes = self.state.lock().await.has_pending_changes;
+        if has_pending_changes {
             info!("team-memory-watcher: flushing pending changes on stop");
+            let mut sync_state = create_sync_state();
+            let _ = Self::push_pending_once(&self.state, &mut sync_state).await;
         }
     }
 
     /// Record that a push result was a permanent failure, suppressing retries.
     pub async fn record_push_result(&self, result: &TeamMemorySyncPushResult) {
-        if !result.success && is_permanent_failure(result) {
-            let mut state = self.state.lock().await;
-            if state.push_suppressed_reason.is_none() {
-                let reason = if let Some(status) = result.http_status {
-                    format!("http_{}", status)
-                } else {
-                    result
-                        .error_type
-                        .as_ref()
-                        .map(|e| format!("{:?}", e))
-                        .unwrap_or_else(|| "unknown".to_string())
-                };
-                warn!(
-                    "team-memory-watcher: suppressing retry until next unlink or session restart ({})",
-                    reason
-                );
-                state.push_suppressed_reason = Some(reason);
-            }
+        let mut state = self.state.lock().await;
+        Self::suppress_permanent_failure(&mut state, result);
+    }
+
+    fn suppress_permanent_failure(state: &mut WatcherState, result: &TeamMemorySyncPushResult) {
+        if result.success || !is_permanent_failure(result) || state.push_suppressed_reason.is_some()
+        {
+            return;
         }
+
+        let reason = if let Some(status) = result.http_status {
+            format!("http_{}", status)
+        } else {
+            result
+                .error_type
+                .as_ref()
+                .map(|e| format!("{:?}", e))
+                .unwrap_or_else(|| "unknown".to_string())
+        };
+        warn!(
+            "team-memory-watcher: suppressing retry until next unlink or session restart ({})",
+            reason
+        );
+        state.push_suppressed_reason = Some(reason);
     }
 }
 
@@ -198,16 +302,37 @@ use once_cell::sync::Lazy;
 
 /// Start the team memory watcher (module-level convenience).
 pub async fn start_team_memory_watcher() {
-    // Placeholder: actual initialization requires config/auth checks
-    let watcher = TeamMemoryWatcher::new();
-    let mut guard = WATCHER.lock().await;
-    *guard = Some(watcher);
+    if !is_team_memory_sync_available() {
+        debug!("team-memory-watcher: not started because team memory sync is unavailable");
+        return;
+    }
+
+    if WATCHER.lock().await.is_some() {
+        return;
+    }
+
+    let mut watcher = TeamMemoryWatcher::new();
+    if let Err(e) = watcher.start(get_team_memory_dir()).await {
+        warn!("team-memory-watcher: failed to start: {}", e);
+        return;
+    }
+
+    let mut maybe_watcher = Some(watcher);
+    {
+        let mut guard = WATCHER.lock().await;
+        if guard.is_none() {
+            *guard = maybe_watcher.take();
+        }
+    }
+    if let Some(watcher) = maybe_watcher {
+        watcher.stop().await;
+    }
 }
 
 /// Stop the team memory watcher (module-level convenience).
 pub async fn stop_team_memory_watcher() {
-    let guard = WATCHER.lock().await;
-    if let Some(ref w) = *guard {
+    let watcher = WATCHER.lock().await.take();
+    if let Some(w) = watcher {
         w.stop().await;
     }
 }
@@ -261,8 +386,74 @@ pub async fn start_file_watcher_for_testing(dir: &str) -> std::io::Result<()> {
     }
     // Construct a watcher and store it under the module-level lock. The
     // watcher's run loop is launched in the background.
-    let watcher = TeamMemoryWatcher::new();
+    let mut watcher = TeamMemoryWatcher::new();
+    watcher
+        .start(path.to_path_buf())
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     let mut guard = WATCHER.lock().await;
     *guard = Some(watcher);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn push_result(
+        success: bool,
+        error_type: Option<SyncErrorType>,
+        http_status: Option<u16>,
+    ) -> TeamMemorySyncPushResult {
+        TeamMemorySyncPushResult {
+            success,
+            error_type,
+            http_status,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn permanent_failure_classification_matches_retry_policy() {
+        assert!(is_permanent_failure(&push_result(
+            false,
+            Some(SyncErrorType::NoOauth),
+            None
+        )));
+        assert!(is_permanent_failure(&push_result(
+            false,
+            Some(SyncErrorType::NoRepo),
+            None
+        )));
+        assert!(is_permanent_failure(&push_result(false, None, Some(403))));
+        assert!(!is_permanent_failure(&push_result(false, None, Some(409))));
+        assert!(!is_permanent_failure(&push_result(false, None, Some(429))));
+        assert!(!is_permanent_failure(&push_result(
+            false,
+            Some(SyncErrorType::Network),
+            None
+        )));
+    }
+
+    #[tokio::test]
+    async fn notify_write_marks_pending_change() {
+        let watcher = TeamMemoryWatcher::new();
+        watcher.notify_write().await;
+
+        let state = watcher.state.lock().await;
+        assert!(state.has_pending_changes);
+    }
+
+    #[tokio::test]
+    async fn permanent_push_failure_suppresses_future_notify_write() {
+        let watcher = TeamMemoryWatcher::new();
+        watcher
+            .record_push_result(&push_result(false, Some(SyncErrorType::NoRepo), None))
+            .await;
+        watcher.notify_write().await;
+
+        let state = watcher.state.lock().await;
+        assert!(state.push_suppressed_reason.is_some());
+        assert!(!state.has_pending_changes);
+    }
 }

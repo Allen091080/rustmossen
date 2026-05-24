@@ -8,7 +8,20 @@
 pub fn order(a: &str, b: &str) -> i32 {
     let va = parse_version(a);
     let vb = parse_version(b);
-    compare_versions(&va, &vb)
+    let num = compare_versions(&va, &vb);
+    if num != 0 {
+        return num;
+    }
+    // Numeric parts equal; prerelease versions sort before release.
+    let a_has_prerelease = a.contains('-');
+    let b_has_prerelease = b.contains('-');
+    if a_has_prerelease && !b_has_prerelease {
+        return -1;
+    }
+    if !a_has_prerelease && b_has_prerelease {
+        return 1;
+    }
+    0
 }
 
 /// Check if version a > version b
@@ -50,7 +63,8 @@ pub fn satisfies(version: &str, range: &str) -> bool {
     if range_str.starts_with('~') {
         let min_str = &range_str[1..];
         let min = parse_version(min_str);
-        // ~1.0.0 means >=1.0.0 and <1.1.0
+        // ~1.0.0 means >=1.0.0 and <1.1.0 (tilde-patch — npm standard).
+        // Version must have same major + minor, and be >= min.
         if min.len() < 2 {
             return false;
         }
@@ -169,7 +183,10 @@ mod tests {
 
     #[test]
     fn test_satisfies_tilde() {
-        assert!(satisfies("1.2.3", "~1.0.0"));
+        // Tilde-patch: ~1.0.0 means >=1.0.0 and <1.1.0.
+        // Note: 1.0.3 (not 1.2.3) is within range because only patch
+        // version changes are allowed under tilde-patch.
+        assert!(satisfies("1.0.3", "~1.0.0"));
         assert!(satisfies("1.0.0", "~1.0.0"));
         assert!(!satisfies("1.1.0", "~1.0.0"));
         assert!(!satisfies("2.0.0", "~1.0.0"));

@@ -3,8 +3,8 @@
 //! Renders markdown content with ANSI formatting for terminal display,
 //! including headings, lists, code blocks, links, tables, and blockquotes.
 
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// Pad content to target width according to alignment.
 pub fn pad_aligned(
@@ -91,10 +91,7 @@ pub fn linkify_issue_references(text: &str) -> String {
             let prefix = &caps[1];
             let repo = &caps[2];
             let num = &caps[3];
-            format!(
-                "{}https://github.com/{}/issues/{}",
-                prefix, repo, num
-            )
+            format!("{}https://github.com/{}/issues/{}", prefix, repo, num)
         })
         .to_string()
 }
@@ -102,20 +99,47 @@ pub fn linkify_issue_references(text: &str) -> String {
 /// Markdown token types for rendering.
 #[derive(Debug, Clone)]
 pub enum MarkdownToken {
-    Heading { depth: u8, text: String },
-    Paragraph { text: String },
-    Code { text: String, lang: Option<String> },
-    CodeSpan { text: String },
-    List { items: Vec<ListItem>, ordered: bool, start: usize },
-    BlockQuote { text: String },
+    Heading {
+        depth: u8,
+        text: String,
+    },
+    Paragraph {
+        text: String,
+    },
+    Code {
+        text: String,
+        lang: Option<String>,
+    },
+    CodeSpan {
+        text: String,
+    },
+    List {
+        items: Vec<ListItem>,
+        ordered: bool,
+        start: usize,
+    },
+    BlockQuote {
+        text: String,
+    },
     HorizontalRule,
-    Link { href: String, text: String },
-    Image { href: String },
-    Text { text: String },
+    Link {
+        href: String,
+        text: String,
+    },
+    Image {
+        href: String,
+    },
+    Text {
+        text: String,
+    },
     Space,
     Br,
-    Bold { text: String },
-    Italic { text: String },
+    Bold {
+        text: String,
+    },
+    Italic {
+        text: String,
+    },
 }
 
 /// A list item in a markdown list.

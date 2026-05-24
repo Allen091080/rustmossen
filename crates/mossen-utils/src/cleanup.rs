@@ -106,8 +106,7 @@ pub async fn cleanup_old_message_files(
             && name.starts_with("mcp-logs-")
         {
             let mcp_log_dir = entry.path();
-            let sub_result =
-                cleanup_old_files_in_directory(&mcp_log_dir, cutoff_date, true).await;
+            let sub_result = cleanup_old_files_in_directory(&mcp_log_dir, cutoff_date, true).await;
             result.add(&sub_result);
             try_rmdir(&mcp_log_dir).await;
         }
@@ -322,12 +321,7 @@ pub async fn cleanup_old_file_history_backups(
     };
 
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if !entry
-            .file_type()
-            .await
-            .map(|t| t.is_dir())
-            .unwrap_or(false)
-        {
+        if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
             continue;
         }
         match fs::metadata(entry.path()).await {
@@ -365,12 +359,7 @@ pub async fn cleanup_old_session_env_dirs(
     };
 
     while let Ok(Some(entry)) = entries.next_entry().await {
-        if !entry
-            .file_type()
-            .await
-            .map(|t| t.is_dir())
-            .unwrap_or(false)
-        {
+        if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
             continue;
         }
         match fs::metadata(entry.path()).await {
@@ -458,7 +447,9 @@ pub async fn cleanup_npm_cache_for_provider_packages(provider_packages: &[String
 
 /// 对应 TS `cleanupOldVersionsThrottled`：节流式清理旧版本目录。
 pub async fn cleanup_old_versions_throttled(base_dir: &Path, max_keep: usize) {
-    let Ok(mut entries) = fs::read_dir(base_dir).await else { return; };
+    let Ok(mut entries) = fs::read_dir(base_dir).await else {
+        return;
+    };
     let mut versions: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         if let Ok(meta) = entry.metadata().await {

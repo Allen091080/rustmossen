@@ -104,10 +104,7 @@ fn get_heatmap_char(intensity: u8) -> String {
 }
 
 /// Generates a GitHub-style activity heatmap for the terminal.
-pub fn generate_heatmap(
-    daily_activity: &[DailyActivity],
-    options: &HeatmapOptions,
-) -> String {
+pub fn generate_heatmap(daily_activity: &[DailyActivity], options: &HeatmapOptions) -> String {
     let day_label_width = 4;
     let available_width = options.terminal_width.saturating_sub(day_label_width);
     let width = available_width.max(10).min(52);
@@ -165,8 +162,7 @@ pub fn generate_heatmap(
     // Month labels
     if options.show_month_labels {
         let month_names = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
-            "Nov", "Dec",
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
         ];
 
         let unique_months: Vec<u32> = month_starts.iter().map(|(m, _)| *m).collect();
@@ -192,7 +188,11 @@ pub fn generate_heatmap(
         } else {
             "   ".to_string()
         };
-        let row: String = grid[day].iter().map(|s| s.as_str()).collect::<Vec<_>>().join("");
+        let row: String = grid[day]
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("");
         lines.push(format!("{label} {row}"));
     }
 

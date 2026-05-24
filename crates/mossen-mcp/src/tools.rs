@@ -11,6 +11,7 @@ use serde_json::Value;
 use crate::client::McpClient;
 use crate::normalization::normalize_name_for_mcp;
 use crate::protocol::{CallToolResult, ContentBlock, ToolDefinition};
+use mossen_types::{ToolDefinition as MossenToolDefinition, ToolInputSchema};
 
 // ─── MCP 工具封装 ────────────────────────────────────────────────────────────
 
@@ -231,4 +232,145 @@ pub fn filter_tools_by_server<'a>(tools: &'a [McpTool], server_name: &str) -> Ve
         .iter()
         .filter(|t| t.qualified_name.starts_with(&prefix))
         .collect()
+}
+
+/// Convert an MCP protocol tool into the Mossen API tool-definition shape.
+///
+/// The model only sees the normalized, fully-qualified name. Execution code
+/// later resolves that back to the MCP server's original tool name before
+/// calling `tools/call`.
+pub fn to_mossen_tool_definition(server_name: &str, tool: &ToolDefinition) -> MossenToolDefinition {
+    MossenToolDefinition {
+        name: build_mcp_tool_name(server_name, &tool.name),
+        description: tool
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("MCP tool '{}' from server '{}'.", tool.name, server_name)),
+        input_schema: mcp_input_schema_to_mossen(tool.input_schema.as_ref()),
+        cache_control: None,
+    }
+}
+
+fn mcp_input_schema_to_mossen(schema: Option<&Value>) -> ToolInputSchema {
+    let Some(Value::Object(raw)) = schema else {
+        return ToolInputSchema {
+            schema_type: "object".to_string(),
+            properties: None,
+            required: None,
+            extra: HashMap::new(),
+        };
+    };
+
+    let schema_type = raw
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("object")
+        .to_string();
+
+    let mut extra = HashMap::new();
+    for (key, value) in raw {
+        if key != "type" && key != "properties" && key != "required" {
+            extra.insert(key.clone(), value.clone());
+        }
+    }
+
+    let properties = raw.get("properties").and_then(|value| {
+        value.as_object().map(|map| {
+            map.iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+    });
+
+    if properties.is_none() {
+        if let Some(value) = raw.get("properties") {
+            extra.insert("properties".to_string(), value.clone());
+        }
+    }
+
+    let required = raw.get("required").and_then(|value| {
+        value.as_array().map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(ToString::to_string))
+                .collect::<Vec<_>>()
+        })
+    });
+
+    if required.is_none() {
+        if let Some(value) = raw.get("required") {
+            extra.insert("required".to_string(), value.clone());
+        }
+    }
+
+    ToolInputSchema {
+        schema_type,
+        properties,
+        required,
+        extra,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn converts_mcp_tool_to_model_visible_definition() {
+        let tool = ToolDefinition {
+            name: "list repos".to_string(),
+            description: Some("List repositories".to_string()),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string" }
+                },
+                "required": ["owner"],
+                "additionalProperties": false
+            })),
+        };
+
+        let converted = to_mossen_tool_definition("hosted GitHub", &tool);
+
+        assert_eq!(converted.name, "mcp__hosted_GitHub__list_repos");
+        assert_eq!(converted.description, "List repositories");
+        assert_eq!(converted.input_schema.schema_type, "object");
+        assert_eq!(
+            converted
+                .input_schema
+                .properties
+                .as_ref()
+                .unwrap()
+                .get("owner")
+                .unwrap(),
+            &json!({ "type": "string" })
+        );
+        assert_eq!(
+            converted.input_schema.required.as_deref(),
+            Some(&["owner".to_string()][..])
+        );
+        assert_eq!(
+            converted.input_schema.extra.get("additionalProperties"),
+            Some(&json!(false))
+        );
+    }
+
+    #[test]
+    fn converts_missing_mcp_schema_to_empty_object_schema() {
+        let tool = ToolDefinition {
+            name: "ping".to_string(),
+            description: None,
+            input_schema: None,
+        };
+
+        let converted = to_mossen_tool_definition("dev", &tool);
+
+        assert_eq!(converted.name, "mcp__dev__ping");
+        assert_eq!(converted.description, "MCP tool 'ping' from server 'dev'.");
+        assert_eq!(converted.input_schema.schema_type, "object");
+        assert!(converted.input_schema.properties.is_none());
+        assert!(converted.input_schema.required.is_none());
+        assert!(converted.input_schema.extra.is_empty());
+    }
 }

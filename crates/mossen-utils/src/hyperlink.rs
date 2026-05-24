@@ -22,5 +22,8 @@ pub fn create_hyperlink(url: &str, content: Option<&str>, supports_hyperlinks: b
     let display_text = content.unwrap_or(url);
     // 应用基本 ANSI 蓝色
     let colored_text = format!("\x1b[34m{}\x1b[0m", display_text);
-    format!("{}{}{}{}{}{}", OSC8_START, url, OSC8_END, colored_text, OSC8_START, OSC8_END)
+    format!(
+        "{}{}{}{}{}{}",
+        OSC8_START, url, OSC8_END, colored_text, OSC8_START, OSC8_END
+    )
 }

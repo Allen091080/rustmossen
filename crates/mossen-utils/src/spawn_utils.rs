@@ -38,9 +38,29 @@ fn shell_quote(value: &str) -> String {
     let needs_quotes = value.chars().any(|c| {
         matches!(
             c,
-            ' ' | '\t' | '\n' | '"' | '\'' | '$' | '`' | '\\' | '*'
-                | '?' | '[' | ']' | '{' | '}' | '(' | ')' | '<' | '>'
-                | '|' | '&' | ';' | '#' | '!' | '~'
+            ' ' | '\t'
+                | '\n'
+                | '"'
+                | '\''
+                | '$'
+                | '`'
+                | '\\'
+                | '*'
+                | '?'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '('
+                | ')'
+                | '<'
+                | '>'
+                | '|'
+                | '&'
+                | ';'
+                | '#'
+                | '!'
+                | '~'
         )
     });
     if !needs_quotes {
@@ -107,10 +127,7 @@ pub fn build_inherited_cli_flags(
     flags.push(format!("--teammate-mode {}", shell_quote(&teammate_mode)));
 
     // Chrome 标志覆盖。
-    match env::var("MOSSEN_CODE_CHROME_FLAG_OVERRIDE")
-        .ok()
-        .as_deref()
-    {
+    match env::var("MOSSEN_CODE_CHROME_FLAG_OVERRIDE").ok().as_deref() {
         Some("1") | Some("true") | Some("yes") => flags.push("--chrome".to_string()),
         Some("0") | Some("false") | Some("no") => flags.push("--no-chrome".to_string()),
         _ => {}
@@ -150,7 +167,7 @@ pub fn build_inherited_env_vars() -> String {
         "MOSSENCODE=1".to_string(),
         "MOSSEN_CODE_EXPERIMENTAL_AGENT_TEAMS=1".to_string(),
     ];
-    
+
     for key in TEAMMATE_ENV_VARS {
         if let Ok(value) = env::var(key) {
             if !value.is_empty() {
@@ -158,7 +175,7 @@ pub fn build_inherited_env_vars() -> String {
             }
         }
     }
-    
+
     env_vars.join(" ")
 }
 

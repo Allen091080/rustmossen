@@ -79,7 +79,7 @@ fn is_env_truthy(val: Option<&str>) -> bool {
 /// Checks the same gate as isScratchpadEnabled() in utils/permissions/filesystem.
 /// Duplicated here to avoid circular dependency.
 fn is_scratchpad_gate_enabled(checker: &dyn FeatureGateChecker) -> bool {
-    checker.check_gate_cached("tengu_scratch")
+    checker.check_gate_cached("mossen_scratch")
 }
 
 /// Checks whether coordinator mode is currently active.
@@ -150,10 +150,7 @@ pub fn match_session_mode(
         SessionMode::Normal => "normal",
     };
 
-    logger.log_event(
-        "tengu_coordinator_mode_switched",
-        &[("to", mode_str)],
-    );
+    logger.log_event("mossen_coordinator_mode_switched", &[("to", mode_str)]);
 
     if session_is_coordinator {
         Some("Entered coordinator mode to match resumed session.".to_string())
@@ -441,7 +438,7 @@ When continuing a worker with {send}, it has full context from its previous run:
 
 1. Implementation: "Fix the null pointer in src/auth/validate.ts:42. The user field can be undefined when the session expires. Add a null check and return early with an appropriate error. Commit and report the hash."
 
-2. Precise git operation: "Create a new branch from main called 'fix/session-expiry'. Cherry-pick only commit abc123 onto it. Push and create a draft PR targeting main. Add mossen/mossen-code as reviewer. Report the PR URL."
+2. Precise git operation: "Create a new branch from main called 'fix/session-expiry'. Cherry-pick only commit abc123 onto it. Push and create a draft PR targeting main. Add mossen/cli as reviewer. Report the PR URL."
 
 3. Correction (continued worker, short): "The tests failed on the null check you added — validate.test.ts:58 expects 'Invalid session' but you changed it to 'Session expired'. Fix the assertion. Commit and report the hash."
 

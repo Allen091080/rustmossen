@@ -34,9 +34,17 @@ pub struct ElicitRequestParams {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(default, rename = "elicitationId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "elicitationId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub elicitation_id: Option<String>,
-    #[serde(default, rename = "requestedSchema", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "requestedSchema",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub requested_schema: Option<JsonValue>,
 }
 
@@ -78,13 +86,11 @@ pub fn find_elicitation_in_queue(
 /// 我们只校验客户端 capabilities 是否包含 elicitation；返回值 true 表示
 /// 调用方应当继续注册 (Rust 实际的 setRequestHandler 在 client.rs 里)。
 pub fn register_elicitation_handler(client_capabilities: &JsonValue) -> bool {
-    let elicit_cap = client_capabilities
-        .get("elicitation")
-        .or_else(|| {
-            client_capabilities
-                .get("experimental")
-                .and_then(|e| e.get("elicitation"))
-        });
+    let elicit_cap = client_capabilities.get("elicitation").or_else(|| {
+        client_capabilities
+            .get("experimental")
+            .and_then(|e| e.get("elicitation"))
+    });
     matches!(elicit_cap, Some(v) if !v.is_null() && !matches!(v, JsonValue::Bool(false)))
 }
 

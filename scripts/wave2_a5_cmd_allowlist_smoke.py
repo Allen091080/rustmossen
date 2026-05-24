@@ -4,7 +4,7 @@
 Verifies C-2 拆分:
   * 22 个 gh 子命令 (GH_READ_ONLY_COMMANDS spread) 已合并到通用 COMMAND_ALLOWLIST,
     所有 USER_TYPE 都可用,不再 USER_TYPE=mossen 门控
-  * 1 个 aki (anthropic 内部 KB 检索 CLI) S3 hard remove
+  * 1 个 aki (provider 内部 KB 检索 CLI) S3 hard remove
   * MOSSEN_ONLY_COMMAND_ALLOWLIST 整体定义已删除
   * getCommandAllowlist() 内 USER_TYPE=mossen 分支已删除
   * tools/PowerShellTool/readOnlyValidation.ts isGhSafe() USER_TYPE=mossen 守门已删除

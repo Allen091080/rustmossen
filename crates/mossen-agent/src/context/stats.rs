@@ -3,9 +3,9 @@
 //! Translates: context/stats.tsx
 //! React context/provider → struct-based store.
 
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use rand::Rng;
 
 const RESERVOIR_SIZE: usize = 1024;
 
@@ -73,13 +73,16 @@ impl StatsStore {
     /// Observe a value for a histogram metric (reservoir sampling).
     pub fn observe(&self, name: &str, value: f64) {
         let mut inner = self.inner.write().unwrap();
-        let h = inner.histograms.entry(name.to_string()).or_insert(Histogram {
-            reservoir: Vec::new(),
-            count: 0,
-            sum: 0.0,
-            min: value,
-            max: value,
-        });
+        let h = inner
+            .histograms
+            .entry(name.to_string())
+            .or_insert(Histogram {
+                reservoir: Vec::new(),
+                count: 0,
+                sum: 0.0,
+                min: value,
+                max: value,
+            });
         h.count += 1;
         h.sum += value;
         if value < h.min {
@@ -151,8 +154,8 @@ impl Default for StatsStore {
 // TS-mirror — `context/stats.tsx` exports.
 // ---------------------------------------------------------------------------
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 /// `stats.tsx` `createStatsStore`.
 pub fn create_stats_store() -> StatsStore {

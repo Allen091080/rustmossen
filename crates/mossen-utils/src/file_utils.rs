@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use regex::Regex;
+use std::path::{Path, PathBuf};
 
 /// File representation.
 #[derive(Debug, Clone)]
@@ -91,10 +91,8 @@ pub fn convert_leading_tabs_to_spaces(content: &str) -> String {
         return content.to_string();
     }
     let re = Regex::new(r"(?m)^\t+").unwrap();
-    re.replace_all(content, |caps: &regex::Captures| {
-        "  ".repeat(caps[0].len())
-    })
-    .to_string()
+    re.replace_all(content, |caps: &regex::Captures| "  ".repeat(caps[0].len()))
+        .to_string()
 }
 
 /// Get absolute and relative paths for a given path.
@@ -144,10 +142,10 @@ pub fn find_similar_file(file_path: &str) -> Option<String> {
     for entry in entries.flatten() {
         let entry_path = entry.path();
         if let Some(entry_stem) = entry_path.file_stem() {
-            if entry_stem.to_string_lossy() == stem
-                && entry_path.to_string_lossy() != file_path
-            {
-                return entry_path.file_name().map(|n| n.to_string_lossy().to_string());
+            if entry_stem.to_string_lossy() == stem && entry_path.to_string_lossy() != file_path {
+                return entry_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string());
             }
         }
     }
@@ -155,20 +153,20 @@ pub fn find_similar_file(file_path: &str) -> Option<String> {
 }
 
 /// Suggest a corrected path under the current working directory.
-pub async fn suggest_path_under_cwd(
-    requested_path: &str,
-    cwd: &str,
-) -> Option<String> {
+pub async fn suggest_path_under_cwd(requested_path: &str, cwd: &str) -> Option<String> {
     let cwd_parent = Path::new(cwd).parent()?.to_string_lossy().to_string();
 
     // Resolve symlinks in requested path's parent
-    let resolved_path = match tokio::fs::canonicalize(Path::new(requested_path).parent().unwrap_or(Path::new(""))).await {
-        Ok(resolved_dir) => {
-            let filename = Path::new(requested_path).file_name().unwrap_or_default();
-            resolved_dir.join(filename).to_string_lossy().to_string()
-        }
-        Err(_) => requested_path.to_string(),
-    };
+    let resolved_path =
+        match tokio::fs::canonicalize(Path::new(requested_path).parent().unwrap_or(Path::new("")))
+            .await
+        {
+            Ok(resolved_dir) => {
+                let filename = Path::new(requested_path).file_name().unwrap_or_default();
+                resolved_dir.join(filename).to_string_lossy().to_string()
+            }
+            Err(_) => requested_path.to_string(),
+        };
 
     let cwd_parent_prefix = if cwd_parent == "/" {
         "/".to_string()
@@ -300,11 +298,13 @@ pub fn get_desktop_path() -> PathBuf {
 
 /// Write a file synchronously with flush (atomic write with temp file).
 fn write_file_sync_and_flush(file_path: &str, content: &str) -> std::io::Result<()> {
-    let path = Path::new(file_path);
+    let _path = Path::new(file_path);
     let target_path = resolve_symlink(file_path);
 
     // Check existing permissions
-    let target_mode = std::fs::metadata(&target_path).ok().map(|m| m.permissions());
+    let target_mode = std::fs::metadata(&target_path)
+        .ok()
+        .map(|m| m.permissions());
 
     // Try atomic write
     let temp_path = format!(
@@ -326,7 +326,7 @@ fn write_file_sync_and_flush(file_path: &str, content: &str) -> std::io::Result<
             // Atomic rename
             match std::fs::rename(&temp_path, &target_path) {
                 Ok(_) => Ok(()),
-                Err(e) => {
+                Err(_e) => {
                     // Clean up temp file
                     let _ = std::fs::remove_file(&temp_path);
                     // Fallback to non-atomic write
@@ -334,7 +334,7 @@ fn write_file_sync_and_flush(file_path: &str, content: &str) -> std::io::Result<
                 }
             }
         }
-        Err(e) => {
+        Err(_e) => {
             // Fallback to non-atomic write
             std::fs::write(&target_path, content)
         }
@@ -367,9 +367,6 @@ fn expand_path(path: &str, cwd: &str) -> String {
             path.to_string()
         }
     } else {
-        Path::new(cwd)
-            .join(path)
-            .to_string_lossy()
-            .to_string()
+        Path::new(cwd).join(path).to_string_lossy().to_string()
     }
 }

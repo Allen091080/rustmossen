@@ -63,18 +63,12 @@ pub fn get_pill_label(task: &TaskInfo) -> PillLabel {
             icon: Some("●"),
         },
         TaskType::Shell => PillLabel {
-            text: task
-                .label
-                .clone()
-                .unwrap_or_else(|| "Shell".to_string()),
+            text: task.label.clone().unwrap_or_else(|| "Shell".to_string()),
             color: "green",
             icon: Some("$"),
         },
         TaskType::Agent => PillLabel {
-            text: task
-                .label
-                .clone()
-                .unwrap_or_else(|| "Agent".to_string()),
+            text: task.label.clone().unwrap_or_else(|| "Agent".to_string()),
             color: "purple",
             icon: Some("◆"),
         },
@@ -84,10 +78,7 @@ pub fn get_pill_label(task: &TaskInfo) -> PillLabel {
             icon: Some("☆"),
         },
         TaskType::Teammate => PillLabel {
-            text: task
-                .label
-                .clone()
-                .unwrap_or_else(|| "Teammate".to_string()),
+            text: task.label.clone().unwrap_or_else(|| "Teammate".to_string()),
             color: "cyan",
             icon: Some("◎"),
         },
@@ -274,9 +265,7 @@ impl Task for LocalShellTask {
 /// 杀死所有 shell 任务 — 对应 TS 的 tasks/LocalShellTask/killShellTasks.ts。
 pub async fn kill_shell_tasks(tasks: &mut [Box<dyn Task>]) {
     for task in tasks.iter_mut() {
-        if task.info().task_type == TaskType::Shell
-            && task.info().status == TaskStatus::Running
-        {
+        if task.info().task_type == TaskType::Shell && task.info().status == TaskStatus::Running {
             if let Err(e) = task.stop().await {
                 error!(task_id = %task.info().id, error = %e, "failed to kill shell task");
             }
@@ -680,10 +669,7 @@ pub fn looksLikePrompt(input: &str) -> bool {
 /// 通过 `tokio::process::Command` 在指定 `cwd`（或当前目录）下生成
 /// 一个子进程；进程在后台运行，stdout/stderr 缓冲于 `LOCAL_SHELL_TASKS`
 /// 内存表中。返回的 task_id 可用于 `get_local_shell_task` 查询状态。
-pub async fn spawn_shell_task(
-    command: &str,
-    cwd: Option<&std::path::Path>,
-) -> Result<String> {
+pub async fn spawn_shell_task(command: &str, cwd: Option<&std::path::Path>) -> Result<String> {
     info!(command, "spawning local shell task");
     let task_id = format!("shell-task-{}", uuid::Uuid::new_v4());
     let cmd_str = command.to_string();
@@ -740,10 +726,7 @@ pub fn get_local_shell_task(task_id: &str) -> Option<LocalShellTaskState> {
     LOCAL_SHELL_TASKS.lock().ok()?.get(task_id).cloned()
 }
 
-pub async fn spawnShellTask(
-    command: &str,
-    cwd: Option<&std::path::Path>,
-) -> Result<String> {
+pub async fn spawnShellTask(command: &str, cwd: Option<&std::path::Path>) -> Result<String> {
     spawn_shell_task(command, cwd).await
 }
 
@@ -798,9 +781,8 @@ pub struct DreamTaskState {
     pub completed_at: Option<i64>,
 }
 
-static DREAM_TASKS: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, DreamTaskState>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static DREAM_TASKS: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, DreamTaskState>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
 pub fn is_dream_task(task: &TaskInfo) -> bool {
     matches!(task.task_type, TaskType::Dream)
@@ -902,9 +884,8 @@ pub fn isPanelAgentTask(value: &serde_json::Value) -> bool {
 }
 
 /// 全局待处理消息队列（按 taskId 索引）。
-static PENDING_MESSAGES: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, Vec<String>>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static PENDING_MESSAGES: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, Vec<String>>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
 pub fn queue_pending_message(task_id: &str, msg: String) {
     if let Ok(mut s) = PENDING_MESSAGES.lock() {
@@ -1040,9 +1021,8 @@ pub fn enqueueAgentNotification(opts: AgentNotificationOpts) -> String {
 // LocalMainSessionTask 扩展 (tasks/LocalMainSessionTask.ts)
 // ============================================================================
 
-static MAIN_SESSION_TASKS: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, TaskInfo>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static MAIN_SESSION_TASKS: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, TaskInfo>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
 pub fn register_main_session_task(task_id: String, info: TaskInfo) {
     if let Ok(mut s) = MAIN_SESSION_TASKS.lock() {
@@ -1126,9 +1106,8 @@ pub fn appendCappedMessage(messages: &mut Vec<serde_json::Value>, message: serde
     append_capped_message(messages, message)
 }
 
-static TEAMMATE_TASKS: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, TaskInfo>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static TEAMMATE_TASKS: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, TaskInfo>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
 static TEAMMATE_SHUTDOWN: once_cell::sync::Lazy<
     std::sync::Mutex<std::collections::HashSet<String>>,
@@ -1195,29 +1174,23 @@ pub fn update_agent_progress(task_id: &str, progress: AgentProgress) {
     }
 }
 
-static AGENT_PROGRESS: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, AgentProgress>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static AGENT_PROGRESS: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, AgentProgress>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static AGENT_SUMMARIES: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, String>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static AGENT_SUMMARIES: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static AGENT_RESULTS: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, AgentToolResult>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static AGENT_RESULTS: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, AgentToolResult>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static AGENT_FAILED: once_cell::sync::Lazy<
-    std::sync::Mutex<HashMap<String, String>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+static AGENT_FAILED: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
-static AGENT_KILLED: once_cell::sync::Lazy<
-    std::sync::Mutex<std::collections::HashSet<String>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+static AGENT_KILLED: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashSet<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
-static AGENT_NOTIFIED: once_cell::sync::Lazy<
-    std::sync::Mutex<std::collections::HashSet<String>>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+static AGENT_NOTIFIED: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashSet<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
 /// 读取 agent 任务的最近进度。
 pub fn get_agent_progress(task_id: &str) -> Option<AgentProgress> {

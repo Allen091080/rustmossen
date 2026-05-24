@@ -3,9 +3,9 @@
 //! 翻译自 `services/api/errorUtils.ts` (261行)
 //! 提供连接错误提取、SSL 错误检测、API 错误格式化。
 
+use super::sdk::MossenAPIError;
 use std::collections::HashSet;
 use std::sync::LazyLock;
-use super::sdk::MossenAPIError;
 
 #[allow(unused_imports)]
 use serde_json;
@@ -175,7 +175,8 @@ pub fn format_api_error(error: &MossenAPIError) -> String {
 
         // Handle timeout errors
         if code == "ETIMEDOUT" {
-            return "Request timed out. Check your internet connection and proxy settings".to_string();
+            return "Request timed out. Check your internet connection and proxy settings"
+                .to_string();
         }
 
         // Handle SSL/TLS errors with specific messages
@@ -221,9 +222,8 @@ pub fn format_api_error(error: &MossenAPIError) -> String {
     // Guard: when deserialized from JSONL, the error object may be a plain object
     // without a `.message` property.
     if error.message.is_empty() {
-        return extract_nested_error_message(error).unwrap_or_else(|| {
-            format!("API error (status {})", error.status)
-        });
+        return extract_nested_error_message(error)
+            .unwrap_or_else(|| format!("API error (status {})", error.status));
     }
 
     let sanitized_message = sanitize_api_error(error);

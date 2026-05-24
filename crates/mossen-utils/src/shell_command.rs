@@ -2,8 +2,8 @@ use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::process::Child;
+use tokio::sync::{oneshot, Mutex};
 use tokio::time::{self, Duration};
 
 const SIGKILL: i32 = 137;
@@ -204,7 +204,8 @@ impl ShellCommandImpl {
         let timeout = config.timeout;
 
         let handle = tokio::spawn(async move {
-            let stdout_wrapper = Arc::new(StreamWrapper::new(Arc::clone(&task_output_clone), false));
+            let stdout_wrapper =
+                Arc::new(StreamWrapper::new(Arc::clone(&task_output_clone), false));
             let stderr_wrapper = Arc::new(StreamWrapper::new(Arc::clone(&task_output_clone), true));
 
             // Spawn stdout reader
@@ -376,7 +377,10 @@ impl ShellCommand for ShellCommandImpl {
     }
 
     fn status(&self) -> ShellCommandStatus {
-        self.status.try_lock().map(|s| *s).unwrap_or(ShellCommandStatus::Running)
+        self.status
+            .try_lock()
+            .map(|s| *s)
+            .unwrap_or(ShellCommandStatus::Running)
     }
 }
 

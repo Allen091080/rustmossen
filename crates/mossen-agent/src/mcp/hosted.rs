@@ -153,10 +153,7 @@ async fn fetch_hosted_mcp_configs_impl(
                     );
                 }
 
-                tracing::debug!(
-                    "[hosted-mcp] Fetched {} servers",
-                    configs.len()
-                );
+                tracing::debug!("[hosted-mcp] Fetched {} servers", configs.len());
                 configs
             }
             Err(_) => {

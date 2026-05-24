@@ -4,15 +4,13 @@
 //! 负责把内置命令、技能、插件、工作流合并为统一列表，并按当前用户/会话
 //! 状态过滤可用性。
 //!
-//! 这里只保留 TS 中“纯数据”的部分；TS 里的 React/Ink 渲染相关分支由
+//! 这里只保留 TS 中“纯数据”的部分；TS 里的终端渲染相关分支由
 //! mossen-tui/mossen-cli 各自承担。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
-use mossen_types::command::{
-    CommandAvailability, CommandBase, CommandLoadedFrom, CommandType,
-};
+use mossen_types::command::{CommandAvailability, CommandBase, CommandLoadedFrom, CommandType};
 
 /// 一个统一的命令记录 — 对应 TS `Command` 的子集。
 #[derive(Debug, Clone)]
@@ -39,11 +37,7 @@ pub enum CommandSource {
 // ---------------------------------------------------------------------------
 
 /// `commands.ts` `INTERNAL_ONLY_COMMANDS` — 仅供内部使用、不暴露给用户。
-pub const INTERNAL_ONLY_COMMANDS: &[&str] = &[
-    "internal-debug",
-    "internal-eval",
-    "internal-trace",
-];
+pub const INTERNAL_ONLY_COMMANDS: &[&str] = &["internal-debug", "internal-eval", "internal-trace"];
 
 /// `commands.ts` `builtInCommandNames` — 内置命令名集合。线程安全、惰性初始化。
 pub fn built_in_command_names() -> Vec<String> {
@@ -51,10 +45,30 @@ pub fn built_in_command_names() -> Vec<String> {
     CACHE
         .get_or_init(|| {
             vec![
-                "help", "init", "review", "security-review", "model", "config",
-                "compact", "clear", "export", "exit", "logout", "login", "auth",
-                "doctor", "feedback", "release-notes", "plugin", "mcp",
-                "ide", "permissions", "memory", "agents", "vim", "approve",
+                "help",
+                "init",
+                "review",
+                "security-review",
+                "model",
+                "config",
+                "compact",
+                "clear",
+                "export",
+                "exit",
+                "logout",
+                "login",
+                "auth",
+                "doctor",
+                "feedback",
+                "release-notes",
+                "plugin",
+                "mcp",
+                "ide",
+                "permissions",
+                "memory",
+                "agents",
+                "vim",
+                "approve",
             ]
             .into_iter()
             .map(String::from)
@@ -70,11 +84,11 @@ pub fn built_in_command_names() -> Vec<String> {
 /// 当前用户状态契约 — 由调用方传入。Rust 端不假设全局 auth 状态。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AvailabilityContext {
-    /// 是否为 hosted（Anthropic 托管账号）订阅者。
+    /// 是否为 hosted（Provider 托管账号）订阅者。
     pub is_hosted_subscriber: bool,
     /// 是否使用 Bedrock/Vertex/Foundry 等第三方推理服务。
     pub is_using_3p_services: bool,
-    /// 是否连接到 1P (api.anthropic.com) base URL。
+    /// 是否连接到 1P provider base URL。
     pub is_first_party_base_url: bool,
 }
 
@@ -125,7 +139,10 @@ pub fn get_commands(cwd: &str, ctx: &AvailabilityContext) -> Vec<Command> {
             .collect();
     }
     let all = collect_registered_sources();
-    memo_cache().lock().unwrap().insert(cwd.to_string(), all.clone());
+    memo_cache()
+        .lock()
+        .unwrap()
+        .insert(cwd.to_string(), all.clone());
     all.into_iter()
         .filter(|c| meets_availability_requirement(c, ctx) && is_command_enabled(c))
         .collect()
@@ -188,7 +205,10 @@ fn slash_skill_cache() -> &'static Mutex<HashMap<String, Vec<Command>>> {
 }
 
 /// `commands.ts` `getMcpSkillCommands`。
-pub fn get_mcp_skill_commands(mcp_commands: &[Command], mcp_skills_feature_on: bool) -> Vec<Command> {
+pub fn get_mcp_skill_commands(
+    mcp_commands: &[Command],
+    mcp_skills_feature_on: bool,
+) -> Vec<Command> {
     if !mcp_skills_feature_on {
         return Vec::new();
     }
@@ -221,7 +241,10 @@ pub fn get_skill_tool_commands(cwd: &str, ctx: &AvailabilityContext) -> Vec<Comm
                     || cmd.base.when_to_use.is_some())
         })
         .collect::<Vec<_>>();
-    skill_tool_cache().lock().unwrap().insert(cwd.to_string(), cmds.clone());
+    skill_tool_cache()
+        .lock()
+        .unwrap()
+        .insert(cwd.to_string(), cmds.clone());
     cmds
 }
 
@@ -245,7 +268,10 @@ pub fn get_slash_command_tool_skills(cwd: &str, ctx: &AvailabilityContext) -> Ve
                 ) || cmd.base.disable_model_invocation.unwrap_or(false))
         })
         .collect::<Vec<_>>();
-    slash_skill_cache().lock().unwrap().insert(cwd.to_string(), cmds.clone());
+    slash_skill_cache()
+        .lock()
+        .unwrap()
+        .insert(cwd.to_string(), cmds.clone());
     cmds
 }
 
@@ -258,8 +284,17 @@ pub fn remote_safe_commands() -> &'static HashSet<&'static str> {
     static CACHE: OnceLock<HashSet<&'static str>> = OnceLock::new();
     CACHE.get_or_init(|| {
         [
-            "help", "clear", "exit", "logout", "model", "feedback", "memory",
-            "release-notes", "review", "security-review", "doctor",
+            "help",
+            "clear",
+            "exit",
+            "logout",
+            "model",
+            "feedback",
+            "memory",
+            "release-notes",
+            "review",
+            "security-review",
+            "doctor",
         ]
         .into_iter()
         .collect()

@@ -7,10 +7,11 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+
+use crate::string_utils::prefix_chars;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,10 +70,7 @@ pub type SystemPrompt = Vec<String>;
 /// Fields to filter from tool schemas when swarms are not enabled.
 static SWARM_FIELDS_BY_TOOL: Lazy<HashMap<&str, Vec<&str>>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert(
-        "ExitPlanModeV2",
-        vec!["launchSwarm", "teammateCount"],
-    );
+    m.insert("ExitPlanModeV2", vec!["launchSwarm", "teammateCount"]);
     m.insert("Agent", vec!["name", "team_name", "mode"]);
     m
 });
@@ -256,7 +254,7 @@ fn maybe_strip_betas(
 
 static LOGGED_STRIP: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
-fn log_strip_once(stripped: &[&str]) {
+fn log_strip_once(_stripped: &[&str]) {
     let mut logged = LOGGED_STRIP.lock().unwrap();
     if *logged {
         return;
@@ -269,7 +267,7 @@ fn log_strip_once(stripped: &[&str]) {
 
 fn model_supports_structured_outputs(model: &str) -> bool {
     // Models that support structured outputs
-    model.contains("claude-3") || model.contains("claude-4") || model.contains("sonnet")
+    model.contains("mossen-3") || model.contains("mossen-4") || model.contains("balanced")
 }
 
 // ---------------------------------------------------------------------------
@@ -332,9 +330,7 @@ pub fn split_sys_prompt_prefix(
     }
 
     if use_global_cache_feature {
-        let boundary_index = system_prompt
-            .iter()
-            .position(|s| s == dynamic_boundary);
+        let boundary_index = system_prompt.iter().position(|s| s == dynamic_boundary);
 
         if let Some(boundary_idx) = boundary_index {
             let mut attribution_header: Option<String> = None;
@@ -433,7 +429,7 @@ pub fn split_sys_prompt_prefix(
 pub fn log_api_prefix(system_prompt: &[String], dynamic_boundary: &str) {
     let blocks = split_sys_prompt_prefix(system_prompt, false, false, dynamic_boundary);
     if let Some(first) = blocks.first() {
-        let snippet = &first.text[..first.text.len().min(20)];
+        let snippet = prefix_chars(&first.text, 20);
         let hash = {
             let mut hasher = Sha256::new();
             hasher.update(first.text.as_bytes());
@@ -508,12 +504,7 @@ pub struct NormalizedBashInput {
 }
 
 /// Normalize tool input based on tool name.
-pub fn normalize_tool_input(
-    tool_name: &str,
-    input: Value,
-    cwd: &str,
-    platform: &str,
-) -> Value {
+pub fn normalize_tool_input(tool_name: &str, input: Value, cwd: &str, platform: &str) -> Value {
     match tool_name {
         "Bash" | "bash" => normalize_bash_input(input, cwd, platform),
         "FileEdit" | "file_edit" => normalize_file_edit_input(input),
@@ -563,7 +554,7 @@ fn normalize_file_write_input(mut input: Value) -> Value {
     input
 }
 
-fn normalize_task_output_input(mut input: Value) -> Value {
+fn normalize_task_output_input(input: Value) -> Value {
     // Normalize legacy parameter names
     let task_id = input
         .get("task_id")
@@ -584,10 +575,7 @@ fn normalize_task_output_input(mut input: Value) -> Value {
         })
         .unwrap_or(30000);
 
-    let block = input
-        .get("block")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let block = input.get("block").and_then(|v| v.as_bool()).unwrap_or(true);
 
     serde_json::json!({
         "task_id": task_id,
@@ -775,10 +763,7 @@ pub fn clear_analytics_sink() {
 }
 
 /// 内部：把事件发往已注册的 sink。
-fn emit_analytics(
-    event_name: &str,
-    payload: std::collections::HashMap<String, serde_json::Value>,
-) {
+fn emit_analytics(event_name: &str, payload: std::collections::HashMap<String, serde_json::Value>) {
     if let Ok(g) = sink_cell().read() {
         if let Some(ref s) = *g {
             s(event_name, payload);
@@ -803,7 +788,7 @@ pub async fn log_context_metrics(
         mossen_md_size,
         total_context_size = total,
         file_count_rounded,
-        "tengu_context_metrics",
+        "mossen_context_metrics",
     );
 
     let mut payload = std::collections::HashMap::new();
@@ -823,5 +808,5 @@ pub async fn log_context_metrics(
         "fileCount".to_string(),
         serde_json::Value::from(file_count_rounded),
     );
-    emit_analytics("tengu_context_metrics", payload);
+    emit_analytics("mossen_context_metrics", payload);
 }

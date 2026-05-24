@@ -3,7 +3,6 @@
 //! Translated from utils/betas.ts
 
 use std::collections::HashSet;
-use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 
@@ -53,7 +52,10 @@ fn partition_betas_by_allowlist(betas: &[String]) -> PartitionResult {
             disallowed.push(beta.clone());
         }
     }
-    PartitionResult { allowed, disallowed }
+    PartitionResult {
+        allowed,
+        disallowed,
+    }
 }
 
 /// Filter SDK betas to only include allowed ones.
@@ -69,11 +71,16 @@ pub fn filter_allowed_sdk_betas(
     };
 
     if is_hosted_subscriber {
-        eprintln!("Warning: Custom betas are only available for API key users. Ignoring provided betas.");
+        eprintln!(
+            "Warning: Custom betas are only available for API key users. Ignoring provided betas."
+        );
         return None;
     }
 
-    let PartitionResult { allowed, disallowed } = partition_betas_by_allowlist(betas);
+    let PartitionResult {
+        allowed,
+        disallowed,
+    } = partition_betas_by_allowlist(betas);
     for beta in &disallowed {
         eprintln!(
             "Warning: Beta header '{}' is not allowed. Only the following betas are supported: {}",
@@ -97,15 +104,15 @@ pub fn model_supports_isp(model: &str, provider: &str) -> bool {
     if provider == "firstParty" {
         return !canonical.contains("mossen-3-");
     }
-    canonical.contains("mossen-opus-4") || canonical.contains("mossen-sonnet-4")
+    canonical.contains("mossen-max-4") || canonical.contains("mossen-balanced-4")
 }
 
 /// Check if a Vertex model supports web search.
 fn vertex_model_supports_web_search(model: &str) -> bool {
     let canonical = get_canonical_name(model);
-    canonical.contains("mossen-opus-4")
-        || canonical.contains("mossen-sonnet-4")
-        || canonical.contains("mossen-haiku-4")
+    canonical.contains("mossen-max-4")
+        || canonical.contains("mossen-balanced-4")
+        || canonical.contains("mossen-fast-4")
 }
 
 /// Check if a model supports context management.
@@ -117,9 +124,9 @@ pub fn model_supports_context_management(model: &str, provider: &str) -> bool {
     if provider == "firstParty" {
         return !canonical.contains("mossen-3-");
     }
-    canonical.contains("mossen-opus-4")
-        || canonical.contains("mossen-sonnet-4")
-        || canonical.contains("mossen-haiku-4")
+    canonical.contains("mossen-max-4")
+        || canonical.contains("mossen-balanced-4")
+        || canonical.contains("mossen-fast-4")
 }
 
 /// Check if a model supports structured outputs.
@@ -128,12 +135,12 @@ pub fn model_supports_structured_outputs(model: &str, provider: &str) -> bool {
     if provider != "firstParty" && provider != "foundry" {
         return false;
     }
-    canonical.contains("mossen-sonnet-4-6")
-        || canonical.contains("mossen-sonnet-4-5")
-        || canonical.contains("mossen-opus-4-1")
-        || canonical.contains("mossen-opus-4-5")
-        || canonical.contains("mossen-opus-4-6")
-        || canonical.contains("mossen-haiku-4-5")
+    canonical.contains("mossen-balanced-4-6")
+        || canonical.contains("mossen-balanced-4-5")
+        || canonical.contains("mossen-max-4-1")
+        || canonical.contains("mossen-max-4-5")
+        || canonical.contains("mossen-max-4-6")
+        || canonical.contains("mossen-fast-4-5")
 }
 
 /// Check if a model supports auto mode.
@@ -141,16 +148,16 @@ pub fn model_supports_auto_mode(model: &str, provider: &str, user_type: Option<&
     let m = get_canonical_name(model);
 
     // External: firstParty-only at launch
-    if user_type != Some("ant") && provider != "firstParty" {
+    if user_type != Some("internal") && provider != "firstParty" {
         return false;
     }
 
-    if user_type == Some("ant") {
+    if user_type == Some("internal") {
         // Denylist: block known-unsupported Mossen models
         if m.contains("mossen-3-") {
             return false;
         }
-        let re = regex::Regex::new(r"mossen-(opus|sonnet|haiku)-4(?!-[6-9])").unwrap();
+        let re = regex::Regex::new(r"mossen-(max|balanced|fast)-4(?!-[6-9])").unwrap();
         if re.is_match(&m) {
             return false;
         }
@@ -158,7 +165,7 @@ pub fn model_supports_auto_mode(model: &str, provider: &str, user_type: Option<&
     }
 
     // External allowlist
-    let external_re = regex::Regex::new(r"^mossen-(opus|sonnet)-4-6").unwrap();
+    let external_re = regex::Regex::new(r"^mossen-(max|balanced)-4-6").unwrap();
     external_re.is_match(&m)
 }
 
@@ -200,12 +207,12 @@ pub fn get_all_model_betas(
 ) -> Vec<String> {
     let mut beta_headers: Vec<String> = Vec::new();
     let canonical = get_canonical_name(model);
-    let is_haiku = canonical.contains("haiku");
+    let is_fast = canonical.contains("fast");
     let include_first_party_only = should_include_first_party_only_betas(provider);
 
-    if !is_haiku {
+    if !is_fast {
         beta_headers.push(MOSSEN_CODE_20250219_BETA_HEADER.to_string());
-        if user_type == Some("ant") && entrypoint == Some("cli") {
+        if user_type == Some("internal") && entrypoint == Some("cli") {
             if let Some(header) = CLI_INTERNAL_BETA_HEADER {
                 beta_headers.push(header.to_string());
             }
@@ -237,9 +244,9 @@ pub fn get_all_model_betas(
         beta_headers.push(REDACT_THINKING_BETA_HEADER.to_string());
     }
 
-    // Summarize connector text (ant-only)
+    // Summarize connector text (internal-only)
     if let Some(header) = SUMMARIZE_CONNECTOR_TEXT_BETA_HEADER {
-        if user_type == Some("ant") && include_first_party_only {
+        if user_type == Some("internal") && include_first_party_only {
             let force_off = std::env::var("USE_CONNECTOR_TEXT_SUMMARIZATION")
                 .map(|v| v == "0" || v.to_lowercase() == "false")
                 .unwrap_or(false);
@@ -256,7 +263,7 @@ pub fn get_all_model_betas(
     let ant_opted_into_tool_clearing = std::env::var("USE_API_CONTEXT_MANAGEMENT")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false)
-        && user_type == Some("ant");
+        && user_type == Some("internal");
 
     let thinking_preservation_enabled = model_supports_context_management(model, provider);
 
@@ -363,7 +370,7 @@ pub fn get_merged_betas(
         if !base.iter().any(|b| b == MOSSEN_CODE_20250219_BETA_HEADER) {
             base.push(MOSSEN_CODE_20250219_BETA_HEADER.to_string());
         }
-        if user_type == Some("ant") && entrypoint == Some("cli") {
+        if user_type == Some("internal") && entrypoint == Some("cli") {
             if let Some(header) = CLI_INTERNAL_BETA_HEADER {
                 if !base.iter().any(|b| b == header) {
                     base.push(header.to_string());

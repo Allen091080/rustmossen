@@ -11,10 +11,20 @@ pub struct PasteHandlerState {
 
 impl PasteHandlerState {
     pub fn new() -> Self {
-        Self { is_pasting: false, paste_buffer: String::new(), bracketed_paste_enabled: true, last_paste_length: 0 }
+        Self {
+            is_pasting: false,
+            paste_buffer: String::new(),
+            bracketed_paste_enabled: true,
+            last_paste_length: 0,
+        }
     }
-    pub fn start_paste(&mut self) { self.is_pasting = true; self.paste_buffer.clear(); }
-    pub fn append(&mut self, text: &str) { self.paste_buffer.push_str(text); }
+    pub fn start_paste(&mut self) {
+        self.is_pasting = true;
+        self.paste_buffer.clear();
+    }
+    pub fn append(&mut self, text: &str) {
+        self.paste_buffer.push_str(text);
+    }
     pub fn end_paste(&mut self) -> String {
         self.is_pasting = false;
         self.last_paste_length = self.paste_buffer.len();
@@ -24,6 +34,12 @@ impl PasteHandlerState {
         self.last_paste_length = text.len();
         text.to_string()
     }
-    pub fn is_in_paste(&self) -> bool { self.is_pasting }
+    pub fn is_in_paste(&self) -> bool {
+        self.is_pasting
+    }
 }
-impl Default for PasteHandlerState { fn default() -> Self { Self::new() } }
+impl Default for PasteHandlerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

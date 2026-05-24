@@ -90,7 +90,7 @@ pub fn match_wildcard_pattern(pattern: &str, command: &str, case_insensitive: bo
     }
 
     // Escape regex special characters except *
-    let escaped = regex::escape(&processed.replace('*', "\x01"))
+    let _escaped = regex::escape(&processed.replace('*', "\x01"))
         .replace("\\x01", "\x01")
         .replace('\x01', ".*");
 
@@ -100,10 +100,7 @@ pub fn match_wildcard_pattern(pattern: &str, command: &str, case_insensitive: bo
     for ch in processed.chars() {
         if ch == '*' {
             escaped_str.push_str(".*");
-        } else if ".+?^${}()|[]\\'\""
-            .chars()
-            .any(|special| special == ch)
-        {
+        } else if ".+?^${}()|[]\\'\"".chars().any(|special| special == ch) {
             escaped_str.push('\\');
             escaped_str.push(ch);
         } else {

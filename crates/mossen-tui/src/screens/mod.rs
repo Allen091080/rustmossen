@@ -1,4 +1,4 @@
-//! Top-level screens — REPL, ResumeConversation, Doctor (screens/*.tsx).
+//! Top-level screens for REPL, resume conversation, and doctor views.
 
 /// REPL screen state.
 #[derive(Debug, Clone, Default)]
@@ -59,7 +59,7 @@ impl Doctor {
     }
 }
 
-/// REPL.tsx exports `type Props = { commands, debug, initialTools, ... }`.
+/// REPL screen props.
 /// Concrete props struct for the REPL screen entry-point (string-typed fields
 /// where the Rust port has not yet wired up the equivalent typed value).
 #[derive(Debug, Clone, Default)]
@@ -88,5 +88,5 @@ pub enum Screen {
     Transcript,
 }
 
-/// TS REPL.tsx exports `type Props`.
+/// REPL screen props.
 pub type Props = ReplProps;

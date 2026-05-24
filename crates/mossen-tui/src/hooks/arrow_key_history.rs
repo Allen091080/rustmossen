@@ -1,4 +1,4 @@
-//! Arrow key history navigation (useArrowKeyHistory.tsx).
+//! Arrow key history navigation.
 //!
 //! Manages history navigation using up/down arrow keys in the input.
 

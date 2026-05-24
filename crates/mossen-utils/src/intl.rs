@@ -66,8 +66,7 @@ struct RtfKey {
 }
 
 /// RelativeTimeFormat 缓存
-static RTF_CACHE: Lazy<Mutex<HashMap<RtfKey, ()>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static RTF_CACHE: Lazy<Mutex<HashMap<RtfKey, ()>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// 格式化相对时间（简化实现，返回英文描述）
 pub fn format_relative_time(
@@ -82,31 +81,59 @@ pub fn format_relative_time(
 
     let unit_str = match (unit, style) {
         (RelativeTimeUnit::Seconds, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "second" } else { "seconds" }
+            if value.abs() == 1 {
+                "second"
+            } else {
+                "seconds"
+            }
         }
         (RelativeTimeUnit::Seconds, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "sec",
         (RelativeTimeUnit::Minutes, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "minute" } else { "minutes" }
+            if value.abs() == 1 {
+                "minute"
+            } else {
+                "minutes"
+            }
         }
         (RelativeTimeUnit::Minutes, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "min",
         (RelativeTimeUnit::Hours, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "hour" } else { "hours" }
+            if value.abs() == 1 {
+                "hour"
+            } else {
+                "hours"
+            }
         }
         (RelativeTimeUnit::Hours, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "hr",
         (RelativeTimeUnit::Days, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "day" } else { "days" }
+            if value.abs() == 1 {
+                "day"
+            } else {
+                "days"
+            }
         }
         (RelativeTimeUnit::Days, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "day",
         (RelativeTimeUnit::Weeks, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "week" } else { "weeks" }
+            if value.abs() == 1 {
+                "week"
+            } else {
+                "weeks"
+            }
         }
         (RelativeTimeUnit::Weeks, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "wk",
         (RelativeTimeUnit::Months, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "month" } else { "months" }
+            if value.abs() == 1 {
+                "month"
+            } else {
+                "months"
+            }
         }
         (RelativeTimeUnit::Months, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "mo",
         (RelativeTimeUnit::Years, RelativeTimeStyle::Long) => {
-            if value.abs() == 1 { "year" } else { "years" }
+            if value.abs() == 1 {
+                "year"
+            } else {
+                "years"
+            }
         }
         (RelativeTimeUnit::Years, RelativeTimeStyle::Short | RelativeTimeStyle::Narrow) => "yr",
     };

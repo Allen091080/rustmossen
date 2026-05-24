@@ -1,7 +1,7 @@
 //! LSP manager singleton — global initialization and lifecycle management.
 
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell};
 use tracing::{debug, error};
 
@@ -63,9 +63,9 @@ pub async fn is_lsp_connected() -> bool {
     }
     if let Some(ref manager) = state.manager {
         let servers = manager.get_all_servers().await;
-        servers.iter().any(|(_, s)| {
-            *s != super::config::LspServerState::Error
-        })
+        servers
+            .iter()
+            .any(|(_, s)| *s != super::config::LspServerState::Error)
     } else {
         false
     }
@@ -155,7 +155,10 @@ pub async fn reinitialize_lsp_server_manager() {
         let m = manager.clone();
         tokio::spawn(async move {
             if let Err(e) = m.shutdown().await {
-                debug!("[LSP MANAGER] old instance shutdown during reinit failed: {}", e);
+                debug!(
+                    "[LSP MANAGER] old instance shutdown during reinit failed: {}",
+                    e
+                );
             }
         });
     }

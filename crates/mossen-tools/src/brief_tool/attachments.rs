@@ -56,7 +56,11 @@ pub fn render_attachment_list(attachments: &[ResolvedAttachment]) -> String {
     }
     let mut lines = Vec::with_capacity(attachments.len());
     for att in attachments {
-        let kind_label = if att.kind == "image" { "[image]" } else { "[file]" };
+        let kind_label = if att.kind == "image" {
+            "[image]"
+        } else {
+            "[file]"
+        };
         lines.push(format!(
             "› {} {} ({})",
             kind_label,

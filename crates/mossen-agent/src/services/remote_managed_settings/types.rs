@@ -77,7 +77,10 @@ impl RemoteManagedSettingsSchemaValidator {
 
     /// Validate a JSON value against the schema. Returns the parsed struct or
     /// a human-readable error message.
-    pub fn parse(&self, value: &serde_json::Value) -> Result<RemoteManagedSettingsResponse, String> {
+    pub fn parse(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<RemoteManagedSettingsResponse, String> {
         let obj = value.as_object().ok_or("expected object")?;
         let uuid = obj
             .get("uuid")

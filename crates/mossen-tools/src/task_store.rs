@@ -20,8 +20,12 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(unix)]
+use nix::sys::signal::{killpg, Signal};
+#[cfg(unix)]
+use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Mirrors the structure TaskGet / TaskList return. Fields kept flat so
 /// `serde_json::to_value(&record)` produces the same wire shape the model
@@ -43,11 +47,21 @@ pub struct TaskRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     /// Present-continuous label rendered while the task is in_progress.
-    #[serde(rename = "activeForm", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "activeForm",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub active_form: Option<String>,
     /// Free-form metadata — JSON object.
     #[serde(default)]
     pub metadata: HashMap<String, Value>,
+    #[serde(
+        rename = "completedAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub completed_at: Option<i64>,
     /// Captured stdout from `TaskOutput` (for background-agent tasks).
     #[serde(default)]
     pub output: String,
@@ -67,6 +81,7 @@ impl TaskRecord {
             owner: None,
             active_form: None,
             metadata: HashMap::new(),
+            completed_at: None,
             output: String::new(),
             exit_code: None,
         }
@@ -78,11 +93,85 @@ fn store() -> &'static Mutex<HashMap<String, TaskRecord>> {
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+#[derive(Debug, Clone)]
+struct BackgroundShellProcess {
+    #[cfg(unix)]
+    pgid: i32,
+    #[cfg(not(unix))]
+    pid: u32,
+}
+
+fn background_shells() -> &'static Mutex<HashMap<String, BackgroundShellProcess>> {
+    static STORE: OnceLock<Mutex<HashMap<String, BackgroundShellProcess>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "completed" | "deleted" | "failed" | "cancelled" | "canceled"
+    )
+}
+
+#[cfg(unix)]
+fn terminate_background_process(process: &BackgroundShellProcess) {
+    let pgid = Pid::from_raw(process.pgid);
+    let _ = killpg(pgid, Signal::SIGTERM);
+    let _ = killpg(pgid, Signal::SIGKILL);
+}
+
+#[cfg(not(unix))]
+fn terminate_background_process(process: &BackgroundShellProcess) {
+    let _ = std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(process.pid.to_string())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = std::process::Command::new("kill")
+        .arg("-KILL")
+        .arg(process.pid.to_string())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 /// Insert a new task. Returns the freshly-created record (cloned).
 pub fn create_task(subject: String, description: String) -> TaskRecord {
     let id = uuid::Uuid::new_v4().to_string();
     let record = TaskRecord::new(id.clone(), subject, description);
     store().lock().unwrap().insert(id, record.clone());
+    record
+}
+
+/// Insert a task record for a background Bash command and mark it running.
+pub fn create_background_shell_task(
+    command: String,
+    cwd: String,
+    description: Option<String>,
+    timeout_ms: u64,
+) -> TaskRecord {
+    let subject = description
+        .clone()
+        .unwrap_or_else(|| format!("bash: {}", command.chars().take(80).collect::<String>()));
+    let mut record = create_task(subject, command.clone());
+    let mut metadata = HashMap::new();
+    metadata.insert("type".to_string(), json!("background_shell"));
+    metadata.insert("kind".to_string(), json!("bash"));
+    metadata.insert("command".to_string(), json!(command));
+    metadata.insert("cwd".to_string(), json!(cwd));
+    metadata.insert("timeoutMs".to_string(), json!(timeout_ms));
+    metadata.insert("startedAt".to_string(), json!(now_ms()));
+    update_task(&record.id, |r| {
+        r.status = "in_progress".to_string();
+        r.active_form = Some("Running command".to_string());
+        r.metadata = metadata.clone();
+    });
+    record.status = "in_progress".to_string();
+    record.active_form = Some("Running command".to_string());
+    record.metadata = metadata;
     record
 }
 
@@ -113,9 +202,88 @@ where
     None
 }
 
+/// Register the OS process backing a background shell task.
+pub fn register_background_shell_process(task_id: &str, pid: u32) {
+    let process = BackgroundShellProcess {
+        #[cfg(unix)]
+        pgid: pid as i32,
+        #[cfg(not(unix))]
+        pid,
+    };
+    background_shells()
+        .lock()
+        .unwrap()
+        .insert(task_id.to_string(), process);
+    update_task(task_id, |r| {
+        r.metadata.insert("pid".to_string(), json!(pid));
+        #[cfg(unix)]
+        r.metadata.insert("pgid".to_string(), json!(pid as i32));
+    });
+}
+
+/// Remove a background shell process handle without changing the public task.
+pub fn unregister_background_shell_process(task_id: &str) {
+    background_shells().lock().unwrap().remove(task_id);
+}
+
+/// Stop a running background task. Shell tasks also get their process group
+/// terminated so children do not survive behind the shell parent.
+pub fn stop_background_task(task_id: &str) -> Option<TaskRecord> {
+    if let Some(process) = background_shells().lock().unwrap().remove(task_id) {
+        terminate_background_process(&process);
+    }
+
+    update_task(task_id, |r| {
+        if !is_terminal_status(&r.status) {
+            r.status = "cancelled".to_string();
+            r.completed_at = Some(now_ms());
+            r.output = append_output_note(&r.output, "Task stopped by request.");
+        }
+        r.metadata.insert("stoppedAt".to_string(), json!(now_ms()));
+    })
+}
+
+/// Finish a background shell task after the process exits.
+pub fn finish_background_shell_task(
+    task_id: &str,
+    status: &str,
+    output: String,
+    exit_code: Option<i32>,
+    timed_out: bool,
+) -> Option<TaskRecord> {
+    unregister_background_shell_process(task_id);
+    update_task(task_id, |r| {
+        if !r.status.eq("cancelled") && !r.status.eq("deleted") {
+            r.status = status.to_string();
+            r.completed_at = Some(now_ms());
+        } else if r.completed_at.is_none() {
+            r.completed_at = Some(now_ms());
+        }
+        r.output = output;
+        r.exit_code = exit_code;
+        r.metadata
+            .insert("completedAt".to_string(), json!(now_ms()));
+        r.metadata.insert("timedOut".to_string(), json!(timed_out));
+    })
+}
+
+/// Public helper shared by TaskOutput and tests.
+pub fn is_task_ready_status(status: &str) -> bool {
+    is_terminal_status(status)
+}
+
+fn append_output_note(existing: &str, note: &str) -> String {
+    if existing.trim().is_empty() {
+        note.to_string()
+    } else {
+        format!("{existing}\n{note}")
+    }
+}
+
 /// Used by tests + `/reset` paths.
 pub fn clear() {
     store().lock().unwrap().clear();
+    background_shells().lock().unwrap().clear();
 }
 
 #[cfg(test)]

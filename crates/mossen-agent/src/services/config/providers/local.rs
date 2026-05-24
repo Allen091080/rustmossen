@@ -31,11 +31,13 @@ impl MossenConfigProvider for LocalDefaultProvider {
     }
 
     fn get(&self, key: &str) -> Option<ProviderResult> {
-        MOSSEN_BUILTIN_DEFAULTS.get(key).map(|value| ProviderResult {
-            value: value.clone(),
-            source: ConfigValueSource::Default,
-            resolved_key: None,
-        })
+        MOSSEN_BUILTIN_DEFAULTS
+            .get(key)
+            .map(|value| ProviderResult {
+                value: value.clone(),
+                source: ConfigValueSource::Default,
+                resolved_key: None,
+            })
     }
 }
 
@@ -98,8 +100,7 @@ impl SettingsProviderInner {
                 if let Some(mut current) = self.read_settings() {
                     if current.contains_key(k) {
                         current.remove(k);
-                        let map: serde_json::Map<String, Value> =
-                            current.into_iter().collect();
+                        let map: serde_json::Map<String, Value> = current.into_iter().collect();
                         let json_str =
                             serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_default();
                         let content = format!("{}\n", json_str);
@@ -118,10 +119,8 @@ impl SettingsProviderInner {
             if let Ok(metadata) = fs::metadata(&self.settings_path) {
                 let current_mode = metadata.permissions().mode() & 0o777;
                 if current_mode != mode {
-                    let _ = fs::set_permissions(
-                        &self.settings_path,
-                        fs::Permissions::from_mode(mode),
-                    );
+                    let _ =
+                        fs::set_permissions(&self.settings_path, fs::Permissions::from_mode(mode));
                 }
             }
         }

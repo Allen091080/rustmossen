@@ -6,16 +6,15 @@
 
 use std::collections::HashMap;
 
-use super::dangerous_patterns::{CROSS_PLATFORM_CODE_EXEC, dangerous_bash_patterns};
+use super::dangerous_patterns::{dangerous_bash_patterns, CROSS_PLATFORM_CODE_EXEC};
 use super::permission_result::{
     AdditionalWorkingDirectory, ExternalPermissionMode, PermissionBehavior, PermissionMode,
     PermissionRule, PermissionRuleSource, PermissionRuleValue, PermissionUpdate,
     PermissionUpdateDestination, ToolPermissionContext, ToolPermissionRulesBySource,
 };
 use super::permissions::{
-    apply_permission_update, apply_permission_updates, convert_rules_to_updates,
-    apply_permission_rules_to_context, permission_rule_value_from_string,
-    permission_rule_value_to_string, BASH_TOOL_NAME, POWERSHELL_TOOL_NAME, AGENT_TOOL_NAME,
+    apply_permission_rules_to_context, apply_permission_update, permission_rule_value_from_string,
+    permission_rule_value_to_string, AGENT_TOOL_NAME, BASH_TOOL_NAME, POWERSHELL_TOOL_NAME,
 };
 
 // ─── Dangerous Permission Detection ─────────────────────────────────────────
@@ -167,7 +166,7 @@ pub fn is_dangerous_classifier_permission(
     rule_content: Option<&str>,
     user_type: &str,
 ) -> bool {
-    if user_type == "ant" && tool_name == "Tmux" {
+    if user_type == "internal" && tool_name == "Tmux" {
         return true;
     }
     is_dangerous_bash_permission(tool_name, rule_content)
@@ -356,7 +355,10 @@ pub fn remove_dangerous_permissions(
         }
         let dest = source_to_update_destination(perm.source);
         if let Some(d) = dest {
-            rules_by_source.entry(d).or_default().push(perm.rule_value.clone());
+            rules_by_source
+                .entry(d)
+                .or_default()
+                .push(perm.rule_value.clone());
         }
     }
 
@@ -374,7 +376,9 @@ pub fn remove_dangerous_permissions(
     ctx
 }
 
-fn source_to_update_destination(source: PermissionRuleSource) -> Option<PermissionUpdateDestination> {
+fn source_to_update_destination(
+    source: PermissionRuleSource,
+) -> Option<PermissionUpdateDestination> {
     match source {
         PermissionRuleSource::UserSettings => Some(PermissionUpdateDestination::UserSettings),
         PermissionRuleSource::ProjectSettings => Some(PermissionUpdateDestination::ProjectSettings),
@@ -647,9 +651,7 @@ pub fn initial_permission_mode_from_cli(
 
     for mode in &ordered_modes {
         if *mode == PermissionMode::BypassPermissions && config.disable_bypass_permissions_mode {
-            notification = Some(
-                "Bypass permissions mode was disabled by policy".to_string(),
-            );
+            notification = Some("Bypass permissions mode was disabled by policy".to_string());
             continue;
         }
         return InitialPermissionModeResult {
@@ -880,7 +882,7 @@ pub fn get_auto_mode_unavailable_notification(
         AutoModeUnavailableReason::CircuitBreaker => "auto mode is unavailable for your plan",
         AutoModeUnavailableReason::Model => "auto mode unavailable for this model",
     };
-    if user_type == "ant" {
+    if user_type == "internal" {
         format!("{} · #mossen-feedback", base)
     } else {
         base.to_string()
@@ -927,10 +929,7 @@ pub fn is_default_permission_mode_auto(
 }
 
 /// Check if bypass permissions mode is currently disabled.
-pub fn is_bypass_permissions_mode_disabled(
-    gate_disabled: bool,
-    settings_disabled: bool,
-) -> bool {
+pub fn is_bypass_permissions_mode_disabled(gate_disabled: bool, settings_disabled: bool) -> bool {
     gate_disabled || settings_disabled
 }
 
@@ -988,7 +987,10 @@ pub async fn verify_auto_mode_gate_access(
             reason: Some("model".into()),
         };
     }
-    AutoModeGateCheckResult { allowed: true, reason: None }
+    AutoModeGateCheckResult {
+        allowed: true,
+        reason: None,
+    }
 }
 
 /// 是否应该禁用 bypass permissions（对应 TS `shouldDisableBypassPermissions`）。
@@ -1016,8 +1018,9 @@ pub fn get_auto_mode_unavailable_reason() -> Option<String> {
     }
 }
 
-static AUTO_MODE_STATE_CACHE: once_cell::sync::Lazy<std::sync::Mutex<Option<AutoModeEnabledState>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+static AUTO_MODE_STATE_CACHE: once_cell::sync::Lazy<
+    std::sync::Mutex<Option<AutoModeEnabledState>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
 /// 异步查询 auto-mode 开启状态（对应 TS `getAutoModeEnabledState`）。
 pub async fn get_auto_mode_enabled_state() -> AutoModeEnabledState {

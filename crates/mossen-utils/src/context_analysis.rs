@@ -126,7 +126,10 @@ fn process_block(
     match block.block_type.as_str() {
         "text" => {
             if msg_type == "user"
-                && block.text.as_deref().map_or(false, |t| t.contains("local-command-stdout"))
+                && block
+                    .text
+                    .as_deref()
+                    .map_or(false, |t| t.contains("local-command-stdout"))
             {
                 stats.local_command_outputs += tokens;
             } else if msg_type == "user" {
@@ -153,7 +156,10 @@ fn process_block(
         }
         "tool_result" => {
             if let Some(tool_use_id) = &block.tool_use_id {
-                let tool_name = tool_ids.get(tool_use_id).cloned().unwrap_or_else(|| "unknown".to_string());
+                let tool_name = tool_ids
+                    .get(tool_use_id)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string());
                 *stats.tool_results.entry(tool_name.clone()).or_insert(0) += tokens;
 
                 if tool_name == "Read" {
@@ -175,9 +181,18 @@ fn process_block(
 pub fn token_stats_to_metrics(stats: &TokenStats) -> HashMap<String, f64> {
     let mut metrics = HashMap::new();
     metrics.insert("total_tokens".to_string(), stats.total as f64);
-    metrics.insert("human_message_tokens".to_string(), stats.human_messages as f64);
-    metrics.insert("assistant_message_tokens".to_string(), stats.assistant_messages as f64);
-    metrics.insert("local_command_output_tokens".to_string(), stats.local_command_outputs as f64);
+    metrics.insert(
+        "human_message_tokens".to_string(),
+        stats.human_messages as f64,
+    );
+    metrics.insert(
+        "assistant_message_tokens".to_string(),
+        stats.assistant_messages as f64,
+    );
+    metrics.insert(
+        "local_command_output_tokens".to_string(),
+        stats.local_command_outputs as f64,
+    );
     metrics.insert("other_tokens".to_string(), stats.other as f64);
 
     for (type_name, count) in &stats.attachments {
@@ -194,25 +209,52 @@ pub fn token_stats_to_metrics(stats: &TokenStats) -> HashMap<String, f64> {
 
     let duplicate_total: usize = stats.duplicate_file_reads.values().map(|d| d.tokens).sum();
     metrics.insert("duplicate_read_tokens".to_string(), duplicate_total as f64);
-    metrics.insert("duplicate_read_file_count".to_string(), stats.duplicate_file_reads.len() as f64);
+    metrics.insert(
+        "duplicate_read_file_count".to_string(),
+        stats.duplicate_file_reads.len() as f64,
+    );
 
     if stats.total > 0 {
         let total = stats.total as f64;
-        metrics.insert("human_message_percent".to_string(), (stats.human_messages as f64 / total * 100.0).round());
-        metrics.insert("assistant_message_percent".to_string(), (stats.assistant_messages as f64 / total * 100.0).round());
-        metrics.insert("local_command_output_percent".to_string(), (stats.local_command_outputs as f64 / total * 100.0).round());
-        metrics.insert("duplicate_read_percent".to_string(), (duplicate_total as f64 / total * 100.0).round());
+        metrics.insert(
+            "human_message_percent".to_string(),
+            (stats.human_messages as f64 / total * 100.0).round(),
+        );
+        metrics.insert(
+            "assistant_message_percent".to_string(),
+            (stats.assistant_messages as f64 / total * 100.0).round(),
+        );
+        metrics.insert(
+            "local_command_output_percent".to_string(),
+            (stats.local_command_outputs as f64 / total * 100.0).round(),
+        );
+        metrics.insert(
+            "duplicate_read_percent".to_string(),
+            (duplicate_total as f64 / total * 100.0).round(),
+        );
 
         let tool_request_total: usize = stats.tool_requests.values().sum();
         let tool_result_total: usize = stats.tool_results.values().sum();
-        metrics.insert("tool_request_percent".to_string(), (tool_request_total as f64 / total * 100.0).round());
-        metrics.insert("tool_result_percent".to_string(), (tool_result_total as f64 / total * 100.0).round());
+        metrics.insert(
+            "tool_request_percent".to_string(),
+            (tool_request_total as f64 / total * 100.0).round(),
+        );
+        metrics.insert(
+            "tool_result_percent".to_string(),
+            (tool_result_total as f64 / total * 100.0).round(),
+        );
 
         for (tool, tokens) in &stats.tool_requests {
-            metrics.insert(format!("tool_request_{}_percent", tool), (*tokens as f64 / total * 100.0).round());
+            metrics.insert(
+                format!("tool_request_{}_percent", tool),
+                (*tokens as f64 / total * 100.0).round(),
+            );
         }
         for (tool, tokens) in &stats.tool_results {
-            metrics.insert(format!("tool_result_{}_percent", tool), (*tokens as f64 / total * 100.0).round());
+            metrics.insert(
+                format!("tool_result_{}_percent", tool),
+                (*tokens as f64 / total * 100.0).round(),
+            );
         }
     }
 

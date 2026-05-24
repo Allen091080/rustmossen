@@ -7,7 +7,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use tokio::fs;
@@ -27,26 +26,113 @@ const MAX_INCLUDE_DEPTH: usize = 5;
 /// File extensions allowed for @include directives.
 static TEXT_FILE_EXTENSIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     let exts = vec![
-        ".md", ".txt", ".text", ".json", ".yaml", ".yml", ".toml", ".xml", ".csv",
-        ".html", ".htm", ".css", ".scss", ".sass", ".less",
-        ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
-        ".py", ".pyi", ".pyw", ".rb", ".erb", ".rake",
-        ".go", ".rs",
-        ".java", ".kt", ".kts", ".scala",
-        ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx", ".cs", ".swift",
-        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
-        ".env", ".ini", ".cfg", ".conf", ".config", ".properties",
-        ".sql", ".graphql", ".gql", ".proto",
-        ".vue", ".svelte", ".astro",
-        ".ejs", ".hbs", ".pug", ".jade",
-        ".php", ".pl", ".pm", ".lua", ".r", ".R", ".dart",
-        ".ex", ".exs", ".erl", ".hrl",
-        ".clj", ".cljs", ".cljc", ".edn",
-        ".hs", ".lhs", ".elm", ".ml", ".mli",
-        ".f", ".f90", ".f95", ".for",
-        ".cmake", ".make", ".makefile", ".gradle", ".sbt",
-        ".rst", ".adoc", ".asciidoc", ".org", ".tex", ".latex",
-        ".lock", ".log", ".diff", ".patch",
+        ".md",
+        ".txt",
+        ".text",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".csv",
+        ".html",
+        ".htm",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".mts",
+        ".cts",
+        ".py",
+        ".pyi",
+        ".pyw",
+        ".rb",
+        ".erb",
+        ".rake",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".hxx",
+        ".cs",
+        ".swift",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".ps1",
+        ".bat",
+        ".cmd",
+        ".env",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".config",
+        ".properties",
+        ".sql",
+        ".graphql",
+        ".gql",
+        ".proto",
+        ".vue",
+        ".svelte",
+        ".astro",
+        ".ejs",
+        ".hbs",
+        ".pug",
+        ".jade",
+        ".php",
+        ".pl",
+        ".pm",
+        ".lua",
+        ".r",
+        ".R",
+        ".dart",
+        ".ex",
+        ".exs",
+        ".erl",
+        ".hrl",
+        ".clj",
+        ".cljs",
+        ".cljc",
+        ".edn",
+        ".hs",
+        ".lhs",
+        ".elm",
+        ".ml",
+        ".mli",
+        ".f",
+        ".f90",
+        ".f95",
+        ".for",
+        ".cmake",
+        ".make",
+        ".makefile",
+        ".gradle",
+        ".sbt",
+        ".rst",
+        ".adoc",
+        ".asciidoc",
+        ".org",
+        ".tex",
+        ".latex",
+        ".lock",
+        ".log",
+        ".diff",
+        ".patch",
     ];
     exts.into_iter().collect()
 });
@@ -166,7 +252,9 @@ fn parse_frontmatter(raw_content: &str) -> FrontmatterResult {
         let fm_content = &after_start[..end_pos];
         let content_start = 3 + end_pos + 4; // "---\n" + fm_content + "\n---"
         let content = if content_start < raw_content.len() {
-            raw_content[content_start..].trim_start_matches('\n').to_string()
+            raw_content[content_start..]
+                .trim_start_matches('\n')
+                .to_string()
         } else {
             String::new()
         };
@@ -175,7 +263,13 @@ fn parse_frontmatter(raw_content: &str) -> FrontmatterResult {
         let paths = fm_content
             .lines()
             .find(|l| l.trim_start().starts_with("paths:"))
-            .map(|l| l.trim_start().strip_prefix("paths:").unwrap_or("").trim().to_string());
+            .map(|l| {
+                l.trim_start()
+                    .strip_prefix("paths:")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            });
 
         FrontmatterResult {
             frontmatter: ParsedFrontmatter { paths },
@@ -238,7 +332,7 @@ pub fn strip_html_comments(content: &str) -> (String, bool) {
     let comment_re = Regex::new(r"(?s)<!--.*?-->").unwrap();
     let mut result = String::new();
     let mut stripped = false;
-    let mut last_end = 0;
+    let _last_end = 0;
 
     // Simple block-level comment stripping
     for line in content.lines() {
@@ -275,7 +369,10 @@ fn extract_include_paths(content: &str, base_path: &str) -> Vec<String> {
     let include_re = Regex::new(r"(?:^|\s)@((?:[^\s\\]|\\ )+)").unwrap();
 
     for cap in include_re.captures_iter(content) {
-        let mut path = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let mut path = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         if path.is_empty() {
             continue;
         }
@@ -546,8 +643,7 @@ pub async fn process_md_rules(
         Ok(rd) => rd,
         Err(e) => {
             match e.kind() {
-                std::io::ErrorKind::NotFound
-                | std::io::ErrorKind::PermissionDenied => {}
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {}
                 _ => {}
             }
             return Vec::new();
@@ -667,7 +763,10 @@ pub async fn process_conditioned_md_rules(
                 target_path.to_string()
             };
 
-            if relative.is_empty() || relative.starts_with("..") || Path::new(&relative).is_absolute() {
+            if relative.is_empty()
+                || relative.starts_with("..")
+                || Path::new(&relative).is_absolute()
+            {
                 return false;
             }
 
@@ -879,8 +978,7 @@ pub fn get_mossen_mds(
                 continue;
             }
         }
-        if skip_project_level
-            && matches!(file.memory_type, MemoryType::Project | MemoryType::Local)
+        if skip_project_level && matches!(file.memory_type, MemoryType::Project | MemoryType::Local)
         {
             continue;
         }

@@ -11,10 +11,7 @@ pub mod spawn_multi_agent;
 // ---------------------------------------------------------------------------
 
 /// `tools/utils.ts` `tagMessagesWithToolUseID`.
-pub fn tag_messages_with_tool_use_id(
-    messages: &mut [serde_json::Value],
-    tool_use_id: &str,
-) {
+pub fn tag_messages_with_tool_use_id(messages: &mut [serde_json::Value], tool_use_id: &str) {
     for msg in messages.iter_mut() {
         if let Some(map) = msg.as_object_mut() {
             map.insert(

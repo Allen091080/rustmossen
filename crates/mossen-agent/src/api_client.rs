@@ -26,8 +26,19 @@ use mossen_types::ToolDefinition;
 const DEFAULT_API_BASE_URL: &str = "https://api.mossen.invalid/v1";
 /// 默认流式超时（秒）。
 const STREAM_TIMEOUT_SECS: u64 = 90;
+/// 默认 OpenAI-compatible 流式无语义进展超时（秒）。
+const OPENAI_COMPAT_STREAM_TIMEOUT_SECS: u64 = 300;
 /// SSE 心跳间隔（秒）。
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+fn openai_compat_stream_timeout() -> Duration {
+    std::env::var("MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(OPENAI_COMPAT_STREAM_TIMEOUT_SECS))
+}
 
 // ---------------------------------------------------------------------------
 // API 客户端
@@ -145,10 +156,10 @@ pub async fn call_streaming(
     cancel: CancellationToken,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, ApiError>> + Send>>, ApiError> {
     // Custom-backend (MiniMax / Qwen / GLM …) → OpenAI /chat/completions.
-    // 这些后端没有 Anthropic 兼容 `/v1/messages`；用 OpenAI 适配 + 合成流。
+    // 这些后端没有 Provider 兼容 `/v1/messages`；用 OpenAI 适配 + 合成流。
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
-        let base_url = std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL")
-            .unwrap_or_else(|_| "<unset>".to_string());
+        let base_url =
+            std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").unwrap_or_else(|_| "<unset>".to_string());
         tracing::info!(
             target: "mossen_agent::api_client",
             base_url = %base_url,
@@ -168,7 +179,7 @@ pub async fn call_streaming(
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "text/event-stream")
         .header("x-api-key", &config.api_key)
-        .header("anthropic-version", "2023-06-01");
+        .header("mossen-version", "2023-06-01");
 
     // 添加额外请求头
     for (key, value) in config.extra_headers.iter() {
@@ -365,10 +376,10 @@ pub fn build_stream_request(
 // OpenAI-compatible custom backend route (MiniMax / Qwen / GLM …)
 // ---------------------------------------------------------------------------
 //
-// 这些后端没有 Anthropic `/v1/messages` 兼容端点，只支持 OpenAI
+// 这些后端没有 Provider `/v1/messages` 兼容端点，只支持 OpenAI
 // `/chat/completions`。本路径：
 //   1. 从 `mossen_utils::custom_backend` 拿 base_url / auth / model 覆盖。
-//   2. 把 Anthropic-style 请求转成 OpenAI body（messages + stream:true）。
+//   2. 把 Provider-style 请求转成 OpenAI body（messages + stream:true）。
 //   3. POST 到 `{base}/chat/completions`，启用 SSE 流式。
 //   4. 把每个 SSE chunk 实时转成 StreamEvent 发回 UI，让"打字机"
 //      效果真正逐 token 显示而不是等响应完整再一次性渲染。
@@ -390,17 +401,16 @@ async fn call_streaming_openai_compat(
         return Err(ApiError::Cancelled);
     }
 
-    let base_url = custom_backend::get_custom_backend_base_url()
-        .ok_or_else(|| ApiError::Connection {
+    let base_url =
+        custom_backend::get_custom_backend_base_url().ok_or_else(|| ApiError::Connection {
             message: "Custom backend enabled but base URL not configured".to_string(),
         })?;
-    let chat_url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+    let chat_url = openai_compat_chat_url(&base_url);
 
     // 模型覆盖：custom backend 设置的 model 优先于 params.model。
-    let model = custom_backend::get_custom_backend_model()
-        .unwrap_or_else(|| params.model.clone());
+    let model = custom_backend::get_custom_backend_model().unwrap_or_else(|| params.model.clone());
 
-    // Build OpenAI messages from Anthropic-style messages — faithful port of
+    // Build OpenAI messages from Provider-style messages — faithful port of
     // openaiCompatibleClient.ts::mossenMessagesToOpenAI. Assistant tool_use
     // blocks become `tool_calls`; user tool_result blocks become separate
     // `role: 'tool'` messages keyed by tool_call_id. Without this the model
@@ -467,6 +477,7 @@ async fn call_streaming_openai_compat(
     }
 
     let model_str = model.clone();
+    let semantic_timeout = openai_compat_stream_timeout();
     let stream = async_stream::stream! {
         use futures::stream::StreamExt;
 
@@ -493,20 +504,32 @@ async fn call_streaming_openai_compat(
         // (one slot per tool_call index emitted by the upstream).
         let mut text_block_open = false;
         let mut tool_state: Vec<ToolCallAccum> = Vec::new();
+        let mut next_tool_block_index: usize = 1;
         let mut delta_chunks: u64 = 0;
+        let mut semantic_deadline = tokio::time::Instant::now() + semantic_timeout;
 
-        while let Some(event) = sse.next().await {
-            if cancel.is_cancelled() {
-                yield Err(ApiError::Cancelled);
-                return;
-            }
-            let event = match event {
-                Ok(e) => e,
-                Err(e) => {
-                    yield Err(ApiError::Connection {
-                        message: format!("SSE stream error: {}", e),
-                    });
+        loop {
+            let event = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    yield Err(ApiError::Cancelled);
                     return;
+                }
+                _ = tokio::time::sleep_until(semantic_deadline) => {
+                    yield Err(ApiError::StreamTimeout);
+                    return;
+                }
+                event = sse.next() => {
+                    match event {
+                        Some(Ok(event)) => event,
+                        Some(Err(e)) => {
+                            yield Err(ApiError::Connection {
+                                message: format!("SSE stream error: {}", e),
+                            });
+                            return;
+                        }
+                        None => break,
+                    }
                 }
             };
 
@@ -518,16 +541,14 @@ async fn call_streaming_openai_compat(
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            let mut saw_semantic_progress = false;
 
             if let Some(choices) = chunk.get("choices").and_then(|v| v.as_array()) {
                 if let Some(first) = choices.first() {
                     // 1) Text content delta — open the text block lazily.
-                    if let Some(text) = first
-                        .get("delta")
-                        .and_then(|d| d.get("content"))
-                        .and_then(|c| c.as_str())
-                    {
+                    if let Some(text) = openai_choice_content_text(first) {
                         if !text.is_empty() {
+                            saw_semantic_progress = true;
                             if !text_block_open {
                                 yield Ok(StreamEvent::ContentBlockStart {
                                     index: 0,
@@ -542,7 +563,7 @@ async fn call_streaming_openai_compat(
                             yield Ok(StreamEvent::ContentBlockDelta {
                                 index: 0,
                                 delta: crate::types::ContentDelta::TextDelta {
-                                    text: text.to_string(),
+                                    text,
                                 },
                             });
                         }
@@ -552,12 +573,9 @@ async fn call_streaming_openai_compat(
                     //    (per-tool, 0-based on the OpenAI side), and either
                     //    `id`+`function.name` (first chunk for that tool) or
                     //    `function.arguments` (subsequent JSON fragments).
-                    if let Some(tool_calls) = first
-                        .get("delta")
-                        .and_then(|d| d.get("tool_calls"))
-                        .and_then(|tc| tc.as_array())
-                    {
+                    if let Some(tool_calls) = openai_choice_tool_calls(first) {
                         for tc in tool_calls {
+                            saw_semantic_progress = true;
                             let openai_idx = tc
                                 .get("index")
                                 .and_then(|v| v.as_u64())
@@ -565,27 +583,23 @@ async fn call_streaming_openai_compat(
                             // Lazily extend tool_state so each new tool index
                             // gets a fresh accumulator slot.
                             while tool_state.len() <= openai_idx {
-                                tool_state.push(ToolCallAccum::default());
+                                tool_state.push(ToolCallAccum::with_fallback_id());
                             }
-                            // Anthropic-side index: assistant text owns 0,
-                            // tool_use blocks start at 1, ordered by the
-                            // first time each OpenAI tool_call.index appears.
-                            // Snapshot the count of already-started peers
-                            // *before* the mutable borrow so we can still
-                            // assign block_index inside the borrow.
-                            let prior_started = tool_state[..openai_idx]
-                                .iter()
-                                .filter(|t| t.started)
-                                .count();
                             let accum = &mut tool_state[openai_idx];
 
                             // First sight of this tool index — emit
-                            // ContentBlockStart{ToolUse} once we have at
-                            // least an id+name pair (some providers split
-                            // id and name across chunks; we wait for both).
+                            // ContentBlockStart{ToolUse} once we have a
+                            // function name. Some OpenAI-compatible streams
+                            // omit `id` in deltas; a stable fallback id keeps
+                            // the agent loop alive and is echoed back in the
+                            // next request's tool result.
                             if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
-                                if !id.is_empty() && accum.id.is_empty() {
+                                if !id.is_empty()
+                                    && !accum.started
+                                    && (accum.id.is_empty() || accum.id_is_fallback)
+                                {
                                     accum.id = id.to_string();
+                                    accum.id_is_fallback = false;
                                 }
                             }
                             if let Some(name) = tc
@@ -597,8 +611,9 @@ async fn call_streaming_openai_compat(
                                     accum.name = name.to_string();
                                 }
                             }
-                            if !accum.started && !accum.id.is_empty() && !accum.name.is_empty() {
-                                let block_idx = 1 + prior_started;
+                            if !accum.started && !accum.name.is_empty() {
+                                let block_idx = next_tool_block_index;
+                                next_tool_block_index += 1;
                                 accum.block_index = block_idx;
                                 accum.started = true;
                                 debug!(
@@ -657,9 +672,10 @@ async fn call_streaming_openai_compat(
                     if let Some(reason) =
                         first.get("finish_reason").and_then(|v| v.as_str())
                     {
+                        saw_semantic_progress = true;
                         finish_reason = Some(match reason {
                             "length" => "max_tokens".to_string(),
-                            "tool_calls" => "tool_use".to_string(),
+                            "tool_calls" | "function_call" => "tool_use".to_string(),
                             "stop" => "end_turn".to_string(),
                             other => other.to_string(),
                         });
@@ -668,6 +684,7 @@ async fn call_streaming_openai_compat(
             }
 
             if let Some(usage) = chunk.get("usage") {
+                saw_semantic_progress = true;
                 let input_tokens =
                     usage.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                 let output_tokens = usage
@@ -680,6 +697,10 @@ async fn call_streaming_openai_compat(
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
                 });
+            }
+
+            if saw_semantic_progress {
+                semantic_deadline = tokio::time::Instant::now() + semantic_timeout;
             }
         }
 
@@ -716,15 +737,72 @@ async fn call_streaming_openai_compat(
 #[derive(Default, Debug)]
 struct ToolCallAccum {
     id: String,
+    id_is_fallback: bool,
     name: String,
     started: bool,
     block_index: usize,
     pending_args: String,
 }
 
+impl ToolCallAccum {
+    fn with_fallback_id() -> Self {
+        Self {
+            id: format!("call_{}", uuid::Uuid::new_v4().simple()),
+            id_is_fallback: true,
+            ..Self::default()
+        }
+    }
+}
+
+fn openai_choice_content_text(choice: &serde_json::Value) -> Option<String> {
+    choice
+        .get("delta")
+        .and_then(|d| d.get("content"))
+        .or_else(|| choice.get("message").and_then(|m| m.get("content")))
+        .and_then(openai_content_text)
+}
+
+fn openai_content_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Array(items) => {
+            let mut out = String::new();
+            for item in items {
+                if let Some(text) = item.as_str() {
+                    out.push_str(text);
+                } else if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                    out.push_str(text);
+                }
+            }
+            if out.is_empty() {
+                None
+            } else {
+                Some(out)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn openai_choice_tool_calls(choice: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    choice
+        .get("delta")
+        .and_then(|d| d.get("tool_calls"))
+        .or_else(|| choice.get("message").and_then(|m| m.get("tool_calls")))
+        .and_then(|tc| tc.as_array())
+}
+
+fn openai_compat_chat_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        format!("{}/chat/completions", trimmed)
+    } else {
+        format!("{}/v1/chat/completions", trimmed)
+    }
+}
 
 // ---------------------------------------------------------------------------
-// Anthropic ↔ OpenAI message / tool translation
+// Provider ↔ OpenAI message / tool translation
 // ---------------------------------------------------------------------------
 // Faithful Rust port of openaiCompatibleClient.ts::mossen{Messages,Tools,
 // ToolChoice}ToOpenAI. These exist because the MiniMax/OpenAI-compatible
@@ -798,11 +876,9 @@ fn build_openai_messages(
         // tool_result blocks remain their own role:"tool" messages.
         let mut pending_text: Vec<String> = Vec::new();
         let mut pending_images: Vec<serde_json::Value> = Vec::new();
-        let flush_user = |
-            text_buf: &mut Vec<String>,
-            img_buf: &mut Vec<serde_json::Value>,
-            out: &mut Vec<serde_json::Value>,
-        | {
+        let flush_user = |text_buf: &mut Vec<String>,
+                          img_buf: &mut Vec<serde_json::Value>,
+                          out: &mut Vec<serde_json::Value>| {
             if text_buf.is_empty() && img_buf.is_empty() {
                 return;
             }
@@ -826,7 +902,7 @@ fn build_openai_messages(
                     // OpenAI vision: `image_url.url` accepts a data URI.
                     // We only emit base64-source images here; URL-source
                     // images could be passed through verbatim but the
-                    // upstream Anthropic shape doesn't carry that flag.
+                    // upstream Provider shape doesn't carry that flag.
                     let mime = if img.source.media_type.is_empty() {
                         "image/png".to_string()
                     } else {
@@ -884,9 +960,9 @@ fn build_openai_tools(tools: &[ToolDefinition]) -> Option<serde_json::Value> {
             // ToolInputSchema → JSON object (it already serialises as a JSON
             // Schema fragment via serde — re-serialise to drop the Rust-side
             // Option wrappers cleanly).
-            let parameters = serde_json::to_value(&t.input_schema).unwrap_or_else(|_| {
-                json!({"type": "object", "properties": {}, "additionalProperties": true})
-            });
+            let parameters = serde_json::to_value(&t.input_schema).unwrap_or_else(
+                |_| json!({"type": "object", "properties": {}, "additionalProperties": true}),
+            );
             let mut function = serde_json::Map::new();
             function.insert("name".to_string(), json!(t.name));
             if !t.description.is_empty() {
@@ -902,7 +978,7 @@ fn build_openai_tools(tools: &[ToolDefinition]) -> Option<serde_json::Value> {
 fn build_openai_tool_choice(choice: Option<&ToolChoice>) -> Option<serde_json::Value> {
     use serde_json::json;
     let choice = choice?;
-    // The Rust ToolChoice enum mirrors the Anthropic shape. We translate the
+    // The Rust ToolChoice enum mirrors the Provider shape. We translate the
     // two cases the API actually accepts (auto + specific tool); anything
     // else maps to None so the upstream picks a default.
     let raw = serde_json::to_value(choice).ok()?;
@@ -914,5 +990,82 @@ fn build_openai_tool_choice(choice: Option<&ToolChoice>) -> Option<serde_json::V
             Some(json!({"type": "function", "function": {"name": name}}))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        openai_choice_content_text, openai_choice_tool_calls, openai_compat_chat_url,
+        openai_content_text, ToolCallAccum,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn content_text_accepts_openai_vision_array_blocks() {
+        let content = json!([
+            {"type": "text", "text": "hello "},
+            {"text": "world"},
+        ]);
+
+        assert_eq!(
+            openai_content_text(&content).as_deref(),
+            Some("hello world")
+        );
+    }
+
+    #[test]
+    fn content_text_preserves_multibyte_markdown_chunks() {
+        let content = json!([
+            {"type": "text", "text": "先读 `crates/mossen-cli/src/main.rs`。\n"},
+            {"type": "text", "text": "然后逐行分析代码块：\n```rust\nfn main() {}\n```"},
+        ]);
+
+        let text = openai_content_text(&content).expect("content text should parse");
+
+        assert!(text.contains("逐行分析代码块"));
+        assert!(text.contains("```rust"));
+        assert!(text.is_char_boundary(text.len()));
+    }
+
+    #[test]
+    fn choice_helpers_accept_message_level_final_chunks() {
+        let choice = json!({
+            "message": {
+                "content": "final text",
+                "tool_calls": [{
+                    "index": 0,
+                    "type": "function",
+                    "function": {"name": "Bash", "arguments": "{\"cmd\":\"ls\"}"}
+                }]
+            },
+            "finish_reason": "tool_calls"
+        });
+
+        assert_eq!(
+            openai_choice_content_text(&choice).as_deref(),
+            Some("final text")
+        );
+        assert_eq!(openai_choice_tool_calls(&choice).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tool_accumulator_has_generated_fallback_id() {
+        let accum = ToolCallAccum::with_fallback_id();
+
+        assert!(accum.id.starts_with("call_"));
+        assert!(accum.id_is_fallback);
+    }
+
+    #[test]
+    fn chat_url_accepts_base_with_or_without_v1() {
+        assert_eq!(
+            openai_compat_chat_url("https://api.example.com"),
+            "https://api.example.com/v1/chat/completions"
+        );
+        assert_eq!(
+            openai_compat_chat_url("https://api.example.com/v1/"),
+            "https://api.example.com/v1/chat/completions"
+        );
     }
 }

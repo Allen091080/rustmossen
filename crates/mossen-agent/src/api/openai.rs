@@ -140,10 +140,7 @@ pub enum MossenBetaRawMessageStreamEvent {
     #[serde(rename = "message_start")]
     MessageStart { message: MossenBetaMessage },
     #[serde(rename = "content_block_start")]
-    ContentBlockStart {
-        index: usize,
-        content_block: Value,
-    },
+    ContentBlockStart { index: usize, content_block: Value },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta { index: usize, delta: Value },
     #[serde(rename = "content_block_stop")]
@@ -290,10 +287,7 @@ fn normalize_system_prompt(system: &Value) -> Option<String> {
 }
 
 /// Convert Mossen messages to OpenAI format.
-pub fn mossen_messages_to_openai(
-    system: &Value,
-    messages: &[Value],
-) -> Vec<Value> {
+pub fn mossen_messages_to_openai(system: &Value, messages: &[Value]) -> Vec<Value> {
     let mut openai_messages: Vec<Value> = Vec::new();
 
     // System prompt
@@ -305,8 +299,14 @@ pub fn mossen_messages_to_openai(
     }
 
     for message in messages {
-        let role = message.get("role").and_then(|r| r.as_str()).unwrap_or("user");
-        let content = message.get("content").cloned().unwrap_or(Value::String(String::new()));
+        let role = message
+            .get("role")
+            .and_then(|r| r.as_str())
+            .unwrap_or("user");
+        let content = message
+            .get("content")
+            .cloned()
+            .unwrap_or(Value::String(String::new()));
 
         if content.is_string() {
             openai_messages.push(serde_json::json!({ "role": role, "content": content }));
@@ -341,7 +341,10 @@ pub fn mossen_messages_to_openai(
                             .unwrap_or(&Uuid::new_v4().to_string())
                             .to_string();
                         let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                        let input = block
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(Value::Object(Default::default()));
                         tool_calls.push(serde_json::json!({
                             "id": id,
                             "type": "function",
@@ -360,7 +363,9 @@ pub fn mossen_messages_to_openai(
                 "content": if text_parts.is_empty() { Value::Null } else { Value::String(text_parts.join("\n\n")) }
             });
             if !tool_calls.is_empty() {
-                msg.as_object_mut().unwrap().insert("tool_calls".into(), Value::Array(tool_calls));
+                msg.as_object_mut()
+                    .unwrap()
+                    .insert("tool_calls".into(), Value::Array(tool_calls));
             }
             openai_messages.push(msg);
         } else {
@@ -399,8 +404,15 @@ pub fn mossen_messages_to_openai(
                             "tool_call_id": tool_call_id,
                             "content": tool_content
                         });
-                        if block.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false) {
-                            tool_msg.as_object_mut().unwrap().insert("name".into(), Value::String("tool_error".into()));
+                        if block
+                            .get("is_error")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            tool_msg
+                                .as_object_mut()
+                                .unwrap()
+                                .insert("name".into(), Value::String("tool_error".into()));
                         }
                         openai_messages.push(tool_msg);
                     }
@@ -428,9 +440,7 @@ pub fn mossen_tools_to_openai(tools: &[Value]) -> Option<Vec<Value>> {
 
     let openai_tools: Vec<Value> = tools
         .iter()
-        .filter(|tool| {
-            tool.get("name").is_some() && tool.get("input_schema").is_some()
-        })
+        .filter(|tool| tool.get("name").is_some() && tool.get("input_schema").is_some())
         .map(|tool| {
             let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let description = tool.get("description").and_then(|d| d.as_str());
@@ -448,7 +458,10 @@ pub fn mossen_tools_to_openai(tools: &[Value]) -> Option<Vec<Value>> {
                 "parameters": parameters
             });
             if let Some(desc) = description {
-                function.as_object_mut().unwrap().insert("description".into(), Value::String(desc.to_string()));
+                function
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("description".into(), Value::String(desc.to_string()));
             }
 
             serde_json::json!({
@@ -629,7 +642,10 @@ pub async fn perform_openai_compatible_request(
     request_options: &RequestOptions,
     client_options: &OpenAICompatibleClientOptions,
 ) -> Result<(reqwest::Response, String), MossenAPIError> {
-    let url = format!("{}/chat/completions", client_options.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/chat/completions",
+        client_options.base_url.trim_end_matches('/')
+    );
 
     let headers = build_request_headers(
         &client_options.default_headers,
@@ -645,12 +661,14 @@ pub async fn perform_openai_compatible_request(
         .timeout(Duration::from_millis(timeout_ms))
         .send()
         .await
-        .map_err(|e| MossenAPIError::new(
-            0,
-            serde_json::json!({"error": {"message": e.to_string()}}),
-            Some(e.to_string()),
-            HeaderMap::new(),
-        ))?;
+        .map_err(|e| {
+            MossenAPIError::new(
+                0,
+                serde_json::json!({"error": {"message": e.to_string()}}),
+                Some(e.to_string()),
+                HeaderMap::new(),
+            )
+        })?;
 
     let request_id = get_request_id(response.headers());
 
@@ -667,7 +685,12 @@ pub async fn perform_openai_compatible_request(
             .and_then(|m| m.as_str())
             .unwrap_or("API error")
             .to_string();
-        return Err(MossenAPIError::new(status, error_body, Some(message), resp_headers));
+        return Err(MossenAPIError::new(
+            status,
+            error_body,
+            Some(message),
+            resp_headers,
+        ));
     }
 
     Ok((response, request_id))
@@ -707,10 +730,7 @@ impl OpenAICompatibleClient {
 
         Ok(completion_to_mossen_message(
             &completion,
-            params
-                .get("model")
-                .and_then(|m| m.as_str())
-                .unwrap_or(""),
+            params.get("model").and_then(|m| m.as_str()).unwrap_or(""),
         ))
     }
 
@@ -732,7 +752,10 @@ pub fn completion_to_mossen_message(
 ) -> MossenBetaMessage {
     let choice = data.choices.as_ref().and_then(|c| c.first());
     let model = data.model.as_deref().unwrap_or(fallback_model);
-    let id = data.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+    let id = data
+        .id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let mut content: Vec<ContentBlock> = Vec::new();
     let mut has_tool_calls = false;

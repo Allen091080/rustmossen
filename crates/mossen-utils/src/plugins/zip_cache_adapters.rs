@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
 
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tracing::debug;
 
@@ -23,10 +21,7 @@ pub async fn read_zip_cache_known_marketplaces() -> KnownMarketplacesFile {
         Ok(content) => match serde_json::from_str::<KnownMarketplacesFile>(&content) {
             Ok(data) => data,
             Err(e) => {
-                debug!(
-                    "Invalid known_marketplaces.json in zip cache: {}",
-                    e
-                );
+                debug!("Invalid known_marketplaces.json in zip cache: {}", e);
                 HashMap::new()
             }
         },
@@ -53,10 +48,7 @@ pub async fn read_marketplace_json(marketplace_name: &str) -> Option<PluginMarke
         Ok(content) => match serde_json::from_str::<PluginMarketplace>(&content) {
             Ok(marketplace) => Some(marketplace),
             Err(e) => {
-                debug!(
-                    "Invalid marketplace JSON for {}: {}",
-                    marketplace_name, e
-                );
+                debug!("Invalid marketplace JSON for {}: {}", marketplace_name, e);
                 None
             }
         },
@@ -123,6 +115,9 @@ pub async fn sync_marketplaces_to_zip_cache(
     }
 
     if let Err(e) = write_zip_cache_known_marketplaces(&merged).await {
-        debug!("Failed to write merged known_marketplaces to zip cache: {}", e);
+        debug!(
+            "Failed to write merged known_marketplaces to zip cache: {}",
+            e
+        );
     }
 }

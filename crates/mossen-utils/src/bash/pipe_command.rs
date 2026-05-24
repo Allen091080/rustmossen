@@ -4,7 +4,9 @@
 
 use regex::Regex;
 
-use crate::bash::shell_quote::{has_malformed_tokens, has_shell_quote_single_quote_bug, quote, try_parse_shell_command};
+use crate::bash::shell_quote::{
+    has_malformed_tokens, has_shell_quote_single_quote_bug, quote, try_parse_shell_command,
+};
 
 /// Rearranges a command with pipes to place stdin redirect after the first command.
 pub fn rearrange_pipe_command(command: &str) -> String {
@@ -62,7 +64,11 @@ pub fn rearrange_pipe_command(command: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.extend(build_command_parts(&parsed, 0, first_pipe_index as usize));
     parts.push("< /dev/null".to_string());
-    parts.extend(build_command_parts(&parsed, first_pipe_index as usize, parsed.len()));
+    parts.extend(build_command_parts(
+        &parsed,
+        first_pipe_index as usize,
+        parsed.len(),
+    ));
 
     single_quote_for_eval(&parts.join(" "))
 }
@@ -143,7 +149,10 @@ fn build_command_parts(parsed: &[String], start: usize, end: usize) -> Vec<Strin
 
 /// Check if a token is a shell operator.
 fn is_operator_token(token: &str) -> bool {
-    matches!(token, "|" | "||" | "&&" | ";" | ">" | ">>" | "<" | "<<" | ">&" | "<&")
+    matches!(
+        token,
+        "|" | "||" | "&&" | ";" | ">" | ">>" | "<" | "<<" | ">&" | "<&"
+    )
 }
 
 /// Checks if an operator is a command separator.

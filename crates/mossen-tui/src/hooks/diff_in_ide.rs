@@ -72,12 +72,16 @@ impl DiffInIdeState {
 
     /// Get the next diff to open.
     pub fn next_pending(&self) -> Option<&IdeDiff> {
-        self.pending_open.first().and_then(|id| self.active_diffs.get(id))
+        self.pending_open
+            .first()
+            .and_then(|id| self.active_diffs.get(id))
     }
 
     /// Clean up all temporary files.
     pub fn cleanup(&mut self) -> Vec<PathBuf> {
-        let paths: Vec<PathBuf> = self.active_diffs.values()
+        let paths: Vec<PathBuf> = self
+            .active_diffs
+            .values()
             .filter_map(|d| d.temp_file.clone())
             .collect();
         self.active_diffs.clear();
@@ -195,7 +199,10 @@ fn split_into_hunks(old_middle: &str, new_middle: &str) -> Vec<FileEdit> {
     for (o, n) in old_lines.iter().zip(new_lines.iter()) {
         if o == n {
             if let Some((os, ns)) = cur.take() {
-                hunks.push(FileEdit { old_string: os, new_string: ns });
+                hunks.push(FileEdit {
+                    old_string: os,
+                    new_string: ns,
+                });
             }
         } else {
             match &mut cur {
@@ -208,7 +215,10 @@ fn split_into_hunks(old_middle: &str, new_middle: &str) -> Vec<FileEdit> {
         }
     }
     if let Some((os, ns)) = cur {
-        hunks.push(FileEdit { old_string: os, new_string: ns });
+        hunks.push(FileEdit {
+            old_string: os,
+            new_string: ns,
+        });
     }
     hunks
 }
@@ -225,7 +235,12 @@ mod compute_edits_tests {
 
     #[test]
     fn single_hunk() {
-        let edits = compute_edits_from_contents("f", "hello\nworld\n", "hello\nthere\n", DiffEditMode::Single);
+        let edits = compute_edits_from_contents(
+            "f",
+            "hello\nworld\n",
+            "hello\nthere\n",
+            DiffEditMode::Single,
+        );
         assert_eq!(edits.len(), 1);
         // common prefix = "hello\n", common suffix = "\n" so middle is bare.
         assert_eq!(edits[0].old_string, "world");

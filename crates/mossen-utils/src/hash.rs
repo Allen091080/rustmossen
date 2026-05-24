@@ -10,7 +10,10 @@ use sha2::{Digest, Sha256};
 pub fn djb2_hash(s: &str) -> i32 {
     let mut hash: i32 = 0;
     for byte in s.bytes() {
-        hash = hash.wrapping_shl(5).wrapping_sub(hash).wrapping_add(byte as i32);
+        hash = hash
+            .wrapping_shl(5)
+            .wrapping_sub(hash)
+            .wrapping_add(byte as i32);
     }
     hash
 }

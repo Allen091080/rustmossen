@@ -266,7 +266,8 @@ pub async fn acquire_idp_id_token(
 
     // Build authorization URL
     let mut auth_url = url::Url::parse(&metadata.authorization_endpoint)?;
-    auth_url.query_pairs_mut()
+    auth_url
+        .query_pairs_mut()
         .append_pair("response_type", "code")
         .append_pair("client_id", &opts.idp_client_id)
         .append_pair("redirect_uri", &redirect_uri)
@@ -316,7 +317,9 @@ pub async fn acquire_idp_id_token(
         return Err(format!("XAA IdP: token exchange HTTP {}", resp.status()).into());
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("XAA IdP: token response parse failed: {}", e))?;
 
     let id_token = body["id_token"]
@@ -447,7 +450,9 @@ async fn wait_for_callback(
 /// env vars present).
 pub fn get_xaa_idp_settings() -> Option<XaaIdpSettings> {
     let issuer = std::env::var("MOSSEN_XAA_ISSUER").ok()?;
-    let client_id = std::env::var("MOSSEN_XAA_CLIENT_ID").ok().unwrap_or_default();
+    let client_id = std::env::var("MOSSEN_XAA_CLIENT_ID")
+        .ok()
+        .unwrap_or_default();
     let callback_port = std::env::var("MOSSEN_XAA_CALLBACK_PORT")
         .ok()
         .and_then(|s| s.parse::<u16>().ok());

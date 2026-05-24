@@ -6,8 +6,17 @@ use tokio::process::Command;
 
 /// Known JetBrains IDEs.
 pub const JETBRAINS_IDES: &[&str] = &[
-    "idea", "pycharm", "webstorm", "phpstorm", "rustrover", "clion",
-    "goland", "rider", "datagrip", "dataspell", "fleet",
+    "idea",
+    "pycharm",
+    "webstorm",
+    "phpstorm",
+    "rustrover",
+    "clion",
+    "goland",
+    "rider",
+    "datagrip",
+    "dataspell",
+    "fleet",
 ];
 
 /// Cached JetBrains IDE detection result.
@@ -118,9 +127,7 @@ async fn detect_jetbrains_ide_from_parent_process_async() -> Option<String> {
 }
 
 /// Get terminal with JetBrains detection (async).
-pub async fn get_terminal_with_jetbrains_detection_async(
-    env_info: &EnvInfo,
-) -> Option<String> {
+pub async fn get_terminal_with_jetbrains_detection_async(env_info: &EnvInfo) -> Option<String> {
     if std::env::var("TERMINAL_EMULATOR")
         .map(|v| v == "JetBrains-JediTerm")
         .unwrap_or(false)
@@ -187,7 +194,12 @@ async fn get_ancestor_commands_async(
             match fs::read_to_string(&stat_path).await {
                 Ok(stat) => {
                     // Format: pid (comm) state ppid ...
-                    let parts: Vec<&str> = stat.split(')').last().unwrap_or("").split_whitespace().collect();
+                    let parts: Vec<&str> = stat
+                        .split(')')
+                        .last()
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .collect();
                     if parts.len() >= 2 {
                         current_pid = parts[1].parse().unwrap_or(0);
                         if current_pid <= 1 {

@@ -96,7 +96,8 @@ pub fn parse_env_vars(env: Option<Vec<&str>>) -> HashMap<String, String> {
                 }
             })
             .collect()
-    }).unwrap_or_default()
+    })
+    .unwrap_or_default()
 }
 
 /// Describe MCP config file path
@@ -110,17 +111,26 @@ mod tests {
 
     #[test]
     fn test_transport_default() {
-        assert!(matches!(TransportType::from_str(None), TransportType::Stdio));
+        assert!(matches!(
+            TransportType::from_str(None),
+            TransportType::Stdio
+        ));
     }
 
     #[test]
     fn test_transport_sse() {
-        assert!(matches!(TransportType::from_str(Some("sse")), TransportType::Sse));
+        assert!(matches!(
+            TransportType::from_str(Some("sse")),
+            TransportType::Sse
+        ));
     }
 
     #[test]
     fn test_transport_http() {
-        assert!(matches!(TransportType::from_str(Some("http")), TransportType::Http));
+        assert!(matches!(
+            TransportType::from_str(Some("http")),
+            TransportType::Http
+        ));
     }
 
     #[test]
@@ -149,7 +159,11 @@ mod tests {
 
     #[test]
     fn test_looks_like_url() {
-        let mut config = ServerConfig::new("test".to_string(), "https://example.com/mcp".to_string(), TransportType::Http);
+        let mut config = ServerConfig::new(
+            "test".to_string(),
+            "https://example.com/mcp".to_string(),
+            TransportType::Http,
+        );
         assert!(config.looks_like_url());
 
         config.command_or_url = "npx my-server".to_string();

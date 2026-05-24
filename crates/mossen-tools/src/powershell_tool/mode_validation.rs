@@ -6,6 +6,8 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 /// Validation result from mode checking.
 #[derive(Debug, Clone)]
 pub enum ModeValidationResult {
@@ -63,7 +65,8 @@ static WRITE_COMMANDS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         Regex::new(r"(?i)\b(Stop-Process|spps|kill)\b").unwrap(),
         Regex::new(r"(?i)\b(Invoke-WebRequest|iwr|curl|wget)\b").unwrap(),
         Regex::new(r"(?i)\b(Invoke-RestMethod|irm)\b").unwrap(),
-        Regex::new(r"(?i)\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-[dD])\b").unwrap(),
+        Regex::new(r"(?i)\bgit\s+(add|commit|push|merge|rebase|reset|checkout|branch\s+-[dD])\b")
+            .unwrap(),
         Regex::new(r"(?i)\bnpm\s+(install|uninstall|update|publish|run)\b").unwrap(),
         Regex::new(r"(?i)\b(pip|pip3)\s+(install|uninstall)\b").unwrap(),
         Regex::new(r"(?i)\b(docker|podman)\s+(run|build|push|pull|rm|rmi|stop|kill)\b").unwrap(),
@@ -107,8 +110,7 @@ fn resolve_to_canonical(name: &str) -> String {
 /// params), `-ty` (avoids `-t` colliding with `-Target`).
 fn is_item_type_param_abbrev(p: &str) -> bool {
     let len = p.len();
-    (len >= 3 && "-itemtype".starts_with(p))
-        || (len >= 3 && "-type".starts_with(p))
+    (len >= 3 && "-itemtype".starts_with(p)) || (len >= 3 && "-type".starts_with(p))
 }
 
 /// `modeValidation.ts` `isSymlinkCreatingCommand` — detects `New-Item`
@@ -274,9 +276,5 @@ fn has_output_redirection(command: &str) -> bool {
 
 /// Truncate a string for display purposes.
 fn truncate_for_display(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len])
-    }
+    truncate_chars_with_suffix(s, max_len, "...")
 }

@@ -41,7 +41,9 @@ pub fn apply_extra_ca_certs_from_config() {
     }
     if let Some(path) = get_extra_certs_path_from_config() {
         // SAFETY: at startup before TLS connections, single-threaded init.
-        unsafe { std::env::set_var("NODE_EXTRA_CA_CERTS", &path); }
+        unsafe {
+            std::env::set_var("NODE_EXTRA_CA_CERTS", &path);
+        }
         tracing::debug!(
             target = "ca_certs",
             path = %path,
@@ -54,8 +56,7 @@ pub fn apply_extra_ca_certs_from_config() {
 /// settings 优先于 config（与 TS `applyConfigEnvironmentVariables` 的优先级一致）。
 fn get_extra_certs_path_from_config() -> Option<String> {
     // 1. user settings (~/.mossen/settings.json) — 取 env.NODE_EXTRA_CA_CERTS
-    let user_settings_path: PathBuf =
-        get_mossen_config_home_dir().join("settings.json");
+    let user_settings_path: PathBuf = get_mossen_config_home_dir().join("settings.json");
     let (settings, _errs) = parse_settings_file(&user_settings_path);
     if let Some(s) = settings.as_ref() {
         if let Some(env) = s.env.as_ref() {

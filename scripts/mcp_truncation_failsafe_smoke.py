@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mcpContentNeedsTruncation 故障安全契约 (修复 anthropic-countTokens 清理后引入的 bug)。
+mcpContentNeedsTruncation 故障安全契约 (修复 provider-countTokens 清理后引入的 bug)。
 
 Bug 历史:
   原代码: catch error → return false (假定不需要截断)
@@ -160,14 +160,14 @@ def case_static_failsafe_present() -> dict:
         or re.search(r"contentSizeEstimate\s*>\s*getMaxMcpOutputTokens", body) is not None
     )
     has_fallback_call = "countTokensViaSmallFastFallback" in body
-    no_anthropic_call = "countMessagesTokensWithAPI" not in body
+    no_provider_call = "countMessagesTokensWithAPI" not in body
 
     return {
         "name": "static_failsafe_present",
-        "ok": has_failsafe and has_fallback_call and no_anthropic_call,
+        "ok": has_failsafe and has_fallback_call and no_provider_call,
         "has_failsafe_size_check": has_failsafe,
         "has_smallfast_fallback_call": has_fallback_call,
-        "no_anthropic_call": no_anthropic_call,
+        "no_provider_call": no_provider_call,
         "body_excerpt": body[:400] if body else "(no match)",
     }
 

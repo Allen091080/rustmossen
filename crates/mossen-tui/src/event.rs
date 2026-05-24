@@ -1,10 +1,15 @@
 //! Event handling system for the TUI layer.
 //!
-//! Translates the Ink EventEmitter pattern into a channel-based event bus
-//! using tokio mpsc channels.
+//! Channel-based event bus using tokio mpsc channels.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use tokio::sync::mpsc;
+
+/// Maximum pending terminal events the App should coalesce after one wakeup.
+///
+/// Ticks are intentionally lossy: a long render should not leave hundreds of
+/// stale animation ticks ahead of real keyboard, mouse, resize, or engine work.
+pub const DEFAULT_EVENT_BATCH_LIMIT: usize = 256;
 
 /// Top-level application events consumed by the main event loop.
 #[derive(Debug, Clone)]
@@ -23,7 +28,7 @@ pub enum AppEvent {
     Quit,
 }
 
-/// Channel-based event bus replacing Ink's EventEmitter.
+/// Channel-based event bus for input, resize, focus, and tick events.
 pub struct EventBus {
     tx: mpsc::UnboundedSender<AppEvent>,
     rx: mpsc::UnboundedReceiver<AppEvent>,
@@ -43,6 +48,24 @@ impl EventBus {
     /// Receive the next event (blocks until available).
     pub async fn recv(&mut self) -> Option<AppEvent> {
         self.rx.recv().await
+    }
+
+    /// Receive one event, then drain currently queued events up to `max_events`.
+    ///
+    /// Redundant ticks are collapsed so the render loop can catch up after a
+    /// slow frame without delaying input behind stale animation wakeups.
+    pub async fn recv_coalesced(&mut self, max_events: usize) -> Option<Vec<AppEvent>> {
+        let first = self.rx.recv().await?;
+        let max_events = max_events.max(1);
+        let mut events = Vec::with_capacity(max_events.min(16));
+        events.push(first);
+        while events.len() < max_events {
+            match self.rx.try_recv() {
+                Ok(event) => events.push(event),
+                Err(_) => break,
+            }
+        }
+        Some(coalesce_event_batch(events))
     }
 
     /// Try to receive without blocking.
@@ -111,6 +134,52 @@ pub fn spawn_tick_timer(tx: mpsc::UnboundedSender<AppEvent>, interval_ms: u64) {
     });
 }
 
+fn coalesce_event_batch(events: Vec<AppEvent>) -> Vec<AppEvent> {
+    let mut tick_seen = false;
+    let mut pending_lossy: Option<AppEvent> = None;
+    let mut coalesced = Vec::with_capacity(events.len());
+    for event in events {
+        match event {
+            AppEvent::Tick => {
+                flush_pending_lossy(&mut coalesced, &mut pending_lossy);
+                if tick_seen {
+                    continue;
+                }
+                tick_seen = true;
+                coalesced.push(AppEvent::Tick);
+            }
+            AppEvent::Resize { .. } => {
+                if matches!(&pending_lossy, Some(AppEvent::Resize { .. })) {
+                    pending_lossy = Some(event);
+                } else {
+                    flush_pending_lossy(&mut coalesced, &mut pending_lossy);
+                    pending_lossy = Some(event);
+                }
+            }
+            AppEvent::FocusChange(_) => {
+                if matches!(&pending_lossy, Some(AppEvent::FocusChange(_))) {
+                    pending_lossy = Some(event);
+                } else {
+                    flush_pending_lossy(&mut coalesced, &mut pending_lossy);
+                    pending_lossy = Some(event);
+                }
+            }
+            event => {
+                flush_pending_lossy(&mut coalesced, &mut pending_lossy);
+                coalesced.push(event);
+            }
+        }
+    }
+    flush_pending_lossy(&mut coalesced, &mut pending_lossy);
+    coalesced
+}
+
+fn flush_pending_lossy(coalesced: &mut Vec<AppEvent>, pending_lossy: &mut Option<AppEvent>) {
+    if let Some(event) = pending_lossy.take() {
+        coalesced.push(event);
+    }
+}
+
 /// Input action — high-level interpretation of key events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputAction {
@@ -172,5 +241,110 @@ impl InputAction {
             (KeyCode::PageDown, _) => Some(Self::PageDown),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn recv_coalesced_drops_stale_ticks_without_dropping_input() {
+        let mut bus = EventBus::new();
+        let tx = bus.sender();
+        tx.send(AppEvent::Tick).expect("send first tick");
+        tx.send(AppEvent::Tick).expect("send stale tick");
+        tx.send(AppEvent::Resize {
+            width: 100,
+            height: 30,
+        })
+        .expect("send resize");
+        tx.send(AppEvent::Tick).expect("send later stale tick");
+        tx.send(AppEvent::FocusChange(false))
+            .expect("send focus change");
+        tx.send(AppEvent::Quit).expect("send quit");
+
+        let batch = bus
+            .recv_coalesced(DEFAULT_EVENT_BATCH_LIMIT)
+            .await
+            .expect("coalesced batch");
+
+        assert_eq!(batch.len(), 4, "{batch:?}");
+        assert!(matches!(batch[0], AppEvent::Tick));
+        assert!(matches!(
+            batch[1],
+            AppEvent::Resize {
+                width: 100,
+                height: 30
+            }
+        ));
+        assert!(matches!(batch[2], AppEvent::FocusChange(false)));
+        assert!(matches!(batch[3], AppEvent::Quit));
+    }
+
+    #[tokio::test]
+    async fn recv_coalesced_collapses_resize_and_focus_storms_at_input_boundaries() {
+        let mut bus = EventBus::new();
+        let tx = bus.sender();
+        tx.send(AppEvent::Resize {
+            width: 80,
+            height: 20,
+        })
+        .expect("send first resize");
+        tx.send(AppEvent::Resize {
+            width: 100,
+            height: 30,
+        })
+        .expect("send latest resize");
+        tx.send(AppEvent::FocusChange(false))
+            .expect("send first focus");
+        tx.send(AppEvent::FocusChange(true))
+            .expect("send latest focus");
+        tx.send(AppEvent::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        )))
+        .expect("send key");
+        tx.send(AppEvent::Resize {
+            width: 120,
+            height: 40,
+        })
+        .expect("send post-key resize");
+        tx.send(AppEvent::Resize {
+            width: 132,
+            height: 48,
+        })
+        .expect("send latest post-key resize");
+        tx.send(AppEvent::Quit).expect("send quit");
+
+        let batch = bus
+            .recv_coalesced(DEFAULT_EVENT_BATCH_LIMIT)
+            .await
+            .expect("coalesced batch");
+
+        assert_eq!(batch.len(), 5, "{batch:?}");
+        assert!(matches!(
+            batch[0],
+            AppEvent::Resize {
+                width: 100,
+                height: 30
+            }
+        ));
+        assert!(matches!(batch[1], AppEvent::FocusChange(true)));
+        assert!(matches!(
+            batch[2],
+            AppEvent::Key(KeyEvent {
+                code: KeyCode::Char('x'),
+                ..
+            })
+        ));
+        assert!(matches!(
+            batch[3],
+            AppEvent::Resize {
+                width: 132,
+                height: 48
+            }
+        ));
+        assert!(matches!(batch[4], AppEvent::Quit));
     }
 }

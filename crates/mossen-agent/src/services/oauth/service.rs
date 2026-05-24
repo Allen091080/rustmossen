@@ -1,7 +1,7 @@
 //! OAuth service — orchestrates the OAuth 2.0 authorization code flow with PKCE.
 
 use super::auth_code_listener::AuthCodeListener;
-use super::client::{self, OAuthConfig, OAuthTokens, OAuthTokenAccount};
+use super::client::{self, OAuthConfig, OAuthTokenAccount, OAuthTokens};
 use super::crypto;
 use std::future::Future;
 use std::pin::Pin;
@@ -39,9 +39,8 @@ impl Default for OAuthFlowOptions {
 }
 
 /// Type for the auth URL handler callback.
-pub type AuthUrlHandler = Box<
-    dyn FnOnce(String, Option<String>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send,
->;
+pub type AuthUrlHandler =
+    Box<dyn FnOnce(String, Option<String>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send>;
 
 impl OAuthService {
     pub fn new() -> Self {
@@ -107,9 +106,7 @@ impl OAuthService {
         }
 
         // Wait for authorization code
-        let authorization_code = listener
-            .wait_for_authorization(&state, "/callback")
-            .await?;
+        let authorization_code = listener.wait_for_authorization(&state, "/callback").await?;
 
         // Exchange code for tokens
         let is_automatic = listener.has_pending_response();

@@ -94,9 +94,9 @@ pub fn select_environment(
                 if matches!(source, SettingSource::FlagSettings) {
                     continue;
                 }
-                let matched = per_source_defaults.iter().any(|(s, v)| {
-                    s == source && v.as_deref() == Some(target_id)
-                });
+                let matched = per_source_defaults
+                    .iter()
+                    .any(|(s, v)| s == source && v.as_deref() == Some(target_id));
                 if matched {
                     selected_environment_source = Some(*source);
                     break;
@@ -121,5 +121,9 @@ pub fn get_environment_selection_info(
     merged_default_environment_id: Option<&str>,
     per_source_defaults: &[(SettingSource, Option<String>)],
 ) -> EnvironmentSelectionInfo {
-    select_environment(environments, merged_default_environment_id, per_source_defaults)
+    select_environment(
+        environments,
+        merged_default_environment_id,
+        per_source_defaults,
+    )
 }

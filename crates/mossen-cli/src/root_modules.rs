@@ -6,7 +6,6 @@
 //! - cost-tracker.ts → 费用跟踪
 //! - Task.ts → 任务类型与 ID 生成
 //! - tasks.ts → 任务注册表
-//! - ink.ts → 终端 UI 抽象（渲染入口）
 //! - commands.ts → 命令注册表
 //! - tools.ts → 工具注册表
 //! - moreright/ → MoreRight hooks (stub)
@@ -65,7 +64,10 @@ pub async fn get_git_status() -> Option<String> {
         exec_git(&git_exe, &["branch", "--show-current"]),
         exec_git(&git_exe, &["config", "init.defaultBranch"]),
         exec_git(&git_exe, &["--no-optional-locks", "status", "--short"]),
-        exec_git(&git_exe, &["--no-optional-locks", "log", "--oneline", "-n", "5"]),
+        exec_git(
+            &git_exe,
+            &["--no-optional-locks", "log", "--oneline", "-n", "5"]
+        ),
         exec_git(&git_exe, &["config", "user.name"]),
     );
 
@@ -91,7 +93,10 @@ pub async fn get_git_status() -> Option<String> {
          Note that this status is a snapshot in time, and will not update during the conversation."
             .to_string(),
         format!("Current branch: {}", branch),
-        format!("Main branch (you will usually use this for PRs): {}", main_branch),
+        format!(
+            "Main branch (you will usually use this for PRs): {}",
+            main_branch
+        ),
     ];
     if let Some(name) = user_name {
         parts.push(format!("Git user: {}", name));
@@ -177,10 +182,7 @@ pub async fn get_user_context() -> HashMap<String, String> {
 /// 加载 MOSSEN.md 文件内容。
 async fn load_mossen_md_content() -> Option<String> {
     let cwd = std::env::current_dir().ok()?;
-    let candidates = [
-        cwd.join("MOSSEN.md"),
-        cwd.join(".mossen").join("MOSSEN.md"),
-    ];
+    let candidates = [cwd.join("MOSSEN.md"), cwd.join(".mossen").join("MOSSEN.md")];
 
     for path in &candidates {
         if let Ok(content) = tokio::fs::read_to_string(path).await {
@@ -250,8 +252,7 @@ struct LogEntry {
 
 /// 获取粘贴文本的引用行数。
 pub fn get_pasted_text_ref_num_lines(text: &str) -> usize {
-    text.matches('\n').count() + text.matches('\r').count()
-        - text.matches("\r\n").count()
+    text.matches('\n').count() + text.matches('\r').count() - text.matches("\r\n").count()
 }
 
 /// 格式化粘贴文本引用。
@@ -719,9 +720,17 @@ impl CostTracker {
             format_duration_ms(self.total_api_duration_ms),
             format_duration_ms(self.total_duration_ms),
             self.total_lines_added,
-            if self.total_lines_added == 1 { "line" } else { "lines" },
+            if self.total_lines_added == 1 {
+                "line"
+            } else {
+                "lines"
+            },
             self.total_lines_removed,
-            if self.total_lines_removed == 1 { "line" } else { "lines" },
+            if self.total_lines_removed == 1 {
+                "line"
+            } else {
+                "lines"
+            },
             model_usage_display,
         )
     }
@@ -994,9 +1003,9 @@ pub struct CommandDef {
 /// 获取命令名称（含别名匹配）。
 pub fn get_command_name<'a>(commands: &'a [CommandDef], input: &str) -> Option<&'a CommandDef> {
     let lower = input.to_lowercase();
-    commands.iter().find(|cmd| {
-        cmd.name == lower || cmd.aliases.iter().any(|a| a == &lower)
-    })
+    commands
+        .iter()
+        .find(|cmd| cmd.name == lower || cmd.aliases.iter().any(|a| a == &lower))
 }
 
 /// 检查命令是否启用。

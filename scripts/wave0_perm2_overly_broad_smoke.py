@@ -3,7 +3,7 @@
 
 Verifies that the if-block guarding findOverlyBroadBashPermissions /
 findOverlyBroadPowerShellPermissions in setupToolPermissionContext no longer
-gates on `process.env.USER_TYPE === 'ant'`, while the two surviving skip
+gates on `process.env.USER_TYPE === 'internal'`, while the two surviving skip
 conditions (MOSSEN_CODE_REMOTE / MOSSEN_CODE_ENTRYPOINT='local-agent') are
 intact.
 
@@ -40,7 +40,7 @@ def static_assertion() -> dict[str, object]:
 
     findings: dict[str, object] = {
         "block_found": False,
-        "user_type_ant_in_overlybroad_block": False,
+        "user_type_internal_in_overlybroad_block": False,
         "remote_skip_present": False,
         "local_agent_skip_present": False,
         "finder_calls_present": False,
@@ -57,8 +57,8 @@ def static_assertion() -> dict[str, object]:
     block = m.group(0)
     findings["block_found"] = True
 
-    if "process.env.USER_TYPE === 'ant'" in block:
-        findings["user_type_ant_in_overlybroad_block"] = True
+    if "process.env.USER_TYPE === 'internal'" in block:
+        findings["user_type_internal_in_overlybroad_block"] = True
     if "MOSSEN_CODE_REMOTE" in block:
         findings["remote_skip_present"] = True
     if "MOSSEN_CODE_ENTRYPOINT" in block and "'local-agent'" in block:
@@ -79,9 +79,9 @@ def main() -> int:
     if not findings.get("block_found"):
         failures.append("overlyBroadBashPermissions block not found in permissionSetup.ts")
     else:
-        if findings["user_type_ant_in_overlybroad_block"]:
+        if findings["user_type_internal_in_overlybroad_block"]:
             failures.append(
-                "process.env.USER_TYPE === 'ant' still present inside overlyBroad block "
+                "process.env.USER_TYPE === 'internal' still present inside overlyBroad block "
                 "(PERM-2 not applied)"
             )
         if not findings["remote_skip_present"]:

@@ -32,17 +32,17 @@ static CACHE: Lazy<Mutex<Option<Vec<OutputStyleConfig>>>> = Lazy::new(|| Mutex::
 async fn load_output_styles_from_directory(
     output_styles_path: &str,
     plugin_name: &str,
-    loaded_paths: &mut HashSet<String>,
-    read_file: &dyn Fn(&str) -> Result<String, std::io::Error>,
-    parse_frontmatter: &dyn Fn(&str, &str) -> (std::collections::HashMap<String, String>, String),
+    _loaded_paths: &mut HashSet<String>,
+    _read_file: &dyn Fn(&str) -> Result<String, std::io::Error>,
+    _parse_frontmatter: &dyn Fn(&str, &str) -> (std::collections::HashMap<String, String>, String),
 ) -> Vec<OutputStyleConfig> {
-    let mut styles = Vec::new();
+    let styles = Vec::new();
     let path = PathBuf::from(output_styles_path);
     walk_plugin_markdown(
         &path,
         &|full_path: PathBuf, _namespace: Vec<String>| {
-            let fp = full_path.to_string_lossy().to_string();
-            let pn = plugin_name.to_string();
+            let _fp = full_path.to_string_lossy().to_string();
+            let _pn = plugin_name.to_string();
             async move {
                 // Output style loading happens synchronously in the callback context
             }
@@ -83,10 +83,7 @@ async fn load_output_style_from_file(
         .to_string_lossy()
         .to_string();
 
-    let base_style_name = frontmatter
-        .get("name")
-        .cloned()
-        .unwrap_or(file_name);
+    let base_style_name = frontmatter.get("name").cloned().unwrap_or(file_name);
     let name = format!("{}:{}", plugin_name, base_style_name);
 
     let description = frontmatter

@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
+use crate::string_utils::safe_prefix_by_bytes;
+
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
@@ -132,10 +134,7 @@ pub fn get_tool_result_path(
 }
 
 /// Ensure the session-specific tool results directory exists.
-pub async fn ensure_tool_results_dir(
-    project_dir: &Path,
-    session_id: &str,
-) -> anyhow::Result<()> {
+pub async fn ensure_tool_results_dir(project_dir: &Path, session_id: &str) -> anyhow::Result<()> {
     let dir = get_tool_results_dir(project_dir, session_id);
     fs::create_dir_all(&dir).await?;
     Ok(())
@@ -251,16 +250,16 @@ pub fn generate_preview(content: &str, max_bytes: usize) -> (String, bool) {
         return (content.to_string(), false);
     }
 
-    let truncated = &content[..max_bytes];
+    let truncated = safe_prefix_by_bytes(content, max_bytes);
     let last_newline = truncated.rfind('\n');
 
     // If we found a newline reasonably close to the limit, use it
     let cut_point = match last_newline {
         Some(pos) if pos > max_bytes / 2 => pos,
-        _ => max_bytes,
+        _ => truncated.len(),
     };
 
-    (content[..cut_point].to_string(), true)
+    (truncated[..cut_point].to_string(), true)
 }
 
 /// Type guard to check if persist result is an error.
@@ -453,4 +452,21 @@ pub async fn reconstruct_for_subagent_resume(
     messages: Vec<serde_json::Value>,
 ) -> Vec<serde_json::Value> {
     messages
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_preview_never_splits_multibyte_text() {
+        let content = "读".repeat(64);
+
+        let (preview, has_more) = generate_preview(&content, 5);
+
+        assert!(has_more);
+        assert_eq!(preview, "读");
+        assert!(preview.is_char_boundary(preview.len()));
+        assert!(preview.len() <= 5);
+    }
 }

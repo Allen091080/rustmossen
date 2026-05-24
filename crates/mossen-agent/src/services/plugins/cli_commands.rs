@@ -79,9 +79,7 @@ pub async fn disable_plugin_cli(
 }
 
 /// CLI command: Disable all enabled plugins non-interactively
-pub async fn disable_all_plugins_cli(
-    ctx: &dyn PluginOperationsContext,
-) -> Result<(), String> {
+pub async fn disable_all_plugins_cli(ctx: &dyn PluginOperationsContext) -> Result<(), String> {
     let result = disable_all_plugins_op(ctx).await;
     if !result.success {
         error!("Failed to disable all plugins: {}", result.message);

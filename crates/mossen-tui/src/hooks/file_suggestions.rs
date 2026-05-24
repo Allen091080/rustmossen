@@ -55,7 +55,8 @@ impl FileSuggesterState {
         }
 
         let query_lower = self.query.to_lowercase();
-        let mut scored: Vec<(f64, &String)> = self.all_files
+        let mut scored: Vec<(f64, &String)> = self
+            .all_files
             .iter()
             .filter_map(|path| {
                 let score = fuzzy_score(&query_lower, &path.to_lowercase());
@@ -268,12 +269,7 @@ pub fn path_list_signature(paths: &[String]) -> String {
 
 /// Collect all unique parent directories for a slice of file paths, in the
 /// range `start..end`. Mirrors `collectDirectoryNames` from the TS module.
-fn collect_directory_names(
-    files: &[String],
-    start: usize,
-    end: usize,
-    out: &mut HashSet<String>,
-) {
+fn collect_directory_names(files: &[String], start: usize, end: usize, out: &mut HashSet<String>) {
     for i in start..end {
         let Some(file) = files.get(i) else { continue };
         let mut current_dir = parent_dir(file);
@@ -324,7 +320,10 @@ fn parent_dir(p: &str) -> String {
 pub fn get_directory_names(files: &[String]) -> Vec<String> {
     let mut set: HashSet<String> = HashSet::new();
     collect_directory_names(files, 0, files.len(), &mut set);
-    let mut v: Vec<String> = set.into_iter().map(|d| format!("{}{}", d, MAIN_SEPARATOR)).collect();
+    let mut v: Vec<String> = set
+        .into_iter()
+        .map(|d| format!("{}{}", d, MAIN_SEPARATOR))
+        .collect();
     v.sort();
     v
 }
@@ -342,7 +341,10 @@ pub async fn get_directory_names_async(files: &[String]) -> Vec<String> {
             tokio_yield().await;
         }
     }
-    let mut v: Vec<String> = set.into_iter().map(|d| format!("{}{}", d, MAIN_SEPARATOR)).collect();
+    let mut v: Vec<String> = set
+        .into_iter()
+        .map(|d| format!("{}{}", d, MAIN_SEPARATOR))
+        .collect();
     v.sort();
     v
 }
@@ -474,8 +476,7 @@ pub fn start_background_cache_refresh() -> bool {
     if g.refresh_in_progress {
         return false;
     }
-    let has_cache =
-        !g.cached_tracked_files.is_empty() || !g.cached_config_files.is_empty();
+    let has_cache = !g.cached_tracked_files.is_empty() || !g.cached_config_files.is_empty();
     if has_cache {
         let elapsed_ms = now_ms.saturating_sub(g.last_refresh_ms);
         if elapsed_ms < REFRESH_THROTTLE_MS as u128 {
@@ -527,7 +528,11 @@ pub async fn generate_file_suggestions<P: PathProvider>(
         return top
             .into_iter()
             .take(MAX_SUGGESTIONS)
-            .map(|p| FileSuggestionItem { id: format!("file-{}", p), display_text: p, score: None })
+            .map(|p| FileSuggestionItem {
+                id: format!("file-{}", p),
+                display_text: p,
+                score: None,
+            })
             .collect();
     }
 

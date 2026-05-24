@@ -74,7 +74,7 @@ def _inject_custom_backend_env(env: dict) -> dict:
     env["MOSSEN_CODE_DISABLE_THINKING"] = "1"
     env["MOSSEN_CODE_DISABLE_ADAPTIVE_THINKING"] = "1"
     for k in list(env.keys()):
-        if k.startswith("ANTHROPIC_"):
+        if k.startswith("PROVIDER_"):
             del env[k]
     return env
 
@@ -111,7 +111,7 @@ def case_model_override_via_cli() -> dict:
 
     user_msg_observed = False
     assistant_msg_count = 0
-    assistant_models: list[str] = []
+    assistinternal_models: list[str] = []
     requested_model_in_session = False
 
     for log_file in session_logs:
@@ -130,7 +130,7 @@ def case_model_override_via_cli() -> dict:
                     assistant_msg_count += 1
                     model_field = msg.get("model")
                     if isinstance(model_field, str):
-                        assistant_models.append(model_field)
+                        assistinternal_models.append(model_field)
                         # 命中标准: requested id 完全包含或被包含 (兼容 backend 返回 'qwen3.6-plus' 之类)
                         m_lower = model_field.lower()
                         if (
@@ -154,7 +154,7 @@ def case_model_override_via_cli() -> dict:
         "exit_code": proc.returncode,
         "user_msg_observed": user_msg_observed,
         "assistant_msg_count": assistant_msg_count,
-        "assistant_models": list(dict.fromkeys(assistant_models))[:5],  # 去重前 5
+        "assistinternal_models": list(dict.fromkeys(assistinternal_models))[:5],  # 去重前 5
         "requested_model": REQUESTED_MODEL,
         "requested_model_in_session": requested_model_in_session,
         "session_log_count": len(session_logs),
@@ -191,7 +191,7 @@ def main() -> int:
                     f"user_msg={r.get('user_msg_observed')} "
                     f"asst_count={r.get('assistant_msg_count')} "
                     f"requested={r.get('requested_model')!r} "
-                    f"models_seen={r.get('assistant_models')} "
+                    f"models_seen={r.get('assistinternal_models')} "
                     f"hit={r.get('requested_model_in_session')}"
                 ),
             }

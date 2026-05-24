@@ -37,7 +37,8 @@ const DETAILED_ANALYSIS_INSTRUCTION_PARTIAL: &str = "Before providing your final
    - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.\n\
 2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.";
 
-const NO_TOOLS_TRAILER: &str = "\n\nREMINDER: Do NOT call any tools. Respond with plain text only — \
+const NO_TOOLS_TRAILER: &str =
+    "\n\nREMINDER: Do NOT call any tools. Respond with plain text only — \
 an <analysis> block followed by a <summary> block. \
 Tool calls will be rejected and you will fail the task.";
 

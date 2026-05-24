@@ -97,8 +97,7 @@ impl FileIndex {
             }
         }
 
-        let score_ceiling =
-            (n_len as i64) * (SCORE_MATCH + BONUS_BOUNDARY) + BONUS_FIRST_CHAR + 32;
+        let score_ceiling = (n_len as i64) * (SCORE_MATCH + BONUS_BOUNDARY) + BONUS_FIRST_CHAR + 32;
 
         // Top-k: 维护按分数升序排列的 best matches
         let mut top_k: Vec<(String, i64)> = Vec::new();
@@ -139,7 +138,10 @@ impl FileIndex {
                 if search_start >= hay_len {
                     continue 'outer;
                 }
-                match hay_chars[search_start..].iter().position(|&c| c == needle_chars[j]) {
+                match hay_chars[search_start..]
+                    .iter()
+                    .position(|&c| c == needle_chars[j])
+                {
                     Some(rel_pos) => {
                         let abs_pos = search_start + rel_pos;
                         pos_buf[j] = abs_pos as i32;
@@ -147,8 +149,7 @@ impl FileIndex {
                         if gap == 0 {
                             consec_bonus += BONUS_CONSECUTIVE;
                         } else {
-                            gap_penalty +=
-                                PENALTY_GAP_START + (gap as i64) * PENALTY_GAP_EXTENSION;
+                            gap_penalty += PENALTY_GAP_START + (gap as i64) * PENALTY_GAP_EXTENSION;
                         }
                         prev = abs_pos;
                     }
@@ -157,9 +158,7 @@ impl FileIndex {
             }
 
             // gap-bound 排除
-            if top_k.len() == limit
-                && score_ceiling + consec_bonus - gap_penalty <= threshold
-            {
+            if top_k.len() == limit && score_ceiling + consec_bonus - gap_penalty <= threshold {
                 continue;
             }
 
@@ -167,8 +166,7 @@ impl FileIndex {
             let path = &self.paths[i];
             let path_chars: Vec<char> = path.chars().collect();
             let h_len = self.path_lens[i] as i64;
-            let mut score =
-                (n_len as i64) * SCORE_MATCH + consec_bonus - gap_penalty;
+            let mut score = (n_len as i64) * SCORE_MATCH + consec_bonus - gap_penalty;
             score += score_bonus_at(&path_chars, pos_buf[0] as usize, true);
             for j in 1..n_len {
                 score += score_bonus_at(&path_chars, pos_buf[j] as usize, false);
@@ -280,9 +278,7 @@ fn compute_top_level_entries(paths: &[String], limit: usize) -> Option<Vec<Searc
     let mut top_level = HashSet::new();
 
     for p in paths {
-        let end = p
-            .find(|c: char| c == '/' || c == '\\')
-            .unwrap_or(p.len());
+        let end = p.find(|c: char| c == '/' || c == '\\').unwrap_or(p.len());
         let segment = &p[..end];
         if !segment.is_empty() {
             top_level.insert(segment.to_string());

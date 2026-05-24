@@ -50,9 +50,7 @@ pub async fn open_browser(url: &str) -> bool {
         if let Some(ref browser) = browser_env {
             Command::new(browser).arg(format!("\"{}\"", url)).status()
         } else {
-            Command::new("rundll32")
-                .args(["url,OpenURL", url])
-                .status()
+            Command::new("rundll32").args(["url,OpenURL", url]).status()
         }
     } else {
         let command = browser_env

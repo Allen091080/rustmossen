@@ -18,7 +18,9 @@ pub fn normalize_name_for_mcp(name: &str) -> String {
 
     if name.starts_with(HOSTED_SERVER_PREFIX) {
         let re_multi_underscore = Regex::new(r"_+").unwrap();
-        normalized = re_multi_underscore.replace_all(&normalized, "_").to_string();
+        normalized = re_multi_underscore
+            .replace_all(&normalized, "_")
+            .to_string();
         let re_leading_trailing = Regex::new(r"^_|_$").unwrap();
         normalized = re_leading_trailing.replace_all(&normalized, "").to_string();
     }
@@ -38,7 +40,13 @@ mod tests {
 
     #[test]
     fn test_hosted_normalization() {
-        assert_eq!(normalize_name_for_mcp("hosted Example Server"), "hosted_Example_Server");
-        assert_eq!(normalize_name_for_mcp("hosted  double  space"), "hosted_double_space");
+        assert_eq!(
+            normalize_name_for_mcp("hosted Example Server"),
+            "hosted_Example_Server"
+        );
+        assert_eq!(
+            normalize_name_for_mcp("hosted  double  space"),
+            "hosted_double_space"
+        );
     }
 }

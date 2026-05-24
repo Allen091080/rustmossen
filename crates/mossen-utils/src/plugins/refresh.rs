@@ -165,10 +165,7 @@ pub async fn refresh_active_plugins(
 
 /// Merge fresh plugin-load errors with existing errors, preserving LSP and
 /// plugin-component errors that were recorded by other systems and deduplicating.
-pub fn merge_plugin_errors(
-    existing: &[PluginError],
-    fresh: &[PluginError],
-) -> Vec<PluginError> {
+pub fn merge_plugin_errors(existing: &[PluginError], fresh: &[PluginError]) -> Vec<PluginError> {
     let preserved: Vec<&PluginError> = existing
         .iter()
         .filter(|e| e.source == "lsp-manager" || e.source.starts_with("plugin:"))

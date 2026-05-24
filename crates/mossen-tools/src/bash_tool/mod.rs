@@ -106,17 +106,19 @@ const ASSISTANT_BLOCKING_BUDGET_MS: u64 = 15_000;
 
 /// Search commands for collapsible display.
 fn bash_search_commands() -> HashSet<&'static str> {
-    ["find", "grep", "rg", "ag", "ack", "locate", "which", "whereis"]
-        .iter()
-        .copied()
-        .collect()
+    [
+        "find", "grep", "rg", "ag", "ack", "locate", "which", "whereis",
+    ]
+    .iter()
+    .copied()
+    .collect()
 }
 
 /// Read/view commands for collapsible display.
 fn bash_read_commands() -> HashSet<&'static str> {
     [
-        "cat", "head", "tail", "less", "more", "wc", "stat", "file",
-        "strings", "jq", "awk", "cut", "sort", "uniq", "tr",
+        "cat", "head", "tail", "less", "more", "wc", "stat", "file", "strings", "jq", "awk", "cut",
+        "sort", "uniq", "tr",
     ]
     .iter()
     .copied()
@@ -130,14 +132,17 @@ fn bash_list_commands() -> HashSet<&'static str> {
 
 /// Commands that are semantic-neutral (pure output/status).
 fn bash_semantic_neutral_commands() -> HashSet<&'static str> {
-    ["echo", "printf", "true", "false", ":"].iter().copied().collect()
+    ["echo", "printf", "true", "false", ":"]
+        .iter()
+        .copied()
+        .collect()
 }
 
 /// Commands that typically produce no stdout on success.
 fn bash_silent_commands() -> HashSet<&'static str> {
     [
-        "mv", "cp", "rm", "mkdir", "rmdir", "chmod", "chown", "chgrp",
-        "touch", "ln", "cd", "export", "unset", "wait",
+        "mv", "cp", "rm", "mkdir", "rmdir", "chmod", "chown", "chgrp", "touch", "ln", "cd",
+        "export", "unset", "wait",
     ]
     .iter()
     .copied()

@@ -40,7 +40,11 @@ impl Directive for UsageDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /usage [options]\n\n\
                  View your usage dashboard and billing information.\n\n\

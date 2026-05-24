@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// MCP instructions delta
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ pub fn is_mcp_instructions_delta_enabled(
             return false;
         }
     }
-    user_type == Some("ant") || feature_flag
+    user_type == Some("internal") || feature_flag
 }
 
 /// Diff the current set of connected MCP servers that have instructions
@@ -78,10 +78,7 @@ pub fn get_mcp_instructions_delta(
         }
     }
 
-    let connected: Vec<&McpServerInfo> = mcp_clients
-        .iter()
-        .filter(|c| c.connected)
-        .collect();
+    let connected: Vec<&McpServerInfo> = mcp_clients.iter().filter(|c| c.connected).collect();
     let connected_names: HashSet<String> = connected.iter().map(|c| c.name.clone()).collect();
 
     // Servers with instructions to announce

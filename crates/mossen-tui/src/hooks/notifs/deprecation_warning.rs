@@ -71,10 +71,7 @@ pub fn use_deprecation_warning_notification(
     }
     match deprecation_warning {
         Some(w) if Some(w) != last_warning => (
-            Some((
-                "model-deprecation-warning".to_string(),
-                w.to_string(),
-            )),
+            Some(("model-deprecation-warning".to_string(), w.to_string())),
             Some(w.to_string()),
         ),
         Some(_) => (None, last_warning.map(String::from)),

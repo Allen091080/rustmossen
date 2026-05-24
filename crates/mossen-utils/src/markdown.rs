@@ -36,23 +36,59 @@ pub enum Alignment {
 /// A parsed markdown token.
 #[derive(Debug, Clone)]
 pub enum Token {
-    Blockquote { tokens: Vec<Token> },
-    Code { text: String, lang: Option<String> },
-    Codespan { text: String },
-    Em { tokens: Vec<Token> },
-    Strong { tokens: Vec<Token> },
-    Heading { depth: u8, tokens: Vec<Token> },
+    Blockquote {
+        tokens: Vec<Token>,
+    },
+    Code {
+        text: String,
+        lang: Option<String>,
+    },
+    Codespan {
+        text: String,
+    },
+    Em {
+        tokens: Vec<Token>,
+    },
+    Strong {
+        tokens: Vec<Token>,
+    },
+    Heading {
+        depth: u8,
+        tokens: Vec<Token>,
+    },
     Hr,
-    Image { href: String },
-    Link { href: String, tokens: Vec<Token> },
-    List { items: Vec<Token>, ordered: bool, start: usize },
-    ListItem { tokens: Vec<Token> },
-    Paragraph { tokens: Vec<Token> },
+    Image {
+        href: String,
+    },
+    Link {
+        href: String,
+        tokens: Vec<Token>,
+    },
+    List {
+        items: Vec<Token>,
+        ordered: bool,
+        start: usize,
+    },
+    ListItem {
+        tokens: Vec<Token>,
+    },
+    Paragraph {
+        tokens: Vec<Token>,
+    },
     Space,
     Br,
-    Text { text: String, tokens: Option<Vec<Token>> },
-    Table { header: Vec<TableCell>, rows: Vec<Vec<TableCell>>, align: Vec<Option<Alignment>> },
-    Escape { text: String },
+    Text {
+        text: String,
+        tokens: Option<Vec<Token>>,
+    },
+    Table {
+        header: Vec<TableCell>,
+        rows: Vec<Vec<TableCell>>,
+        align: Vec<Option<Alignment>>,
+    },
+    Escape {
+        text: String,
+    },
     Def,
     Del,
     Html,
@@ -100,7 +136,7 @@ pub fn apply_markdown(
 
 /// Parse markdown text into tokens using pulldown-cmark.
 pub fn parse_markdown(input: &str) -> Vec<Token> {
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, HeadingLevel, CodeBlockKind};
+    use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
@@ -127,18 +163,33 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                                 HeadingLevel::H5 => 5,
                                 HeadingLevel::H6 => 6,
                             };
-                            Token::Heading { depth, tokens: children }
+                            Token::Heading {
+                                depth,
+                                tokens: children,
+                            }
                         }
                         TagEnd::BlockQuote(_) => Token::Blockquote { tokens: children },
                         TagEnd::CodeBlock => {
                             let lang = if let Tag::CodeBlock(CodeBlockKind::Fenced(lang)) = &_tag {
-                                if lang.is_empty() { None } else { Some(lang.to_string()) }
+                                if lang.is_empty() {
+                                    None
+                                } else {
+                                    Some(lang.to_string())
+                                }
                             } else {
                                 None
                             };
-                            let text = children.iter().map(|t| {
-                                if let Token::Text { text, .. } = t { text.clone() } else { String::new() }
-                            }).collect::<Vec<_>>().join("");
+                            let text = children
+                                .iter()
+                                .map(|t| {
+                                    if let Token::Text { text, .. } = t {
+                                        text.clone()
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("");
                             Token::Code { text, lang }
                         }
                         TagEnd::List(_ordered) => {
@@ -147,7 +198,11 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                             } else {
                                 (false, 0)
                             };
-                            Token::List { items: children, ordered, start }
+                            Token::List {
+                                items: children,
+                                ordered,
+                                start,
+                            }
                         }
                         TagEnd::Item => Token::ListItem { tokens: children },
                         TagEnd::Emphasis => Token::Em { tokens: children },
@@ -158,7 +213,10 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                             } else {
                                 String::new()
                             };
-                            Token::Link { href, tokens: children }
+                            Token::Link {
+                                href,
+                                tokens: children,
+                            }
                         }
                         TagEnd::Image => {
                             let href = if let Tag::Image { dest_url, .. } = &_tag {
@@ -175,30 +233,45 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                             for child in children {
                                 if let Token::ListItem { tokens: row_cells } = child {
                                     if header.is_empty() {
-                                        header = row_cells.into_iter().map(|c| {
-                                            if let Token::ListItem { tokens } = c {
-                                                TableCell { tokens }
-                                            } else {
-                                                TableCell { tokens: vec![c] }
-                                            }
-                                        }).collect();
+                                        header = row_cells
+                                            .into_iter()
+                                            .map(|c| {
+                                                if let Token::ListItem { tokens } = c {
+                                                    TableCell { tokens }
+                                                } else {
+                                                    TableCell { tokens: vec![c] }
+                                                }
+                                            })
+                                            .collect();
                                     } else {
-                                        rows.push(row_cells.into_iter().map(|c| {
-                                            if let Token::ListItem { tokens } = c {
-                                                TableCell { tokens }
-                                            } else {
-                                                TableCell { tokens: vec![c] }
-                                            }
-                                        }).collect());
+                                        rows.push(
+                                            row_cells
+                                                .into_iter()
+                                                .map(|c| {
+                                                    if let Token::ListItem { tokens } = c {
+                                                        TableCell { tokens }
+                                                    } else {
+                                                        TableCell { tokens: vec![c] }
+                                                    }
+                                                })
+                                                .collect(),
+                                        );
                                     }
                                 }
                             }
-                            Token::Table { header, rows, align: Vec::new() }
+                            Token::Table {
+                                header,
+                                rows,
+                                align: Vec::new(),
+                            }
                         }
                         TagEnd::TableHead => Token::ListItem { tokens: children },
                         TagEnd::TableRow => Token::ListItem { tokens: children },
                         TagEnd::TableCell => Token::ListItem { tokens: children },
-                        _ => Token::Text { text: String::new(), tokens: Some(children) },
+                        _ => Token::Text {
+                            text: String::new(),
+                            tokens: Some(children),
+                        },
                     };
                     if let Some(parent) = stack.last_mut() {
                         parent.1.push(token);
@@ -208,7 +281,10 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                 }
             }
             Event::Text(text) => {
-                let token = Token::Text { text: text.to_string(), tokens: None };
+                let token = Token::Text {
+                    text: text.to_string(),
+                    tokens: None,
+                };
                 if let Some(parent) = stack.last_mut() {
                     parent.1.push(token);
                 } else {
@@ -216,7 +292,9 @@ pub fn parse_markdown(input: &str) -> Vec<Token> {
                 }
             }
             Event::Code(code) => {
-                let token = Token::Codespan { text: code.to_string() };
+                let token = Token::Codespan {
+                    text: code.to_string(),
+                };
                 if let Some(parent) = stack.last_mut() {
                     parent.1.push(token);
                 } else {
@@ -345,30 +423,37 @@ pub fn format_token(
                 create_hyperlink(href, href)
             }
         }
-        Token::List { items, ordered, start } => {
-            items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    let num = if *ordered { Some(start + index) } else { None };
-                    format_token(item, theme, list_depth, num, Some(token), highlight)
-                })
-                .collect::<Vec<_>>()
-                .join("")
-        }
-        Token::ListItem { tokens } => {
-            tokens
-                .iter()
-                .map(|t| {
-                    format!(
-                        "{}{}",
-                        "  ".repeat(list_depth),
-                        format_token(t, theme, list_depth + 1, ordered_list_number, Some(token), highlight)
+        Token::List {
+            items,
+            ordered,
+            start,
+        } => items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let num = if *ordered { Some(start + index) } else { None };
+                format_token(item, theme, list_depth, num, Some(token), highlight)
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+        Token::ListItem { tokens } => tokens
+            .iter()
+            .map(|t| {
+                format!(
+                    "{}{}",
+                    "  ".repeat(list_depth),
+                    format_token(
+                        t,
+                        theme,
+                        list_depth + 1,
+                        ordered_list_number,
+                        Some(token),
+                        highlight
                     )
-                })
-                .collect::<Vec<_>>()
-                .join("")
-        }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(""),
         Token::Paragraph { tokens } => {
             let inner: String = tokens
                 .iter()
@@ -391,7 +476,16 @@ pub fn format_token(
                 let content = if let Some(inner_tokens) = tokens {
                     inner_tokens
                         .iter()
-                        .map(|t| format_token(t, theme, list_depth, ordered_list_number, Some(token), highlight))
+                        .map(|t| {
+                            format_token(
+                                t,
+                                theme,
+                                list_depth,
+                                ordered_list_number,
+                                Some(token),
+                                highlight,
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join("")
                 } else {
@@ -402,14 +496,20 @@ pub fn format_token(
             if let Some(inner_tokens) = tokens {
                 inner_tokens
                     .iter()
-                    .map(|t| format_token(t, theme, list_depth, ordered_list_number, parent, highlight))
+                    .map(|t| {
+                        format_token(t, theme, list_depth, ordered_list_number, parent, highlight)
+                    })
                     .collect::<Vec<_>>()
                     .join("")
             } else {
                 linkify_issue_references(text)
             }
         }
-        Token::Table { header, rows, align } => {
+        Token::Table {
+            header,
+            rows,
+            align,
+        } => {
             let get_display_text = |tokens: &[Token]| -> String {
                 let formatted: String = tokens
                     .iter()
@@ -437,7 +537,8 @@ pub fn format_token(
 
             let mut output = String::from("| ");
             for (index, h) in header.iter().enumerate() {
-                let content: String = h.tokens
+                let content: String = h
+                    .tokens
                     .iter()
                     .map(|t| format_token(t, theme, 0, None, None, highlight))
                     .collect::<Vec<_>>()
@@ -445,7 +546,12 @@ pub fn format_token(
                 let display_text = get_display_text(&h.tokens);
                 let width = column_widths[index];
                 let cell_align = align.get(index).copied().flatten();
-                output.push_str(&pad_aligned(&content, unicode_width_str(&display_text), width, cell_align));
+                output.push_str(&pad_aligned(
+                    &content,
+                    unicode_width_str(&display_text),
+                    width,
+                    cell_align,
+                ));
                 output.push_str(" | ");
             }
             output = output.trim_end().to_string();
@@ -463,7 +569,8 @@ pub fn format_token(
             for row in rows {
                 output.push_str("| ");
                 for (index, cell) in row.iter().enumerate() {
-                    let content: String = cell.tokens
+                    let content: String = cell
+                        .tokens
                         .iter()
                         .map(|t| format_token(t, theme, 0, None, None, highlight))
                         .collect::<Vec<_>>()
@@ -471,7 +578,12 @@ pub fn format_token(
                     let display_text = get_display_text(&cell.tokens);
                     let width = column_widths[index];
                     let cell_align = align.get(index).copied().flatten();
-                    output.push_str(&pad_aligned(&content, unicode_width_str(&display_text), width, cell_align));
+                    output.push_str(&pad_aligned(
+                        &content,
+                        unicode_width_str(&display_text),
+                        width,
+                        cell_align,
+                    ));
                     output.push_str(" | ");
                 }
                 output = output.trim_end().to_string();
@@ -520,9 +632,19 @@ fn number_to_letter(mut n: usize) -> String {
 
 /// Roman numeral values.
 const ROMAN_VALUES: &[(usize, &str)] = &[
-    (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
-    (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
-    (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+    (1000, "m"),
+    (900, "cm"),
+    (500, "d"),
+    (400, "cd"),
+    (100, "c"),
+    (90, "xc"),
+    (50, "l"),
+    (40, "xl"),
+    (10, "x"),
+    (9, "ix"),
+    (5, "v"),
+    (4, "iv"),
+    (1, "i"),
 ];
 
 /// Convert number to roman numeral.

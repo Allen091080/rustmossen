@@ -95,7 +95,11 @@ pub fn use_install_messages(messages: &[InstallMessage]) -> Vec<InstallMessageEv
             } else {
                 "low"
             };
-            let color = if m.kind == InstallMessageKind::Error { "error" } else { "warning" };
+            let color = if m.kind == InstallMessageKind::Error {
+                "error"
+            } else {
+                "warning"
+            };
             let kind_name = match m.kind {
                 InstallMessageKind::Info => "info",
                 InstallMessageKind::Warning => "warning",

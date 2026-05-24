@@ -23,10 +23,7 @@ pub fn build_magic_docs_prompt(
     );
 
     if let Some(ctx) = context {
-        prompt.push_str(&format!(
-            "\nAdditional context about this code:\n{}\n",
-            ctx
-        ));
+        prompt.push_str(&format!("\nAdditional context about this code:\n{}\n", ctx));
     }
 
     prompt.push_str(

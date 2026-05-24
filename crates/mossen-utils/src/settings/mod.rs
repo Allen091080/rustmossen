@@ -8,14 +8,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use regex::Regex;
 
 // ─── constants.ts ───────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ pub fn is_setting_source_enabled(source: SettingSource, allowed: &[SettingSource
 
 /// The JSON Schema URL for Mossen settings.
 pub const MOSSEN_CODE_SETTINGS_SCHEMA_URL: &str =
-    "https://schemas.mossen.invalid/mossen-code-settings.json";
+    "https://schemas.mossen.invalid/cli-settings.json";
 
 // ─── types.ts ───────────────────────────────────────────────────────────────
 
@@ -504,7 +504,7 @@ pub struct SkillHookMatcher {
 /// Get the path to the managed settings directory based on the current platform.
 pub fn get_managed_file_path() -> PathBuf {
     if let Ok(path) = std::env::var("MOSSEN_CODE_MANAGED_SETTINGS_PATH") {
-        if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+        if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
             return PathBuf::from(path);
         }
     }
@@ -740,7 +740,8 @@ pub fn get_validation_tip(context: &TipContext) -> Option<ValidationTip> {
     if context.code == "invalid_type" && context.expected.as_deref() == Some("boolean") {
         return Some(ValidationTip {
             suggestion: Some(
-                "Use true or false without quotes. Example: \"includeCoAuthoredBy\": true".to_string()
+                "Use true or false without quotes. Example: \"includeCoAuthoredBy\": true"
+                    .to_string(),
             ),
             doc_link: None,
         });
@@ -748,7 +749,9 @@ pub fn get_validation_tip(context: &TipContext) -> Option<ValidationTip> {
     // Unrecognized keys
     if context.code == "unrecognized_keys" {
         return Some(ValidationTip {
-            suggestion: Some("Check for typos or refer to the documentation for valid fields".to_string()),
+            suggestion: Some(
+                "Check for typos or refer to the documentation for valid fields".to_string(),
+            ),
             doc_link: Some(format!("{}/settings", DOCUMENTATION_BASE)),
         });
     }
@@ -758,7 +761,11 @@ pub fn get_validation_tip(context: &TipContext) -> Option<ValidationTip> {
         return Some(ValidationTip {
             suggestion: Some(format!(
                 "Valid values: {}",
-                values.iter().map(|v| format!("\"{}\"", v)).collect::<Vec<_>>().join(", ")
+                values
+                    .iter()
+                    .map(|v| format!("\"{}\"", v))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
             doc_link: None,
         });
@@ -791,7 +798,14 @@ pub fn get_validation_tip(context: &TipContext) -> Option<ValidationTip> {
 // ─── toolValidationConfig.ts ────────────────────────────────────────────────
 
 /// File pattern tools (accept *.ts, src/**, etc.)
-pub const FILE_PATTERN_TOOLS: &[&str] = &["Read", "Write", "Edit", "Glob", "NotebookRead", "NotebookEdit"];
+pub const FILE_PATTERN_TOOLS: &[&str] = &[
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "NotebookRead",
+    "NotebookEdit",
+];
 
 /// Bash wildcard tools (accept * anywhere, and legacy command:* syntax)
 pub const BASH_PREFIX_TOOLS: &[&str] = &["Bash"];
@@ -819,7 +833,12 @@ pub fn get_custom_validation(tool_name: &str, content: &str) -> Option<Permissio
                     ]),
                 })
             } else {
-                Some(PermissionValidationResult { valid: true, error: None, suggestion: None, examples: None })
+                Some(PermissionValidationResult {
+                    valid: true,
+                    error: None,
+                    suggestion: None,
+                    examples: None,
+                })
             }
         }
         "WebFetch" => {
@@ -844,7 +863,12 @@ pub fn get_custom_validation(tool_name: &str, content: &str) -> Option<Permissio
                     ]),
                 })
             } else {
-                Some(PermissionValidationResult { valid: true, error: None, suggestion: None, examples: None })
+                Some(PermissionValidationResult {
+                    valid: true,
+                    error: None,
+                    suggestion: None,
+                    examples: None,
+                })
             }
         }
         _ => None,
@@ -927,7 +951,9 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
         return PermissionValidationResult {
             valid: false,
             error: Some("Mismatched parentheses".to_string()),
-            suggestion: Some("Ensure all opening parentheses have matching closing parentheses".to_string()),
+            suggestion: Some(
+                "Ensure all opening parentheses have matching closing parentheses".to_string(),
+            ),
             examples: None,
         };
     }
@@ -949,7 +975,10 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
                 "Either specify a pattern or use just \"{}\" without parentheses",
                 tool_name
             )),
-            examples: Some(vec![tool_name.to_string(), format!("{}(some-pattern)", tool_name)]),
+            examples: Some(vec![
+                tool_name.to_string(),
+                format!("{}(some-pattern)", tool_name),
+            ]),
         };
     }
 
@@ -973,7 +1002,12 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
                 ]),
             };
         }
-        return PermissionValidationResult { valid: true, error: None, suggestion: None, examples: None };
+        return PermissionValidationResult {
+            valid: true,
+            error: None,
+            suggestion: None,
+            examples: None,
+        };
     }
 
     // Tool name validation
@@ -988,7 +1022,11 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
 
     if let Some(first_char) = tool_name.chars().next() {
         if !first_char.is_uppercase() {
-            let capitalized = format!("{}{}", first_char.to_uppercase(), &tool_name[first_char.len_utf8()..]);
+            let capitalized = format!(
+                "{}{}",
+                first_char.to_uppercase(),
+                &tool_name[first_char.len_utf8()..]
+            );
             return PermissionValidationResult {
                 valid: false,
                 error: Some("Tool names must start with uppercase".to_string()),
@@ -1014,7 +1052,10 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
                 return PermissionValidationResult {
                     valid: false,
                     error: Some("The :* pattern must be at the end".to_string()),
-                    suggestion: Some("Move :* to the end for prefix matching, or use * for wildcard matching".to_string()),
+                    suggestion: Some(
+                        "Move :* to the end for prefix matching, or use * for wildcard matching"
+                            .to_string(),
+                    ),
                     examples: Some(vec![
                         "Bash(npm run:*) - prefix matching (legacy)".to_string(),
                         "Bash(npm run *) - wildcard matching".to_string(),
@@ -1039,7 +1080,9 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
                 return PermissionValidationResult {
                     valid: false,
                     error: Some("The \":*\" syntax is only for Bash prefix rules".to_string()),
-                    suggestion: Some("Use glob patterns like \"*\" or \"**\" for file matching".to_string()),
+                    suggestion: Some(
+                        "Use glob patterns like \"*\" or \"**\" for file matching".to_string(),
+                    ),
                     examples: Some(vec![
                         format!("{}(*.ts) - matches .ts files", tool_name),
                         format!("{}(src/**) - matches all files in src", tool_name),
@@ -1054,7 +1097,9 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
                     return PermissionValidationResult {
                         valid: false,
                         error: Some("Wildcard placement might be incorrect".to_string()),
-                        suggestion: Some("Wildcards are typically used at path boundaries".to_string()),
+                        suggestion: Some(
+                            "Wildcards are typically used at path boundaries".to_string(),
+                        ),
                         examples: Some(vec![
                             format!("{}(*.js) - all .js files", tool_name),
                             format!("{}(src/*) - all files directly in src", tool_name),
@@ -1066,7 +1111,12 @@ pub fn validate_permission_rule(rule: &str) -> PermissionValidationResult {
         }
     }
 
-    PermissionValidationResult { valid: true, error: None, suggestion: None, examples: None }
+    PermissionValidationResult {
+        valid: true,
+        error: None,
+        suggestion: None,
+        examples: None,
+    }
 }
 
 // ─── validation.ts ──────────────────────────────────────────────────────────
@@ -1090,8 +1140,8 @@ pub fn format_validation_errors(errors: &[String], file_path: &str) -> Vec<Valid
 
 /// Validates settings file content conforms to SettingsJson.
 pub fn validate_settings_file_content(content: &str) -> Result<(), String> {
-    let json_data: Value = serde_json::from_str(content)
-        .map_err(|e| format!("Invalid JSON: {}", e))?;
+    let json_data: Value =
+        serde_json::from_str(content).map_err(|e| format!("Invalid JSON: {}", e))?;
 
     let result: Result<SettingsJson, _> = serde_json::from_value(json_data);
     match result {
@@ -1124,7 +1174,8 @@ pub fn filter_invalid_permission_rules(data: &mut Value, file_path: &str) -> Vec
                         if result.valid {
                             valid_rules.push(rule.clone());
                         } else {
-                            let mut message = format!("Invalid permission rule \"{}\" was skipped", s);
+                            let mut message =
+                                format!("Invalid permission rule \"{}\" was skipped", s);
                             if let Some(err) = &result.error {
                                 message.push_str(&format!(": {}", err));
                             }
@@ -1183,26 +1234,38 @@ fn parse_settings_file_uncached(path: &Path) -> ParsedSettings {
             if e.kind() != std::io::ErrorKind::NotFound {
                 eprintln!("Error reading settings file {:?}: {}", path, e);
             }
-            return ParsedSettings { settings: None, errors: vec![] };
+            return ParsedSettings {
+                settings: None,
+                errors: vec![],
+            };
         }
     };
 
     if content.trim().is_empty() {
-        return ParsedSettings { settings: Some(SettingsJson::default()), errors: vec![] };
+        return ParsedSettings {
+            settings: Some(SettingsJson::default()),
+            errors: vec![],
+        };
     }
 
     let mut data: Value = match serde_json::from_str(&content) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("JSON parse error in {:?}: {}", path, e);
-            return ParsedSettings { settings: None, errors: vec![] };
+            return ParsedSettings {
+                settings: None,
+                errors: vec![],
+            };
         }
     };
 
     let rule_warnings = filter_invalid_permission_rules(&mut data, &path.to_string_lossy());
 
     match serde_json::from_value::<SettingsJson>(data) {
-        Ok(settings) => ParsedSettings { settings: Some(settings), errors: rule_warnings },
+        Ok(settings) => ParsedSettings {
+            settings: Some(settings),
+            errors: rule_warnings,
+        },
         Err(e) => {
             let mut errors = rule_warnings;
             errors.push(ValidationError {
@@ -1215,13 +1278,20 @@ fn parse_settings_file_uncached(path: &Path) -> ParsedSettings {
                 doc_link: None,
                 mcp_error_metadata: None,
             });
-            ParsedSettings { settings: None, errors }
+            ParsedSettings {
+                settings: None,
+                errors,
+            }
         }
     }
 }
 
 /// Get settings root path for source.
-pub fn get_settings_root_path_for_source(source: SettingSource, cwd: &Path, config_home: &Path) -> PathBuf {
+pub fn get_settings_root_path_for_source(
+    source: SettingSource,
+    cwd: &Path,
+    config_home: &Path,
+) -> PathBuf {
     match source {
         SettingSource::UserSettings => config_home.to_path_buf(),
         SettingSource::PolicySettings
@@ -1239,21 +1309,13 @@ pub fn get_settings_file_path_for_source(
     flag_settings_path: Option<&Path>,
 ) -> Option<PathBuf> {
     match source {
-        SettingSource::UserSettings => {
-            Some(config_home.join("settings.json"))
-        }
-        SettingSource::ProjectSettings => {
-            Some(cwd.join(".mossen").join("settings.json"))
-        }
-        SettingSource::LocalSettings => {
-            Some(cwd.join(".mossen").join("settings.local.json"))
-        }
+        SettingSource::UserSettings => Some(config_home.join("settings.json")),
+        SettingSource::ProjectSettings => Some(cwd.join(".mossen").join("settings.json")),
+        SettingSource::LocalSettings => Some(cwd.join(".mossen").join("settings.local.json")),
         SettingSource::PolicySettings => {
             Some(get_managed_file_path().join("managed-settings.json"))
         }
-        SettingSource::FlagSettings => {
-            flag_settings_path.map(|p| p.to_path_buf())
-        }
+        SettingSource::FlagSettings => flag_settings_path.map(|p| p.to_path_buf()),
     }
 }
 
@@ -1434,7 +1496,8 @@ pub fn has_skip_dangerous_mode_permission_prompt(
 pub type CustomizationSurface = &'static str;
 
 /// Admin-trusted sources that bypass strictPluginOnlyCustomization.
-const ADMIN_TRUSTED_SOURCES: &[&str] = &["plugin", "policySettings", "built-in", "builtin", "bundled"];
+const ADMIN_TRUSTED_SOURCES: &[&str] =
+    &["plugin", "policySettings", "built-in", "builtin", "bundled"];
 
 /// Check whether a customization surface is locked to plugin-only sources.
 pub fn is_restricted_to_plugin_only(surface: &str, policy_settings: Option<&SettingsJson>) -> bool {
@@ -1488,13 +1551,13 @@ pub fn get_macos_plist_paths() -> Vec<(PathBuf, &'static str)> {
         "device-level managed preferences",
     ));
 
-    if std::env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if std::env::var("USER_TYPE").as_deref() == Ok("internal") {
         if let Some(home) = dirs::home_dir() {
             paths.push((
                 home.join("Library")
                     .join("Preferences")
                     .join(format!("{}.plist", MACOS_PREFERENCE_DOMAIN)),
-                "user preferences (ant-only)",
+                "user preferences (internal-only)",
             ));
         }
     }
@@ -1544,7 +1607,12 @@ pub async fn fire_raw_read() -> RawReadResult {
         }
     } else if cfg!(target_os = "windows") {
         let hklm = tokio::process::Command::new("reg")
-            .args(&["query", WINDOWS_REGISTRY_KEY_PATH_HKLM, "/v", WINDOWS_REGISTRY_VALUE_NAME])
+            .args(&[
+                "query",
+                WINDOWS_REGISTRY_KEY_PATH_HKLM,
+                "/v",
+                WINDOWS_REGISTRY_VALUE_NAME,
+            ])
             .output()
             .await
             .ok()
@@ -1552,7 +1620,12 @@ pub async fn fire_raw_read() -> RawReadResult {
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
 
         let hkcu = tokio::process::Command::new("reg")
-            .args(&["query", WINDOWS_REGISTRY_KEY_PATH_HKCU, "/v", WINDOWS_REGISTRY_VALUE_NAME])
+            .args(&[
+                "query",
+                WINDOWS_REGISTRY_KEY_PATH_HKCU,
+                "/v",
+                WINDOWS_REGISTRY_VALUE_NAME,
+            ])
             .output()
             .await
             .ok()
@@ -1604,7 +1677,10 @@ pub fn parse_command_output_as_settings(stdout: &str, source_path: &str) -> MdmR
 
     let rule_warnings = filter_invalid_permission_rules(&mut data, source_path);
     match serde_json::from_value::<SettingsJson>(data) {
-        Ok(settings) => MdmResult { settings, errors: rule_warnings },
+        Ok(settings) => MdmResult {
+            settings,
+            errors: rule_warnings,
+        },
         Err(e) => {
             let mut errors = rule_warnings;
             errors.push(ValidationError {
@@ -1617,7 +1693,10 @@ pub fn parse_command_output_as_settings(stdout: &str, source_path: &str) -> MdmR
                 doc_link: None,
                 mcp_error_metadata: None,
             });
-            MdmResult { settings: SettingsJson::default(), errors }
+            MdmResult {
+                settings: SettingsJson::default(),
+                errors,
+            }
         }
     }
 }
@@ -1644,8 +1723,11 @@ pub fn load_managed_file_settings() -> (Option<SettingsJson>, Vec<ValidationErro
             .filter(|e| {
                 let name = e.file_name();
                 let name_str = name.to_string_lossy();
-                name_str.ends_with(".json") && !name_str.starts_with('.')
-                    && e.file_type().map(|ft| ft.is_file() || ft.is_symlink()).unwrap_or(false)
+                name_str.ends_with(".json")
+                    && !name_str.starts_with('.')
+                    && e.file_type()
+                        .map(|ft| ft.is_file() || ft.is_symlink())
+                        .unwrap_or(false)
             })
             .collect();
         files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
@@ -1660,7 +1742,11 @@ pub fn load_managed_file_settings() -> (Option<SettingsJson>, Vec<ValidationErro
         }
     }
 
-    if found { (Some(merged), errors) } else { (None, errors) }
+    if found {
+        (Some(merged), errors)
+    } else {
+        (None, errors)
+    }
 }
 
 /// Check which file-based managed settings sources are present.
@@ -1839,12 +1925,7 @@ pub fn load_settings_for_source(source: SettingSource) -> Option<SettingsJson> {
     let cwd = std::path::PathBuf::from(crate::cwd::pwd());
     let config_home = crate::naming::get_resolved_config_home_dir();
     let flag_path = std::env::var_os("MOSSEN_FLAG_SETTINGS").map(std::path::PathBuf::from);
-    let path = get_settings_file_path_for_source(
-        source,
-        &cwd,
-        &config_home,
-        flag_path.as_deref(),
-    )?;
+    let path = get_settings_file_path_for_source(source, &cwd, &config_home, flag_path.as_deref())?;
     if !path.exists() {
         return None;
     }
@@ -1888,12 +1969,8 @@ pub fn load_settings_from_disk() -> SettingsWithErrors {
     let mut errors = Vec::new();
 
     for &source in order {
-        let path = get_settings_file_path_for_source(
-            source,
-            &cwd,
-            &config_home,
-            flag_path.as_deref(),
-        );
+        let path =
+            get_settings_file_path_for_source(source, &cwd, &config_home, flag_path.as_deref());
         let Some(path) = path else { continue };
         if !path.exists() {
             continue;
@@ -1926,10 +2003,8 @@ pub fn get_settings_with_errors(
     for source in sources {
         match get_source(*source) {
             Ok(Some(s)) => {
-                if let (Ok(a), Ok(b)) = (
-                    serde_json::to_value(&effective),
-                    serde_json::to_value(&s),
-                ) {
+                if let (Ok(a), Ok(b)) = (serde_json::to_value(&effective), serde_json::to_value(&s))
+                {
                     if let serde_json::Value::Object(mut a_obj) = a {
                         if let serde_json::Value::Object(b_obj) = b {
                             for (k, v) in b_obj {
@@ -2001,7 +2076,8 @@ pub fn get_policy_settings_origin(
         }
     }
 
-    let mdm_val = serde_json::to_value(&mdm_settings.settings).unwrap_or(Value::Object(Default::default()));
+    let mdm_val =
+        serde_json::to_value(&mdm_settings.settings).unwrap_or(Value::Object(Default::default()));
     if mdm_val.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
         if cfg!(target_os = "macos") {
             return Some("plist");
@@ -2014,7 +2090,8 @@ pub fn get_policy_settings_origin(
         return Some("file");
     }
 
-    let hkcu_val = serde_json::to_value(&hkcu_settings.settings).unwrap_or(Value::Object(Default::default()));
+    let hkcu_val =
+        serde_json::to_value(&hkcu_settings.settings).unwrap_or(Value::Object(Default::default()));
     if hkcu_val.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
         return Some("hkcu");
     }

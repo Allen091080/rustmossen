@@ -10,13 +10,13 @@ pub const BLACK_CIRCLE: char = '●';
 
 pub const BULLET_OPERATOR: char = '∙';
 pub const TEARDROP_ASTERISK: char = '✻';
-pub const UP_ARROW: char = '\u{2191}'; // ↑ - used for opus 1m merge notice
+pub const UP_ARROW: char = '\u{2191}'; // ↑ - used for max 1m merge notice
 pub const DOWN_ARROW: char = '\u{2193}'; // ↓ - used for scroll hint
 pub const LIGHTNING_BOLT: char = '\u{21af}'; // ↯ - used for fast mode indicator
 pub const EFFORT_LOW: char = '○'; // \u25cb - effort level: low
 pub const EFFORT_MEDIUM: char = '◐'; // \u25d0 - effort level: medium
 pub const EFFORT_HIGH: char = '●'; // \u25cf - effort level: high
-pub const EFFORT_MAX: char = '◉'; // \u25c9 - effort level: max (Opus 4.6 only)
+pub const EFFORT_MAX: char = '◉'; // \u25c9 - effort level: max (Max 4.6 only)
 
 // Media/trigger status indicators
 pub const PLAY_ICON: char = '\u{25b6}'; // ▶

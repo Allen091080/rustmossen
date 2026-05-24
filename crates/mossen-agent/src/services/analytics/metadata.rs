@@ -1,9 +1,11 @@
 //! Analytics metadata — event enrichment with environment, session, and user context.
 
-use std::collections::HashMap;
-use std::env;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use mossen_utils::string_utils::{prefix_chars, truncate_chars_with_suffix};
+use std::collections::HashMap;
+use std::env;
 
 /// Enriched event metadata type alias.
 pub type EventMetadata = HashMap<String, Value>;
@@ -57,17 +59,38 @@ impl BaseMetadata {
     /// Convert to event metadata map.
     pub fn to_metadata(&self) -> EventMetadata {
         let mut map = EventMetadata::new();
-        map.insert("session_id".to_string(), Value::String(self.session_id.clone()));
+        map.insert(
+            "session_id".to_string(),
+            Value::String(self.session_id.clone()),
+        );
         map.insert("user_id".to_string(), Value::String(self.user_id.clone()));
-        map.insert("device_id".to_string(), Value::String(self.device_id.clone()));
+        map.insert(
+            "device_id".to_string(),
+            Value::String(self.device_id.clone()),
+        );
         map.insert("platform".to_string(), Value::String(self.platform.clone()));
-        map.insert("app_version".to_string(), Value::String(self.app_version.clone()));
+        map.insert(
+            "app_version".to_string(),
+            Value::String(self.app_version.clone()),
+        );
         map.insert("arch".to_string(), Value::String(self.arch.clone()));
-        map.insert("timestamp_ms".to_string(), Value::Number(serde_json::Number::from(self.timestamp_ms)));
-        map.insert("is_non_interactive".to_string(), Value::Bool(self.is_non_interactive));
-        if let Some(ref v) = self.user_type { map.insert("user_type".to_string(), Value::String(v.clone())); }
-        if let Some(ref v) = self.model { map.insert("model".to_string(), Value::String(v.clone())); }
-        if let Some(ref v) = self.query_source { map.insert("query_source".to_string(), Value::String(v.clone())); }
+        map.insert(
+            "timestamp_ms".to_string(),
+            Value::Number(serde_json::Number::from(self.timestamp_ms)),
+        );
+        map.insert(
+            "is_non_interactive".to_string(),
+            Value::Bool(self.is_non_interactive),
+        );
+        if let Some(ref v) = self.user_type {
+            map.insert("user_type".to_string(), Value::String(v.clone()));
+        }
+        if let Some(ref v) = self.model {
+            map.insert("model".to_string(), Value::String(v.clone()));
+        }
+        if let Some(ref v) = self.query_source {
+            map.insert("query_source".to_string(), Value::String(v.clone()));
+        }
         map
     }
 }
@@ -222,11 +245,12 @@ const TOOL_INPUT_MAX_DEPTH: u8 = 2;
 fn truncate_tool_input_value(value: &Value, depth: u8) -> Value {
     match value {
         Value::String(s) => {
-            if s.len() > TOOL_INPUT_STRING_TRUNCATE_AT {
+            let char_count = s.chars().count();
+            if char_count > TOOL_INPUT_STRING_TRUNCATE_AT {
                 Value::String(format!(
                     "{}…[{} chars]",
-                    &s[..TOOL_INPUT_STRING_TRUNCATE_TO.min(s.len())],
-                    s.len()
+                    prefix_chars(s, TOOL_INPUT_STRING_TRUNCATE_TO),
+                    char_count
                 ))
             } else {
                 Value::String(s.clone())
@@ -275,9 +299,8 @@ pub fn extract_tool_input_for_telemetry(input: &Value) -> Option<String> {
     }
     let truncated = truncate_tool_input_value(input, 0);
     let mut json = serde_json::to_string(&truncated).unwrap_or_default();
-    if json.len() > TOOL_INPUT_MAX_JSON_CHARS {
-        json.truncate(TOOL_INPUT_MAX_JSON_CHARS);
-        json.push_str("…[truncated]");
+    if json.chars().count() > TOOL_INPUT_MAX_JSON_CHARS {
+        json = truncate_chars_with_suffix(&json, TOOL_INPUT_MAX_JSON_CHARS, "…[truncated]");
     }
     Some(json)
 }
@@ -432,7 +455,7 @@ pub async fn get_event_metadata(options: EnrichMetadataOptions) -> HashMap<Strin
     let model = options
         .model
         .clone()
-        .unwrap_or_else(|| "claude-3-5-sonnet".to_string());
+        .unwrap_or_else(|| "mossen-3-5-balanced".to_string());
     map.insert("model".to_string(), Value::String(model.clone()));
     map.insert(
         "sessionId".to_string(),
@@ -449,10 +472,7 @@ pub async fn get_event_metadata(options: EnrichMetadataOptions) -> HashMap<Strin
     }
     map.insert(
         "isInteractive".to_string(),
-        Value::String(
-            env::var("MOSSEN_IS_INTERACTIVE")
-                .unwrap_or_else(|_| "true".to_string()),
-        ),
+        Value::String(env::var("MOSSEN_IS_INTERACTIVE").unwrap_or_else(|_| "true".to_string())),
     );
     map.insert(
         "clientType".to_string(),
@@ -592,14 +612,19 @@ pub fn to_1p_event_format(
     };
     let auth = {
         let account = user_metadata.get("accountUuid").and_then(|v| v.as_str());
-        let org = user_metadata.get("organizationUuid").and_then(|v| v.as_str());
+        let org = user_metadata
+            .get("organizationUuid")
+            .and_then(|v| v.as_str());
         if account.is_some() || org.is_some() {
             let mut a = serde_json::Map::new();
             if let Some(v) = account {
                 a.insert("account_uuid".to_string(), Value::String(v.to_string()));
             }
             if let Some(v) = org {
-                a.insert("organization_uuid".to_string(), Value::String(v.to_string()));
+                a.insert(
+                    "organization_uuid".to_string(),
+                    Value::String(v.to_string()),
+                );
             }
             Some(Value::Object(a))
         } else {

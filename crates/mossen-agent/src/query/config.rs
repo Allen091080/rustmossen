@@ -25,9 +25,8 @@ pub fn build_query_config(ctx: &dyn QueryConfigContext) -> QueryConfig {
         session_id: ctx.get_session_id(),
         gates: QueryGates {
             streaming_tool_execution: ctx
-                .check_statsig_feature_gate("tengu_streaming_tool_execution2"),
-            emit_tool_use_summaries: ctx
-                .is_env_truthy("MOSSEN_CODE_EMIT_TOOL_USE_SUMMARIES"),
+                .check_statsig_feature_gate("mossen_streaming_tool_execution2"),
+            emit_tool_use_summaries: ctx.is_env_truthy("MOSSEN_CODE_EMIT_TOOL_USE_SUMMARIES"),
             fast_mode_enabled: !ctx.is_env_truthy("MOSSEN_CODE_DISABLE_FAST_MODE"),
         },
     }

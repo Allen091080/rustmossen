@@ -1,5 +1,6 @@
 //! Text-mode mirror of `tools/MCPTool/UI.tsx`.
 
+use mossen_utils::string_utils::truncate_chars;
 use serde_json::Value;
 
 /// `UI.tsx` `renderToolUseMessage`.
@@ -74,9 +75,5 @@ pub fn try_slack_send_compact(input: &Value) -> Option<String> {
 
 fn summarize(s: &str) -> String {
     const LIMIT: usize = 80;
-    if s.len() <= LIMIT {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..LIMIT])
-    }
+    truncate_chars(s, LIMIT)
 }

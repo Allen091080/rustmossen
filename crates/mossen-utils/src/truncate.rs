@@ -9,7 +9,7 @@ use unicode_segmentation::UnicodeSegmentation;
 /// 宽度感知：使用 stringWidth() 进行正确的 CJK/emoji 测量。
 ///
 /// # 示例
-/// "src/components/deeply/nested/folder/MyComponent.tsx" 
+/// "src/components/deeply/nested/folder/MyComponent.tsx"
 /// 当 max_length 为 30 时变为 "src/components/…/MyComponent.tsx"
 pub fn truncate_path_middle(path: &str, max_length: usize) -> String {
     use std::path::Path;
@@ -30,14 +30,16 @@ pub fn truncate_path_middle(path: &str, max_length: usize) -> String {
 
     // 查找文件名
     let path_obj = Path::new(path);
-    let filename = path_obj.file_name()
+    let filename = path_obj
+        .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| path.to_string());
-    
-    let directory = path_obj.parent()
+
+    let directory = path_obj
+        .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
-    
+
     let filename_width = filename.width();
 
     // 如果文件名本身就太长，从开头截断
@@ -69,10 +71,10 @@ pub fn truncate_to_width(text: &str, max_width: usize) -> String {
     if max_width <= 1 {
         return "…".to_string();
     }
-    
+
     let mut result = String::new();
     let mut width = 0;
-    
+
     for segment in text.graphemes(true) {
         let seg_width = segment.width();
         if width + seg_width > max_width.saturating_sub(1) {
@@ -81,7 +83,7 @@ pub fn truncate_to_width(text: &str, max_width: usize) -> String {
         result.push_str(segment);
         width += seg_width;
     }
-    
+
     format!("{}…", result)
 }
 
@@ -96,11 +98,11 @@ pub fn truncate_start_to_width(text: &str, max_width: usize) -> String {
     if max_width <= 1 {
         return "…".to_string();
     }
-    
+
     let segments: Vec<&str> = text.graphemes(true).collect();
     let mut width = 0;
     let mut start_idx = segments.len();
-    
+
     for i in (0..segments.len()).rev() {
         let seg_width = segments[i].width();
         if width + seg_width > max_width.saturating_sub(1) {
@@ -109,7 +111,7 @@ pub fn truncate_start_to_width(text: &str, max_width: usize) -> String {
         width += seg_width;
         start_idx = i;
     }
-    
+
     format!("{}{}", "…", segments[start_idx..].concat())
 }
 
@@ -123,10 +125,10 @@ pub fn truncate_to_width_no_ellipsis(text: &str, max_width: usize) -> String {
     if max_width == 0 {
         return String::new();
     }
-    
+
     let mut result = String::new();
     let mut width = 0;
-    
+
     for segment in text.graphemes(true) {
         let seg_width = segment.width();
         if width + seg_width > max_width {
@@ -135,7 +137,7 @@ pub fn truncate_to_width_no_ellipsis(text: &str, max_width: usize) -> String {
         result.push_str(segment);
         width += seg_width;
     }
-    
+
     result
 }
 
@@ -144,7 +146,7 @@ pub fn truncate_to_width_no_ellipsis(text: &str, max_width: usize) -> String {
 /// 发生截断时附加 '…'。
 pub fn truncate(text: &str, max_width: usize, single_line: bool) -> String {
     let mut result = text.to_string();
-    
+
     if single_line {
         if let Some(pos) = result.find('\n') {
             result = result[..pos].to_string();
@@ -154,7 +156,7 @@ pub fn truncate(text: &str, max_width: usize, single_line: bool) -> String {
             return format!("{}…", result);
         }
     }
-    
+
     if result.width() <= max_width {
         return result;
     }
@@ -166,7 +168,7 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut current_width = 0;
-    
+
     for segment in text.graphemes(true) {
         let seg_width = segment.width();
         if current_width + seg_width <= width {
@@ -180,11 +182,11 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
             current_width = seg_width;
         }
     }
-    
+
     if !current_line.is_empty() {
         lines.push(current_line);
     }
-    
+
     lines
 }
 
@@ -196,8 +198,6 @@ trait StrWidth {
 impl StrWidth for str {
     fn width(&self) -> usize {
         // 简化的宽度计算：ASCII 字符宽度为 1，CJK 字符宽度为 2
-        self.chars().map(|c| {
-            if c.is_ascii() { 1 } else { 2 }
-        }).sum()
+        self.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum()
     }
 }

@@ -1,10 +1,10 @@
 //! Tool execution — core tool invocation logic, permission checking, and result handling.
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, warn};
 
 /// Tool execution request.
@@ -68,7 +68,9 @@ pub async fn execute_tool(
     if decision.behavior == PermissionBehavior::Deny {
         return Ok(ToolExecutionResult {
             tool_use_id: request.tool_use_id.clone(),
-            content: decision.message.unwrap_or_else(|| "Tool use denied".to_string()),
+            content: decision
+                .message
+                .unwrap_or_else(|| "Tool use denied".to_string()),
             is_error: true,
             duration_ms: start.elapsed().as_millis() as u64,
             metadata: HashMap::new(),
@@ -80,7 +82,8 @@ pub async fn execute_tool(
         if context.is_non_interactive {
             return Ok(ToolExecutionResult {
                 tool_use_id: request.tool_use_id.clone(),
-                content: "Tool use requires approval but running in non-interactive mode".to_string(),
+                content: "Tool use requires approval but running in non-interactive mode"
+                    .to_string(),
                 is_error: true,
                 duration_ms: start.elapsed().as_millis() as u64,
                 metadata: HashMap::new(),
@@ -138,7 +141,8 @@ async fn dispatch_tool_execution(
 }
 
 async fn execute_read_tool(input: &Value, context: &ToolExecutionContext) -> Result<String> {
-    let file_path = input.get("file_path")
+    let file_path = input
+        .get("file_path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing file_path"))?;
     let content = tokio::fs::read_to_string(file_path).await?;
@@ -146,10 +150,12 @@ async fn execute_read_tool(input: &Value, context: &ToolExecutionContext) -> Res
 }
 
 async fn execute_write_tool(input: &Value, context: &ToolExecutionContext) -> Result<String> {
-    let file_path = input.get("file_path")
+    let file_path = input
+        .get("file_path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing file_path"))?;
-    let content = input.get("content")
+    let content = input
+        .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing content"))?;
     tokio::fs::write(file_path, content).await?;
@@ -157,13 +163,16 @@ async fn execute_write_tool(input: &Value, context: &ToolExecutionContext) -> Re
 }
 
 async fn execute_edit_tool(input: &Value, _context: &ToolExecutionContext) -> Result<String> {
-    let file_path = input.get("file_path")
+    let file_path = input
+        .get("file_path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing file_path"))?;
-    let old_string = input.get("old_string")
+    let old_string = input
+        .get("old_string")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing old_string"))?;
-    let new_string = input.get("new_string")
+    let new_string = input
+        .get("new_string")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing new_string"))?;
 
@@ -177,7 +186,8 @@ async fn execute_edit_tool(input: &Value, _context: &ToolExecutionContext) -> Re
 }
 
 async fn execute_bash_tool(input: &Value, context: &ToolExecutionContext) -> Result<String> {
-    let command = input.get("command")
+    let command = input
+        .get("command")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing command"))?;
 
@@ -194,7 +204,10 @@ async fn execute_bash_tool(input: &Value, context: &ToolExecutionContext) -> Res
     if output.status.success() {
         Ok(stdout.to_string())
     } else {
-        Ok(format!("Exit code: {}\nStdout: {}\nStderr: {}", output.status, stdout, stderr))
+        Ok(format!(
+            "Exit code: {}\nStdout: {}\nStderr: {}",
+            output.status, stdout, stderr
+        ))
     }
 }
 

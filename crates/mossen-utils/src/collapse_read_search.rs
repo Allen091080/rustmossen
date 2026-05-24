@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::string_utils::truncate_chars;
+
 // --------------------------------------------------------------------------
 // Constants
 // --------------------------------------------------------------------------
@@ -269,11 +271,7 @@ pub fn command_as_hint(command: &str) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    if cleaned.len() > MAX_HINT_CHARS {
-        format!("{}…", &cleaned[..MAX_HINT_CHARS - 1])
-    } else {
-        cleaned
-    }
+    truncate_chars(&cleaned, MAX_HINT_CHARS.saturating_sub(1))
 }
 
 /// Extract the primary file/directory path from a tool input map.
@@ -286,7 +284,11 @@ pub fn get_file_path_from_tool_input(input: &serde_json::Value) -> Option<String
 }
 
 /// Check if a search tool use targets memory files by examining its path/pattern/glob.
-pub fn is_memory_search(input: &serde_json::Value, is_memory_file_fn: &dyn Fn(&str) -> bool, is_memory_dir_fn: &dyn Fn(&str) -> bool) -> bool {
+pub fn is_memory_search(
+    input: &serde_json::Value,
+    is_memory_file_fn: &dyn Fn(&str) -> bool,
+    is_memory_dir_fn: &dyn Fn(&str) -> bool,
+) -> bool {
     if let Some(path) = input.get("path").and_then(|v| v.as_str()) {
         if is_memory_file_fn(path) || is_memory_dir_fn(path) {
             return true;
@@ -342,18 +344,30 @@ pub fn get_search_read_summary_text(
     if let Some(mc) = memory_counts {
         if mc.memory_read_count > 0 {
             let verb = if is_active {
-                if parts.is_empty() { "Recalling" } else { "recalling" }
+                if parts.is_empty() {
+                    "Recalling"
+                } else {
+                    "recalling"
+                }
             } else if parts.is_empty() {
                 "Recalled"
             } else {
                 "recalled"
             };
-            let noun = if mc.memory_read_count == 1 { "memory" } else { "memories" };
+            let noun = if mc.memory_read_count == 1 {
+                "memory"
+            } else {
+                "memories"
+            };
             parts.push(format!("{} {} {}", verb, mc.memory_read_count, noun));
         }
         if mc.memory_search_count > 0 {
             let verb = if is_active {
-                if parts.is_empty() { "Searching" } else { "searching" }
+                if parts.is_empty() {
+                    "Searching"
+                } else {
+                    "searching"
+                }
             } else if parts.is_empty() {
                 "Searched"
             } else {
@@ -363,32 +377,52 @@ pub fn get_search_read_summary_text(
         }
         if mc.memory_write_count > 0 {
             let verb = if is_active {
-                if parts.is_empty() { "Writing" } else { "writing" }
+                if parts.is_empty() {
+                    "Writing"
+                } else {
+                    "writing"
+                }
             } else if parts.is_empty() {
                 "Wrote"
             } else {
                 "wrote"
             };
-            let noun = if mc.memory_write_count == 1 { "memory" } else { "memories" };
+            let noun = if mc.memory_write_count == 1 {
+                "memory"
+            } else {
+                "memories"
+            };
             parts.push(format!("{} {} {}", verb, mc.memory_write_count, noun));
         }
     }
 
     if search_count > 0 {
         let verb = if is_active {
-            if parts.is_empty() { "Searching for" } else { "searching for" }
+            if parts.is_empty() {
+                "Searching for"
+            } else {
+                "searching for"
+            }
         } else if parts.is_empty() {
             "Searched for"
         } else {
             "searched for"
         };
-        let noun = if search_count == 1 { "pattern" } else { "patterns" };
+        let noun = if search_count == 1 {
+            "pattern"
+        } else {
+            "patterns"
+        };
         parts.push(format!("{} {} {}", verb, search_count, noun));
     }
 
     if read_count > 0 {
         let verb = if is_active {
-            if parts.is_empty() { "Reading" } else { "reading" }
+            if parts.is_empty() {
+                "Reading"
+            } else {
+                "reading"
+            }
         } else if parts.is_empty() {
             "Read"
         } else {
@@ -400,13 +434,21 @@ pub fn get_search_read_summary_text(
 
     if list_count > 0 {
         let verb = if is_active {
-            if parts.is_empty() { "Listing" } else { "listing" }
+            if parts.is_empty() {
+                "Listing"
+            } else {
+                "listing"
+            }
         } else if parts.is_empty() {
             "Listed"
         } else {
             "listed"
         };
-        let noun = if list_count == 1 { "directory" } else { "directories" };
+        let noun = if list_count == 1 {
+            "directory"
+        } else {
+            "directories"
+        };
         parts.push(format!("{} {} {}", verb, list_count, noun));
     }
 
@@ -666,7 +708,9 @@ pub fn get_tool_search_or_read_info(message: &serde_json::Value) -> serde_json::
 }
 
 /// 对应 TS `getSearchOrReadFromContent`：从 content 数组中找出第一个搜索或读取块。
-pub fn get_search_or_read_from_content(content: &[serde_json::Value]) -> Option<&serde_json::Value> {
+pub fn get_search_or_read_from_content(
+    content: &[serde_json::Value],
+) -> Option<&serde_json::Value> {
     content.iter().find(|b| {
         let kind = b.get("type").and_then(|v| v.as_str()).unwrap_or("");
         matches!(kind, "tool_use" | "tool_result")

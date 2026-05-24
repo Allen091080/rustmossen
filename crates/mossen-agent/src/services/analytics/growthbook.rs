@@ -178,9 +178,7 @@ pub fn get_api_base_url_host() -> Option<String> {
 
 /// Register a callback invoked when GrowthBook refreshes its values. Mirrors
 /// TS `onGrowthBookRefresh(listener)`. Returns an unsubscribe closure.
-pub fn on_growth_book_refresh(
-    listener: Box<dyn Fn() + Send + Sync>,
-) -> Box<dyn FnOnce() + Send> {
+pub fn on_growth_book_refresh(listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn FnOnce() + Send> {
     // GrowthBook refresh listeners are stored module-level; we keep them
     // alive via a Vec of boxed callbacks.
     let mut guard = GROWTHBOOK_REFRESH_LISTENERS.lock().unwrap();

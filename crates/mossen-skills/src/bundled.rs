@@ -84,7 +84,7 @@ pub fn register_batch_skill() {
 pub fn register_keybindings_skill() {
     register_bundled_craft(definition(
         "keybindings-help",
-        "Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.claude/keybindings.json.",
+        "Use when the user wants to customize keyboard shortcuts, rebind keys, add chord bindings, or modify ~/.mossen/keybindings.json.",
         Some("Examples: \"rebind ctrl+s\", \"add a chord shortcut\", \"change the submit key\", \"customize keybindings\"."),
         None,
         None,
@@ -120,7 +120,7 @@ pub fn register_skillify_skill() {
 pub fn register_update_config_skill() {
     register_bundled_craft(definition(
         "update-config",
-        "Configure the Claude Code harness via settings.json (permissions, env vars, hooks, theme).",
+        "Configure the Mossen Code harness via settings.json (permissions, env vars, hooks, theme).",
         Some("When the user wants to change persistent harness behavior: allow X, set DEBUG=true, configure a hook, etc."),
         Some("<change description>"),
         None,
@@ -128,12 +128,12 @@ pub fn register_update_config_skill() {
     ));
 }
 
-/// `skills/bundled/mossenApi.ts` — Claude/Anthropic SDK 协助。
+/// `skills/bundled/mossenApi.ts` — Mossen/Provider SDK 协助。
 pub fn register_mossen_api_skill() {
     register_bundled_craft(definition(
-        "claude-api",
-        "Build, debug, and optimize Claude API / Anthropic SDK apps. Apps built with this skill should include prompt caching.",
-        Some("Trigger when code imports `anthropic`/`@anthropic-ai/sdk`, the user asks about the Anthropic SDK, or adds/modifies Claude features (caching, thinking, tool use, batch, files, citations) in a file."),
+        "mossen-api",
+        "Build, debug, and optimize Mossen API / Provider SDK apps. Apps built with this skill should include prompt caching.",
+        Some("Trigger when code imports `provider`/`@provider-ai/sdk`, the user asks about the Provider SDK, or adds/modifies Mossen features (caching, thinking, tool use, batch, files, citations) in a file."),
         None,
         None,
         None,
@@ -144,7 +144,7 @@ pub fn register_mossen_api_skill() {
 pub fn register_mossen_core_skills() {
     register_bundled_craft(definition(
         "init",
-        "Initialize a new CLAUDE.md file with codebase documentation.",
+        "Initialize a new MOSSEN.md file with codebase documentation.",
         None,
         None,
         None,
@@ -173,10 +173,11 @@ pub fn register_mossen_core_skills() {
 // ---------------------------------------------------------------------------
 
 /// `skills/bundled/mossenApiContent.ts` `SKILL_MODEL_VARS`。
-pub const SKILL_MODEL_VARS_API: &str = "OPUS_MODEL=claude-opus-4-7\nSONNET_MODEL=claude-sonnet-4-7\nHAIKU_MODEL=claude-haiku-4-7";
+pub const SKILL_MODEL_VARS_API: &str =
+    "MAX_MODEL=mossen-max-4-7\nBALANCED_MODEL=mossen-balanced-4-7\nFAST_MODEL=mossen-fast-4-7";
 
 /// `skills/bundled/mossenApiContent.ts` `SKILL_PROMPT` 简要骨架。
-pub const SKILL_PROMPT_API: &str = "You are helping build/debug a Claude API (Anthropic SDK) integration. Always wire prompt caching by default, prefer the latest Claude 4.7 family, and explain trade-offs when changing cache breakpoints.";
+pub const SKILL_PROMPT_API: &str = "You are helping build/debug a Mossen API (Provider SDK) integration. Always wire prompt caching by default, prefer the latest Mossen 4.7 family, and explain trade-offs when changing cache breakpoints.";
 
 /// `skills/bundled/mossenApiContent.ts` `SKILL_FILES` 关联文件列表。
 pub const SKILL_FILES_API: &[&str] = &["prompt-caching.md", "thinking.md", "tool-use.md"];
@@ -215,8 +216,7 @@ pub const SKILL_MD: &str = SKILL_MD_VERIFY;
 pub struct MCPSkillBuilders {
     pub create_skill_command:
         fn(name: &str, source_dir: &std::path::Path) -> Option<crate::skill::CraftCommand>,
-    pub parse_skill_frontmatter_fields:
-        fn(markdown: &str) -> crate::config::ParsedSkillFields,
+    pub parse_skill_frontmatter_fields: fn(markdown: &str) -> crate::config::ParsedSkillFields,
 }
 
 static BUILDERS: std::sync::OnceLock<MCPSkillBuilders> = std::sync::OnceLock::new();
@@ -256,7 +256,7 @@ pub fn fetch_mcp_skills_for_client(_client_id: &str) -> Vec<crate::skill::CraftC
 
 /// `skills/bundled/remember.ts` `registerRememberSkill`。
 ///
-/// TS 中此技能仅在 `process.env.USER_TYPE === 'ant'` 时注册；Rust 端在
+/// TS 中此技能仅在 `process.env.USER_TYPE === 'internal'` 时注册；Rust 端在
 /// 调用方根据等价配置决定是否调用本函数。
 pub fn register_remember_skill() {
     register_bundled_craft(definition(

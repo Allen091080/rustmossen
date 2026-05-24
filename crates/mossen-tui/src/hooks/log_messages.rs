@@ -64,7 +64,8 @@ impl LogMessagesState {
 
     /// Get messages filtered by current level.
     pub fn filtered(&self) -> Vec<&LogMessage> {
-        self.messages.iter()
+        self.messages
+            .iter()
             .filter(|m| (m.level as u8) >= (self.filter_level as u8))
             .collect()
     }

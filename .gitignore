@@ -5,7 +5,6 @@ target/
 .*/worktrees/
 .mossensrc/*
 !.mossensrc/feature-flags.env.example
-.claude/
 coverage/
 dist/
 tmp/

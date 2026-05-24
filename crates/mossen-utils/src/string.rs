@@ -100,7 +100,7 @@ pub fn safe_join_lines(lines: &[&str], delimiter: &str, max_size: usize) -> Stri
                 // Careful: slice on char boundary
                 let take = line
                     .char_indices()
-                    .take_while(|(i, _)| *i < remaining_space)
+                    .take_while(|(i, ch)| i + ch.len_utf8() <= remaining_space)
                     .last()
                     .map(|(i, c)| i + c.len_utf8())
                     .unwrap_or(0);
@@ -157,7 +157,7 @@ impl EndTruncatingAccumulator {
                 // Only push up to a char boundary
                 let take = data
                     .char_indices()
-                    .take_while(|(i, _)| *i < remaining)
+                    .take_while(|(i, ch)| i + ch.len_utf8() <= remaining)
                     .last()
                     .map(|(i, c)| i + c.len_utf8())
                     .unwrap_or(0);

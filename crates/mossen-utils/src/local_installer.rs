@@ -97,9 +97,8 @@ pub async fn ensure_local_package_environment(config_home: &Path) -> bool {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755))
-                        .await;
+                let _ = fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755))
+                    .await;
             }
         }
         Ok(false) => {}

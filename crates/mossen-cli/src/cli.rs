@@ -160,6 +160,8 @@ pub enum EmitFormat {
     Json,
     /// 流式 JSON 输出（NDJSON）。
     StreamJson,
+    /// 本进程直接渲染终端 UI（实验性 oneshot 前端）。
+    Terminal,
 }
 
 /// 访问策略参数枚举。

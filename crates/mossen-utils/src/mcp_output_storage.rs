@@ -53,7 +53,10 @@ pub fn get_large_output_instructions(
 
     let completion_requirement = "- Before producing ANY summary or analysis, you MUST explicitly describe what portion of the content you have read. ***If you did not read the entire content, you MUST explicitly state this.***\n".to_string();
 
-    format!("{}{}{}", base_instructions, truncation_warning, completion_requirement)
+    format!(
+        "{}{}{}",
+        base_instructions, truncation_warning, completion_requirement
+    )
 }
 
 /// Map a mime type to a file extension.

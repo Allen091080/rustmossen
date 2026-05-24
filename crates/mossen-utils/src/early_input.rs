@@ -201,17 +201,25 @@ pub fn process_input_chunk(data: &str) {
         }
 
         if code == 27 {
-            // ESC — skip until terminating byte 0x40..=0x7e or end of chunk.
+            // ESC — skip the entire escape sequence.
+            // CSI: ESC [ (0x5b) + optional params (0x20-0x2f) + final byte (0x40-0x7e).
             i += 1;
-            while i < chars.len() {
-                let c = chars[i] as u32;
-                if (64..=126).contains(&c) {
-                    break;
-                }
+            if i < chars.len() && chars[i] as u32 == 0x5b {
                 i += 1;
+                while i < chars.len() {
+                    let c = chars[i] as u32;
+                    if (0x20..=0x2f).contains(&c) {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
             }
             if i < chars.len() {
-                i += 1;
+                let c = chars[i] as u32;
+                if (64..=126).contains(&c) {
+                    i += 1;
+                }
             }
             continue;
         }
@@ -277,6 +285,10 @@ pub fn is_capturing_early_input() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     /// Drives `process_input_chunk` directly (without the reader thread or raw
     /// mode) to exercise the chunk-decoding rules.
@@ -292,6 +304,7 @@ mod tests {
 
     #[test]
     fn appends_printable_chars() {
+        let _guard = TEST_LOCK.lock().unwrap();
         force_capture();
         process_input_chunk("hi");
         assert_eq!(read_buf(), "hi");
@@ -300,6 +313,7 @@ mod tests {
 
     #[test]
     fn backspace_removes_grapheme() {
+        let _guard = TEST_LOCK.lock().unwrap();
         force_capture();
         process_input_chunk("你好");
         process_input_chunk("\x7f");
@@ -309,6 +323,7 @@ mod tests {
 
     #[test]
     fn carriage_return_becomes_newline() {
+        let _guard = TEST_LOCK.lock().unwrap();
         force_capture();
         process_input_chunk("a\rb");
         assert_eq!(read_buf(), "a\nb");
@@ -317,6 +332,7 @@ mod tests {
 
     #[test]
     fn escape_sequence_dropped() {
+        let _guard = TEST_LOCK.lock().unwrap();
         force_capture();
         // ESC [ A → up-arrow, should be skipped entirely
         process_input_chunk("a\x1b[Ab");

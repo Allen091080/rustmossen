@@ -121,19 +121,17 @@ fn should_bypass_proxy_inner(url_string: &str, no_proxy: &str) -> bool {
     };
 
     let hostname = parsed.host_str().unwrap_or("").to_lowercase();
-    let port = parsed
-        .port()
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| {
-            if parsed.scheme() == "https" {
-                "443".to_string()
-            } else {
-                "80".to_string()
-            }
-        });
+    let port = parsed.port().map(|p| p.to_string()).unwrap_or_else(|| {
+        if parsed.scheme() == "https" {
+            "443".to_string()
+        } else {
+            "80".to_string()
+        }
+    });
     let host_with_port = format!("{}:{}", hostname, port);
 
-    let no_proxy_list: Vec<&str> = no_proxy.split(|c: char| c == ',' || c.is_whitespace())
+    let no_proxy_list: Vec<&str> = no_proxy
+        .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|s| !s.is_empty())
         .collect();
 
@@ -203,8 +201,7 @@ pub fn get_web_socket_proxy_url(url: &str) -> Option<String> {
 }
 
 /// Proxy agent cache (simplified — stores proxy URL).
-static PROXY_CACHE: Lazy<Mutex<HashMap<String, String>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static PROXY_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Clear proxy agent cache.
 pub fn clear_proxy_cache() {

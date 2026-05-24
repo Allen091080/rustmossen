@@ -3,18 +3,17 @@
 //! 翻译自 `services/api/errors.ts` (1240行)
 //! 提供 API 错误到用户消息的转换、错误分类、重试分类。
 
-use regex::Regex;
-use std::sync::LazyLock;
 use super::error_utils::{extract_connection_error_details, format_api_error};
 use super::sdk::MossenAPIError;
+use regex::Regex;
+use std::sync::LazyLock;
 
 pub const API_ERROR_MESSAGE_PREFIX: &str = "API Error";
 pub const PROMPT_TOO_LONG_ERROR_MESSAGE: &str = "Prompt is too long";
 pub const CREDIT_BALANCE_TOO_LOW_ERROR_MESSAGE: &str = "Credit balance is too low";
 pub const INVALID_API_KEY_ERROR_MESSAGE: &str =
     "Authentication missing · Configure Mossen backend credentials";
-pub const INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL: &str =
-    "Invalid API key · Fix external API key";
+pub const INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL: &str = "Invalid API key · Fix external API key";
 pub const ORG_DISABLED_ERROR_MESSAGE_ENV_KEY_WITH_OAUTH: &str =
     "The configured provider API key belongs to a disabled organization · Unset it to use Mossen-managed backend credentials instead";
 pub const ORG_DISABLED_ERROR_MESSAGE_ENV_KEY: &str =
@@ -25,7 +24,7 @@ pub const CCR_AUTH_ERROR_MESSAGE: &str =
     "Authentication error · This may be a temporary network issue, please try again";
 pub const REPEATED_529_ERROR_MESSAGE: &str = "Repeated 529 Overloaded errors";
 pub const CUSTOM_OFF_SWITCH_MESSAGE: &str =
-    "Opus is experiencing high load, please use /model to switch to Sonnet";
+    "Max is experiencing high load, please use /model to switch to Balanced";
 pub const API_TIMEOUT_ERROR_MESSAGE: &str = "Request timed out";
 
 pub fn starts_with_api_error_prefix(text: &str) -> bool {
@@ -142,7 +141,7 @@ pub fn get_assistant_message_from_error(
         return AssistantErrorMessage::new(API_TIMEOUT_ERROR_MESSAGE, Some("unknown"), None);
     }
 
-    // Check for emergency capacity off switch for Opus PAYG users
+    // Check for emergency capacity off switch for Max PAYG users
     if message.contains(CUSTOM_OFF_SWITCH_MESSAGE) {
         return AssistantErrorMessage::new(CUSTOM_OFF_SWITCH_MESSAGE, Some("rate_limit"), None);
     }
@@ -157,7 +156,10 @@ pub fn get_assistant_message_from_error(
                 "run /extra-usage to enable, or /model to switch to standard context"
             };
             return AssistantErrorMessage::new(
-                &format!("{}: Extra usage is required for 1M context · {}", API_ERROR_MESSAGE_PREFIX, hint),
+                &format!(
+                    "{}: Extra usage is required for 1M context · {}",
+                    API_ERROR_MESSAGE_PREFIX, hint
+                ),
                 Some("rate_limit"),
                 None,
             );
@@ -241,7 +243,8 @@ pub fn get_assistant_message_from_error(
 
     // Tool use/result concurrency error
     if status == 400
-        && message.contains("`tool_use` ids were found without `tool_result` blocks immediately after")
+        && message
+            .contains("`tool_use` ids were found without `tool_result` blocks immediately after")
     {
         let base_message = "API Error: 400 due to tool use concurrency issues.";
         let rewind_instruction = if ctx.is_non_interactive {
@@ -283,7 +286,11 @@ pub fn get_assistant_message_from_error(
     }
 
     // Organization disabled
-    if status == 400 && message.to_lowercase().contains("organization has been disabled") {
+    if status == 400
+        && message
+            .to_lowercase()
+            .contains("organization has been disabled")
+    {
         return AssistantErrorMessage::new(
             ORG_DISABLED_ERROR_MESSAGE_ENV_KEY,
             Some("invalid_request"),
@@ -334,7 +341,11 @@ pub fn get_assistant_message_from_error(
 
     // 404 Not Found
     if status == 404 {
-        let switch_cmd = if ctx.is_non_interactive { "--model" } else { "/model" };
+        let switch_cmd = if ctx.is_non_interactive {
+            "--model"
+        } else {
+            "/model"
+        };
         let content = format!(
             "There's an issue with the selected model ({}). It may not exist or you may not have access to it. Run {} to pick a different model.",
             model, switch_cmd
@@ -399,7 +410,10 @@ pub fn classify_api_error(error: &MossenAPIError) -> &'static str {
     }
 
     // Prompt/content size errors
-    if message.to_lowercase().contains(&PROMPT_TOO_LONG_ERROR_MESSAGE.to_lowercase()) {
+    if message
+        .to_lowercase()
+        .contains(&PROMPT_TOO_LONG_ERROR_MESSAGE.to_lowercase())
+    {
         return "prompt_too_long";
     }
 
@@ -429,7 +443,8 @@ pub fn classify_api_error(error: &MossenAPIError) -> &'static str {
 
     // Tool use errors (400)
     if status == 400
-        && message.contains("`tool_use` ids were found without `tool_result` blocks immediately after")
+        && message
+            .contains("`tool_use` ids were found without `tool_result` blocks immediately after")
     {
         return "tool_use_mismatch";
     }
@@ -632,7 +647,8 @@ pub fn get_authentication_failed_error_message(ctx: &ErrorMessageContext) -> Str
         return CCR_AUTH_ERROR_MESSAGE.to_string();
     }
     if ctx.is_hosted_subscriber {
-        return "Hosted subscriber authentication failed · Run /login to reauthenticate".to_string();
+        return "Hosted subscriber authentication failed · Run /login to reauthenticate"
+            .to_string();
     }
     INVALID_API_KEY_ERROR_MESSAGE.to_string()
 }
@@ -676,9 +692,7 @@ pub fn get_request_too_large_error_message_pub(ctx: &ErrorMessageContext) -> Str
 /// Detects model refusal responses; returns the user-facing message when the
 /// response embeds a `stop_reason: refusal`.
 pub fn get_error_message_if_refusal(raw: &str) -> Option<String> {
-    if raw.contains("\"stop_reason\":\"refusal\"")
-        || raw.contains("\"stop_reason\": \"refusal\"")
-    {
+    if raw.contains("\"stop_reason\":\"refusal\"") || raw.contains("\"stop_reason\": \"refusal\"") {
         Some("The model refused this request.".to_string())
     } else {
         None

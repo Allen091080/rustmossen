@@ -181,7 +181,12 @@ fn parse_env_vars(env: Option<&Vec<String>>) -> Result<HashMap<String, String>, 
 pub fn get_mcp_slash_add_plan(opts: GetSlashAddPlanInput) -> McpSlashAddPlanResult {
     prune_slash_add_plans(now_ms());
 
-    let server_name = match opts.server_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let server_name = match opts
+        .server_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => return Err(McpSlashAddPlanError::MissingServerName),
     };
@@ -204,7 +209,12 @@ pub fn get_mcp_slash_add_plan(opts: GetSlashAddPlanInput) -> McpSlashAddPlanResu
         }
     };
 
-    let command_or_url = match opts.command_or_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let command_or_url = match opts
+        .command_or_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => return Err(McpSlashAddPlanError::MissingCommand),
     };
@@ -339,10 +349,7 @@ fn new_slash_token() -> String {
 }
 
 /// `slashAddPlan.ts` `executeMcpSlashAddPlan`。
-pub async fn execute_mcp_slash_add_plan<F, Fut>(
-    token: &str,
-    install: F,
-) -> McpSlashAddPlanResult
+pub async fn execute_mcp_slash_add_plan<F, Fut>(token: &str, install: F) -> McpSlashAddPlanResult
 where
     F: FnOnce(McpSlashAddPlan) -> Fut,
     Fut: std::future::Future<Output = Result<(), String>>,
@@ -456,7 +463,12 @@ where
     Fut: std::future::Future<Output = Result<Option<(String, JsonValue)>, String>>,
 {
     prune_remote_plans(now_ms());
-    let identifier = match opts.identifier.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let identifier = match opts
+        .identifier
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => return Err(McpRemotePlanError::MissingIdentifier),
     };
@@ -473,12 +485,9 @@ where
         .map_err(|m| McpRemotePlanError::LookupFailed { message: m })?;
     let (server_name, config) = match lookup_result {
         Some(pair) => pair,
-        None => {
-            return Err(McpRemotePlanError::ServerNotFound { identifier })
-        }
+        None => return Err(McpRemotePlanError::ServerNotFound { identifier }),
     };
-    validate_server_config(&config)
-        .map_err(|m| McpRemotePlanError::InvalidConfig { reason: m })?;
+    validate_server_config(&config).map_err(|m| McpRemotePlanError::InvalidConfig { reason: m })?;
 
     let token = new_remote_token();
     let plan = McpRemoteInstallPlan {
@@ -617,10 +626,17 @@ pub struct GetTemplateInstallPlanInput {
 }
 
 /// `builtinTemplatePlan.ts` `getMcpTemplateInstallPlan`。
-pub fn get_mcp_template_install_plan(opts: GetTemplateInstallPlanInput) -> McpTemplateInstallResult {
+pub fn get_mcp_template_install_plan(
+    opts: GetTemplateInstallPlanInput,
+) -> McpTemplateInstallResult {
     prune_template_plans(now_ms());
 
-    let template_name = match opts.template_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let template_name = match opts
+        .template_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => return Err(McpTemplatePlanError::MissingTemplate),
     };
@@ -656,9 +672,7 @@ pub fn get_mcp_template_install_plan(opts: GetTemplateInstallPlanInput) -> McpTe
     }
     let config = config.expect("instantiate returned no config but no missing params");
 
-    let server_name = opts
-        .server_name
-        .unwrap_or_else(|| template_name.clone());
+    let server_name = opts.server_name.unwrap_or_else(|| template_name.clone());
     let token = new_template_token();
     let plan = McpTemplateInstallPlan {
         token: token.clone(),
@@ -881,7 +895,9 @@ pub fn get_localized_builtin_mcp_template_text(name: &str) -> LocalizedTemplateT
     match name {
         "filesystem-readonly" => LocalizedTemplateText {
             title: Some("文件系统只读".into()),
-            description: Some("用于本地 filesystem MCP server 的模板，仅暴露明确指定的只读根目录。".into()),
+            description: Some(
+                "用于本地 filesystem MCP server 的模板，仅暴露明确指定的只读根目录。".into(),
+            ),
             notes: vec![
                 "启用前必须把 <absolute-project-root> 替换成真实绝对路径。".into(),
                 "可写文件系统工具应放在另一个明确声明的 server 中。".into(),
@@ -905,9 +921,7 @@ pub fn get_localized_builtin_mcp_template_text(name: &str) -> LocalizedTemplateT
         },
         "playwright-local" => LocalizedTemplateText {
             title: Some("本地 Playwright 浏览器".into()),
-            description: Some(
-                "用于针对 localhost 或明确测试目标的本地浏览器自动化。".into(),
-            ),
+            description: Some("用于针对 localhost 或明确测试目标的本地浏览器自动化。".into()),
             notes: vec![
                 "这不是只读能力：浏览器动作可以点击、输入并改变本地应用。".into(),
                 "默认模板不应包含远程浏览或已登录站点。".into(),

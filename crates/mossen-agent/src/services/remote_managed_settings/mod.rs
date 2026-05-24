@@ -1,13 +1,13 @@
 //! Remote managed settings — syncs organization-managed settings from the server.
 
-pub mod types;
+pub mod security_check;
 pub mod sync_cache;
 pub mod sync_cache_state;
-pub mod security_check;
+pub mod types;
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
@@ -103,7 +103,10 @@ impl RemoteManagedSettingsService {
         let data = SyncCacheData {
             settings,
             etag,
-            last_modified: body.get("lastModified").and_then(|v| v.as_str()).map(String::from),
+            last_modified: body
+                .get("lastModified")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             version: body.get("version").and_then(|v| v.as_u64()),
         };
 

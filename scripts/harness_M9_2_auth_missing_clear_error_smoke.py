@@ -3,16 +3,16 @@
 M9.2 — Auth 缺失时报错明确指向 custom backend 配置, 不引导官方 hosted 登录。
 
 按 harness全链路测试.md §C.1 / §C.4 契约:
-  Mossen 是个人版 + custom backend, 用户不会去 claude.ai 登录。
+  Mossen 是个人版 + custom backend, 用户不会去 mossen.ai 登录。
   当 API key/auth token 缺失时:
     - 错误必须指向 MOSSEN_CODE_CUSTOM_API_KEY / MOSSEN_CODE_CUSTOM_BASE_URL 等
-    - 不得出现 "claude.ai/login", "Please login at", hosted OAuth 引导
+    - 不得出现 "mossen.ai/login", "Please login at", hosted OAuth 引导
 
   前置:
     - fixture HOME 隔离
     - 启用 custom backend (MOSSEN_CODE_USE_CUSTOM_BACKEND=1) + base url
     - 故意删除 MOSSEN_CODE_CUSTOM_API_KEY / MOSSEN_CODE_CUSTOM_AUTH_TOKEN
-    - 同时清空 ANTHROPIC_*, 防止 hosted 路径 fallback
+    - 同时清空 PROVIDER_*, 防止 hosted 路径 fallback
   步骤:
     mossen -p simple prompt
   观察点 (强契约):
@@ -22,9 +22,9 @@ M9.2 — Auth 缺失时报错明确指向 custom backend 配置, 不引导官方
        至少含一项: "MOSSEN_CODE_CUSTOM_API_KEY" / "MOSSEN_CODE_CUSTOM_AUTH_TOKEN"
        / "MOSSEN_CODE_CUSTOM_BASE_URL" / "custom backend"
     3. stderr/stdout 不含 hosted OAuth 引导:
-       禁止: "claude.ai/login", "Please login at claude", "anthropic.com/login"
+       禁止: "mossen.ai/login", "Please login at mossen", "provider.com/login"
   反测信号:
-    把 src/utils/preflightChecks.tsx 提示文案改为 "Please login at claude.ai"
+    把 src/utils/preflightChecks.tsx 提示文案改为 "Please login at mossen.ai"
     → 测试 fail (hosted 字面命中黑名单)
 """
 
@@ -54,11 +54,11 @@ EXPECTED_HINT_TOKENS = (
 
 # 禁止出现 (black-list, hosted OAuth 引导)
 FORBIDDEN_HOSTED_TOKENS = (
-    "claude.ai/login",
-    "Please login at claude",
-    "anthropic.com/login",
+    "mossen.ai/login",
+    "Please login at mossen",
+    "provider.com/login",
     "api.mossen.invalid",
-    "/login at claude",
+    "/login at mossen",
 )
 
 
@@ -178,7 +178,7 @@ def main() -> int:
         "design_note": (
             "M9.2 删 MOSSEN_CODE_CUSTOM_API_KEY+AUTH_TOKEN 后真启 mossen -p: "
             "必须出现 custom backend 配置 hint (MOSSEN_CODE_CUSTOM_*/'custom backend') "
-            "且不得出现 hosted OAuth 引导 (claude.ai/login 等)"
+            "且不得出现 hosted OAuth 引导 (mossen.ai/login 等)"
         ),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

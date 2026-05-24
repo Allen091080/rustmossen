@@ -44,14 +44,17 @@ pub const VERIFICATION_AGENT_TYPE: &str = "verification";
 pub const SHELL_TOOL_NAMES: &[&str] = &[BASH_TOOL_NAME];
 
 /// Tools disallowed for ALL agents.
-/// In TS, AGENT_TOOL_NAME is conditionally included based on USER_TYPE === 'ant'.
-pub fn all_agent_disallowed_tools(is_ant: bool, workflow_scripts_enabled: bool) -> HashSet<&'static str> {
+/// In TS, AGENT_TOOL_NAME is conditionally included based on USER_TYPE === 'internal'.
+pub fn all_agent_disallowed_tools(
+    is_internal: bool,
+    workflow_scripts_enabled: bool,
+) -> HashSet<&'static str> {
     let mut s = HashSet::new();
     s.insert(TASK_OUTPUT_TOOL_NAME);
     s.insert(EXIT_PLAN_MODE_V2_TOOL_NAME);
     s.insert(ENTER_PLAN_MODE_TOOL_NAME);
-    // Allow Agent tool for agents when user is ant (enables nested agents)
-    if !is_ant {
+    // Allow Agent tool for agents when user is internal (enables nested agents)
+    if !is_internal {
         s.insert(AGENT_TOOL_NAME);
     }
     s.insert(ASK_USER_QUESTION_TOOL_NAME);
@@ -64,8 +67,11 @@ pub fn all_agent_disallowed_tools(is_ant: bool, workflow_scripts_enabled: bool) 
 }
 
 /// Tools disallowed for custom agents (same as all agent disallowed).
-pub fn custom_agent_disallowed_tools(is_ant: bool, workflow_scripts_enabled: bool) -> HashSet<&'static str> {
-    all_agent_disallowed_tools(is_ant, workflow_scripts_enabled)
+pub fn custom_agent_disallowed_tools(
+    is_internal: bool,
+    workflow_scripts_enabled: bool,
+) -> HashSet<&'static str> {
+    all_agent_disallowed_tools(is_internal, workflow_scripts_enabled)
 }
 
 /// Async Agent Allowed Tools (source of truth).

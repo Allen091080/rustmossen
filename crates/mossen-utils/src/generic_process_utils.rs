@@ -54,10 +54,7 @@ pub async fn get_ancestor_pids_async(pid: u32, max_depth: usize) -> Vec<u32> {
             pid, max_depth
         );
 
-        let result = AsyncCommand::new("sh")
-            .args(["-c", &script])
-            .output()
-            .await;
+        let result = AsyncCommand::new("sh").args(["-c", &script]).output().await;
 
         match result {
             Ok(output) if output.status.success() => {
@@ -87,10 +84,7 @@ pub fn get_process_command(pid: u32) -> Option<String> {
         format!("ps -o command= -p {}", pid)
     };
 
-    let output = Command::new("sh")
-        .args(["-c", &command])
-        .output()
-        .ok()?;
+    let output = Command::new("sh").args(["-c", &command]).output().ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -123,7 +117,11 @@ pub async fn get_ancestor_commands_async(pid: u32, max_depth: usize) -> Vec<Stri
                 if stdout.is_empty() {
                     return Vec::new();
                 }
-                stdout.split('\0').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+                stdout
+                    .split('\0')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect()
             }
             _ => Vec::new(),
         }
@@ -133,10 +131,7 @@ pub async fn get_ancestor_commands_async(pid: u32, max_depth: usize) -> Vec<Stri
             pid, max_depth
         );
 
-        let result = AsyncCommand::new("sh")
-            .args(["-c", &script])
-            .output()
-            .await;
+        let result = AsyncCommand::new("sh").args(["-c", &script]).output().await;
 
         match result {
             Ok(output) if output.status.success() => {
@@ -144,7 +139,11 @@ pub async fn get_ancestor_commands_async(pid: u32, max_depth: usize) -> Vec<Stri
                 if stdout.is_empty() {
                     return Vec::new();
                 }
-                stdout.split('\0').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+                stdout
+                    .split('\0')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect()
             }
             _ => Vec::new(),
         }

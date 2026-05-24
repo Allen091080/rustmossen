@@ -15,6 +15,71 @@ pub use mossen_types::{
 };
 
 // ---------------------------------------------------------------------------
+// 权限模式
+// ---------------------------------------------------------------------------
+
+/// Session-scoped permission mode. Mirrors the public SDK string values while
+/// keeping the engine side strongly typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionMode {
+    Default,
+    AcceptEdits,
+    BypassPermissions,
+    Plan,
+    DontAsk,
+    Auto,
+    Yolo,
+}
+
+impl PermissionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AcceptEdits => "acceptEdits",
+            Self::BypassPermissions => "bypassPermissions",
+            Self::Plan => "plan",
+            Self::DontAsk => "dontAsk",
+            Self::Auto => "auto",
+            Self::Yolo => "yolo",
+        }
+    }
+
+    pub fn parse(raw: impl AsRef<str>) -> Self {
+        let normalized = raw
+            .as_ref()
+            .trim()
+            .chars()
+            .filter(|c| !matches!(c, '-' | '_' | ' ' | '\t'))
+            .flat_map(char::to_lowercase)
+            .collect::<String>();
+
+        match normalized.as_str() {
+            "acceptedits" => Self::AcceptEdits,
+            "bypasspermissions" | "bypass" | "fullauto" => Self::BypassPermissions,
+            "plan" | "readonly" | "read" => Self::Plan,
+            "dontask" | "dontprompt" | "neverask" => Self::DontAsk,
+            "auto" => Self::Auto,
+            "yolo" => Self::Yolo,
+            "default" | "supervised" | "suggest" | "ask" | "" => Self::Default,
+            _ => Self::Default,
+        }
+    }
+}
+
+impl Default for PermissionMode {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl std::fmt::Display for PermissionMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 对话规格（QueryParams → DialogueSpec）
 // ---------------------------------------------------------------------------
 
@@ -59,6 +124,10 @@ pub struct DialogueSpec {
     pub auto_mode: bool,
     /// 预付权限列表。
     pub pre_approved_permissions: Vec<String>,
+    /// Session permission mode applied before the interactive gate. Modes like
+    /// `bypassPermissions`, `plan`, and `dontAsk` can decide a tool-use without
+    /// opening a UI prompt; `default` falls through to `permission_gate`.
+    pub permission_mode: PermissionMode,
     /// Permission gate — consulted before each tool invocation. The engine
     /// calls `check()` with the tool name, id, and input JSON; the gate
     /// returns `Allow`, `AllowAlways`, or `Deny`. `AllowAllGate` is the
@@ -74,17 +143,30 @@ pub struct DialogueSpec {
 /// User decision on a tool-use permission request. `AllowAlways` is
 /// session-scoped (the gate may persist it as an `AllowAllow` rule but the
 /// engine itself just sees it as `Allow`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionDecision {
     Allow,
     AllowAlways,
+    AllowWithUpdatedInput { updated_input: serde_json::Value },
     Deny,
 }
 
 impl PermissionDecision {
     /// Convenience predicate: `Allow` or `AllowAlways`.
-    pub fn is_allowed(self) -> bool {
-        matches!(self, PermissionDecision::Allow | PermissionDecision::AllowAlways)
+    pub fn is_allowed(&self) -> bool {
+        matches!(
+            self,
+            PermissionDecision::Allow
+                | PermissionDecision::AllowAlways
+                | PermissionDecision::AllowWithUpdatedInput { .. }
+        )
+    }
+
+    pub fn updated_input(&self) -> Option<&serde_json::Value> {
+        match self {
+            PermissionDecision::AllowWithUpdatedInput { updated_input } => Some(updated_input),
+            _ => None,
+        }
     }
 }
 
@@ -134,8 +216,8 @@ impl PermissionGate for AllowAllGate {
 
 /// Interactive gate — forwards each tool-use to a channel the UI drains.
 /// Once a `PermissionRequest` is sent, the gate blocks on `responder` until
-/// the UI replies. `pre_approved` keeps a session-scoped set of tool names
-/// that bypass the channel (after the user clicks "Allow Always").
+/// the UI replies. `pre_approved` keeps session-scoped rule keys that bypass
+/// the channel after the user clicks "Allow Always".
 pub struct InteractiveGate {
     request_tx: tokio::sync::mpsc::Sender<PermissionRequest>,
     pre_approved: tokio::sync::RwLock<std::collections::HashSet<String>>,
@@ -167,8 +249,10 @@ impl PermissionGate for InteractiveGate {
         tool_id: &str,
         input: &serde_json::Value,
     ) -> PermissionDecision {
-        // Fast-path: tool was previously "Allow Always"-ed in this session.
-        if self.pre_approved.read().await.contains(tool_name) {
+        let session_rule_key = interactive_gate_session_rule_key(tool_name, input);
+
+        // Fast-path: this session rule was previously "Allow Always"-ed.
+        if self.pre_approved.read().await.contains(&session_rule_key) {
             return PermissionDecision::Allow;
         }
 
@@ -188,14 +272,44 @@ impl PermissionGate for InteractiveGate {
 
         match rx.await {
             Ok(decision) => {
-                if matches!(decision, PermissionDecision::AllowAlways) {
-                    self.pre_approved.write().await.insert(tool_name.to_string());
+                if matches!(&decision, PermissionDecision::AllowAlways) {
+                    self.pre_approved.write().await.insert(session_rule_key);
                 }
                 decision
             }
             Err(_) => PermissionDecision::Deny,
         }
     }
+}
+
+fn interactive_gate_session_rule_key(tool_name: &str, input: &serde_json::Value) -> String {
+    let clean_tool_name = interactive_gate_rule_text(tool_name);
+    if let Some(command) = interactive_gate_shell_command_rule(tool_name, input) {
+        return format!("command:{clean_tool_name}:{command}");
+    }
+    format!("tool:{clean_tool_name}")
+}
+
+fn interactive_gate_shell_command_rule(
+    tool_name: &str,
+    input: &serde_json::Value,
+) -> Option<String> {
+    if !matches!(tool_name, "Bash" | "PowerShell" | "Execute") {
+        return None;
+    }
+    input
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .map(interactive_gate_rule_text)
+        .filter(|command| !command.is_empty())
+}
+
+fn interactive_gate_rule_text(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| !ch.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// 系统提示块。
@@ -343,6 +457,8 @@ pub enum ContinueReason {
     MaxOutputTokensRecovery { attempt: u32 },
     /// 站点 5：action promise 恢复。
     ActionPromiseRecovery,
+    /// 工具结果后的模型空响应恢复。
+    EmptyResponseRecovery { attempt: u32 },
     /// 站点 6：stop hook 阻塞后重试。
     StopHookBlocking,
     /// 站点 7：token budget 自动续行。
@@ -421,7 +537,10 @@ pub struct ThinkingConfig {
 
 /// 会话编排器 yield 的消息类型。
 ///
-/// 对应 TS `SDKMessage` 联合类型。
+/// 对应 TS `SDKMessage` 联合类型。每个变体都包含一个可选的 `task_id`
+/// 字段：`None` = 主 agent 消息，`Some(id)` = 子 agent 消息。
+/// 该字段使用 serde default 确保前后兼容 —— 旧版序列化的消息不含
+/// `task_id` 时自动解析为 `None`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SdkMessage {
@@ -431,6 +550,9 @@ pub enum SdkMessage {
         session_id: String,
         model: String,
         tools: Vec<String>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
     /// 助手消息。
     #[serde(rename = "assistant")]
@@ -438,13 +560,26 @@ pub enum SdkMessage {
         message: AssistantMessage,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<ApiUsage>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
     /// 用户消息回放。
     #[serde(rename = "user")]
-    User { message: UserMessage },
+    User {
+        message: UserMessage,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
     /// 流式事件。
     #[serde(rename = "stream_event")]
-    StreamEvent { event: StreamEventData },
+    StreamEvent {
+        event: StreamEventData,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
     /// 结果消息。
     #[serde(rename = "result")]
     Result {
@@ -455,11 +590,17 @@ pub enum SdkMessage {
         duration_ms: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<ApiUsage>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
     /// 工具使用摘要。
     #[serde(rename = "tool_use_summary")]
     ToolUseSummary {
         tool_name: String,
+        /// Stable id of the `ToolUseBlock` this result summarizes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
         /// Truncated preview (≤ ~600 chars) shown in the collapsed
         /// ToolResult row.
         summary: String,
@@ -468,12 +609,65 @@ pub enum SdkMessage {
         /// preview already is the full content (no truncation happened).
         #[serde(skip_serializing_if = "Option::is_none")]
         full_content: Option<String>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
     /// 压缩边界。
     #[serde(rename = "compact_boundary")]
     CompactBoundary {
         before_token_count: u64,
         after_token_count: u64,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
+    /// Compact control request status.
+    #[serde(rename = "compact_request_status")]
+    CompactRequestStatus {
+        request_id: String,
+        status: CompactRequestStatus,
+        dry_run: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before_token_count: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after_token_count: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_count_before: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_count_after: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        compacted_message_count: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
+    /// Conversation clear boundary.
+    #[serde(rename = "conversation_cleared")]
+    ConversationCleared {
+        message_count_before: u64,
+        message_count_after: u64,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
+    /// Clear control request status.
+    #[serde(rename = "clear_request_status")]
+    ClearRequestStatus {
+        request_id: String,
+        status: ClearRequestStatus,
+        dry_run: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_count_before: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_count_after: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
     /// API 重试通知。
     #[serde(rename = "api_retry")]
@@ -482,7 +676,70 @@ pub enum SdkMessage {
         attempt: u32,
         max_retries: u32,
         retry_in_ms: u64,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
     },
+}
+
+impl SdkMessage {
+    /// Extract the optional task_id from any variant.
+    /// None = main agent, Some(id) = sub-agent message.
+    pub fn task_id(&self) -> Option<&str> {
+        match self {
+            SdkMessage::SystemInit { task_id, .. } => task_id.as_deref(),
+            SdkMessage::Assistant { task_id, .. } => task_id.as_deref(),
+            SdkMessage::User { task_id, .. } => task_id.as_deref(),
+            SdkMessage::StreamEvent { task_id, .. } => task_id.as_deref(),
+            SdkMessage::Result { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ToolUseSummary { task_id, .. } => task_id.as_deref(),
+            SdkMessage::CompactBoundary { task_id, .. } => task_id.as_deref(),
+            SdkMessage::CompactRequestStatus { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ConversationCleared { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ClearRequestStatus { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ApiRetry { task_id, .. } => task_id.as_deref(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactRequestStatus {
+    TimedOut,
+    DryRun,
+    Completed,
+    Skipped,
+    Failed,
+}
+
+impl CompactRequestStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CompactRequestStatus::TimedOut => "timed_out",
+            CompactRequestStatus::DryRun => "dry_run",
+            CompactRequestStatus::Completed => "completed",
+            CompactRequestStatus::Skipped => "skipped",
+            CompactRequestStatus::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClearRequestStatus {
+    TimedOut,
+    DryRun,
+    Completed,
+}
+
+impl ClearRequestStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ClearRequestStatus::TimedOut => "timed_out",
+            ClearRequestStatus::DryRun => "dry_run",
+            ClearRequestStatus::Completed => "completed",
+        }
+    }
 }
 
 /// 流式事件数据。
@@ -674,6 +931,8 @@ pub struct OrchestratorConfig {
     pub auto_mode: bool,
     /// 额外请求体。
     pub extra_body: HashMap<String, serde_json::Value>,
+    /// Session permission mode.
+    pub permission_mode: PermissionMode,
     /// Optional permission gate. `None` falls through to `AllowAllGate` so
     /// existing callers (oneshot / SDK / tests) keep their previous open
     /// semantics; the interactive REPL sets this to an `InteractiveGate`
@@ -696,6 +955,8 @@ pub struct SubmitOptions {
     pub additional_messages: Vec<Message>,
     /// 最大轮次。
     pub max_turns: Option<u32>,
+    /// Optional caller-owned cancellation token for this turn.
+    pub cancel_token: Option<CancellationToken>,
     /// Extra blocks (e.g. images) folded into the user message after
     /// the text block. Lets multimodal turns ship through the same
     /// `dispatch_turn` entry point as text-only turns.
@@ -711,6 +972,10 @@ pub struct SubmitOptions {
 pub struct PromptParams {
     /// 用户提示内容。
     pub prompt: String,
+    /// Conversation messages that should precede the new user prompt.
+    /// The TUI keeps this trimmed through `/compact`; non-interactive
+    /// callers leave it empty.
+    pub history_messages: Vec<Message>,
     /// Extra content blocks (images, etc.) the engine should append to
     /// the user message *after* the text block. Used by the TUI's
     /// Ctrl+V paste handler to ship `ContentBlock::Image` to the
@@ -729,12 +994,16 @@ pub struct PromptParams {
     pub origin_tag: OriginTag,
     /// 最大轮次。
     pub max_turns: Option<u32>,
+    /// Optional caller-owned cancellation token for this turn.
+    pub cancel_token: Option<CancellationToken>,
     /// API 基础 URL。
     pub api_base_url: Option<String>,
     /// API 密钥。
     pub api_key: Option<String>,
     /// 额外请求体。
     pub extra_body: HashMap<String, serde_json::Value>,
+    /// Session permission mode.
+    pub permission_mode: PermissionMode,
     /// Optional permission gate forwarded to the orchestrator. The TUI uses
     /// this to inject an `InteractiveGate` whose `check()` opens a modal;
     /// non-interactive callers leave it `None` to fall through to
@@ -805,4 +1074,117 @@ pub enum MicrocompactStrategy {
     CacheEditing { tool_ids_to_delete: Vec<String> },
     /// 不执行微压缩。
     None,
+}
+
+#[cfg(test)]
+mod permission_gate_tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn interactive_gate_allow_always_is_scoped_to_exact_shell_command() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let gate = Arc::new(InteractiveGate::new(tx));
+        let first_gate = gate.clone();
+        let first = tokio::spawn(async move {
+            first_gate
+                .check(
+                    "Bash",
+                    "tool-1",
+                    &serde_json::json!({ "command": "cargo test -q" }),
+                )
+                .await
+        });
+
+        let first_request = rx.recv().await.expect("first permission request");
+        assert_eq!(first_request.tool_name, "Bash");
+        assert_eq!(first_request.input["command"], "cargo test -q");
+        first_request
+            .responder
+            .send(PermissionDecision::AllowAlways)
+            .expect("send first decision");
+        assert_eq!(
+            first.await.expect("first permission task"),
+            PermissionDecision::AllowAlways
+        );
+
+        let second = gate
+            .check(
+                "Bash",
+                "tool-2",
+                &serde_json::json!({ "command": "cargo test -q" }),
+            )
+            .await;
+        assert_eq!(second, PermissionDecision::Allow);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+                .await
+                .is_err(),
+            "same shell command should not prompt again after session approval"
+        );
+
+        let different_gate = gate.clone();
+        let different = tokio::spawn(async move {
+            different_gate
+                .check(
+                    "Bash",
+                    "tool-3",
+                    &serde_json::json!({ "command": "cargo check -q" }),
+                )
+                .await
+        });
+        let different_request = rx.recv().await.expect("different permission request");
+        assert_eq!(different_request.input["command"], "cargo check -q");
+        different_request
+            .responder
+            .send(PermissionDecision::Deny)
+            .expect("send different decision");
+        assert_eq!(
+            different.await.expect("different permission task"),
+            PermissionDecision::Deny
+        );
+    }
+
+    #[tokio::test]
+    async fn interactive_gate_allow_always_falls_back_to_tool_scope_without_shell_command() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let gate = Arc::new(InteractiveGate::new(tx));
+        let first_gate = gate.clone();
+        let first = tokio::spawn(async move {
+            first_gate
+                .check(
+                    "Read",
+                    "tool-1",
+                    &serde_json::json!({ "file_path": "a.rs" }),
+                )
+                .await
+        });
+
+        let first_request = rx.recv().await.expect("first permission request");
+        assert_eq!(first_request.tool_name, "Read");
+        first_request
+            .responder
+            .send(PermissionDecision::AllowAlways)
+            .expect("send first decision");
+        assert_eq!(
+            first.await.expect("first permission task"),
+            PermissionDecision::AllowAlways
+        );
+
+        let second = gate
+            .check(
+                "Read",
+                "tool-2",
+                &serde_json::json!({ "file_path": "b.rs" }),
+            )
+            .await;
+        assert_eq!(second, PermissionDecision::Allow);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+                .await
+                .is_err(),
+            "non-shell fallback tool rule should not prompt again in the same session"
+        );
+    }
 }

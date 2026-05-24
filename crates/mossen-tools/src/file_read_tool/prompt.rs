@@ -77,7 +77,11 @@ pub fn build_read_tool_prompt() -> String {
     } else {
         OFFSET_INSTRUCTION_DEFAULT
     };
-    render_prompt_template(LINE_FORMAT_INSTRUCTION, &max_size_instruction, offset_instruction)
+    render_prompt_template(
+        LINE_FORMAT_INSTRUCTION,
+        &max_size_instruction,
+        offset_instruction,
+    )
 }
 
 /// Format file size for human display.

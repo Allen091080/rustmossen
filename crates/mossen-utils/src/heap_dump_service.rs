@@ -4,7 +4,7 @@
 //! and analyzing potential memory leaks.
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::fs;
 
 /// Result of a heap dump operation.

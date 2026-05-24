@@ -1,10 +1,7 @@
 //! Consolidation prompt — prompt template for the memory consolidation agent.
 
 /// Build the consolidation prompt for the auto-dream agent.
-pub fn build_consolidation_prompt(
-    memory_files: &[(String, String)],
-    max_files: usize,
-) -> String {
+pub fn build_consolidation_prompt(memory_files: &[(String, String)], max_files: usize) -> String {
     let file_list = memory_files
         .iter()
         .take(max_files)

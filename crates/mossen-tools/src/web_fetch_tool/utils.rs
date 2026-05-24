@@ -108,7 +108,11 @@ fn parse_url(input: &str) -> Option<ParsedUrl> {
             Some(i) => {
                 let h = host_port[..i].to_string();
                 let p = host_port[i + 1..].parse().ok();
-                if p.is_some() { (h, p) } else { (host_port.to_string(), None) }
+                if p.is_some() {
+                    (h, p)
+                } else {
+                    (host_port.to_string(), None)
+                }
             }
             None => (host_port.to_string(), None),
         }
@@ -136,8 +140,14 @@ fn port_or_default(p: &ParsedUrl) -> Option<u16> {
 
 /// `utils.ts` `isPreapprovedUrl`。
 pub fn is_preapproved_url(url: &str) -> bool {
-    let Some(p) = parse_url(url) else { return false; };
-    let path = if p.path.is_empty() { "/" } else { p.path.as_str() };
+    let Some(p) = parse_url(url) else {
+        return false;
+    };
+    let path = if p.path.is_empty() {
+        "/"
+    } else {
+        p.path.as_str()
+    };
     is_preapproved_host(&p.host, path)
 }
 
@@ -146,7 +156,9 @@ pub fn validate_url(url: &str) -> bool {
     if url.len() > MAX_URL_LENGTH {
         return false;
     }
-    let Some(p) = parse_url(url) else { return false; };
+    let Some(p) = parse_url(url) else {
+        return false;
+    };
     if !p.username.is_empty() || p.password.is_some() {
         return false;
     }
@@ -191,8 +203,12 @@ pub fn record_domain_check_allowed(domain: &str) {
 
 /// `utils.ts` `isPermittedRedirect`。
 pub fn is_permitted_redirect(original: &str, redirect: &str) -> bool {
-    let Some(o) = parse_url(original) else { return false; };
-    let Some(r) = parse_url(redirect) else { return false; };
+    let Some(o) = parse_url(original) else {
+        return false;
+    };
+    let Some(r) = parse_url(redirect) else {
+        return false;
+    };
     if o.scheme != r.scheme {
         return false;
     }
@@ -241,7 +257,10 @@ pub enum FetchOutcome {
 pub fn record_fetched_content(url: &str, content: FetchedContent) {
     url_cache().lock().unwrap().insert(
         url.to_string(),
-        UrlCacheEntry { inserted_at: Instant::now(), content },
+        UrlCacheEntry {
+            inserted_at: Instant::now(),
+            content,
+        },
     );
 }
 
@@ -268,7 +287,12 @@ pub fn domain_check_cached(domain: &str) -> bool {
 
 /// 已注册的允许域名快照（仅供测试/诊断使用）。
 pub fn allowed_domain_snapshot() -> HashSet<String> {
-    domain_check_cache().lock().unwrap().keys().cloned().collect()
+    domain_check_cache()
+        .lock()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +312,11 @@ pub async fn get_with_permitted_redirects(
         .map_err(|e| e.to_string())?;
 
     loop {
-        let resp = client.get(&current).send().await.map_err(|e| e.to_string())?;
+        let resp = client
+            .get(&current)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let status = resp.status();
         if status.is_redirection() {
             if hops >= max_redirects {

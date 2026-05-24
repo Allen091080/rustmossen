@@ -9,15 +9,37 @@ pub struct VoiceEnabledState {
 }
 
 impl VoiceEnabledState {
-    pub fn new() -> Self { Self { enabled: false, available: false, reason_disabled: None } }
-    pub fn check_availability(&mut self, has_microphone: bool, feature_flag: bool, settings_enabled: bool) {
+    pub fn new() -> Self {
+        Self {
+            enabled: false,
+            available: false,
+            reason_disabled: None,
+        }
+    }
+    pub fn check_availability(
+        &mut self,
+        has_microphone: bool,
+        feature_flag: bool,
+        settings_enabled: bool,
+    ) {
         self.available = has_microphone && feature_flag;
         self.enabled = self.available && settings_enabled;
-        if !has_microphone { self.reason_disabled = Some("No microphone detected".to_string()); }
-        else if !feature_flag { self.reason_disabled = Some("Voice feature not available".to_string()); }
-        else if !settings_enabled { self.reason_disabled = Some("Voice disabled in settings".to_string()); }
-        else { self.reason_disabled = None; }
+        if !has_microphone {
+            self.reason_disabled = Some("No microphone detected".to_string());
+        } else if !feature_flag {
+            self.reason_disabled = Some("Voice feature not available".to_string());
+        } else if !settings_enabled {
+            self.reason_disabled = Some("Voice disabled in settings".to_string());
+        } else {
+            self.reason_disabled = None;
+        }
     }
-    pub fn is_usable(&self) -> bool { self.enabled && self.available }
+    pub fn is_usable(&self) -> bool {
+        self.enabled && self.available
+    }
 }
-impl Default for VoiceEnabledState { fn default() -> Self { Self::new() } }
+impl Default for VoiceEnabledState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

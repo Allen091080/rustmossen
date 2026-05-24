@@ -1,7 +1,7 @@
 //! EnvOverrideProvider — env-based configuration override (priority 1).
 //!
 //! Reads MOSSEN_CONFIG_OVERRIDES (preferred) or MOSSEN_INTERNAL_FC_OVERRIDES (deprecated).
-//! Content is a JSON object with mossen.* or tengu_* keys.
+//! Content is a JSON object with mossen.* or mossen_* keys.
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;

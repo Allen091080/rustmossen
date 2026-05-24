@@ -214,7 +214,11 @@ pub async fn install_plugin_op(
         };
     }
 
-    info!("Installed plugin: {} (scope: {})", plugin_id, scope.as_str());
+    info!(
+        "Installed plugin: {} (scope: {})",
+        plugin_id,
+        scope.as_str()
+    );
     PluginOperationResult {
         success: true,
         message: format!(
@@ -382,9 +386,7 @@ pub async fn set_plugin_enabled_op(
 }
 
 /// Disable all enabled plugins
-pub async fn disable_all_plugins_op(
-    ctx: &dyn PluginOperationsContext,
-) -> PluginOperationResult {
+pub async fn disable_all_plugins_op(ctx: &dyn PluginOperationsContext) -> PluginOperationResult {
     // Get all enabled plugins from settings
     let user_settings = ctx.get_settings_for_source("userSettings");
     let mut disabled_count = 0u32;
@@ -394,9 +396,13 @@ pub async fn disable_all_plugins_op(
             if let Some(obj) = enabled_plugins.as_object() {
                 for (plugin_id, value) in obj {
                     if value.as_bool() == Some(true) {
-                        let result =
-                            set_plugin_enabled_op(plugin_id, false, Some(InstallableScope::User), ctx)
-                                .await;
+                        let result = set_plugin_enabled_op(
+                            plugin_id,
+                            false,
+                            Some(InstallableScope::User),
+                            ctx,
+                        )
+                        .await;
                         if result.success {
                             disabled_count += 1;
                         }
@@ -493,4 +499,154 @@ pub fn get_plugin_installation_from_v2(v2: &serde_json::Value) -> Option<serde_j
         "version": v2.get("version"),
         "enabled": v2.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MockPluginContext {
+        settings: Mutex<HashMap<String, HashMap<String, serde_json::Value>>>,
+        builtins: HashSet<String>,
+        blocked: HashSet<String>,
+    }
+
+    impl MockPluginContext {
+        fn with_blocked(blocked: &[&str]) -> Self {
+            Self {
+                blocked: blocked.iter().map(|item| item.to_string()).collect(),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl PluginOperationsContext for MockPluginContext {
+        fn get_original_cwd(&self) -> PathBuf {
+            PathBuf::from("/tmp/mossen-plugin-test")
+        }
+
+        fn is_builtin_plugin_id(&self, id: &str) -> bool {
+            self.builtins.contains(id)
+        }
+
+        fn get_settings_for_source(
+            &self,
+            source: &str,
+        ) -> Option<HashMap<String, serde_json::Value>> {
+            self.settings.lock().unwrap().get(source).cloned()
+        }
+
+        fn update_settings_for_source(
+            &self,
+            source: &str,
+            settings: HashMap<String, serde_json::Value>,
+        ) -> Result<(), String> {
+            let mut all_settings = self.settings.lock().unwrap();
+            let source_settings = all_settings.entry(source.to_string()).or_default();
+
+            for (key, value) in settings {
+                if key == "enabledPlugins" {
+                    let enabled = source_settings
+                        .entry(key)
+                        .or_insert_with(|| serde_json::json!({}));
+                    let Some(enabled_obj) = enabled.as_object_mut() else {
+                        return Err("enabledPlugins is not an object".to_string());
+                    };
+                    let Some(update_obj) = value.as_object() else {
+                        return Err("enabledPlugins update is not an object".to_string());
+                    };
+                    for (plugin_id, update) in update_obj {
+                        if update.is_null() {
+                            enabled_obj.remove(plugin_id);
+                        } else {
+                            enabled_obj.insert(plugin_id.clone(), update.clone());
+                        }
+                    }
+                } else {
+                    source_settings.insert(key, value);
+                }
+            }
+
+            Ok(())
+        }
+
+        fn is_plugin_blocked_by_policy(&self, plugin_id: &str) -> bool {
+            self.blocked.contains(plugin_id)
+        }
+    }
+
+    fn enabled_value(
+        ctx: &MockPluginContext,
+        source: &str,
+        plugin_id: &str,
+    ) -> Option<serde_json::Value> {
+        ctx.get_settings_for_source(source)
+            .and_then(|settings| settings.get("enabledPlugins").cloned())
+            .and_then(|enabled| enabled.get(plugin_id).cloned())
+    }
+
+    #[tokio::test]
+    async fn plugin_install_enable_disable_uninstall_updates_settings() {
+        let ctx = MockPluginContext::default();
+
+        let installed =
+            install_plugin_op("demo@local-market", InstallableScope::Project, &ctx).await;
+        assert!(installed.success);
+        assert_eq!(installed.plugin_id.as_deref(), Some("demo@local-market"));
+        assert_eq!(installed.scope.as_deref(), Some("project"));
+        assert_eq!(
+            enabled_value(&ctx, "projectSettings", "demo@local-market"),
+            Some(serde_json::json!(true))
+        );
+
+        let disabled =
+            disable_plugin_op("demo@local-market", Some(InstallableScope::Project), &ctx).await;
+        assert!(disabled.success);
+        assert_eq!(
+            enabled_value(&ctx, "projectSettings", "demo@local-market"),
+            Some(serde_json::json!(false))
+        );
+
+        let enabled =
+            enable_plugin_op("demo@local-market", Some(InstallableScope::Project), &ctx).await;
+        assert!(enabled.success);
+        assert_eq!(
+            enabled_value(&ctx, "projectSettings", "demo@local-market"),
+            Some(serde_json::json!(true))
+        );
+
+        let uninstalled =
+            uninstall_plugin_op("demo@local-market", InstallableScope::Project, true, &ctx).await;
+        assert!(uninstalled.success);
+        assert_eq!(
+            enabled_value(&ctx, "projectSettings", "demo@local-market"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn plugin_policy_block_prevents_install_and_enable() {
+        let ctx = MockPluginContext::with_blocked(&["blocked@official"]);
+
+        let installed = install_plugin_op("blocked@official", InstallableScope::User, &ctx).await;
+        assert!(!installed.success);
+        assert!(installed.message.contains("blocked"));
+        assert_eq!(
+            enabled_value(&ctx, "userSettings", "blocked@official"),
+            None
+        );
+
+        let enabled =
+            enable_plugin_op("blocked@official", Some(InstallableScope::User), &ctx).await;
+        assert!(!enabled.success);
+        assert!(enabled.message.contains("blocked"));
+        assert_eq!(
+            enabled_value(&ctx, "userSettings", "blocked@official"),
+            None
+        );
+    }
 }

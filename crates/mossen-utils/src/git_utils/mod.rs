@@ -1,15 +1,11 @@
 //! Git utilities — translated from utils/git/
 //! Covers: git config parsing, filesystem-based git state reading, gitignore operations
 
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use std::sync::Arc;
 use anyhow::Result;
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use regex::Regex;
+use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::error;
 
 // --- Git Config Parser (from gitConfigParser.ts) ---
 
@@ -153,7 +149,12 @@ fn matches_section_header(line: &str, section_lower: &str, subsection: Option<&s
     let mut i = 1; // skip '['
 
     // Read section name
-    while i < chars.len() && chars[i] != ']' && chars[i] != ' ' && chars[i] != '\t' && chars[i] != '"' {
+    while i < chars.len()
+        && chars[i] != ']'
+        && chars[i] != ' '
+        && chars[i] != '\t'
+        && chars[i] != '"'
+    {
         i += 1;
     }
     let found_section: String = chars[1..i].iter().collect::<String>().to_lowercase();
@@ -217,17 +218,11 @@ fn is_key_char(ch: char) -> bool {
 
 // --- Git Filesystem (from gitFilesystem.ts) ---
 
-static SAFE_REF_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[a-zA-Z0-9/._+@-]+$").unwrap()
-});
+static SAFE_REF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9/._+@-]+$").unwrap());
 
-static SHA1_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[0-9a-f]{40}$").unwrap()
-});
+static SHA1_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9a-f]{40}$").unwrap());
 
-static SHA256_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[0-9a-f]{64}$").unwrap()
-});
+static SHA256_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[0-9a-f]{64}$").unwrap());
 
 /// Validate that a ref/branch name is safe to use
 pub fn is_safe_ref_name(name: &str) -> bool {
@@ -301,7 +296,9 @@ pub async fn read_git_head(git_dir: &Path) -> Option<GitHeadState> {
             if !is_safe_ref_name(name) {
                 return None;
             }
-            return Some(GitHeadState::Branch { name: name.to_string() });
+            return Some(GitHeadState::Branch {
+                name: name.to_string(),
+            });
         }
         // Unusual symref — resolve to SHA
         if !is_safe_ref_name(ref_path) {
@@ -315,7 +312,9 @@ pub async fn read_git_head(git_dir: &Path) -> Option<GitHeadState> {
     if !is_valid_git_sha(content) {
         return None;
     }
-    Some(GitHeadState::Detached { sha: content.to_string() })
+    Some(GitHeadState::Detached {
+        sha: content.to_string(),
+    })
 }
 
 /// Resolve a git ref to a commit SHA
@@ -429,7 +428,9 @@ pub async fn is_shallow_clone(cwd: &Path) -> bool {
         Some(d) => d,
         None => return false,
     };
-    let common_dir = get_common_dir(&git_dir).await.unwrap_or_else(|| git_dir.clone());
+    let common_dir = get_common_dir(&git_dir)
+        .await
+        .unwrap_or_else(|| git_dir.clone());
     fs::metadata(common_dir.join("shallow")).await.is_ok()
 }
 
@@ -439,7 +440,9 @@ pub async fn get_worktree_count_from_fs(cwd: &Path) -> usize {
         Some(d) => d,
         None => return 0,
     };
-    let common_dir = get_common_dir(&git_dir).await.unwrap_or_else(|| git_dir.clone());
+    let common_dir = get_common_dir(&git_dir)
+        .await
+        .unwrap_or_else(|| git_dir.clone());
     match fs::read_dir(common_dir.join("worktrees")).await {
         Ok(mut entries) => {
             let mut count = 0;
@@ -513,7 +516,8 @@ pub async fn add_file_glob_rule_to_gitignore(filename: &str, cwd: &Path) -> Resu
                 .open(&global_gitignore_path)
                 .await?;
             use tokio::io::AsyncWriteExt;
-            file.write_all(format!("\n{}\n", gitignore_entry).as_bytes()).await?;
+            file.write_all(format!("\n{}\n", gitignore_entry).as_bytes())
+                .await?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             fs::write(&global_gitignore_path, format!("{}\n", gitignore_entry)).await?;

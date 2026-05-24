@@ -131,7 +131,7 @@ pub async fn truncate_content_blocks(
                     break;
                 }
             }
-            ContentBlock::Image { source } => {
+            ContentBlock::Image { source: _ } => {
                 let image_chars = IMAGE_TOKEN_ESTIMATE * 4;
                 if current_chars + image_chars <= max_chars {
                     result.push(block.clone());
@@ -209,8 +209,7 @@ pub async fn truncate_mcp_content(
             McpToolResult::Text(truncated + &truncation_msg)
         }
         McpToolResult::Blocks(blocks) => {
-            let mut truncated =
-                truncate_content_blocks(blocks, max_chars, compress_image_fn).await;
+            let mut truncated = truncate_content_blocks(blocks, max_chars, compress_image_fn).await;
             truncated.push(ContentBlock::Text {
                 text: truncation_msg,
             });
@@ -235,11 +234,7 @@ pub async fn truncate_mcp_content_if_needed(
 /// Trait for async image compression.
 #[async_trait::async_trait]
 pub trait AsyncCompressImage: Send + Sync {
-    async fn compress(
-        &self,
-        block: &ContentBlock,
-        max_bytes: u64,
-    ) -> anyhow::Result<ContentBlock>;
+    async fn compress(&self, block: &ContentBlock, max_bytes: u64) -> anyhow::Result<ContentBlock>;
 }
 
 /// Trait for async token counting.

@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
+use crate::string_utils::{safe_prefix_by_bytes, safe_suffix_by_bytes};
+
 /// Session metadata returned by listSessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,12 +62,10 @@ const READ_BATCH_SIZE: usize = 32;
 fn validate_uuid(s: &str) -> Option<String> {
     // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars)
     if s.len() == 36
-        && s.chars()
-            .enumerate()
-            .all(|(i, c)| match i {
-                8 | 13 | 18 | 23 => c == '-',
-                _ => c.is_ascii_hexdigit(),
-            })
+        && s.chars().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
     {
         Some(s.to_string())
     } else {
@@ -104,12 +104,20 @@ fn extract_last_json_string_field(text: &str, field: &str) -> Option<String> {
     let mut search_from = 0;
 
     loop {
-        let found = text[search_from..].find(&pattern).map(|i| (i + search_from, pattern.len()));
-        let found2 = text[search_from..].find(&pattern2).map(|i| (i + search_from, pattern2.len()));
+        let found = text[search_from..]
+            .find(&pattern)
+            .map(|i| (i + search_from, pattern.len()));
+        let found2 = text[search_from..]
+            .find(&pattern2)
+            .map(|i| (i + search_from, pattern2.len()));
 
         let (pos, pat_len) = match (found, found2) {
             (Some((a, al)), Some((b, bl))) => {
-                if a <= b { (a, al) } else { (b, bl) }
+                if a <= b {
+                    (a, al)
+                } else {
+                    (b, bl)
+                }
             }
             (Some(a), None) => a,
             (None, Some(b)) => b,
@@ -169,8 +177,8 @@ pub fn parse_session_info_from_lite(
     let git_branch = extract_last_json_string_field(tail, "gitBranch")
         .or_else(|| extract_json_string_field(head, "gitBranch"));
 
-    let session_cwd = extract_json_string_field(head, "cwd")
-        .or_else(|| project_path.map(|p| p.to_string()));
+    let session_cwd =
+        extract_json_string_field(head, "cwd").or_else(|| project_path.map(|p| p.to_string()));
 
     // Tag extraction scoped to {"type":"tag"} lines
     let tag = tail
@@ -261,12 +269,12 @@ async fn read_candidate(c: &Candidate) -> Option<SessionInfo> {
 
     // Read head (first 4KB) and tail (last 4KB)
     let head = if content.len() > 4096 {
-        &content[..4096]
+        safe_prefix_by_bytes(&content, 4096)
     } else {
         &content
     };
     let tail = if content.len() > 4096 {
-        &content[content.len().saturating_sub(4096)..]
+        safe_suffix_by_bytes(&content, 4096)
     } else {
         &content
     };

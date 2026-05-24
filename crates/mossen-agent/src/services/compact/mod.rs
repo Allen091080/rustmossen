@@ -3,6 +3,7 @@
 pub mod api_microcompact;
 pub mod auto_compact;
 pub mod compact;
+pub mod compact_warning_hook;
 pub mod compact_warning_state;
 pub mod grouping;
 pub mod micro_compact;
@@ -11,7 +12,6 @@ pub mod post_compact_cleanup;
 pub mod prompt;
 pub mod session_memory_compact;
 pub mod time_based_mc_config;
-pub mod compact_warning_hook;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

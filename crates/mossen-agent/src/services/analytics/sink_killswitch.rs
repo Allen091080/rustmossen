@@ -21,7 +21,7 @@ impl SinkName {
 }
 
 /// Mangled config name for the per-sink killswitch.
-const SINK_KILLSWITCH_CONFIG_NAME: &str = "tengu_frond_boric";
+const SINK_KILLSWITCH_CONFIG_NAME: &str = "mossen_frond_boric";
 
 /// Trait for accessing dynamic config (GrowthBook).
 pub trait SinkKillswitchContext: Send + Sync {

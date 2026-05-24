@@ -48,7 +48,11 @@ impl Directive for RemoteEnvDirective {
             ));
         }
 
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /remote-env [subcommand]\n\n                 Manage remote environment variables.\n\n                 Subcommands:\n                   list             List configured remote env vars\n                   set KEY=VALUE    Set a remote env var\n                   unset KEY        Remove a remote env var"
                     .to_string(),
@@ -82,9 +86,7 @@ impl Directive for RemoteEnvDirective {
                         "Usage: /remote-env set KEY=VALUE".to_string(),
                     ));
                 }
-                Ok(CommandResult::System(format!(
-                    "Remote env set: {}", pair
-                )))
+                Ok(CommandResult::System(format!("Remote env set: {}", pair)))
             }
             Some("unset") => {
                 let key = args.get(1).unwrap_or(&"");
@@ -93,15 +95,12 @@ impl Directive for RemoteEnvDirective {
                         "Usage: /remote-env unset KEY".to_string(),
                     ));
                 }
-                Ok(CommandResult::System(format!(
-                    "Remote env unset: {}", key
-                )))
+                Ok(CommandResult::System(format!("Remote env unset: {}", key)))
             }
-            Some(unknown) => {
-                Ok(CommandResult::Error(format!(
-                    "Unknown subcommand: \"{}\". Use /remote-env help.", unknown
-                )))
-            }
+            Some(unknown) => Ok(CommandResult::Error(format!(
+                "Unknown subcommand: \"{}\". Use /remote-env help.",
+                unknown
+            ))),
         }
     }
 }

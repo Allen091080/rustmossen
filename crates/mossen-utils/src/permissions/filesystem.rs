@@ -6,17 +6,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf, MAIN_SEPARATOR};
-use std::sync::OnceLock;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::permission_result::{
-    AdditionalWorkingDirectory, PermissionAllowDecision, PermissionAskDecision,
-    PermissionBehavior, PermissionDecision, PermissionDecisionReason, PermissionDenyDecision,
-    PermissionMode, PermissionResult, PermissionRule, PermissionRuleSource, PermissionUpdate,
-    ToolPermissionContext, PermissionUpdateDestination, PermissionRuleValue,
-    ExternalPermissionMode,
+    ExternalPermissionMode, PermissionAllowDecision, PermissionAskDecision, PermissionBehavior,
+    PermissionDecision, PermissionDecisionReason, PermissionDenyDecision, PermissionMode,
+    PermissionResult, PermissionRule, PermissionRuleSource, PermissionRuleValue, PermissionUpdate,
+    PermissionUpdateDestination, ToolPermissionContext,
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -164,7 +162,10 @@ pub struct MossenSkillScope {
 
 /// If filePath is inside a .mossen/skills/{name}/ directory, returns the skill
 /// name and a session-allow pattern scoped to just that skill.
-pub fn get_mossen_skill_scope(file_path: &str, ctx: &FsPermissionContext) -> Option<MossenSkillScope> {
+pub fn get_mossen_skill_scope(
+    file_path: &str,
+    ctx: &FsPermissionContext,
+) -> Option<MossenSkillScope> {
     let absolute_path = expand_path_with_ctx(file_path, ctx);
     let absolute_path_lower = normalize_case_for_comparison(&absolute_path);
 
@@ -235,9 +236,9 @@ pub fn is_mossen_settings_path(file_path: &str, ctx: &FsPermissionContext) -> bo
     if normalized_path.ends_with(&suffix1) || normalized_path.ends_with(&suffix2) {
         return true;
     }
-    ctx.settings_paths.iter().any(|sp| {
-        normalize_case_for_comparison(sp) == normalized_path
-    })
+    ctx.settings_paths
+        .iter()
+        .any(|sp| normalize_case_for_comparison(sp) == normalized_path)
 }
 
 fn is_mossen_config_file_path(file_path: &str, ctx: &FsPermissionContext) -> bool {
@@ -299,11 +300,7 @@ pub fn get_project_temp_dir(ctx: &FsPermissionContext) -> String {
 
 /// Returns the scratchpad directory path.
 pub fn get_scratchpad_dir(ctx: &FsPermissionContext) -> String {
-    format!(
-        "{}{}/scratchpad",
-        get_project_temp_dir(ctx),
-        ctx.session_id
-    )
+    format!("{}{}/scratchpad", get_project_temp_dir(ctx), ctx.session_id)
 }
 
 fn is_scratchpad_path(absolute_path: &str, ctx: &FsPermissionContext) -> bool {
@@ -418,8 +415,7 @@ pub fn has_suspicious_windows_path_pattern(path: &str, platform: Platform) -> bo
     }
 
     // Three or more consecutive dots as path component
-    static TRIPLE_DOTS: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(^|/|\\)\.{3,}(/|\\|$)").unwrap());
+    static TRIPLE_DOTS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|/|\\)\.{3,}(/|\\|$)").unwrap());
     if TRIPLE_DOTS.is_match(path) {
         return true;
     }
@@ -494,7 +490,10 @@ pub fn check_path_safety_for_auto_edit(
 // ─── Working Directory Checks ────────────────────────────────────────────────
 
 /// Returns all working directories from context.
-pub fn all_working_directories(context: &ToolPermissionContext, original_cwd: &str) -> HashSet<String> {
+pub fn all_working_directories(
+    context: &ToolPermissionContext,
+    original_cwd: &str,
+) -> HashSet<String> {
     let mut dirs = HashSet::new();
     dirs.insert(original_cwd.to_string());
     for key in context.additional_working_directories.keys() {
@@ -585,7 +584,11 @@ struct PatternWithRoot {
     root: Option<String>,
 }
 
-fn pattern_with_root(pattern: &str, source: PermissionRuleSource, ctx: &FsPermissionContext) -> PatternWithRoot {
+fn pattern_with_root(
+    pattern: &str,
+    source: PermissionRuleSource,
+    ctx: &FsPermissionContext,
+) -> PatternWithRoot {
     if pattern.starts_with("//") {
         let without_double = &pattern[1..];
         if ctx.platform == Platform::Windows {
@@ -595,7 +598,9 @@ fn pattern_with_root(pattern: &str, source: PermissionRuleSource, ctx: &FsPermis
                 let drive_letter = without_double.chars().nth(1).unwrap_or('C');
                 let path_after_drive = &without_double[2..];
                 let drive_root = format!("{}:\\", drive_letter.to_uppercase().next().unwrap());
-                let relative_from_drive = path_after_drive.strip_prefix('/').unwrap_or(path_after_drive);
+                let relative_from_drive = path_after_drive
+                    .strip_prefix('/')
+                    .unwrap_or(path_after_drive);
                 return PatternWithRoot {
                     relative_pattern: relative_from_drive.to_string(),
                     root: Some(drive_root),
@@ -825,7 +830,11 @@ fn glob_match(path: &str, pattern: &str) -> bool {
 // ─── Normalize Patterns ──────────────────────────────────────────────────────
 
 fn normalize_pattern_to_path(pattern_root: &str, pattern: &str, root_path: &str) -> Option<String> {
-    let full_pattern = format!("{}/{}", pattern_root.trim_end_matches('/'), pattern.trim_start_matches('/'));
+    let full_pattern = format!(
+        "{}/{}",
+        pattern_root.trim_end_matches('/'),
+        pattern.trim_start_matches('/')
+    );
     if pattern_root == root_path {
         return Some(prepend_dir_sep(pattern));
     } else if full_pattern.starts_with(&format!("{}/", root_path)) {
@@ -932,7 +941,9 @@ pub fn check_read_permission_for_tool(
 
     // 3. Check READ deny rules
     for p in &paths_to_check {
-        if let Some(deny_rule) = matching_rule_for_input(p, tool_permission_context, "read", "deny", ctx) {
+        if let Some(deny_rule) =
+            matching_rule_for_input(p, tool_permission_context, "read", "deny", ctx)
+        {
             return PermissionDecision::Deny(PermissionDenyDecision {
                 message: format!("Permission to read {} has been denied.", path),
                 decision_reason: PermissionDecisionReason::Rule { rule: deny_rule },
@@ -943,7 +954,9 @@ pub fn check_read_permission_for_tool(
 
     // 4. Check READ ask rules
     for p in &paths_to_check {
-        if let Some(ask_rule) = matching_rule_for_input(p, tool_permission_context, "read", "ask", ctx) {
+        if let Some(ask_rule) =
+            matching_rule_for_input(p, tool_permission_context, "read", "ask", ctx)
+        {
             return PermissionDecision::Ask(PermissionAskDecision {
                 message: format!(
                     "Mossen requested permissions to read from {}, but you haven't granted it yet.",
@@ -959,7 +972,14 @@ pub fn check_read_permission_for_tool(
     }
 
     // 5. Edit access implies read access
-    let edit_result = check_write_permission_for_tool(tool_name, path, input, tool_permission_context, Some(&paths_to_check), ctx);
+    let edit_result = check_write_permission_for_tool(
+        tool_name,
+        path,
+        input,
+        tool_permission_context,
+        Some(&paths_to_check),
+        ctx,
+    );
     if matches!(&edit_result, PermissionDecision::Allow(_)) {
         return edit_result;
     }
@@ -983,7 +1003,9 @@ pub fn check_read_permission_for_tool(
     }
 
     // 8. Check allow rules
-    if let Some(allow_rule) = matching_rule_for_input(path, tool_permission_context, "read", "allow", ctx) {
+    if let Some(allow_rule) =
+        matching_rule_for_input(path, tool_permission_context, "read", "allow", ctx)
+    {
         return PermissionDecision::Allow(PermissionAllowDecision {
             updated_input: Some(input.clone()),
             decision_reason: Some(PermissionDecisionReason::Rule { rule: allow_rule }),
@@ -992,7 +1014,13 @@ pub fn check_read_permission_for_tool(
     }
 
     // Default: ask
-    let suggestions = generate_suggestions(path, "read", tool_permission_context, Some(&paths_to_check), ctx);
+    let suggestions = generate_suggestions(
+        path,
+        "read",
+        tool_permission_context,
+        Some(&paths_to_check),
+        ctx,
+    );
     PermissionDecision::Ask(PermissionAskDecision {
         message: format!(
             "Mossen requested permissions to read from {}, but you haven't granted it yet.",
@@ -1010,7 +1038,7 @@ pub fn check_read_permission_for_tool(
 
 /// Check write permission for a tool given path and context.
 pub fn check_write_permission_for_tool(
-    tool_name: &str,
+    _tool_name: &str,
     path: &str,
     input: &HashMap<String, serde_json::Value>,
     tool_permission_context: &ToolPermissionContext,
@@ -1028,7 +1056,9 @@ pub fn check_write_permission_for_tool(
 
     // 1. Check deny rules
     for p in paths_to_check {
-        if let Some(deny_rule) = matching_rule_for_input(p, tool_permission_context, "edit", "deny", ctx) {
+        if let Some(deny_rule) =
+            matching_rule_for_input(p, tool_permission_context, "edit", "deny", ctx)
+        {
             return PermissionDecision::Deny(PermissionDenyDecision {
                 message: format!("Permission to edit {} has been denied.", path),
                 decision_reason: PermissionDecisionReason::Rule { rule: deny_rule },
@@ -1048,17 +1078,24 @@ pub fn check_write_permission_for_tool(
     let session_only_context = ToolPermissionContext {
         always_allow_rules: {
             let mut m = HashMap::new();
-            if let Some(session_rules) = tool_permission_context.always_allow_rules.get(&PermissionRuleSource::Session) {
+            if let Some(session_rules) = tool_permission_context
+                .always_allow_rules
+                .get(&PermissionRuleSource::Session)
+            {
                 m.insert(PermissionRuleSource::Session, session_rules.clone());
             }
             m
         },
         ..tool_permission_context.clone()
     };
-    if let Some(mossen_rule) = matching_rule_for_input(path, &session_only_context, "edit", "allow", ctx) {
+    if let Some(mossen_rule) =
+        matching_rule_for_input(path, &session_only_context, "edit", "allow", ctx)
+    {
         if let Some(ref content) = mossen_rule.rule_value.rule_content {
-            let mossen_prefix = &MOSSEN_FOLDER_PERMISSION_PATTERN[..MOSSEN_FOLDER_PERMISSION_PATTERN.len() - 2];
-            let global_prefix = &GLOBAL_MOSSEN_FOLDER_PERMISSION_PATTERN[..GLOBAL_MOSSEN_FOLDER_PERMISSION_PATTERN.len() - 2];
+            let mossen_prefix =
+                &MOSSEN_FOLDER_PERMISSION_PATTERN[..MOSSEN_FOLDER_PERMISSION_PATTERN.len() - 2];
+            let global_prefix = &GLOBAL_MOSSEN_FOLDER_PERMISSION_PATTERN
+                [..GLOBAL_MOSSEN_FOLDER_PERMISSION_PATTERN.len() - 2];
             if (content.starts_with(mossen_prefix) || content.starts_with(global_prefix))
                 && !content.contains("..")
                 && content.ends_with("/**")
@@ -1074,7 +1111,11 @@ pub fn check_write_permission_for_tool(
 
     // 1.7. Safety checks
     let safety = check_path_safety_for_auto_edit(path, Some(paths_to_check), ctx);
-    if let PathSafetyResult::Unsafe { message, classifier_approvable } = safety {
+    if let PathSafetyResult::Unsafe {
+        message,
+        classifier_approvable,
+    } = safety
+    {
         let skill_scope = get_mossen_skill_scope(path, ctx);
         let suggestions = if let Some(scope) = skill_scope {
             vec![PermissionUpdate::AddRules {
@@ -1086,7 +1127,13 @@ pub fn check_write_permission_for_tool(
                 behavior: PermissionBehavior::Allow,
             }]
         } else {
-            generate_suggestions(path, "write", tool_permission_context, Some(paths_to_check), ctx)
+            generate_suggestions(
+                path,
+                "write",
+                tool_permission_context,
+                Some(paths_to_check),
+                ctx,
+            )
         };
         return PermissionDecision::Ask(PermissionAskDecision {
             message: message.clone(),
@@ -1103,7 +1150,9 @@ pub fn check_write_permission_for_tool(
 
     // 2. Check ask rules
     for p in paths_to_check {
-        if let Some(ask_rule) = matching_rule_for_input(p, tool_permission_context, "edit", "ask", ctx) {
+        if let Some(ask_rule) =
+            matching_rule_for_input(p, tool_permission_context, "edit", "ask", ctx)
+        {
             return PermissionDecision::Ask(PermissionAskDecision {
                 message: format!(
                     "Mossen requested permissions to write to {}, but you haven't granted it yet.",
@@ -1119,7 +1168,8 @@ pub fn check_write_permission_for_tool(
     }
 
     // 3. AcceptEdits mode + working dir
-    let is_in_working_dir = path_in_allowed_working_path(path, tool_permission_context, Some(paths_to_check), ctx);
+    let is_in_working_dir =
+        path_in_allowed_working_path(path, tool_permission_context, Some(paths_to_check), ctx);
     if tool_permission_context.mode == PermissionMode::AcceptEdits && is_in_working_dir {
         return PermissionDecision::Allow(PermissionAllowDecision {
             updated_input: Some(input.clone()),
@@ -1131,7 +1181,9 @@ pub fn check_write_permission_for_tool(
     }
 
     // 4. Check allow rules
-    if let Some(allow_rule) = matching_rule_for_input(path, tool_permission_context, "edit", "allow", ctx) {
+    if let Some(allow_rule) =
+        matching_rule_for_input(path, tool_permission_context, "edit", "allow", ctx)
+    {
         return PermissionDecision::Allow(PermissionAllowDecision {
             updated_input: Some(input.clone()),
             decision_reason: Some(PermissionDecisionReason::Rule { rule: allow_rule }),
@@ -1140,7 +1192,13 @@ pub fn check_write_permission_for_tool(
     }
 
     // 5. Default: ask
-    let suggestions = generate_suggestions(path, "write", tool_permission_context, Some(paths_to_check), ctx);
+    let suggestions = generate_suggestions(
+        path,
+        "write",
+        tool_permission_context,
+        Some(paths_to_check),
+        ctx,
+    );
     PermissionDecision::Ask(PermissionAskDecision {
         message: format!(
             "Mossen requested permissions to write to {}, but you haven't granted it yet.",
@@ -1170,7 +1228,8 @@ pub fn generate_suggestions(
     precomputed_paths: Option<&[String]>,
     ctx: &FsPermissionContext,
 ) -> Vec<PermissionUpdate> {
-    let is_outside = !path_in_allowed_working_path(file_path, tool_permission_context, precomputed_paths, ctx);
+    let is_outside =
+        !path_in_allowed_working_path(file_path, tool_permission_context, precomputed_paths, ctx);
 
     let should_suggest_accept_edits = matches!(
         tool_permission_context.mode,
@@ -1217,7 +1276,10 @@ pub fn generate_suggestions(
     }
 }
 
-fn create_read_rule_suggestion(dir: &str, destination: PermissionUpdateDestination) -> PermissionUpdate {
+fn create_read_rule_suggestion(
+    dir: &str,
+    destination: PermissionUpdateDestination,
+) -> PermissionUpdate {
     PermissionUpdate::AddRules {
         destination,
         rules: vec![PermissionRuleValue {
@@ -1288,7 +1350,8 @@ pub fn check_editable_internal_path(
                     return PermissionResult::Allow(PermissionAllowDecision {
                         updated_input: Some(input.clone()),
                         decision_reason: Some(PermissionDecisionReason::Other {
-                            reason: "Job directory files for current job are allowed for writing".to_string(),
+                            reason: "Job directory files for current job are allowed for writing"
+                                .to_string(),
                         }),
                         tool_use_id: None,
                     });
@@ -1556,7 +1619,10 @@ pub async fn ensure_scratchpad_dir(ctx: &FsPermissionContext) -> std::io::Result
 /// 返回 mossen 临时目录（对应 TS `getMossenTempDir`）。
 pub fn get_mossen_temp_dir(ctx: &FsPermissionContext) -> String {
     let name = get_mossen_temp_dir_name(ctx);
-    std::env::temp_dir().join(name).to_string_lossy().to_string()
+    std::env::temp_dir()
+        .join(name)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// 返回 bundled skills 根目录（对应 TS `getBundledSkillsRoot`）。
@@ -1564,14 +1630,20 @@ pub fn get_bundled_skills_root() -> String {
     if let Ok(p) = std::env::var("MOSSEN_BUNDLED_SKILLS_ROOT") {
         return p;
     }
-    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    {
         return exe_dir.join("skills").to_string_lossy().to_string();
     }
     "/usr/local/share/mossen/skills".to_string()
 }
 
 /// 解析所有可写工作目录的绝对路径集合（对应 TS `getResolvedWorkingDirPaths`）。
-pub fn get_resolved_working_dir_paths(ctx: &ToolPermissionContext, original_cwd: &str) -> Vec<String> {
+pub fn get_resolved_working_dir_paths(
+    ctx: &ToolPermissionContext,
+    original_cwd: &str,
+) -> Vec<String> {
     let set = all_working_directories(ctx, original_cwd);
     let mut v: Vec<String> = set.into_iter().collect();
     v.sort();

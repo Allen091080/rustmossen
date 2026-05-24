@@ -17,14 +17,14 @@ fn is_agent_teams_flag_set() -> bool {
 ///
 /// 这是唯一的门控检查点——所有引用队友的地方都应检查此函数。
 ///
-/// - Ant 构建：始终启用
+/// - Internal 构建：始终启用
 /// - 外部构建需要同时满足：
 ///   1. 通过环境变量或 --agent-teams 标志选择加入
-///   2. GrowthBook gate 'tengu_amber_flint' 启用（killswitch）
+///   2. GrowthBook gate 'mossen_amber_flint' 启用（killswitch）
 pub fn is_agent_swarms_enabled() -> bool {
     let user_type = std::env::var("USER_TYPE").unwrap_or_default();
-    // Ant: 始终开启
-    if user_type == "ant" {
+    // Internal: 始终开启
+    if user_type == "internal" {
         return true;
     }
 
@@ -35,7 +35,7 @@ pub fn is_agent_swarms_enabled() -> bool {
     }
 
     // Killswitch — 外部用户始终尊重
-    let killswitch = std::env::var("TENGU_AMBER_FLINT")
+    let killswitch = std::env::var("MOSSEN_AMBER_FLINT")
         .map(|v| v != "false" && v != "0")
         .unwrap_or(true);
     if !killswitch {

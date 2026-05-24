@@ -26,11 +26,11 @@ struct FieldRange {
 }
 
 const FIELD_RANGES: [FieldRange; 5] = [
-    FieldRange { min: 0, max: 59 },  // minute
-    FieldRange { min: 0, max: 23 },  // hour
-    FieldRange { min: 1, max: 31 },  // dayOfMonth
-    FieldRange { min: 1, max: 12 },  // month
-    FieldRange { min: 0, max: 6 },   // dayOfWeek (0=Sunday; 7 accepted as Sunday alias)
+    FieldRange { min: 0, max: 59 }, // minute
+    FieldRange { min: 0, max: 23 }, // hour
+    FieldRange { min: 1, max: 31 }, // dayOfMonth
+    FieldRange { min: 1, max: 12 }, // month
+    FieldRange { min: 0, max: 6 },  // dayOfWeek (0=Sunday; 7 accepted as Sunday alias)
 ];
 
 /// Day names for human-readable output.
@@ -160,7 +160,11 @@ pub fn compute_next_cron_run(
 
     // Round up to next whole minute (strictly after `from`)
     let mut t = *from;
-    t = t.with_second(0).unwrap_or(t).with_nanosecond(0).unwrap_or(t);
+    t = t
+        .with_second(0)
+        .unwrap_or(t)
+        .with_nanosecond(0)
+        .unwrap_or(t);
     t = t + chrono::Duration::minutes(1);
 
     let max_iter = 366 * 24 * 60;
@@ -221,7 +225,7 @@ pub fn compute_next_cron_run(
 
 /// Format a local time from hour and minute.
 fn format_local_time(minute: u32, hour: u32) -> String {
-    let time = NaiveTime::from_hms_opt(hour, minute, 0).unwrap_or_default();
+    let _time = NaiveTime::from_hms_opt(hour, minute, 0).unwrap_or_default();
     let ampm = if hour < 12 { "AM" } else { "PM" };
     let h12 = if hour == 0 {
         12
@@ -251,7 +255,13 @@ fn format_utc_time_as_local(minute: u32, hour: u32) -> String {
             let h = local_dt.hour();
             let m = local_dt.minute();
             let ampm = if h < 12 { "AM" } else { "PM" };
-            let h12 = if h == 0 { 12 } else if h > 12 { h - 12 } else { h };
+            let h12 = if h == 0 {
+                12
+            } else if h > 12 {
+                h - 12
+            } else {
+                h
+            };
             let tz = local_dt.format("%Z");
             if m == 0 {
                 format!("{}:00 {} {}", h12, ampm, tz)
@@ -277,7 +287,12 @@ pub fn cron_to_human(cron: &str, utc: bool) -> String {
     let day_of_week = parts[4];
 
     // Every N minutes: */N * * * *
-    if minute.starts_with("*/") && hour == "*" && day_of_month == "*" && month == "*" && day_of_week == "*" {
+    if minute.starts_with("*/")
+        && hour == "*"
+        && day_of_month == "*"
+        && month == "*"
+        && day_of_week == "*"
+    {
         if let Ok(n) = minute[2..].parse::<u32>() {
             return if n == 1 {
                 "Every minute".to_string()

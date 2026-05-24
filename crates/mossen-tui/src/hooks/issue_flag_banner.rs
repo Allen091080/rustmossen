@@ -86,19 +86,22 @@ pub struct IssueFlagMessage {
 /// imported here). Each entry is matched as a word boundary against the
 /// command lowercased.
 const EXTERNAL_COMMANDS: &[&str] = &[
-    "curl", "wget", "ssh", "kubectl", "srun", "docker", "bq", "gsutil",
-    "gcloud", "aws", "nc", "ncat", "telnet", "ftp",
+    "curl", "wget", "ssh", "kubectl", "srun", "docker", "bq", "gsutil", "gcloud", "aws", "nc",
+    "ncat", "telnet", "ftp",
 ];
 
 /// More elaborate patterns translated from `EXTERNAL_COMMAND_PATTERNS` —
 /// these are multi-token sequences (git push/pull/fetch, gh pr/issue).
-const EXTERNAL_COMMAND_PHRASES: &[&str] = &[
-    "git push", "git pull", "git fetch", "gh pr", "gh issue",
-];
+const EXTERNAL_COMMAND_PHRASES: &[&str] =
+    &["git push", "git pull", "git fetch", "gh pr", "gh issue"];
 
 fn is_word_boundary(prev: Option<char>, next: Option<char>) -> bool {
-    !prev.map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false)
-        && !next.map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false)
+    !prev
+        .map(|c| c.is_alphanumeric() || c == '_')
+        .unwrap_or(false)
+        && !next
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false)
 }
 
 fn contains_word(haystack: &str, needle: &str) -> bool {
@@ -107,7 +110,11 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
     let nb = needle.as_bytes();
     while idx + nb.len() <= bytes.len() {
         if &bytes[idx..idx + nb.len()] == nb {
-            let prev = if idx > 0 { haystack[..idx].chars().last() } else { None };
+            let prev = if idx > 0 {
+                haystack[..idx].chars().last()
+            } else {
+                None
+            };
             let next = haystack[idx + nb.len()..].chars().next();
             if is_word_boundary(prev, next) {
                 return true;
@@ -127,9 +134,15 @@ fn contains_command_phrase(haystack: &str, phrase: &str) -> bool {
     let mut start = 0;
     while let Some(pos) = haystack[start..].find(parts[0]) {
         let absolute = start + pos;
-        let prev = if absolute > 0 { haystack[..absolute].chars().last() } else { None };
+        let prev = if absolute > 0 {
+            haystack[..absolute].chars().last()
+        } else {
+            None
+        };
         let next = haystack[absolute + parts[0].len()..].chars().next();
-        let leading_ok = !prev.map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false);
+        let leading_ok = !prev
+            .map(|c| c.is_alphanumeric() || c == '_')
+            .unwrap_or(false);
         let trailing_ok = next.map(|c| c.is_whitespace()).unwrap_or(false);
         if leading_ok && trailing_ok {
             // Scan remaining parts after whitespace.
@@ -145,7 +158,10 @@ fn contains_command_phrase(haystack: &str, phrase: &str) -> bool {
                         break;
                     }
                 }
-                let Some(start_part) = nonspace else { ok = false; break; };
+                let Some(start_part) = nonspace else {
+                    ok = false;
+                    break;
+                };
                 let abs_start = cursor + start_part;
                 if haystack[abs_start..].starts_with(part) {
                     let end = abs_start + part.len();
@@ -206,14 +222,36 @@ pub fn is_session_container_compatible(messages: &[IssueFlagMessage]) -> bool {
 }
 
 const FRICTION_NEEDLES: &[&str] = &[
-    "no, ", "no! ", "that's wrong", "that's incorrect", "thats wrong",
-    "thats incorrect", "not what i asked", "not what i wanted",
-    "not what i meant", "not what i said", "i said", "i asked",
-    "i wanted", "i told you", "i already said", "why did you",
-    "you should have", "you shouldn't have", "you shouldnt have",
-    "you should not have", "you were supposed to", "try again",
-    "undo that", "undo this", "undo it", "undo what you",
-    "revert that", "revert this", "revert it", "revert what you",
+    "no, ",
+    "no! ",
+    "that's wrong",
+    "that's incorrect",
+    "thats wrong",
+    "thats incorrect",
+    "not what i asked",
+    "not what i wanted",
+    "not what i meant",
+    "not what i said",
+    "i said",
+    "i asked",
+    "i wanted",
+    "i told you",
+    "i already said",
+    "why did you",
+    "you should have",
+    "you shouldn't have",
+    "you shouldnt have",
+    "you should not have",
+    "you were supposed to",
+    "try again",
+    "undo that",
+    "undo this",
+    "undo it",
+    "undo what you",
+    "revert that",
+    "revert this",
+    "revert it",
+    "revert what you",
 ];
 
 /// True if the most recent user message looks like a friction signal —
@@ -225,7 +263,9 @@ pub fn has_friction_signal(messages: &[IssueFlagMessage]) -> bool {
         if !msg.is_user {
             continue;
         }
-        let Some(text) = msg.user_text.as_deref() else { continue };
+        let Some(text) = msg.user_text.as_deref() else {
+            continue;
+        };
         let lower = text.to_lowercase();
         for needle in FRICTION_NEEDLES {
             if lower.contains(needle) {
@@ -247,7 +287,10 @@ mod issue_flag_tests {
             is_assistant: true,
             is_user: false,
             user_text: None,
-            tool_uses: vec![AssistantToolUse { tool_name: "Bash".into(), command: Some("ls -al".into()) }],
+            tool_uses: vec![AssistantToolUse {
+                tool_name: "Bash".into(),
+                command: Some("ls -al".into()),
+            }],
         }];
         assert!(is_session_container_compatible(&msgs));
     }
@@ -258,7 +301,10 @@ mod issue_flag_tests {
             is_assistant: true,
             is_user: false,
             user_text: None,
-            tool_uses: vec![AssistantToolUse { tool_name: "Bash".into(), command: Some("curl https://x.com".into()) }],
+            tool_uses: vec![AssistantToolUse {
+                tool_name: "Bash".into(),
+                command: Some("curl https://x.com".into()),
+            }],
         }];
         assert!(!is_session_container_compatible(&msgs));
     }
@@ -269,7 +315,10 @@ mod issue_flag_tests {
             is_assistant: true,
             is_user: false,
             user_text: None,
-            tool_uses: vec![AssistantToolUse { tool_name: "Bash".into(), command: Some("git push origin main".into()) }],
+            tool_uses: vec![AssistantToolUse {
+                tool_name: "Bash".into(),
+                command: Some("git push origin main".into()),
+            }],
         }];
         assert!(!is_session_container_compatible(&msgs));
     }

@@ -4,8 +4,6 @@
 //! ES2024 Promise.withResolvers() 的 polyfill。
 
 use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Mutex;
 
 /// 带解析器的 Promise。
 pub struct ResolvablePromise<T> {
@@ -20,7 +18,11 @@ impl<T> ResolvablePromise<T> {
         let promise = RefCell::new(None::<T>);
         let resolve: fn(T) -> () = move |_v: T| {};
         let reject: fn(String) -> () = move |_e: String| {};
-        ResolvablePromise { promise, resolve, reject }
+        ResolvablePromise {
+            promise,
+            resolve,
+            reject,
+        }
     }
 
     /// 设置解析器。

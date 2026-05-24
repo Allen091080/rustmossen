@@ -29,9 +29,9 @@ pub struct SystemPromptInputs<'a> {
     /// `--oneshot`, `--print`, or any non-TUI driver.
     pub is_non_interactive: bool,
     pub is_custom_backend: bool,
-    /// USER_TYPE=ant unlocks a few additional sections (numeric anchors,
+    /// USER_TYPE=internal unlocks a few additional sections (numeric anchors,
     /// stricter code-style rules). Off by default.
-    pub is_ant: bool,
+    pub is_internal: bool,
     /// True when this process is in a git repo. Surfaced inside the env
     /// info block so the model can decide whether to suggest git workflows.
     pub is_git_repo: bool,
@@ -42,6 +42,11 @@ pub struct SystemPromptInputs<'a> {
     /// session-specific guidance and using-your-tools sections so the
     /// generated copy actually matches the tool surface the model sees.
     pub enabled_tools: &'a [String],
+    /// Number of user-invocable skills available through the Skill tool.
+    pub skill_commands_count: usize,
+    /// Preformatted loaded-skill list, already constrained to the prompt
+    /// budget. Empty string means no skills are available.
+    pub skill_commands_text: &'a str,
     /// Optional language hint ("Chinese", "Spanish", …). When set, the
     /// language section tells the assistant to respond in that language by
     /// default. The TUI infers this from locale / past conversations.
@@ -64,7 +69,7 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
     let api_provider = if inputs.is_custom_backend {
         "custom"
     } else {
-        "anthropic"
+        "provider"
     };
     let prefix = sys_consts::get_cli_sysprompt_prefix(
         inputs.is_custom_backend,
@@ -84,9 +89,9 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
     let system_section = p::get_simple_system_section();
     let doing_tasks = p::get_simple_doing_tasks_section(
         inputs.product_name,
-        inputs.is_ant,
+        inputs.is_internal,
         inputs.is_custom_backend,
-        "report the issue at https://github.com/anthropics/claude-code/issues",
+        "report the issue at https://github.com/providers/cli/issues",
     );
     let actions = p::get_actions_section();
 
@@ -94,20 +99,20 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
     // values must outlive the call, so collect into a Vec we can borrow.
     let tool_set: HashSet<&str> = inputs.enabled_tools.iter().map(String::as_str).collect();
     let using_tools = p::get_using_your_tools_section(&tool_set, false, false);
-    let tone = p::get_simple_tone_and_style_section(inputs.is_ant);
+    let tone = p::get_simple_tone_and_style_section(inputs.is_internal);
 
     // 4. Session-specific guidance — uses the enabled tools to phrase
     //    advice that actually matches what the model can call.
     let session_guidance = p::get_session_specific_guidance_section(
         &tool_set,
-        0,                          // no skills wired into this composer yet
+        inputs.skill_commands_count,
         inputs.is_non_interactive,
-        false,                      // not a fork subagent
-        false,                      // no embedded search
-        true,                       // explore/plan agents available
-        "Explore",                  // explore agent type name
-        3,                          // min queries to justify Explore
-        false,                      // verification agent not enabled
+        false,     // not a fork subagent
+        false,     // no embedded search
+        true,      // explore/plan agents available
+        "Explore", // explore agent type name
+        3,         // min queries to justify Explore
+        false,     // verification agent not enabled
     );
 
     // 5. Final "summarize tool results" reminder.
@@ -167,6 +172,18 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
     push(&mut blocks, doing_tasks);
     push(&mut blocks, actions);
     push(&mut blocks, using_tools);
+    if inputs.skill_commands_count > 0
+        && tool_set.contains("Skill")
+        && !inputs.skill_commands_text.trim().is_empty()
+    {
+        push(
+            &mut blocks,
+            format!(
+                "# User-invocable skills\nThe following skills are loaded in this session. When the user's request matches one of these skills, invoke the Skill tool with that exact skill name before answering:\n{}",
+                inputs.skill_commands_text.trim()
+            ),
+        );
+    }
     push(&mut blocks, tone);
     if let Some(g) = session_guidance {
         push(&mut blocks, g);
@@ -267,10 +284,13 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
     if let Some(home) = dirs::home_dir() {
         for path in [
             home.join(".mossen").join("MOSSEN.md"),
-            home.join(".claude").join("CLAUDE.md"),
+            home.join(".mossen").join("MOSSEN.md"),
         ] {
             if let Ok(text) = tokio::fs::read_to_string(&path).await {
-                let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+                let parent = path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
                 let mut visited = std::collections::HashSet::new();
                 if let Ok(canon) = std::fs::canonicalize(&path) {
                     visited.insert(canon);
@@ -289,11 +309,19 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
     }
 
     // 2. Project-root instructions — both MOSSEN.md and the historical
-    //    CLAUDE.md filename are honoured so existing projects keep working.
-    for filename in ["MOSSEN.md", "MOSSEN.local.md", "CLAUDE.md", "CLAUDE.local.md"] {
+    //    MOSSEN.md filename are honoured so existing projects keep working.
+    for filename in [
+        "MOSSEN.md",
+        "MOSSEN.local.md",
+        "MOSSEN.md",
+        "MOSSEN.local.md",
+    ] {
         let p = cwd.join(filename);
         if let Ok(text) = tokio::fs::read_to_string(&p).await {
-            let parent = p.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let parent = p
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let mut visited = std::collections::HashSet::new();
             if let Ok(canon) = std::fs::canonicalize(&p) {
                 visited.insert(canon);
@@ -313,7 +341,10 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
         cwd.join(".mossen").join("MOSSEN.local.md"),
     ] {
         if let Ok(text) = tokio::fs::read_to_string(&nested).await {
-            let parent = nested.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let parent = nested
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let mut visited = std::collections::HashSet::new();
             if let Ok(canon) = std::fs::canonicalize(&nested) {
                 visited.insert(canon);
@@ -321,12 +352,19 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
             let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
             let trimmed = expanded.trim();
             if !trimmed.is_empty() {
-                sections.push(format!(
-                    "Contents of {}:\n\n{}",
-                    nested.display(),
-                    trimmed
-                ));
+                sections.push(format!("Contents of {}:\n\n{}", nested.display(), trimmed));
             }
+        }
+    }
+
+    // 4. File-based auto/team memory instructions. This is intentionally
+    // loaded after MOSSEN.md so project instructions stay visible while the
+    // final system-prompt memory block also tells the model where persistent
+    // memories must be read and written.
+    if let Some(memory_prompt) = crate::memdir::load_memory_prompt(cwd).await {
+        let trimmed = memory_prompt.trim();
+        if !trimmed.is_empty() {
+            sections.push(trimmed.to_string());
         }
     }
 
@@ -334,7 +372,7 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
         return String::new();
     }
 
-    let header = "# claudeMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.";
+    let header = "# mossenMd\nCodebase and user instructions are shown below. Be sure to adhere to these instructions. IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.";
     let body = sections.join("\n\n");
     format!("{}\n\n{}", header, body)
 }
@@ -366,12 +404,14 @@ mod tests {
             model_marketing_name: Some("MiniMax M2.7"),
             is_non_interactive: false,
             is_custom_backend: true,
-            is_ant: false,
+            is_internal: false,
             is_git_repo: false,
             product_name: "Mossen",
             enabled_tools: &tools,
+            skill_commands_count: 0,
+            skill_commands_text: "",
             language_preference: Some("Chinese"),
-            memory_text: "# claudeMd\nProject rule: respond in Chinese.",
+            memory_text: "# mossenMd\nProject rule: respond in Chinese.",
         };
         let blocks = assemble(&inputs);
         assert!(!blocks.is_empty(), "system prompt must be non-empty");
@@ -391,5 +431,55 @@ mod tests {
             joined.contains("respond in Chinese"),
             "memory_text block missing from assembled prompt"
         );
+    }
+
+    #[test]
+    fn assemble_includes_loaded_skill_inventory_when_skill_tool_enabled() {
+        let tools: Vec<String> = vec!["Skill".into(), "Read".into()];
+        let inputs = SystemPromptInputs {
+            cwd: "/tmp/test",
+            model: "MiniMax-M2.7",
+            model_marketing_name: None,
+            is_non_interactive: false,
+            is_custom_backend: true,
+            is_internal: false,
+            is_git_repo: false,
+            product_name: "Mossen",
+            enabled_tools: &tools,
+            skill_commands_count: 1,
+            skill_commands_text: "- audit: Audit the current change",
+            language_preference: None,
+            memory_text: "",
+        };
+
+        let joined = assemble(&inputs)
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(joined.contains("# User-invocable skills"), "{joined}");
+        assert!(
+            joined.contains("- audit: Audit the current change"),
+            "{joined}"
+        );
+        assert!(joined.contains("Use the Skill tool"), "{joined}");
+    }
+
+    #[tokio::test]
+    async fn at_include_expands_one_level() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        std::fs::write(root.join("MOSSEN.md"), "@included.md\n").expect("write root memory");
+        std::fs::write(root.join("included.md"), "This is the included content.\n")
+            .expect("write included memory");
+
+        let text = gather_memory_text(root).await;
+        assert!(
+            text.contains("This is the included content."),
+            "got:\n{}",
+            text
+        );
+        assert!(!text.contains("@included.md"), "got:\n{}", text);
     }
 }

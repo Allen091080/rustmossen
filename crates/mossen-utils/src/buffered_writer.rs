@@ -4,9 +4,6 @@
 //! 提供带缓冲的写入功能，支持定时刷新、大小限制和立即模式。
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio::time;
 
 /// 写入函数类型
 pub type WriteFn = Box<dyn Fn(&str) + Send + Sync>;

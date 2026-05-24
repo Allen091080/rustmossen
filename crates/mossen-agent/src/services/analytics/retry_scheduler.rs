@@ -25,7 +25,10 @@ pub struct RetryScheduler {
 
 impl RetryScheduler {
     pub fn new(base_delay_ms: u64, max_attempts: u32) -> Self {
-        Self { base_delay_ms, max_attempts }
+        Self {
+            base_delay_ms,
+            max_attempts,
+        }
     }
 
     pub fn next_delay(&self, attempt: u32) -> Option<Duration> {

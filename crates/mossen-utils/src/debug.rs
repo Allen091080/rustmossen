@@ -5,7 +5,6 @@ use std::sync::Mutex;
 use chrono::Utc;
 use once_cell::sync::Lazy;
 use tokio::fs;
-use tracing;
 
 use crate::debug_filter::{parse_debug_filter, should_show_debug_message, DebugFilter};
 
@@ -95,7 +94,7 @@ pub fn is_debug_mode() -> bool {
 pub fn enable_debug_logging() -> bool {
     let was_active = is_debug_mode()
         || std::env::var("USER_TYPE")
-            .map(|v| v == "ant")
+            .map(|v| v == "internal")
             .unwrap_or(false);
     RUNTIME_DEBUG_ENABLED.store(true, Ordering::Relaxed);
     was_active
@@ -104,8 +103,7 @@ pub fn enable_debug_logging() -> bool {
 /// Check if debug output should go to stderr.
 pub fn is_debug_to_stderr() -> bool {
     let args: Vec<String> = std::env::args().collect();
-    args.iter()
-        .any(|a| a == "--debug-to-stderr" || a == "-d2e")
+    args.iter().any(|a| a == "--debug-to-stderr" || a == "-d2e")
 }
 
 /// Get the debug file path from command line arguments.
@@ -133,10 +131,10 @@ fn should_log_debug_message(message: &str) -> bool {
         return false;
     }
 
-    let is_ant = std::env::var("USER_TYPE")
-        .map(|v| v == "ant")
+    let is_internal = std::env::var("USER_TYPE")
+        .map(|v| v == "internal")
         .unwrap_or(false);
-    if !is_ant && !is_debug_mode() {
+    if !is_internal && !is_debug_mode() {
         return false;
     }
 
@@ -230,9 +228,7 @@ pub fn get_debug_log_path() -> PathBuf {
     }
     let config_dir = get_mossen_config_home_dir();
     let session_id = get_session_id_for_debug();
-    config_dir
-        .join("debug")
-        .join(format!("{}.txt", session_id))
+    config_dir.join("debug").join(format!("{}.txt", session_id))
 }
 
 /// Updates the latest debug log symlink.
@@ -251,7 +247,7 @@ async fn update_latest_debug_log_symlink(debug_log_path: &std::path::Path) -> st
 /// Log errors for Ants only.
 pub fn log_ant_error(context: &str, error: &dyn std::error::Error) {
     if std::env::var("USER_TYPE")
-        .map(|v| v == "ant")
+        .map(|v| v == "internal")
         .unwrap_or(false)
     {
         return;

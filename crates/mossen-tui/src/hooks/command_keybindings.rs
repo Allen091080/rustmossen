@@ -1,4 +1,4 @@
-//! Command keybindings hook (useCommandKeybindings.tsx).
+//! Command keybindings hook.
 //!
 //! Registers keybinding handlers for command bindings within the
 //! keybinding system context.
@@ -35,10 +35,8 @@ impl CommandKeybindingsState {
     /// Register a new command keybinding.
     pub fn register(&mut self, binding: CommandKeybinding) {
         if binding.enabled {
-            self.active_bindings.insert(
-                binding.key_sequence.clone(),
-                binding.command.clone(),
-            );
+            self.active_bindings
+                .insert(binding.key_sequence.clone(), binding.command.clone());
         }
         self.bindings.push(binding);
     }
@@ -100,10 +98,11 @@ pub fn command_keybinding_handlers(
     actions
         .iter()
         .filter_map(|a| {
-            a.strip_prefix("command:").map(|cmd| CommandKeybindingDispatch {
-                action: a.clone(),
-                command_name: cmd.to_string(),
-            })
+            a.strip_prefix("command:")
+                .map(|cmd| CommandKeybindingDispatch {
+                    action: a.clone(),
+                    command_name: cmd.to_string(),
+                })
         })
         .collect()
 }

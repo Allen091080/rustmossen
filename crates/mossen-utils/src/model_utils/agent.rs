@@ -115,9 +115,9 @@ pub fn get_agent_model(
 fn alias_matches_parent_tier(alias: &str, parent_model: &str) -> bool {
     let canonical = get_canonical_name(parent_model);
     match alias.to_lowercase().as_str() {
-        "opus" => canonical.contains("opus"),
-        "sonnet" => canonical.contains("sonnet"),
-        "haiku" => canonical.contains("haiku"),
+        "max" => canonical.contains("max"),
+        "balanced" => canonical.contains("balanced"),
+        "fast" => canonical.contains("fast"),
         _ => false,
     }
 }
@@ -129,9 +129,9 @@ pub fn get_agent_model_display(model: Option<&str>) -> String {
     };
     match model {
         "inherit" => "Inherit from parent".to_string(),
-        "sonnet" => "Mossen Balanced".to_string(),
-        "opus" => "Mossen Frontier".to_string(),
-        "haiku" => "Mossen Fast".to_string(),
+        "balanced" => "Mossen Balanced".to_string(),
+        "max" => "Mossen Max".to_string(),
+        "fast" => "Mossen Fast".to_string(),
         other => capitalize(other),
     }
 }
@@ -140,17 +140,17 @@ pub fn get_agent_model_display(model: Option<&str>) -> String {
 pub fn get_agent_model_options() -> Vec<AgentModelOption> {
     vec![
         AgentModelOption {
-            value: "sonnet".to_string(),
+            value: "balanced".to_string(),
             label: "Mossen Balanced".to_string(),
             description: "Balanced performance - best for most agents".to_string(),
         },
         AgentModelOption {
-            value: "opus".to_string(),
-            label: "Mossen Frontier".to_string(),
+            value: "max".to_string(),
+            label: "Mossen Max".to_string(),
             description: "Most capable for complex reasoning tasks".to_string(),
         },
         AgentModelOption {
-            value: "haiku".to_string(),
+            value: "fast".to_string(),
             label: "Mossen Fast".to_string(),
             description: "Fast and efficient for simple tasks".to_string(),
         },

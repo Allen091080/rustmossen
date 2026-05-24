@@ -43,7 +43,11 @@ impl Directive for ReleaseNotesDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(format!(
                 "Usage: /release-notes [version]\n\n                 Show recent release notes.\n\n                 Options:\n                   [version]    Show notes for a specific version\n                   --all        Show all available release notes\n\n                 Full changelog: {}",
                 CHANGELOG_URL

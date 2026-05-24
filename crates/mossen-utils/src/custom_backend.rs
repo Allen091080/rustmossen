@@ -115,27 +115,17 @@ pub fn is_placeholder_hosted_platform_url(url: &str) -> bool {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TEST-ONLY HARDCODED DEFAULTS (MiniMax-M2.7)
-//
-// Make the binary work out-of-the-box without env-var setup for smoke testing.
-// Env vars take precedence when set. REMOVE BEFORE PRODUCTION DEPLOYMENT.
-// ─────────────────────────────────────────────────────────────────────────────
-const TEST_DEFAULT_BACKEND_ENABLED: bool = true;
-// 用户给的是 "https://api.minimaxi.com/v1"，但 make_api_request 会追加 "/v1/messages"。
-// 这里去掉末尾 /v1 避免重复，让最终 URL = https://api.minimaxi.com/v1/messages
-const TEST_DEFAULT_BASE_URL: &str = "https://api.minimaxi.com";
-const TEST_DEFAULT_AUTH_TOKEN: &str = "sk-cp-xsFd7Xz4_2hkjIKAQiM99CV_ohbgZpT-_c6c56lDhX8rqICxbiI1LGjp6hLzZm8L9SMpgdn5Xlfmzsu0ZHJH64XhaqyjCfjjPlvOQoHPObI75T2aUhAKGvc";
-const TEST_DEFAULT_MODEL: &str = "MiniMax-M2.7";
-
 pub fn is_custom_backend_enabled() -> bool {
+    if is_env_defined_falsy(env::var("MOSSEN_CODE_USE_CUSTOM_BACKEND").ok().as_deref()) {
+        return false;
+    }
     if is_env_truthy(env::var("MOSSEN_CODE_USE_CUSTOM_BACKEND").ok().as_deref()) {
         return true;
     }
     if env::var("MOSSEN_CODE_CUSTOM_BASE_URL").ok().is_some() {
         return true;
     }
-    TEST_DEFAULT_BACKEND_ENABLED
+    false
 }
 
 pub fn get_custom_backend_base_url() -> Option<String> {
@@ -145,7 +135,7 @@ pub fn get_custom_backend_base_url() -> Option<String> {
             return Some(trim_trailing_slash(trimmed));
         }
     }
-    Some(trim_trailing_slash(TEST_DEFAULT_BASE_URL))
+    None
 }
 
 pub fn get_custom_backend_api_key() -> Option<String> {
@@ -165,7 +155,7 @@ pub fn get_custom_backend_auth_token() -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    Some(TEST_DEFAULT_AUTH_TOKEN.to_string())
+    None
 }
 
 pub fn get_custom_backend_model() -> Option<String> {
@@ -175,7 +165,7 @@ pub fn get_custom_backend_model() -> Option<String> {
             return Some(trimmed.to_string());
         }
     }
-    Some(TEST_DEFAULT_MODEL.to_string())
+    None
 }
 
 pub fn get_custom_backend_max_input_tokens() -> Option<u64> {
@@ -422,23 +412,68 @@ pub fn get_hosted_platform_urls() -> HostedPlatformUrls {
         .unwrap_or_else(|| format!("{}/code", remote_base_url));
 
     HostedPlatformUrls {
-        bedrock_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_BEDROCK_DOCS_URL", &format!("{}/docs/providers/amazon-bedrock", remote_base_url)),
-        connectors_url: env_or_default("MOSSEN_CODE_PLATFORM_CONNECTORS_URL", &format!("{}/settings/connectors", remote_base_url)),
-        desktop_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_DESKTOP_DOCS_URL", &format!("{}/desktop", remote_base_url)),
-        desktop_mac_download_url: env_or_default("MOSSEN_CODE_PLATFORM_DESKTOP_MAC_URL", &format!("{}/downloads/desktop/macos", remote_base_url)),
-        desktop_windows_download_url: env_or_default("MOSSEN_CODE_PLATFORM_DESKTOP_WINDOWS_URL", &format!("{}/downloads/desktop/windows", remote_base_url)),
-        foundry_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_FOUNDRY_DOCS_URL", &format!("{}/docs/providers/microsoft-foundry", remote_base_url)),
-        github_app_url: env_or_default("MOSSEN_CODE_PLATFORM_GITHUB_APP_URL", &format!("{}/integrations/github/install", remote_base_url)),
-        github_actions_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_GITHUB_ACTIONS_DOCS_URL", &format!("{}/docs/github-actions", remote_base_url)),
-        privacy_url: env_or_default("MOSSEN_CODE_PLATFORM_PRIVACY_URL", &format!("{}/settings/privacy", remote_base_url)),
+        bedrock_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_BEDROCK_DOCS_URL",
+            &format!("{}/docs/providers/amazon-bedrock", remote_base_url),
+        ),
+        connectors_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_CONNECTORS_URL",
+            &format!("{}/settings/connectors", remote_base_url),
+        ),
+        desktop_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_DESKTOP_DOCS_URL",
+            &format!("{}/desktop", remote_base_url),
+        ),
+        desktop_mac_download_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_DESKTOP_MAC_URL",
+            &format!("{}/downloads/desktop/macos", remote_base_url),
+        ),
+        desktop_windows_download_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_DESKTOP_WINDOWS_URL",
+            &format!("{}/downloads/desktop/windows", remote_base_url),
+        ),
+        foundry_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_FOUNDRY_DOCS_URL",
+            &format!("{}/docs/providers/microsoft-foundry", remote_base_url),
+        ),
+        github_app_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_GITHUB_APP_URL",
+            &format!("{}/integrations/github/install", remote_base_url),
+        ),
+        github_actions_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_GITHUB_ACTIONS_DOCS_URL",
+            &format!("{}/docs/github-actions", remote_base_url),
+        ),
+        privacy_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_PRIVACY_URL",
+            &format!("{}/settings/privacy", remote_base_url),
+        ),
         remote_base_url: remote_base_url.clone(),
-        remote_environment_url: env_or_default("MOSSEN_CODE_PLATFORM_REMOTE_ENV_URL", &format!("{}/environments", remote_web_url)),
-        remote_setup_url: env_or_default("MOSSEN_CODE_PLATFORM_REMOTE_SETUP_URL", &format!("{}/setup", remote_web_url)),
+        remote_environment_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_REMOTE_ENV_URL",
+            &format!("{}/environments", remote_web_url),
+        ),
+        remote_setup_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_REMOTE_SETUP_URL",
+            &format!("{}/setup", remote_web_url),
+        ),
         remote_web_url,
-        security_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_SECURITY_DOCS_URL", &format!("{}/docs/security", remote_base_url)),
-        upgrade_url: env_or_default("MOSSEN_CODE_PLATFORM_UPGRADE_URL", &format!("{}/billing/upgrade", remote_base_url)),
-        usage_url: env_or_default("MOSSEN_CODE_PLATFORM_USAGE_URL", &format!("{}/billing/usage", remote_base_url)),
-        vertex_docs_url: env_or_default("MOSSEN_CODE_PLATFORM_VERTEX_DOCS_URL", &format!("{}/docs/providers/google-vertex-ai", remote_base_url)),
+        security_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_SECURITY_DOCS_URL",
+            &format!("{}/docs/security", remote_base_url),
+        ),
+        upgrade_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_UPGRADE_URL",
+            &format!("{}/billing/upgrade", remote_base_url),
+        ),
+        usage_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_USAGE_URL",
+            &format!("{}/billing/usage", remote_base_url),
+        ),
+        vertex_docs_url: env_or_default(
+            "MOSSEN_CODE_PLATFORM_VERTEX_DOCS_URL",
+            &format!("{}/docs/providers/google-vertex-ai", remote_base_url),
+        ),
     }
 }
 
@@ -483,4 +518,5 @@ pub fn get_custom_backend_config() -> Option<CustomBackendConfig> {
 }
 
 /// 对应 TS `CUSTOM_BACKEND_PROTOCOLS`：支持的 custom backend 协议字面量集合。
-pub const CUSTOM_BACKEND_PROTOCOLS: &[&str] = &["mossen-compatible", "openai-compatible", "private"];
+pub const CUSTOM_BACKEND_PROTOCOLS: &[&str] =
+    &["mossen-compatible", "openai-compatible", "private"];

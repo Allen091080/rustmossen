@@ -117,8 +117,7 @@ pub fn set_agent_color(agent_type: &str, color: Option<AgentColorName>) {
 /// Assign the next available color to an agent type.
 pub fn assign_next_color(agent_type: &str) -> AgentColorName {
     let mut map = AGENT_COLOR_MAP.lock().unwrap();
-    let used_colors: std::collections::HashSet<AgentColorName> =
-        map.values().copied().collect();
+    let used_colors: std::collections::HashSet<AgentColorName> = map.values().copied().collect();
 
     let color = AGENT_COLORS
         .iter()

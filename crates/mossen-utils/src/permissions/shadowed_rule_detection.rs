@@ -2,9 +2,7 @@
 //!
 //! Detects unreachable permission rules that are shadowed by broader rules.
 
-use super::permission_result::{
-    PermissionBehavior, PermissionRule, PermissionRuleSource, ToolPermissionContext,
-};
+use super::permission_result::{PermissionRule, PermissionRuleSource};
 
 /// Type of shadowing that makes a rule unreachable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use tracing::debug;
 
 use super::plugin_directories::get_plugins_directory;
 

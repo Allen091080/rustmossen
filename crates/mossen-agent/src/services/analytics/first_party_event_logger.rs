@@ -1,8 +1,8 @@
 //! First-party event logger — structured event logging with enrichment.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 use super::metadata::EventMetadata;
 use super::sink::LogEventMetadata;
@@ -24,20 +24,37 @@ impl FirstPartyEventLogger {
         app_version: String,
         platform: String,
     ) -> Self {
-        Self { session_id, user_id, device_id, app_version, platform }
+        Self {
+            session_id,
+            user_id,
+            device_id,
+            app_version,
+            platform,
+        }
     }
 
     /// Enrich event metadata with session context.
     pub fn enrich_metadata(&self, metadata: &LogEventMetadata) -> EventMetadata {
         let mut enriched = metadata.clone();
-        enriched.insert("session_id".to_string(), Value::String(self.session_id.clone()));
+        enriched.insert(
+            "session_id".to_string(),
+            Value::String(self.session_id.clone()),
+        );
         enriched.insert("user_id".to_string(), Value::String(self.user_id.clone()));
-        enriched.insert("device_id".to_string(), Value::String(self.device_id.clone()));
-        enriched.insert("app_version".to_string(), Value::String(self.app_version.clone()));
+        enriched.insert(
+            "device_id".to_string(),
+            Value::String(self.device_id.clone()),
+        );
+        enriched.insert(
+            "app_version".to_string(),
+            Value::String(self.app_version.clone()),
+        );
         enriched.insert("platform".to_string(), Value::String(self.platform.clone()));
         enriched.insert(
             "timestamp_ms".to_string(),
-            Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp_millis() as u64)),
+            Value::Number(serde_json::Number::from(
+                chrono::Utc::now().timestamp_millis() as u64,
+            )),
         );
         enriched
     }
@@ -89,7 +106,11 @@ pub fn set_event_sampling_config(cfg: EventSamplingConfig) {
 /// - `None` to drop the event
 pub fn should_sample_event(event_name: &str) -> Option<f64> {
     let cfg = get_event_sampling_config();
-    let rate = cfg.per_event.get(event_name).copied().unwrap_or(cfg.default_rate);
+    let rate = cfg
+        .per_event
+        .get(event_name)
+        .copied()
+        .unwrap_or(cfg.default_rate);
     if rate <= 0.0 {
         return None;
     }

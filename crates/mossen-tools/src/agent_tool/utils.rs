@@ -14,18 +14,11 @@ use tracing::{debug, info, warn};
 use super::constants::AGENT_TOOL_NAME;
 
 /// Tools that are always disallowed for all agent types.
-const ALL_AGENT_DISALLOWED_TOOLS: &[&str] = &[
-    "TodoWrite",
-    "CostQuery",
-    "EffortControl",
-    "OutputStyle",
-];
+const ALL_AGENT_DISALLOWED_TOOLS: &[&str] =
+    &["TodoWrite", "CostQuery", "EffortControl", "OutputStyle"];
 
 /// Additional tools disallowed for custom (non-built-in) agents.
-const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] = &[
-    "TeamCreate",
-    "TeamDelete",
-];
+const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] = &["TeamCreate", "TeamDelete"];
 
 /// Tools allowed for async (background) agents.
 const ASYNC_AGENT_ALLOWED_TOOLS: &[&str] = &[
@@ -167,7 +160,9 @@ pub fn resolve_agent_tools(
             if tool_name == "*" {
                 continue;
             }
-            if all_names_set.contains(tool_name.as_str()) && !disallow_set.contains(tool_name.as_str()) {
+            if all_names_set.contains(tool_name.as_str())
+                && !disallow_set.contains(tool_name.as_str())
+            {
                 valid.push(tool_name.clone());
             } else {
                 invalid.push(tool_name.clone());
@@ -177,12 +172,8 @@ pub fn resolve_agent_tools(
     };
 
     // Apply agent-level filters (built-in check, async check, etc.)
-    let resolved_tool_names = filter_tools_for_agent(
-        &valid_tools,
-        is_built_in,
-        is_async,
-        permission_mode,
-    );
+    let resolved_tool_names =
+        filter_tools_for_agent(&valid_tools, is_built_in, is_async, permission_mode);
 
     // Extract allowed agent types from tools list if specified
     let allowed_agent_types = agent_tools.and_then(|tools| {

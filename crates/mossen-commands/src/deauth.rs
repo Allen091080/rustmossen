@@ -53,7 +53,10 @@ impl Directive for DeauthDirective {
         }
 
         // Handle --force flag to skip confirmation
-        let force = args.first().map(|a| matches!(*a, "--force" | "-f")).unwrap_or(false);
+        let force = args
+            .first()
+            .map(|a| matches!(*a, "--force" | "-f"))
+            .unwrap_or(false);
 
         if !force && !ctx.is_non_interactive {
             // In interactive mode without --force, could show confirmation

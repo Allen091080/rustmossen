@@ -36,7 +36,10 @@ impl Mailbox {
 
     /// Try to receive a message without waiting.
     pub fn try_recv(&self) -> Option<String> {
-        self.rx.try_lock().ok().and_then(|mut rx| rx.try_recv().ok())
+        self.rx
+            .try_lock()
+            .ok()
+            .and_then(|mut rx| rx.try_recv().ok())
     }
 }
 

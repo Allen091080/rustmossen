@@ -1,127 +1,72 @@
 {
-  "schemaVersion": 1,
-  "sourceExtensions": [".ts", ".tsx", ".js", ".jsx"],
+  "schemaVersion": 2,
+  "sourceExtensions": [".rs"],
   "ignoreDirs": [
     ".git",
-    ".claude",
     ".mossen",
     ".mossensrc",
     "node_modules",
+    "target",
     "dist",
     "build",
     "coverage"
   ],
   "rules": [
     {
-      "id": "surface-no-core-internals",
+      "id": "render-input-no-terminal-widgets",
       "from": [
-        "components/Workbench/**",
-        "components/workbench/**",
-        "workbench/**",
-        "surfaces/**",
-        "surface/**",
-        "apps/workbench/**",
-        "desktop/**",
-        "web/**",
-        "mobile/**",
-        "panel-state/**"
+        "crates/mossen-tui/src/message_model.rs",
+        "crates/mossen-tui/src/render_lifecycle.rs",
+        "crates/mossen-tui/src/render_model.rs"
       ],
       "to": [
-        "query.ts",
-        "QueryEngine.ts",
-        "Tool.ts",
-        "Task.ts",
-        "tools/**",
-        "bootstrap/state.ts",
-        "state/AppStateStore.ts",
-        "screens/REPL.tsx",
-        "components/PromptInput/**",
-        "components/Messages.tsx",
-        "components/VirtualMessageList.tsx",
-        "components/FullscreenLayout.tsx",
-        "utils/permissions/**",
-        "hooks/useCanUseTool.tsx",
-        "hooks/toolPermission/**"
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
       ],
-      "reason": "Workbench/Web/Mobile surfaces must consume protocol or subprocess output, not Core internals."
+      "reason": "Semantic render input and transcript shaping must not depend on terminal widget or app-state modules."
     },
     {
-      "id": "external-extension-no-core-private-import",
+      "id": "render-profile-no-surface-imports",
       "from": [
-        "extensions/**",
-        "extension/**",
-        "skills/external/**",
-        "skills/community/**",
-        "plugins/external/**",
-        "plugins/community/**",
-        "workflow-packs/**",
-        "prompt-packs/**",
-        "language-packs/**"
+        "crates/mossen-tui/src/render_profile.rs"
       ],
       "to": [
-        "query.ts",
-        "QueryEngine.ts",
-        "Tool.ts",
-        "Task.ts",
-        "tools/**",
-        "utils/permissions/**",
-        "hooks/useCanUseTool.tsx",
-        "hooks/toolPermission/**",
-        "bootstrap/state.ts",
-        "state/AppStateStore.ts",
-        "services/api/**",
-        "services/modelRuntime/**"
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**",
+        "crates/mossen-tui/src/render_model.rs",
+        "crates/mossen-tui/src/render_lifecycle.rs"
       ],
-      "reason": "External extensions must use gateway, manifest, permission declarations, and event streams."
+      "reason": "Responsive profile selection must stay pure and independent from semantic records and terminal drawing."
     },
     {
-      "id": "protocol-no-react-ink-ui",
+      "id": "render-cache-no-terminal-widgets",
       "from": [
-        "entrypoints/sdk/**",
-        "platform/**",
-        "cli/structuredIO.ts",
-        "cli/transports/**"
+        "crates/mossen-tui/src/render_cache.rs"
       ],
       "to": [
-        "components/**",
-        "screens/**",
-        "ink/**",
-        "ink.ts"
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
       ],
-      "reason": "Protocol and SDK layers must stay UI-agnostic."
+      "reason": "Layout caches may key off semantic render data, but should not import drawing surfaces."
     },
     {
-      "id": "core-no-workbench-surface-import",
+      "id": "widgets-no-app-loop-imports",
       "from": [
-        "query.ts",
-        "QueryEngine.ts",
-        "Tool.ts",
-        "Task.ts",
-        "tools/**",
-        "utils/permissions/**",
-        "hooks/useCanUseTool.tsx",
-        "hooks/toolPermission/**",
-        "bootstrap/**",
-        "state/**",
-        "services/api/**",
-        "services/modelRuntime/**",
-        "services/compact/**",
-        "utils/memory/**"
+        "crates/mossen-tui/src/widgets/**"
       ],
       "to": [
-        "components/Workbench/**",
-        "components/workbench/**",
-        "workbench/**",
-        "surfaces/**",
-        "surface/**",
-        "apps/workbench/**",
-        "desktop/**",
-        "web/**",
-        "mobile/**"
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
       ],
-      "reason": "Core must not depend on Workbench/Web/Mobile implementation."
+      "reason": "Terminal widgets should render passed models and must not reach into the app loop or hook state."
     }
   ],
   "allowlist": []
 }
-

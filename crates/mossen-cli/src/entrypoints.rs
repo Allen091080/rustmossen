@@ -271,7 +271,15 @@ pub async fn entry_init() -> anyhow::Result<()> {
 
     // 设置 panic hook
     std::panic::set_hook(Box::new(|info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::cursor::Show
+        );
         tracing::error!("panic: {}", info);
+        eprintln!("Mossen crashed: {info}");
     }));
 
     tracing::info!("entry_init: complete");

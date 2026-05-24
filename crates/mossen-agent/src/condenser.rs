@@ -285,9 +285,7 @@ pub async fn auto_compact_if_needed(
         crate::services::compact::compact::compact_conversation(messages, "Read").await;
 
     if !compact_result.success {
-        let failures = tracking
-            .map(|t| t.consecutive_failures + 1)
-            .unwrap_or(1);
+        let failures = tracking.map(|t| t.consecutive_failures + 1).unwrap_or(1);
         warn!(
             error = ?compact_result.error,
             consecutive_failures = failures,

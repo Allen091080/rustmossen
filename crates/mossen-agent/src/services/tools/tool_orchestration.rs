@@ -1,11 +1,14 @@
 //! Tool orchestration — coordinates multi-tool execution flows (parallel, sequential, retry).
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use tracing::debug;
 
-use super::tool_execution::{ToolExecutionContext, ToolExecutionRequest, ToolExecutionResult, ToolPermissionChecker, execute_tool};
+use super::tool_execution::{
+    execute_tool, ToolExecutionContext, ToolExecutionRequest, ToolExecutionResult,
+    ToolPermissionChecker,
+};
 
 /// Orchestration mode for tool execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,8 +66,9 @@ pub async fn execute_tool_batch(
 /// Determine if two tool executions can safely run in parallel.
 pub fn can_parallelize(a: &ToolExecutionRequest, b: &ToolExecutionRequest) -> bool {
     // Read-only tools can always run in parallel
-    let read_only = |name: &str| matches!(name, "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch");
-    
+    let read_only =
+        |name: &str| matches!(name, "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch");
+
     if read_only(&a.tool_name) && read_only(&b.tool_name) {
         return true;
     }
@@ -90,7 +94,10 @@ pub enum MessageUpdate {
     /// Append a fully-formed message.
     Append(serde_json::Value),
     /// Replace an existing message by id with new content.
-    Replace { id: String, value: serde_json::Value },
+    Replace {
+        id: String,
+        value: serde_json::Value,
+    },
     /// Remove an existing message by id (e.g. after squashing).
     Remove(String),
 }

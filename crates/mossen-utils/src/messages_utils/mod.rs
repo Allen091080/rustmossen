@@ -1,10 +1,10 @@
 //! Messages utilities — translated from utils/messages/mappers.ts and utils/messages/systemInit.ts
 
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-use regex::Regex;
-use once_cell::sync::Lazy;
 
 // --- Types ---
 
@@ -171,11 +171,14 @@ pub fn from_sdk_compact_metadata(meta: &SdkCompactMetadata) -> CompactMetadata {
 
 /// Convert internal compact metadata to SDK format
 pub fn to_sdk_compact_metadata(meta: &CompactMetadata) -> SdkCompactMetadata {
-    let preserved_segment = meta.preserved_segment.as_ref().map(|seg| SdkPreservedSegment {
-        head_uuid: seg.head_uuid.clone(),
-        anchor_uuid: seg.anchor_uuid.clone(),
-        tail_uuid: seg.tail_uuid.clone(),
-    });
+    let preserved_segment = meta
+        .preserved_segment
+        .as_ref()
+        .map(|seg| SdkPreservedSegment {
+            head_uuid: seg.head_uuid.clone(),
+            anchor_uuid: seg.anchor_uuid.clone(),
+            tail_uuid: seg.tail_uuid.clone(),
+        });
     SdkCompactMetadata {
         trigger: meta.trigger.clone(),
         pre_tokens: meta.pre_tokens,
@@ -208,7 +211,8 @@ pub fn to_sdk_messages(messages: &[Message], session_id: &str) -> Vec<SdkMessage
             Message::User(msg) => {
                 let mut extra = serde_json::Map::new();
                 extra.insert("parent_tool_use_id".to_string(), Value::Null);
-                let is_synthetic = msg.is_meta || msg.is_visible_in_transcript_only.unwrap_or(false);
+                let is_synthetic =
+                    msg.is_meta || msg.is_visible_in_transcript_only.unwrap_or(false);
                 extra.insert("isSynthetic".to_string(), Value::Bool(is_synthetic));
                 if let Some(tool_result) = &msg.tool_use_result {
                     extra.insert("tool_use_result".to_string(), tool_result.clone());
@@ -264,20 +268,30 @@ pub fn to_internal_messages(messages: &[SdkMessage]) -> Vec<Message> {
             SdkMessageType::Assistant => {
                 result.push(Message::Assistant(AssistantMessage {
                     message: message.message.clone().unwrap_or(Value::Null),
-                    uuid: message.uuid.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    uuid: message
+                        .uuid
+                        .clone()
+                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
                     request_id: None,
                     timestamp: chrono::Utc::now().to_rfc3339(),
                     error: None,
                 }));
             }
             SdkMessageType::User => {
-                let is_synthetic = message.extra.get("isSynthetic")
+                let is_synthetic = message
+                    .extra
+                    .get("isSynthetic")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 result.push(Message::User(UserMessage {
                     message: message.message.clone().unwrap_or(Value::Null),
-                    uuid: message.uuid.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
-                    timestamp: message.timestamp.clone()
+                    uuid: message
+                        .uuid
+                        .clone()
+                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    timestamp: message
+                        .timestamp
+                        .clone()
                         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                     is_meta: is_synthetic,
                     is_visible_in_transcript_only: None,
@@ -292,7 +306,10 @@ pub fn to_internal_messages(messages: &[SdkMessage]) -> Vec<Message> {
                             level: "info".to_string(),
                             subtype: Some("compact_boundary".to_string()),
                             compact_metadata: Some(from_sdk_compact_metadata(meta)),
-                            uuid: message.uuid.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
+                            uuid: message
+                                .uuid
+                                .clone()
+                                .unwrap_or_else(|| Uuid::new_v4().to_string()),
                             timestamp: chrono::Utc::now().to_rfc3339(),
                         }));
                     }
@@ -303,13 +320,11 @@ pub fn to_internal_messages(messages: &[SdkMessage]) -> Vec<Message> {
     result
 }
 
-static STDOUT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<local-command-stdout>([\s\S]*?)</local-command-stdout>").unwrap()
-});
+static STDOUT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<local-command-stdout>([\s\S]*?)</local-command-stdout>").unwrap());
 
-static STDERR_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<local-command-stderr>([\s\S]*?)</local-command-stderr>").unwrap()
-});
+static STDERR_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<local-command-stderr>([\s\S]*?)</local-command-stderr>").unwrap());
 
 /// Converts local command output to a well-formed SDKAssistantMessage
 /// Strips ANSI then unwraps the XML wrapper tags.
@@ -425,36 +440,52 @@ pub fn build_system_init_message(
     cwd: &str,
     version: &str,
 ) -> SdkMessage {
-    let tools: Vec<Value> = inputs.tools.iter()
+    let tools: Vec<Value> = inputs
+        .tools
+        .iter()
         .map(|t| Value::String(sdk_compat_tool_name(t).to_string()))
         .collect();
 
-    let mcp_servers: Vec<Value> = inputs.mcp_clients.iter()
-        .map(|c| serde_json::json!({
-            "name": c.name,
-            "status": c.client_type,
-        }))
+    let mcp_servers: Vec<Value> = inputs
+        .mcp_clients
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "status": c.client_type,
+            })
+        })
         .collect();
 
-    let slash_commands: Vec<Value> = inputs.commands.iter()
+    let slash_commands: Vec<Value> = inputs
+        .commands
+        .iter()
         .filter(|c| c.user_invocable)
         .map(|c| Value::String(c.name.clone()))
         .collect();
 
-    let skills: Vec<Value> = inputs.skills.iter()
+    let skills: Vec<Value> = inputs
+        .skills
+        .iter()
         .filter(|s| s.user_invocable)
         .map(|s| Value::String(s.name.clone()))
         .collect();
 
-    let plugins: Vec<Value> = inputs.plugins.iter()
-        .map(|p| serde_json::json!({
-            "name": p.name,
-            "path": p.path,
-            "source": p.source,
-        }))
+    let plugins: Vec<Value> = inputs
+        .plugins
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "path": p.path,
+                "source": p.source,
+            })
+        })
         .collect();
 
-    let agents: Vec<Value> = inputs.agents.iter()
+    let agents: Vec<Value> = inputs
+        .agents
+        .iter()
         .map(|a| Value::String(a.clone()))
         .collect();
 
@@ -463,9 +494,15 @@ pub fn build_system_init_message(
     extra.insert("tools".to_string(), Value::Array(tools));
     extra.insert("mcp_servers".to_string(), Value::Array(mcp_servers));
     extra.insert("model".to_string(), Value::String(inputs.model.clone()));
-    extra.insert("permissionMode".to_string(), serde_json::to_value(&inputs.permission_mode).unwrap_or(Value::Null));
+    extra.insert(
+        "permissionMode".to_string(),
+        serde_json::to_value(&inputs.permission_mode).unwrap_or(Value::Null),
+    );
     extra.insert("slash_commands".to_string(), Value::Array(slash_commands));
-    extra.insert("mossen_code_version".to_string(), Value::String(version.to_string()));
+    extra.insert(
+        "mossen_code_version".to_string(),
+        Value::String(version.to_string()),
+    );
     extra.insert("agents".to_string(), Value::Array(agents));
     extra.insert("skills".to_string(), Value::Array(skills));
     extra.insert("plugins".to_string(), Value::Array(plugins));

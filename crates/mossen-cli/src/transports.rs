@@ -104,7 +104,7 @@ pub struct WebSocketTransportOptions {
     /// disconnect. Use this when the caller has its own recovery mechanism
     /// (e.g. the REPL bridge poll loop). Defaults to `true`.
     pub auto_reconnect: Option<bool>,
-    /// Gates the `tengu_ws_transport_*` telemetry events. Set `true` at the
+    /// Gates the `mossen_ws_transport_*` telemetry events. Set `true` at the
     /// REPL-bridge construction site so only Remote Control sessions (the
     /// Cloudflare-idle-timeout population) emit; print-mode workers stay
     /// silent. Defaults to `false`.
@@ -150,8 +150,7 @@ impl WebSocketTransport {
     fn build_connection_url(&self) -> Url {
         let mut url = self.url.clone();
         if let Some(ref sid) = self.session_id {
-            url.query_pairs_mut()
-                .append_pair("session_id", sid);
+            url.query_pairs_mut().append_pair("session_id", sid);
         }
         url
     }
@@ -164,8 +163,8 @@ impl Transport for WebSocketTransport {
         info!(url = %url, "WebSocketTransport: connecting");
 
         // Build request with headers
-        let mut request = tokio_tungstenite::tungstenite::http::Request::builder()
-            .uri(url.as_str());
+        let mut request =
+            tokio_tungstenite::tungstenite::http::Request::builder().uri(url.as_str());
 
         for (key, value) in &self.headers {
             request = request.header(key.as_str(), value.as_str());
@@ -253,8 +252,7 @@ impl Transport for WebSocketTransport {
     }
 
     fn close(&self) {
-        self.closed
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn set_on_data(&self, callback: Box<dyn Fn(String) + Send + Sync>) {
@@ -332,7 +330,9 @@ impl SSETransport {
     fn write_url(&self) -> Url {
         let mut url = self.url.clone();
         // Replace /worker/events/stream with /worker/events
-        let path = url.path().replace("/worker/events/stream", "/worker/events");
+        let path = url
+            .path()
+            .replace("/worker/events/stream", "/worker/events");
         url.set_path(&path);
         url
     }
@@ -435,17 +435,13 @@ impl Transport for SSETransport {
 
         let response = request.send().await.context("SSE POST write failed")?;
         if !response.status().is_success() {
-            warn!(
-                "SSETransport: write returned status {}",
-                response.status()
-            );
+            warn!("SSETransport: write returned status {}", response.status());
         }
         Ok(())
     }
 
     fn close(&self) {
-        self.closed
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn set_on_data(&self, callback: Box<dyn Fn(String) + Send + Sync>) {
@@ -554,8 +550,8 @@ impl Transport for HybridTransport {
             ws_url.query_pairs_mut().append_pair("session_id", sid);
         }
 
-        let mut request = tokio_tungstenite::tungstenite::http::Request::builder()
-            .uri(ws_url.as_str());
+        let mut request =
+            tokio_tungstenite::tungstenite::http::Request::builder().uri(ws_url.as_str());
         for (key, value) in &self.headers {
             request = request.header(key.as_str(), value.as_str());
         }
@@ -612,7 +608,10 @@ impl Transport for HybridTransport {
         request = request.header("Content-Type", "application/json");
         request = request.json(message);
 
-        let response = request.send().await.context("HybridTransport POST failed")?;
+        let response = request
+            .send()
+            .await
+            .context("HybridTransport POST failed")?;
         if !response.status().is_success() {
             warn!(
                 "HybridTransport: write returned status {}",
@@ -623,8 +622,7 @@ impl Transport for HybridTransport {
     }
 
     fn close(&self) {
-        self.closed
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn set_on_data(&self, callback: Box<dyn Fn(String) + Send + Sync>) {
@@ -776,8 +774,7 @@ impl SerialBatchEventUploader {
 
     /// 关闭上传器。
     pub async fn close(&self) {
-        self.closed
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.flush_all().await;
     }
 }
@@ -917,10 +914,7 @@ impl CCRClient {
         let path = upload_url.path().trim_end_matches('/').to_string();
         upload_url.set_path(&format!("{}/worker/events", path));
 
-        let uploader = Arc::new(SerialBatchEventUploader::new(
-            upload_url,
-            HashMap::new(),
-        ));
+        let uploader = Arc::new(SerialBatchEventUploader::new(upload_url, HashMap::new()));
 
         Self {
             transport,
@@ -1081,9 +1075,7 @@ impl CCRClient {
         drop(queue);
 
         // Also enqueue for upload
-        self.uploader
-            .enqueue(serde_json::to_value(&event)?)
-            .await;
+        self.uploader.enqueue(serde_json::to_value(&event)?).await;
         Ok(())
     }
 

@@ -3,7 +3,9 @@
 use serde_json::Value;
 use tracing::{debug, error};
 
-use super::diagnostic_registry::{Diagnostic, DiagnosticFile, DiagnosticRange, LspDiagnosticRegistry, Position};
+use super::diagnostic_registry::{
+    Diagnostic, DiagnosticFile, DiagnosticRange, LspDiagnosticRegistry, Position,
+};
 use super::server_manager::LspServerManager;
 
 /// Map LSP severity number to severity string.
@@ -19,10 +21,7 @@ fn map_lsp_severity(lsp_severity: Option<u32>) -> String {
 
 /// Convert LSP diagnostics to Mossen diagnostic format.
 pub fn format_diagnostics_for_attachment(params: &Value) -> Vec<DiagnosticFile> {
-    let uri = params
-        .get("uri")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
 
     // Convert file:// URI to path
     let file_path = if uri.starts_with("file://") {

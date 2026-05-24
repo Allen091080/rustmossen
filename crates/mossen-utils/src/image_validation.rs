@@ -103,9 +103,7 @@ fn is_base64_image_block(block: &serde_json::Value) -> Option<&str> {
 ///
 /// # 错误
 /// 如果任何图片超过 API 限制，返回 `ImageSizeError`。
-pub fn validate_images_for_api(
-    messages: &[serde_json::Value],
-) -> Result<(), ImageSizeError> {
+pub fn validate_images_for_api(messages: &[serde_json::Value]) -> Result<(), ImageSizeError> {
     let mut oversized_images: Vec<OversizedImage> = Vec::new();
     let mut image_index = 0usize;
 

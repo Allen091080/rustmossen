@@ -1,7 +1,6 @@
+use regex::Regex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 
 const MAX_SLUG_RETRIES: usize = 10;
 const PROMPT_SLUG_MAX_LENGTH: usize = 48;
@@ -30,7 +29,10 @@ pub fn generate_prompt_plan_slug(prompt: &str) -> Option<String> {
     let lowered = ansi_stripped.to_lowercase();
 
     // 4. Bias check: count ASCII alnum
-    let ascii_alnum_count = lowered.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+    let ascii_alnum_count = lowered
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .count();
     let non_whitespace_count = lowered.chars().filter(|c| !c.is_whitespace()).count();
     if non_whitespace_count == 0
         || (ascii_alnum_count as f64 / non_whitespace_count as f64) < PROMPT_SLUG_ASCII_RATIO_FLOOR
@@ -145,9 +147,7 @@ pub fn get_plan_slug(
         return slug.clone();
     }
 
-    let exists = |candidate: &str| -> bool {
-        plans_dir.join(format!("{}.md", candidate)).exists()
-    };
+    let exists = |candidate: &str| -> bool { plans_dir.join(format!("{}.md", candidate)).exists() };
 
     let mut slug: Option<String> = None;
 
@@ -226,11 +226,7 @@ pub fn get_plans_directory(
 }
 
 /// Get the file path for a session's plan.
-pub fn get_plan_file_path(
-    plan_slug: &str,
-    plans_dir: &Path,
-    agent_id: Option<&str>,
-) -> PathBuf {
+pub fn get_plan_file_path(plan_slug: &str, plans_dir: &Path, agent_id: Option<&str>) -> PathBuf {
     match agent_id {
         None => plans_dir.join(format!("{}.md", plan_slug)),
         Some(id) => plans_dir.join(format!("{}-agent-{}.md", plan_slug, id)),
@@ -334,8 +330,7 @@ fn recover_plan_from_messages(log: &LogOption) -> Option<String> {
             if let Some(content) = msg.content.as_array() {
                 for block in content {
                     if block.get("type").and_then(|v| v.as_str()) == Some("tool_use")
-                        && block.get("name").and_then(|v| v.as_str())
-                            == Some("ExitPlanMode_v2")
+                        && block.get("name").and_then(|v| v.as_str()) == Some("ExitPlanMode_v2")
                     {
                         if let Some(input) = block.get("input") {
                             if let Some(plan) = input.get("plan").and_then(|v| v.as_str()) {
@@ -373,10 +368,7 @@ fn recover_plan_from_messages(log: &LogOption) -> Option<String> {
 }
 
 /// Find a file entry in the most recent file-snapshot system message.
-pub fn find_file_snapshot_entry(
-    messages: &[LogMessage],
-    key: &str,
-) -> Option<FileSnapshotEntry> {
+pub fn find_file_snapshot_entry(messages: &[LogMessage], key: &str) -> Option<FileSnapshotEntry> {
     for msg in messages.iter().rev() {
         if msg.message_type == "system" {
             if let Some(subtype) = msg.content.get("subtype").and_then(|v| v.as_str()) {

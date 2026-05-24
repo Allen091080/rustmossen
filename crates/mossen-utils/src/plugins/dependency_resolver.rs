@@ -31,10 +31,20 @@ pub struct DependencyLookupResult {
 /// Resolution result.
 #[derive(Debug, Clone)]
 pub enum ResolutionResult {
-    Ok { closure: Vec<PluginId> },
-    Cycle { chain: Vec<PluginId> },
-    NotFound { missing: PluginId, required_by: PluginId },
-    CrossMarketplace { dependency: PluginId, required_by: PluginId },
+    Ok {
+        closure: Vec<PluginId>,
+    },
+    Cycle {
+        chain: Vec<PluginId>,
+    },
+    NotFound {
+        missing: PluginId,
+        required_by: PluginId,
+    },
+    CrossMarketplace {
+        dependency: PluginId,
+        required_by: PluginId,
+    },
 }
 
 /// Walk the transitive dependency closure of `root_id` via DFS.
@@ -174,16 +184,23 @@ pub struct LoadedPluginRef<'a> {
 }
 
 /// Load-time safety net: verify all manifest dependencies are in the enabled set.
-pub fn verify_and_demote(plugins: &[LoadedPluginRef<'_>]) -> (HashSet<String>, Vec<DependencyError>) {
+pub fn verify_and_demote(
+    plugins: &[LoadedPluginRef<'_>],
+) -> (HashSet<String>, Vec<DependencyError>) {
     let known: HashSet<&str> = plugins.iter().map(|p| p.source).collect();
-    let mut enabled: HashSet<&str> = plugins.iter().filter(|p| p.enabled).map(|p| p.source).collect();
+    let mut enabled: HashSet<&str> = plugins
+        .iter()
+        .filter(|p| p.enabled)
+        .map(|p| p.source)
+        .collect();
 
     let known_by_name: HashSet<String> = plugins
         .iter()
         .map(|p| parse_plugin_identifier(p.source).name)
         .collect();
 
-    let mut enabled_by_name: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut enabled_by_name: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for id in enabled.iter() {
         let n = parse_plugin_identifier(id).name;
         *enabled_by_name.entry(n).or_default() += 1;
@@ -215,9 +232,17 @@ pub fn verify_and_demote(plugins: &[LoadedPluginRef<'_>]) -> (HashSet<String>, V
                         enabled_by_name.insert(p.name.to_string(), count - 1);
                     }
                     let reason = if is_bare {
-                        if known_by_name.contains(&dep) { "not-enabled" } else { "not-found" }
+                        if known_by_name.contains(&dep) {
+                            "not-enabled"
+                        } else {
+                            "not-found"
+                        }
                     } else {
-                        if known.contains(dep.as_str()) { "not-enabled" } else { "not-found" }
+                        if known.contains(dep.as_str()) {
+                            "not-enabled"
+                        } else {
+                            "not-found"
+                        }
                     };
                     errors.push(DependencyError {
                         error_type: "dependency-unsatisfied".to_string(),
@@ -243,10 +268,7 @@ pub fn verify_and_demote(plugins: &[LoadedPluginRef<'_>]) -> (HashSet<String>, V
 }
 
 /// Find all enabled plugins that declare `plugin_id` as a dependency.
-pub fn find_reverse_dependents(
-    plugin_id: &str,
-    plugins: &[LoadedPluginRef<'_>],
-) -> Vec<String> {
+pub fn find_reverse_dependents(plugin_id: &str, plugins: &[LoadedPluginRef<'_>]) -> Vec<String> {
     let target_name = parse_plugin_identifier(plugin_id).name;
     plugins
         .iter()

@@ -3,7 +3,7 @@
 //! This utility ensures forked agents:
 //! 1. Share identical cache-critical params with the parent to guarantee prompt cache hits
 //! 2. Track full usage metrics across the entire query loop
-//! 3. Log metrics via the tengu_fork_agent_query event when complete
+//! 3. Log metrics via the mossen_fork_agent_query event when complete
 //! 4. Isolate mutable state to prevent interference with the main agent loop
 
 use std::collections::HashSet;
@@ -34,12 +34,16 @@ pub struct CacheSafeParams {
 static LAST_CACHE_SAFE_PARAMS: Mutex<Option<CacheSafeParams>> = Mutex::new(None);
 
 pub fn save_cache_safe_params(params: Option<CacheSafeParams>) {
-    let mut guard = LAST_CACHE_SAFE_PARAMS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = LAST_CACHE_SAFE_PARAMS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     *guard = params;
 }
 
 pub fn get_last_cache_safe_params() -> Option<CacheSafeParams> {
-    let guard = LAST_CACHE_SAFE_PARAMS.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = LAST_CACHE_SAFE_PARAMS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     guard.clone()
 }
 
@@ -102,10 +106,8 @@ pub fn accumulate_usage(total: &mut NonNullableUsage, turn: &NonNullableUsage) {
     total.output_tokens += turn.output_tokens;
     total.cache_read_input_tokens += turn.cache_read_input_tokens;
     total.cache_creation_input_tokens += turn.cache_creation_input_tokens;
-    total.cache_creation.ephemeral_1h_input_tokens +=
-        turn.cache_creation.ephemeral_1h_input_tokens;
-    total.cache_creation.ephemeral_5m_input_tokens +=
-        turn.cache_creation.ephemeral_5m_input_tokens;
+    total.cache_creation.ephemeral_1h_input_tokens += turn.cache_creation.ephemeral_1h_input_tokens;
+    total.cache_creation.ephemeral_5m_input_tokens += turn.cache_creation.ephemeral_5m_input_tokens;
 }
 
 /// System prompt placeholder type.
@@ -310,7 +312,7 @@ pub fn create_allowed_tools_set(
 /// Prepares the context for executing a forked command/skill.
 pub async fn prepare_forked_command_context(
     skill_content: String,
-    allowed_tools: &[String],
+    _allowed_tools: &[String],
     agent_type_name: Option<&str>,
     agents: &[AgentDefinition],
 ) -> Result<PreparedForkedContext, anyhow::Error> {
@@ -439,10 +441,12 @@ pub fn create_subagent_context(
 }
 
 /// Runs a forked agent query loop and tracks cache hit metrics.
-pub async fn run_forked_agent(params: ForkedAgentParams) -> Result<ForkedAgentResult, anyhow::Error> {
+pub async fn run_forked_agent(
+    params: ForkedAgentParams,
+) -> Result<ForkedAgentResult, anyhow::Error> {
     let start_time = Instant::now();
-    let mut output_messages: Vec<Message> = Vec::new();
-    let mut total_usage = NonNullableUsage::default();
+    let output_messages: Vec<Message> = Vec::new();
+    let total_usage = NonNullableUsage::default();
 
     let isolated_context = create_subagent_context(
         &params.cache_safe_params.tool_use_context,
@@ -452,7 +456,7 @@ pub async fn run_forked_agent(params: ForkedAgentParams) -> Result<ForkedAgentRe
     let mut initial_messages = params.cache_safe_params.fork_context_messages.clone();
     initial_messages.extend(params.prompt_messages.clone());
 
-    let agent_id = if params.skip_transcript {
+    let _agent_id = if params.skip_transcript {
         None
     } else {
         Some(format!("{}-{}", params.fork_label, Uuid::new_v4()))
@@ -497,7 +501,7 @@ pub async fn run_forked_agent(params: ForkedAgentParams) -> Result<ForkedAgentRe
     })
 }
 
-/// Logs the tengu_fork_agent_query event with full NonNullableUsage fields.
+/// Logs the mossen_fork_agent_query event with full NonNullableUsage fields.
 fn log_fork_agent_query_event(
     fork_label: &str,
     query_source: &str,
@@ -528,7 +532,7 @@ fn log_fork_agent_query_event(
         cache_hit_rate = cache_hit_rate,
         query_chain_id = ?query_tracking.map(|qt| qt.chain_id),
         query_depth = ?query_tracking.map(|qt| qt.depth),
-        "tengu_fork_agent_query"
+        "mossen_fork_agent_query"
     );
 }
 

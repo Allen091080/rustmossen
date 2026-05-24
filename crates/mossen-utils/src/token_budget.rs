@@ -27,8 +27,9 @@ static SHORTHAND_START_RE: LazyLock<Regex> =
 static SHORTHAND_END_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\s\+(\d+(?:\.\d+)?)\s*(k|m|b)\s*[.!?]?\s*$").unwrap());
 
-static VERBOSE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(?:use|spend)\s+(\d+(?:\.\d+)?)\s*(k|m|b)\s*tokens?\b").unwrap());
+static VERBOSE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:use|spend)\s+(\d+(?:\.\d+)?)\s*(k|m|b)\s*tokens?\b").unwrap()
+});
 
 /// 从文本中解析 token 预算。
 ///
@@ -62,7 +63,9 @@ pub fn find_token_budget_positions(text: &str) -> Vec<(usize, usize)> {
 
     if let Some(m) = SHORTHAND_END_RE.find(text) {
         let end_start = m.start() + 1; // +1: regex 包含前导 \s
-        let already_covered = positions.iter().any(|(s, e)| end_start >= *s && end_start < *e);
+        let already_covered = positions
+            .iter()
+            .any(|(s, e)| end_start >= *s && end_start < *e);
         if !already_covered {
             positions.push((end_start, m.end()));
         }

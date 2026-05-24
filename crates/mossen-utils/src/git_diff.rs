@@ -173,10 +173,22 @@ pub fn parse_git_diff(stdout: &str) -> HashMap<String, Vec<StructuredPatchHunk>>
                     file_hunks.push(hunk);
                 }
                 current_hunk = Some(StructuredPatchHunk {
-                    old_start: caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                    old_lines: caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1),
-                    new_start: caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-                    new_lines: caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(1),
+                    old_start: caps
+                        .get(1)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0),
+                    old_lines: caps
+                        .get(2)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(1),
+                    new_start: caps
+                        .get(3)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(0),
+                    new_lines: caps
+                        .get(4)
+                        .and_then(|m| m.as_str().parse().ok())
+                        .unwrap_or(1),
                     lines: Vec::new(),
                 });
                 continue;
@@ -230,15 +242,29 @@ pub fn parse_shortstat(stdout: &str) -> Option<GitDiffStats> {
 
     let caps = re.captures(stdout)?;
     Some(GitDiffStats {
-        files_count: caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-        lines_added: caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
-        lines_removed: caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0),
+        files_count: caps
+            .get(1)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0),
+        lines_added: caps
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0),
+        lines_removed: caps
+            .get(3)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0),
     })
 }
 
 /// Check if we're in a transient git state.
 pub async fn is_in_transient_git_state(git_dir: &Path) -> bool {
-    let transient_files = ["MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"];
+    let transient_files = [
+        "MERGE_HEAD",
+        "REBASE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+    ];
 
     for file in &transient_files {
         if fs::metadata(git_dir.join(file)).await.is_ok() {
@@ -350,7 +376,12 @@ async fn fetch_untracked_files(
     max_files: usize,
 ) -> Option<HashMap<String, PerFileStats>> {
     let output = Command::new("git")
-        .args(["--no-optional-locks", "ls-files", "--others", "--exclude-standard"])
+        .args([
+            "--no-optional-locks",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+        ])
         .current_dir(cwd)
         .output()
         .await
@@ -383,9 +414,7 @@ async fn fetch_untracked_files(
 }
 
 /// Fetch a structured diff for a single file against the merge base.
-pub async fn fetch_single_file_git_diff(
-    absolute_file_path: &Path,
-) -> Option<ToolUseDiff> {
+pub async fn fetch_single_file_git_diff(absolute_file_path: &Path) -> Option<ToolUseDiff> {
     let parent = absolute_file_path.parent()?;
 
     // Find git root
@@ -409,7 +438,12 @@ pub async fn fetch_single_file_git_diff(
 
     // Check if tracked
     let ls_output = Command::new("git")
-        .args(["--no-optional-locks", "ls-files", "--error-unmatch", &git_path])
+        .args([
+            "--no-optional-locks",
+            "ls-files",
+            "--error-unmatch",
+            &git_path,
+        ])
         .current_dir(&git_root)
         .output()
         .await
@@ -432,14 +466,22 @@ pub async fn fetch_single_file_git_diff(
         if stdout.is_empty() {
             return None;
         }
-        Some(parse_raw_diff_to_tool_use_diff(&git_path, &stdout, DiffStatus::Modified))
+        Some(parse_raw_diff_to_tool_use_diff(
+            &git_path,
+            &stdout,
+            DiffStatus::Modified,
+        ))
     } else {
         // File is untracked — generate synthetic diff
         generate_synthetic_diff(&git_path, absolute_file_path).await
     }
 }
 
-fn parse_raw_diff_to_tool_use_diff(filename: &str, raw_diff: &str, status: DiffStatus) -> ToolUseDiff {
+fn parse_raw_diff_to_tool_use_diff(
+    filename: &str,
+    raw_diff: &str,
+    status: DiffStatus,
+) -> ToolUseDiff {
     let mut patch_lines: Vec<&str> = Vec::new();
     let mut in_hunks = false;
     let mut additions: usize = 0;
@@ -506,7 +548,11 @@ async fn generate_synthetic_diff(git_path: &str, absolute_file_path: &Path) -> O
     }
 
     let line_count = lines.len();
-    let added_lines: String = lines.iter().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n");
+    let added_lines: String = lines
+        .iter()
+        .map(|l| format!("+{}", l))
+        .collect::<Vec<_>>()
+        .join("\n");
     let patch = format!("@@ -0,0 +1,{} @@\n{}", line_count, added_lines);
 
     Some(ToolUseDiff {

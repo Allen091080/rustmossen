@@ -207,7 +207,10 @@ pub enum McpServerConfig {
         url: String,
         #[serde(rename = "ideName")]
         ide_name: String,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "ideRunningInWindows")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "ideRunningInWindows"
+        )]
         ide_running_in_windows: Option<bool>,
     },
     #[serde(rename = "ws-ide")]
@@ -217,7 +220,10 @@ pub enum McpServerConfig {
         ide_name: String,
         #[serde(skip_serializing_if = "Option::is_none", rename = "authToken")]
         auth_token: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "ideRunningInWindows")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            rename = "ideRunningInWindows"
+        )]
         ide_running_in_windows: Option<bool>,
     },
     #[serde(rename = "http")]
@@ -239,14 +245,9 @@ pub enum McpServerConfig {
         headers_helper: Option<String>,
     },
     #[serde(rename = "sdk")]
-    Sdk {
-        name: String,
-    },
+    Sdk { name: String },
     #[serde(rename = "hosted-proxy")]
-    HostedProxy {
-        url: String,
-        id: String,
-    },
+    HostedProxy { url: String, id: String },
 }
 
 /// Scoped MCP server config — config + scope + optional plugin source.

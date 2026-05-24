@@ -122,7 +122,11 @@ pub fn powershell_has_permission(
     deny_rules: &[PermissionRule],
 ) -> PermissionResult {
     let stripped = strip_leading_env_vars(command);
-    let check_cmd = if stripped.is_empty() { command } else { &stripped };
+    let check_cmd = if stripped.is_empty() {
+        command
+    } else {
+        &stripped
+    };
 
     // Check deny rules first (deny takes precedence)
     for rule in deny_rules {

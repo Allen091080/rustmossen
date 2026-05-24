@@ -4,9 +4,10 @@
 //! segmented permission checks, and operator-level security validation.
 
 use crate::bash_tool::bash_permissions::{
-    self, BashPermissionRule, PermissionBehavior, PermissionResult, PermissionUpdate,
-    bash_tool_has_permission, is_normalized_cd_command, is_normalized_git_command,
+    self, bash_tool_has_permission, is_normalized_cd_command, is_normalized_git_command,
+    BashPermissionRule, PermissionBehavior, PermissionResult, PermissionUpdate,
 };
+use mossen_utils::string_utils::truncate_chars_with_suffix;
 
 /// Command identity checkers for security validation.
 pub struct CommandIdentityCheckers;
@@ -298,11 +299,7 @@ fn split_command_deprecated(command: &str) -> Vec<String> {
 
 /// Truncate a string for display.
 fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len])
-    }
+    truncate_chars_with_suffix(s, max_len, "...")
 }
 
 #[cfg(test)]
@@ -327,9 +324,6 @@ mod tests {
             build_segment_without_redirections("echo hello > file.txt"),
             "echo hello"
         );
-        assert_eq!(
-            build_segment_without_redirections("cat file"),
-            "cat file"
-        );
+        assert_eq!(build_segment_without_redirections("cat file"), "cat file");
     }
 }

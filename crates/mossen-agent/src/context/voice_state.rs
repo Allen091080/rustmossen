@@ -66,9 +66,9 @@ impl VoiceStateStore {
         let mut state = self.state.write().unwrap();
         updater(&mut state);
         drop(state);
-        let _ = self.tx.send(
-            self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        );
+        let _ = self
+            .tx
+            .send(self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     }
 
     /// Subscribe to state changes.

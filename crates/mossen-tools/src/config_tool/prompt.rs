@@ -52,7 +52,7 @@ pub fn generate_prompt() -> String {
          - Set dark theme: {{ \"setting\": \"theme\", \"value\": \"dark\" }}\n\
          - Enable vim mode: {{ \"setting\": \"editorMode\", \"value\": \"vim\" }}\n\
          - Enable verbose: {{ \"setting\": \"verbose\", \"value\": true }}\n\
-         - Change model: {{ \"setting\": \"model\", \"value\": \"mossen-opus-4-6\" }}\n\
+         - Change model: {{ \"setting\": \"model\", \"value\": \"mossen-max-4-6\" }}\n\
          - Change permission mode: {{ \"setting\": \"permissions.defaultMode\", \"value\": \"plan\" }}\n",
         global = global_settings.join("\n"),
         project = project_settings.join("\n"),
@@ -61,11 +61,7 @@ pub fn generate_prompt() -> String {
 }
 
 fn generate_model_section() -> String {
-    let default_models = vec![
-        "mossen-sonnet-4-6",
-        "mossen-opus-4-6",
-        "mossen-haiku-4-5",
-    ];
+    let default_models = vec!["mossen-balanced-4-6", "mossen-max-4-6", "mossen-fast-4-5"];
     let lines: Vec<String> = default_models
         .iter()
         .map(|m| format!("  - \"{}\"", m))

@@ -57,7 +57,7 @@ pub struct AutoModeGateResult {
 ///
 /// `verify_fn` should be an async function that returns (updated_context_transform, notification).
 pub async fn check_and_disable_auto_mode_if_needed(
-    tool_permission_context: &ToolPermissionContext,
+    _tool_permission_context: &ToolPermissionContext,
     verify_fn: impl std::future::Future<Output = AutoModeGateResult>,
 ) -> AutoModeGateResult {
     if AUTO_MODE_CHECK_RAN.swap(true, Ordering::SeqCst) {
@@ -109,7 +109,11 @@ pub async fn use_kick_off_check_and_disable_bypass_permissions_if_needed(
     tool_permission_context: &ToolPermissionContext,
     should_disable_bypass_fn: impl std::future::Future<Output = bool>,
 ) -> Option<ToolPermissionContext> {
-    check_and_disable_bypass_permissions_if_needed(tool_permission_context, should_disable_bypass_fn).await
+    check_and_disable_bypass_permissions_if_needed(
+        tool_permission_context,
+        should_disable_bypass_fn,
+    )
+    .await
 }
 
 /// 对应 TS `useKickOffCheckAndDisableAutoModeIfNeeded`。

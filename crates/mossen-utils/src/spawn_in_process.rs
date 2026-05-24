@@ -85,16 +85,12 @@ pub fn format_agent_id(name: &str, team_name: &str) -> String {
 ///   后可用 [`kill_in_process_teammate`] 取消。
 /// - 真正的推理 loop（TS 端 `runInProcessTeammate`）尚未在 Rust 端实现；
 ///   见 [`crate::in_process_runner`]。本函数只负责注册 / 返回 handle。
-pub async fn spawn_in_process_teammate(
-    config: InProcessSpawnConfig,
-) -> InProcessSpawnOutput {
+pub async fn spawn_in_process_teammate(config: InProcessSpawnConfig) -> InProcessSpawnOutput {
     let agent_id = format_agent_id(&config.name, &config.team_name);
     let task_id = format!("in_process_{}", uuid::Uuid::new_v4());
 
     let abort = AbortController::new();
-    SPAWNED_TASKS
-        .lock()
-        .insert(task_id.clone(), abort.clone());
+    SPAWNED_TASKS.lock().insert(task_id.clone(), abort.clone());
 
     // 从当前线程的 teammate context 或全局 dynamic context 推导父会话 ID。
     let parent_session_id = get_parent_session_id().unwrap_or_default();
@@ -144,7 +140,10 @@ mod tests {
 
     #[test]
     fn test_format_agent_id() {
-        assert_eq!(format_agent_id("researcher", "my-team"), "researcher@my-team");
+        assert_eq!(
+            format_agent_id("researcher", "my-team"),
+            "researcher@my-team"
+        );
     }
 
     #[tokio::test]

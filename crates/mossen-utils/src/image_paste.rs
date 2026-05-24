@@ -5,9 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-use regex::Regex;
 use once_cell::sync::Lazy;
-use tracing::{debug, warn};
+use regex::Regex;
+use tracing::warn;
 
 /// Threshold in characters for large paste detection.
 pub const PASTE_THRESHOLD: usize = 800;
@@ -219,7 +219,8 @@ pub async fn get_image_from_clipboard() -> Option<ImageWithDimensions> {
         return None;
     }
 
-    let base64_image = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_buffer);
+    let base64_image =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_buffer);
     let media_type = detect_image_format_from_bytes(&image_buffer);
 
     // Cleanup (fire-and-forget)
@@ -303,7 +304,8 @@ pub async fn try_read_image_from_path(text: &str) -> Option<ImageWithPath> {
         return None;
     }
 
-    let base64_image = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_buffer);
+    let base64_image =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_buffer);
     let media_type = detect_image_format_from_bytes(&image_buffer);
 
     Some(ImageWithPath {

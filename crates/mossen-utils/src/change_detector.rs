@@ -90,54 +90,56 @@ pub async fn initialize() {
 
     let inner = DETECTOR.clone();
     let sender = state.sender.clone();
-    let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(event) = res else { return };
-        // 过滤可能感兴趣的事件类型。
-        match event.kind {
-            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {}
-            _ => return,
-        }
-        for path in event.paths {
-            let now = Instant::now();
-            let mut st = inner.lock();
-
-            // 跳过 .git 子树。
-            if path
-                .components()
-                .any(|c| c.as_os_str() == std::ffi::OsStr::new(".git"))
-            {
-                continue;
+    let mut watcher =
+        match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let Ok(event) = res else { return };
+            // 过滤可能感兴趣的事件类型。
+            match event.kind {
+                EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) => {}
+                _ => return,
             }
+            for path in event.paths {
+                let now = Instant::now();
+                let mut st = inner.lock();
 
-            // 内部写入抑制：5 秒内若被标记为内部写入则忽略。
-            if let Some(stamp) = st.internal_writes.get(&path).copied() {
-                if now.duration_since(stamp) < Duration::from_millis(INTERNAL_WRITE_WINDOW_MS) {
-                    continue;
-                } else {
-                    st.internal_writes.remove(&path);
-                }
-            }
-
-            // 去抖：在 FILE_STABILITY_THRESHOLD_MS 内的重复事件丢弃。
-            if let Some(prev) = st.last_event.get(&path).copied() {
-                if now.duration_since(prev) < Duration::from_millis(FILE_STABILITY_THRESHOLD_MS) {
-                    st.last_event.insert(path.clone(), now);
+                // 跳过 .git 子树。
+                if path
+                    .components()
+                    .any(|c| c.as_os_str() == std::ffi::OsStr::new(".git"))
+                {
                     continue;
                 }
-            }
-            st.last_event.insert(path.clone(), now);
 
-            let path_str = path.to_string_lossy().into_owned();
-            let _ = sender.send(path_str);
-        }
-    }) {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("change_detector: failed to create watcher: {}", e);
-            state.initialized = false;
-            return;
-        }
-    };
+                // 内部写入抑制：5 秒内若被标记为内部写入则忽略。
+                if let Some(stamp) = st.internal_writes.get(&path).copied() {
+                    if now.duration_since(stamp) < Duration::from_millis(INTERNAL_WRITE_WINDOW_MS) {
+                        continue;
+                    } else {
+                        st.internal_writes.remove(&path);
+                    }
+                }
+
+                // 去抖：在 FILE_STABILITY_THRESHOLD_MS 内的重复事件丢弃。
+                if let Some(prev) = st.last_event.get(&path).copied() {
+                    if now.duration_since(prev) < Duration::from_millis(FILE_STABILITY_THRESHOLD_MS)
+                    {
+                        st.last_event.insert(path.clone(), now);
+                        continue;
+                    }
+                }
+                st.last_event.insert(path.clone(), now);
+
+                let path_str = path.to_string_lossy().into_owned();
+                let _ = sender.send(path_str);
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("change_detector: failed to create watcher: {}", e);
+                state.initialized = false;
+                return;
+            }
+        };
 
     for dir in &dirs {
         if let Err(e) = watcher.watch(dir.as_ref(), RecursiveMode::NonRecursive) {

@@ -341,7 +341,10 @@ const FRONTMATTER_SHELLS: &[(&str, FrontmatterShell)] = &[
 ];
 
 /// Parse and validate the `shell:` frontmatter field.
-pub fn parse_shell_frontmatter(value: &serde_yaml::Value, source: &str) -> Option<FrontmatterShell> {
+pub fn parse_shell_frontmatter(
+    value: &serde_yaml::Value,
+    source: &str,
+) -> Option<FrontmatterShell> {
     let s = match value {
         serde_yaml::Value::Null => return None,
         serde_yaml::Value::String(s) => s.trim().to_lowercase(),

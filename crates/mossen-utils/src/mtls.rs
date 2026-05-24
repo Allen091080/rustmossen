@@ -22,8 +22,7 @@ pub struct TlsConfig {
 }
 
 /// Cached mTLS config.
-static MTLS_CONFIG_CACHE: Lazy<Mutex<Option<Option<MtlsConfig>>>> =
-    Lazy::new(|| Mutex::new(None));
+static MTLS_CONFIG_CACHE: Lazy<Mutex<Option<Option<MtlsConfig>>>> = Lazy::new(|| Mutex::new(None));
 
 /// Get mTLS configuration from environment variables.
 pub fn get_mtls_config() -> Option<MtlsConfig> {
@@ -140,9 +139,7 @@ pub fn configure_global_mtls() {
         return;
     }
     if std::env::var("NODE_EXTRA_CA_CERTS").is_ok() {
-        tracing::debug!(
-            "NODE_EXTRA_CA_CERTS detected - will be appended to built-in CAs"
-        );
+        tracing::debug!("NODE_EXTRA_CA_CERTS detected - will be appended to built-in CAs");
     }
 }
 

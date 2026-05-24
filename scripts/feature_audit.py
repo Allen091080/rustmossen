@@ -57,7 +57,7 @@ FEATURE_PROFILES = [
         "features": ["KAIROS"],
         "expected_commands": ["assistant"],
         "notes": [
-            "`task` remains ant-only in main.tsx and is intentionally absent in external/custom builds."
+            "`task` remains internal-only in main.tsx and is intentionally absent in external/custom builds."
         ],
     },
     {

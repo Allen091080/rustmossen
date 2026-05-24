@@ -125,7 +125,7 @@ fn safe_substring(text: &str, start: usize, end: usize) -> String {
         // Check for ANSI escape sequence
         if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
             // Skip ANSI sequence
-            let seq_start = i;
+            let _seq_start = i;
             i += 2;
             while i < bytes.len() && !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'm') {
                 i += 1;

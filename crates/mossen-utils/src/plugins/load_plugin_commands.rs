@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
 use tracing::debug;
 
-use super::schemas::{CommandMetadata, PluginManifest};
+use super::schemas::PluginManifest;
 
 /// Plugin command type.
 #[derive(Debug, Clone)]
@@ -55,7 +55,9 @@ pub struct LoadConfig {
 
 impl Default for LoadConfig {
     fn default() -> Self {
-        Self { is_skill_mode: false }
+        Self {
+            is_skill_mode: false,
+        }
     }
 }
 
@@ -128,26 +130,29 @@ pub async fn collect_markdown_files(dir_path: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn collect_markdown_recursive<'a>(dir_path: &'a Path, files: &'a mut Vec<PathBuf>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+fn collect_markdown_recursive<'a>(
+    dir_path: &'a Path,
+    files: &'a mut Vec<PathBuf>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
-    let mut entries = match tokio::fs::read_dir(dir_path).await {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-        if let Ok(ft) = entry.file_type().await {
-            if ft.is_dir() {
-                collect_markdown_recursive(&path, files).await;
-            } else if ft.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("md") {
-                        files.push(path);
+        let mut entries = match tokio::fs::read_dir(dir_path).await {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if let Ok(ft) = entry.file_type().await {
+                if ft.is_dir() {
+                    collect_markdown_recursive(&path, files).await;
+                } else if ft.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("md") {
+                            files.push(path);
+                        }
                     }
                 }
             }
         }
-    }
     })
 }
 
@@ -177,7 +182,7 @@ pub async fn load_commands_from_directory(
     plugin_name: &str,
     source_name: &str,
     plugin_manifest: &PluginManifest,
-    plugin_path: &Path,
+    _plugin_path: &Path,
     config: &LoadConfig,
 ) -> Vec<Command> {
     let markdown_files = collect_markdown_files(commands_path).await;
@@ -217,19 +222,45 @@ pub async fn load_commands_from_directory(
             description,
             has_user_specified_description: frontmatter.contains_key("description"),
             allowed_tools: Vec::new(),
-            argument_hint: frontmatter.get("argument-hint").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            argument_hint: frontmatter
+                .get("argument-hint")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             arg_names: None,
-            when_to_use: frontmatter.get("when_to_use").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            version: frontmatter.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            model: frontmatter.get("model").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            effort: frontmatter.get("effort").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            disable_model_invocation: frontmatter.get("disable-model-invocation").and_then(|v| v.as_bool()).unwrap_or(false),
+            when_to_use: frontmatter
+                .get("when_to_use")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            version: frontmatter
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            model: frontmatter
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            effort: frontmatter
+                .get("effort")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            disable_model_invocation: frontmatter
+                .get("disable-model-invocation")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             user_invocable,
             content_length: body.len(),
             source: "plugin".to_string(),
-            loaded_from: if is_skill || config.is_skill_mode { Some("plugin".to_string()) } else { None },
+            loaded_from: if is_skill || config.is_skill_mode {
+                Some("plugin".to_string())
+            } else {
+                None
+            },
             is_hidden: !user_invocable,
-            progress_message: if is_skill || config.is_skill_mode { "loading".to_string() } else { "running".to_string() },
+            progress_message: if is_skill || config.is_skill_mode {
+                "loading".to_string()
+            } else {
+                "running".to_string()
+            },
             plugin_info: Some(PluginCommandInfo {
                 plugin_manifest: plugin_manifest.clone(),
                 repository: source_name.to_string(),
@@ -261,10 +292,7 @@ fn parse_simple_frontmatter(content: &str) -> (HashMap<String, serde_json::Value
 }
 
 /// Get plugin commands (memoized).
-pub async fn get_plugin_commands(
-    plugins: &[PluginInfo],
-    is_bare_mode: bool,
-) -> Vec<Command> {
+pub async fn get_plugin_commands(plugins: &[PluginInfo], is_bare_mode: bool) -> Vec<Command> {
     {
         let cache = PLUGIN_COMMAND_CACHE.lock().unwrap();
         if let Some(ref cached) = *cache {
@@ -325,7 +353,9 @@ pub async fn get_plugin_commands(
                 &plugin.source,
                 &plugin.manifest,
                 &plugin.path,
-                &LoadConfig { is_skill_mode: true },
+                &LoadConfig {
+                    is_skill_mode: true,
+                },
             )
             .await;
             all_commands.extend(commands);
@@ -350,8 +380,7 @@ pub struct PluginInfo {
     pub skills_path: Option<PathBuf>,
 }
 
-static PLUGIN_SKILLS_CACHE: Lazy<Mutex<Option<Vec<String>>>> =
-    Lazy::new(|| Mutex::new(None));
+static PLUGIN_SKILLS_CACHE: Lazy<Mutex<Option<Vec<String>>>> = Lazy::new(|| Mutex::new(None));
 
 /// 对应 TS `clearPluginSkillsCache`：清空 plugin skill 缓存。
 pub fn clear_plugin_skills_cache() {

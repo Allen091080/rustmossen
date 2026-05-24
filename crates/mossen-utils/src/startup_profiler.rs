@@ -2,7 +2,7 @@
 //! initialization phases.
 //!
 //! Two modes:
-//! 1. Sampled logging: 100% of ant users, 0.5% of external users - logs phases
+//! 1. Sampled logging: 100% of internal users, 0.5% of external users - logs phases
 //! 2. Detailed profiling: MOSSEN_CODE_PROFILE_STARTUP=1 - full report with memory snapshots
 
 use std::env;
@@ -13,9 +13,8 @@ use std::time::Instant;
 use once_cell::sync::Lazy;
 
 /// Whether detailed profiling is enabled via env var.
-static DETAILED_PROFILING: Lazy<bool> = Lazy::new(|| {
-    is_env_truthy(env::var("MOSSEN_CODE_PROFILE_STARTUP").ok().as_deref())
-});
+static DETAILED_PROFILING: Lazy<bool> =
+    Lazy::new(|| is_env_truthy(env::var("MOSSEN_CODE_PROFILE_STARTUP").ok().as_deref()));
 
 fn is_env_truthy(val: Option<&str>) -> bool {
     matches!(val, Some("1") | Some("true") | Some("yes"))
@@ -23,12 +22,11 @@ fn is_env_truthy(val: Option<&str>) -> bool {
 
 /// Whether this session was sampled for Statsig logging.
 static STATSIG_LOGGING_SAMPLED: Lazy<bool> = Lazy::new(|| {
-    env::var("USER_TYPE").ok().as_deref() == Some("ant") || rand::random::<f64>() < 0.005
+    env::var("USER_TYPE").ok().as_deref() == Some("internal") || rand::random::<f64>() < 0.005
 });
 
 /// Whether profiling should be active.
-static SHOULD_PROFILE: Lazy<bool> =
-    Lazy::new(|| *DETAILED_PROFILING || *STATSIG_LOGGING_SAMPLED);
+static SHOULD_PROFILE: Lazy<bool> = Lazy::new(|| *DETAILED_PROFILING || *STATSIG_LOGGING_SAMPLED);
 
 /// A profiling checkpoint entry.
 #[derive(Debug, Clone)]
@@ -58,7 +56,11 @@ static PROFILER_STATE: Lazy<Mutex<ProfilerState>> = Lazy::new(|| {
 const PHASE_DEFINITIONS: &[(&str, &str, &str)] = &[
     ("import_time", "cli_entry", "main_tsx_imports_loaded"),
     ("init_time", "init_function_start", "init_function_end"),
-    ("settings_time", "eagerLoadSettings_start", "eagerLoadSettings_end"),
+    (
+        "settings_time",
+        "eagerLoadSettings_start",
+        "eagerLoadSettings_end",
+    ),
     ("total_time", "cli_entry", "main_after_run"),
 ];
 
@@ -186,13 +188,19 @@ pub fn log_startup_perf() {
         if let (Some(&start_time), Some(&end_time)) =
             (checkpoint_times.get(start_cp), checkpoint_times.get(end_cp))
         {
-            metadata.insert(format!("{}_ms", phase_name), (end_time - start_time).round());
+            metadata.insert(
+                format!("{}_ms", phase_name),
+                (end_time - start_time).round(),
+            );
         }
     }
 
-    metadata.insert("checkpoint_count".to_string(), state.checkpoints.len() as f64);
+    metadata.insert(
+        "checkpoint_count".to_string(),
+        state.checkpoints.len() as f64,
+    );
 
-    tracing::info!(event = "tengu_startup_perf", ?metadata);
+    tracing::info!(event = "mossen_startup_perf", ?metadata);
 }
 
 /// Get current RSS in bytes (platform-specific).
@@ -214,7 +222,8 @@ fn get_rss_bytes() -> Option<usize> {
         unsafe {
             let mut info: libc::mach_task_basic_info = mem::zeroed();
             let mut count = (mem::size_of::<libc::mach_task_basic_info>()
-                / mem::size_of::<libc::natural_t>()) as libc::mach_msg_type_number_t;
+                / mem::size_of::<libc::natural_t>())
+                as libc::mach_msg_type_number_t;
             let kr = libc::task_info(
                 libc::mach_task_self(),
                 libc::MACH_TASK_BASIC_INFO,

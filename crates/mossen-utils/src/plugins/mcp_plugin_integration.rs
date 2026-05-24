@@ -61,7 +61,9 @@ pub async fn load_plugin_mcp_servers(
         match spec {
             McpServersSpec::FilePath(path) => {
                 if is_mcpb_source(path) {
-                    if let Some(mcpb_servers) = load_mcp_servers_from_mcpb(plugin_path, plugin_name, path, errors).await {
+                    if let Some(mcpb_servers) =
+                        load_mcp_servers_from_mcpb(plugin_path, plugin_name, path, errors).await
+                    {
                         servers.extend(mcpb_servers);
                     }
                 } else {
@@ -84,7 +86,14 @@ pub async fn load_plugin_mcp_servers(
                     match item {
                         McpServersSpecItem::FilePath(path) => {
                             if is_mcpb_source(path) {
-                                if let Some(mcpb_servers) = load_mcp_servers_from_mcpb(plugin_path, plugin_name, path, errors).await {
+                                if let Some(mcpb_servers) = load_mcp_servers_from_mcpb(
+                                    plugin_path,
+                                    plugin_name,
+                                    path,
+                                    errors,
+                                )
+                                .await
+                                {
                                     servers.extend(mcpb_servers);
                                 }
                             } else {
@@ -132,7 +141,9 @@ fn is_mcpb_source(path: &str) -> bool {
     path.ends_with(".mcpb") || path.starts_with("http://") || path.starts_with("https://")
 }
 
-fn load_mcp_servers_from_content(content: &str) -> Result<HashMap<String, McpServerConfig>, anyhow::Error> {
+fn load_mcp_servers_from_content(
+    content: &str,
+) -> Result<HashMap<String, McpServerConfig>, anyhow::Error> {
     let parsed: serde_json::Value = serde_json::from_str(content)?;
     let mcp_servers = if parsed.get("mcpServers").is_some() {
         parsed.get("mcpServers").unwrap()
@@ -144,10 +155,10 @@ fn load_mcp_servers_from_content(content: &str) -> Result<HashMap<String, McpSer
 }
 
 async fn load_mcp_servers_from_mcpb(
-    plugin_path: &Path,
+    _plugin_path: &Path,
     plugin_name: &str,
     mcpb_path: &str,
-    errors: &mut Vec<McpPluginError>,
+    _errors: &mut Vec<McpPluginError>,
 ) -> Option<HashMap<String, McpServerConfig>> {
     debug!("Loading MCP servers from MCPB: {}", mcpb_path);
     // MCPB loading would involve downloading/extracting DXT packages.
@@ -199,7 +210,9 @@ pub fn resolve_plugin_mcp_environment(
             &get_plugin_data_dir,
         );
         if let Some(uc) = user_config {
-            if let Ok(r) = super::plugin_options_storage::substitute_user_config_variables(&resolved, uc) {
+            if let Ok(r) =
+                super::plugin_options_storage::substitute_user_config_variables(&resolved, uc)
+            {
                 resolved = r;
             }
         }
@@ -221,7 +234,10 @@ pub fn resolve_plugin_mcp_environment(
     // Add MOSSEN_PLUGIN_ROOT/DATA to env
     let mut resolved_env: HashMap<String, String> = HashMap::new();
     resolved_env.insert("MOSSEN_PLUGIN_ROOT".to_string(), plugin_path.to_string());
-    resolved_env.insert("MOSSEN_PLUGIN_DATA".to_string(), get_plugin_data_dir(plugin_source));
+    resolved_env.insert(
+        "MOSSEN_PLUGIN_DATA".to_string(),
+        get_plugin_data_dir(plugin_source),
+    );
     if let Some(ref env) = resolved.env {
         for (key, value) in env {
             if key != "MOSSEN_PLUGIN_ROOT" && key != "MOSSEN_PLUGIN_DATA" {
@@ -246,9 +262,15 @@ pub fn resolve_plugin_mcp_environment(
     if !all_missing_vars.is_empty() {
         let unique: Vec<String> = {
             let mut seen = std::collections::HashSet::new();
-            all_missing_vars.into_iter().filter(|v| seen.insert(v.clone())).collect()
+            all_missing_vars
+                .into_iter()
+                .filter(|v| seen.insert(v.clone()))
+                .collect()
         };
-        debug!("Missing environment variables in plugin MCP config: {}", unique.join(", "));
+        debug!(
+            "Missing environment variables in plugin MCP config: {}",
+            unique.join(", ")
+        );
         return (resolved, unique);
     }
 
@@ -283,7 +305,10 @@ pub fn get_unconfigured_channels(
     channels: &[ChannelDef],
     plugin_id: &str,
     load_server_config: impl Fn(&str, &str) -> Option<HashMap<String, serde_json::Value>>,
-    validate_config: impl Fn(&HashMap<String, serde_json::Value>, &HashMap<String, serde_json::Value>) -> bool,
+    validate_config: impl Fn(
+        &HashMap<String, serde_json::Value>,
+        &HashMap<String, serde_json::Value>,
+    ) -> bool,
 ) -> Vec<UnconfiguredChannel> {
     let mut unconfigured = Vec::new();
     for channel in channels {
@@ -294,7 +319,10 @@ pub fn get_unconfigured_channels(
         if !validate_config(&saved, &channel.user_config) {
             unconfigured.push(UnconfiguredChannel {
                 server: channel.server.clone(),
-                display_name: channel.display_name.clone().unwrap_or_else(|| channel.server.clone()),
+                display_name: channel
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| channel.server.clone()),
                 config_schema: channel.user_config.clone(),
             });
         }
@@ -345,5 +373,9 @@ pub async fn get_plugin_mcp_servers(
         resolved_servers.insert(name.clone(), resolved);
     }
 
-    Some(add_plugin_scope_to_servers(&resolved_servers, plugin_name, plugin_source))
+    Some(add_plugin_scope_to_servers(
+        &resolved_servers,
+        plugin_name,
+        plugin_source,
+    ))
 }

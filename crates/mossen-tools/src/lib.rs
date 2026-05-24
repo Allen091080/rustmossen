@@ -3,42 +3,58 @@
 //! Mossen 工具系统 — 实现内置工具（ShellExecutor、SourcePatcher、
 //! FileInspector、SubagentLauncher 等），对接 Tool trait 定义和工具注册表。
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_assignments,
+    unused_imports,
+    unused_must_use,
+    unused_mut,
+    unused_variables
+)]
 
 // ── P0 核心工具（13 个） ──────────────────────────────────────────
 pub mod agent;
-pub mod ask_user;
-pub mod bash;
 pub mod agent_tool;
-pub mod bash_tool;
-pub mod config_tool;
-pub mod file_edit_tool;
-pub mod file_read_tool;
-pub mod lsp_tool;
-pub mod mcp_tool_ext;
-pub mod powershell_tool;
-pub mod send_message_tool;
-pub mod skill_tool;
-pub mod web_fetch_tool;
-pub mod brief_tool;
-pub mod glob_tool;
-pub mod grep_tool;
+pub mod ask_user;
 pub mod ask_user_tool;
+pub mod bash;
+pub mod bash_tool;
+pub mod brief;
+pub mod brief_tool;
+pub mod config_tool;
+pub mod cost_query;
+pub mod effort_control;
 pub mod enter_plan_mode_tool;
 pub mod enter_worktree_tool;
+pub mod exit;
 pub mod exit_plan_mode_tool;
 pub mod exit_worktree_tool;
+pub mod file_edit;
+pub mod file_edit_tool;
+pub mod file_read;
+pub mod file_read_tool;
 pub mod file_write_tool;
+pub mod glob_tool;
+pub mod grep_tool;
 pub mod list_mcp_resources_tool;
+pub mod lsp_tool;
 pub mod mcp_tool_classify;
+pub mod mcp_tool_ext;
 pub mod notebook_edit_tool;
+pub mod output_style;
+pub mod powershell_tool;
 pub mod push_notification_tool;
 pub mod read_mcp_resource_tool;
 pub mod remote_trigger_tool;
+pub mod repl;
 pub mod repl_tool;
 pub mod schedule_cron_tool;
+pub mod send_message_tool;
 pub mod send_user_file_tool;
 pub mod shared;
+pub mod skill_discovery;
+pub mod skill_tool;
+pub mod sleep;
 pub mod sleep_tool;
 pub mod task_create_tool;
 pub mod task_get_tool;
@@ -49,20 +65,12 @@ pub mod task_update_tool;
 pub mod team_create_tool;
 pub mod team_delete_tool;
 pub mod testing;
+pub mod todo;
 pub mod todo_write_tool;
 pub mod tool_search_tool;
+pub mod web_fetch_tool;
 pub mod web_search_tool;
 pub mod workflow_tool;
-pub mod brief;
-pub mod cost_query;
-pub mod effort_control;
-pub mod exit;
-pub mod file_edit;
-pub mod file_read;
-pub mod output_style;
-pub mod repl;
-pub mod sleep;
-pub mod todo;
 
 // ── P1 中等工具 ───────────────────────────────────────────────────
 pub mod config;
@@ -90,7 +98,6 @@ pub mod power_shell;
 pub mod remote_trigger;
 pub mod send_user_file;
 pub mod synthetic_output;
-pub mod tool_value_shapes;
 pub mod task_create;
 pub mod task_get;
 pub mod task_list;
@@ -98,6 +105,7 @@ pub mod task_output;
 pub mod task_stop;
 pub mod task_store;
 pub mod task_update;
+pub mod tool_value_shapes;
 pub mod tungsten;
 
 // ── TS-mirror tool aliases ────────────────────────────────────────

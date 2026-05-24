@@ -6,8 +6,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
 /// Cached session ingress token state
-static SESSION_INGRESS_TOKEN: Lazy<Mutex<Option<Option<String>>>> =
-    Lazy::new(|| Mutex::new(None));
+static SESSION_INGRESS_TOKEN: Lazy<Mutex<Option<Option<String>>>> = Lazy::new(|| Mutex::new(None));
 
 /// Default path for CCR session ingress token
 pub const CCR_SESSION_INGRESS_TOKEN_PATH: &str =
@@ -89,10 +88,7 @@ fn get_token_from_file_descriptor() -> Option<String> {
             }
         }
         Err(err) => {
-            eprintln!(
-                "Failed to read token from file descriptor {}: {}",
-                fd, err
-            );
+            eprintln!("Failed to read token from file descriptor {}: {}", fd, err);
             // FD env var was set but read failed — try the well-known file
             let path = env::var("MOSSEN_SESSION_INGRESS_TOKEN_FILE")
                 .unwrap_or_else(|_| CCR_SESSION_INGRESS_TOKEN_PATH.to_string());
@@ -122,7 +118,7 @@ pub fn get_session_ingress_auth_token() -> Option<String> {
 }
 
 /// Build auth headers for the current session token.
-/// Session keys (sk-ant-sid) use Cookie auth + X-Organization-Uuid;
+/// Session keys (sk-mossen-sid) use Cookie auth + X-Organization-Uuid;
 /// JWTs use Bearer auth.
 pub fn get_session_ingress_auth_headers() -> HashMap<String, String> {
     let token = match get_session_ingress_auth_token() {
@@ -130,7 +126,7 @@ pub fn get_session_ingress_auth_headers() -> HashMap<String, String> {
         None => return HashMap::new(),
     };
 
-    if token.starts_with("sk-ant-sid") {
+    if token.starts_with("sk-mossen-sid") {
         let mut headers = HashMap::new();
         headers.insert("Cookie".to_string(), format!("sessionKey={}", token));
         if let Ok(org_uuid) = env::var("MOSSEN_CODE_ORGANIZATION_UUID") {

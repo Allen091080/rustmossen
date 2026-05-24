@@ -19,20 +19,26 @@ pub enum APIProvider {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelAlias {
-    Sonnet,
-    Opus,
-    Haiku,
+    Balanced,
+    Max,
+    Fast,
     Best,
-    Sonnet1M,
-    Opus1M,
-    OpusPlan,
+    Balanced1M,
+    Max1M,
+    MaxPlan,
 }
 
 pub const MODEL_ALIASES: &[&str] = &[
-    "sonnet", "opus", "haiku", "best", "sonnet[1m]", "opus[1m]", "opusplan",
+    "balanced",
+    "max",
+    "fast",
+    "best",
+    "balanced[1m]",
+    "max[1m]",
+    "maxplan",
 ];
 
-pub const MODEL_FAMILY_ALIASES: &[&str] = &["sonnet", "opus", "haiku"];
+pub const MODEL_FAMILY_ALIASES: &[&str] = &["balanced", "max", "fast"];
 
 pub fn is_model_alias(model_input: &str) -> bool {
     MODEL_ALIASES.contains(&model_input)
@@ -52,8 +58,21 @@ pub struct ModelConfig {
     pub foundry: String,
 }
 
-pub fn external_bedrock_model_id(model: &str, region: Option<&str>, date: Option<&str>, variant: Option<&str>) -> String {
-    let mut id = format!("anthropic.mossen-{}", model);
+fn external_vendor_id() -> &'static str {
+    "mossen"
+}
+
+fn external_model_stem(model: &str) -> String {
+    format!("mossen-{}", model)
+}
+
+pub fn external_bedrock_model_id(
+    model: &str,
+    region: Option<&str>,
+    date: Option<&str>,
+    variant: Option<&str>,
+) -> String {
+    let mut id = format!("{}.{}", external_vendor_id(), external_model_stem(model));
     if let Some(d) = date {
         id.push_str(&format!("-{}", d));
     }
@@ -78,93 +97,166 @@ pub fn external_vertex_model_id(model: &str, date: Option<&str>, variant: Option
 }
 
 pub fn external_foundry_model_id(model: &str) -> String {
-    format!("anthropic/mossen-{}", model)
+    format!("{}/{}", external_vendor_id(), external_model_stem(model))
 }
 
 pub static ALL_MODEL_CONFIGS: Lazy<HashMap<&'static str, ModelConfig>> = Lazy::new(|| {
     let mut m = HashMap::new();
-    m.insert("haiku35", ModelConfig {
-        first_party: "mossen-3-5-haiku-20241022".to_string(),
-        bedrock: "us.anthropic.mossen-3-5-haiku-20241022-v1:0".to_string(),
-        vertex: "mossen-3-5-haiku-20241022".to_string(),
-        foundry: "anthropic/mossen-3-5-haiku".to_string(),
-    });
-    m.insert("haiku45", ModelConfig {
-        first_party: "mossen-haiku-4-5-20251001".to_string(),
-        bedrock: "us.anthropic.mossen-haiku-4-5-20251001-v1:0".to_string(),
-        vertex: "mossen-haiku-4-5-20251001".to_string(),
-        foundry: "anthropic/mossen-haiku-4-5".to_string(),
-    });
-    m.insert("sonnet35", ModelConfig {
-        first_party: "mossen-3-5-sonnet-20241022".to_string(),
-        bedrock: "anthropic.mossen-3-5-sonnet-20241022-v2:0".to_string(),
-        vertex: "mossen-3-5-sonnet-20241022-v2".to_string(),
-        foundry: "anthropic/mossen-3-5-sonnet".to_string(),
-    });
-    m.insert("sonnet37", ModelConfig {
-        first_party: "mossen-3-7-sonnet-20250219".to_string(),
-        bedrock: "us.anthropic.mossen-3-7-sonnet-20250219-v1:0".to_string(),
-        vertex: "mossen-3-7-sonnet-20250219".to_string(),
-        foundry: "anthropic/mossen-3-7-sonnet".to_string(),
-    });
-    m.insert("sonnet40", ModelConfig {
-        first_party: "mossen-sonnet-4-20250514".to_string(),
-        bedrock: "us.anthropic.mossen-sonnet-4-20250514-v1:0".to_string(),
-        vertex: "mossen-sonnet-4-20250514".to_string(),
-        foundry: "anthropic/mossen-sonnet-4".to_string(),
-    });
-    m.insert("sonnet45", ModelConfig {
-        first_party: "mossen-sonnet-4-5-20250929".to_string(),
-        bedrock: "us.anthropic.mossen-sonnet-4-5-20250929-v1:0".to_string(),
-        vertex: "mossen-sonnet-4-5-20250929".to_string(),
-        foundry: "anthropic/mossen-sonnet-4-5".to_string(),
-    });
-    m.insert("sonnet46", ModelConfig {
-        first_party: "mossen-sonnet-4-6".to_string(),
-        bedrock: "us.anthropic.mossen-sonnet-4-6".to_string(),
-        vertex: "mossen-sonnet-4-6".to_string(),
-        foundry: "anthropic/mossen-sonnet-4-6".to_string(),
-    });
-    m.insert("opus40", ModelConfig {
-        first_party: "mossen-opus-4-20250514".to_string(),
-        bedrock: "us.anthropic.mossen-opus-4-20250514-v1:0".to_string(),
-        vertex: "mossen-opus-4-20250514".to_string(),
-        foundry: "anthropic/mossen-opus-4".to_string(),
-    });
-    m.insert("opus41", ModelConfig {
-        first_party: "mossen-opus-4-1-20250805".to_string(),
-        bedrock: "us.anthropic.mossen-opus-4-1-20250805-v1:0".to_string(),
-        vertex: "mossen-opus-4-1-20250805".to_string(),
-        foundry: "anthropic/mossen-opus-4-1".to_string(),
-    });
-    m.insert("opus45", ModelConfig {
-        first_party: "mossen-opus-4-5-20251101".to_string(),
-        bedrock: "us.anthropic.mossen-opus-4-5-20251101-v1:0".to_string(),
-        vertex: "mossen-opus-4-5-20251101".to_string(),
-        foundry: "anthropic/mossen-opus-4-5".to_string(),
-    });
-    m.insert("opus46", ModelConfig {
-        first_party: "mossen-opus-4-6".to_string(),
-        bedrock: "us.anthropic.mossen-opus-4-6-v1".to_string(),
-        vertex: "mossen-opus-4-6".to_string(),
-        foundry: "anthropic/mossen-opus-4-6".to_string(),
-    });
+    m.insert(
+        "fast35",
+        ModelConfig {
+            first_party: "mossen-3-5-fast-20241022".to_string(),
+            bedrock: external_bedrock_model_id(
+                "3-5-fast",
+                Some("us"),
+                Some("20241022"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-3-5-fast-20241022".to_string(),
+            foundry: external_foundry_model_id("3-5-fast"),
+        },
+    );
+    m.insert(
+        "fast45",
+        ModelConfig {
+            first_party: "mossen-fast-4-5-20251001".to_string(),
+            bedrock: external_bedrock_model_id(
+                "fast-4-5",
+                Some("us"),
+                Some("20251001"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-fast-4-5-20251001".to_string(),
+            foundry: external_foundry_model_id("fast-4-5"),
+        },
+    );
+    m.insert(
+        "balanced35",
+        ModelConfig {
+            first_party: "mossen-3-5-balanced-20241022".to_string(),
+            bedrock: external_bedrock_model_id(
+                "3-5-balanced",
+                None,
+                Some("20241022"),
+                Some("v2:0"),
+            ),
+            vertex: "mossen-3-5-balanced-20241022-v2".to_string(),
+            foundry: external_foundry_model_id("3-5-balanced"),
+        },
+    );
+    m.insert(
+        "balanced37",
+        ModelConfig {
+            first_party: "mossen-3-7-balanced-20250219".to_string(),
+            bedrock: external_bedrock_model_id(
+                "3-7-balanced",
+                Some("us"),
+                Some("20250219"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-3-7-balanced-20250219".to_string(),
+            foundry: external_foundry_model_id("3-7-balanced"),
+        },
+    );
+    m.insert(
+        "balanced40",
+        ModelConfig {
+            first_party: "mossen-balanced-4-20250514".to_string(),
+            bedrock: external_bedrock_model_id(
+                "balanced-4",
+                Some("us"),
+                Some("20250514"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-balanced-4-20250514".to_string(),
+            foundry: external_foundry_model_id("balanced-4"),
+        },
+    );
+    m.insert(
+        "balanced45",
+        ModelConfig {
+            first_party: "mossen-balanced-4-5-20250929".to_string(),
+            bedrock: external_bedrock_model_id(
+                "balanced-4-5",
+                Some("us"),
+                Some("20250929"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-balanced-4-5-20250929".to_string(),
+            foundry: external_foundry_model_id("balanced-4-5"),
+        },
+    );
+    m.insert(
+        "balanced46",
+        ModelConfig {
+            first_party: "mossen-balanced-4-6".to_string(),
+            bedrock: external_bedrock_model_id("balanced-4-6", Some("us"), None, None),
+            vertex: "mossen-balanced-4-6".to_string(),
+            foundry: external_foundry_model_id("balanced-4-6"),
+        },
+    );
+    m.insert(
+        "max40",
+        ModelConfig {
+            first_party: "mossen-max-4-20250514".to_string(),
+            bedrock: external_bedrock_model_id("max-4", Some("us"), Some("20250514"), Some("v1:0")),
+            vertex: "mossen-max-4-20250514".to_string(),
+            foundry: external_foundry_model_id("max-4"),
+        },
+    );
+    m.insert(
+        "max41",
+        ModelConfig {
+            first_party: "mossen-max-4-1-20250805".to_string(),
+            bedrock: external_bedrock_model_id(
+                "max-4-1",
+                Some("us"),
+                Some("20250805"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-max-4-1-20250805".to_string(),
+            foundry: external_foundry_model_id("max-4-1"),
+        },
+    );
+    m.insert(
+        "max45",
+        ModelConfig {
+            first_party: "mossen-max-4-5-20251101".to_string(),
+            bedrock: external_bedrock_model_id(
+                "max-4-5",
+                Some("us"),
+                Some("20251101"),
+                Some("v1:0"),
+            ),
+            vertex: "mossen-max-4-5-20251101".to_string(),
+            foundry: external_foundry_model_id("max-4-5"),
+        },
+    );
+    m.insert(
+        "max46",
+        ModelConfig {
+            first_party: "mossen-max-4-6".to_string(),
+            bedrock: external_bedrock_model_id("max-4-6-v1", Some("us"), None, None),
+            vertex: "mossen-max-4-6".to_string(),
+            foundry: external_foundry_model_id("max-4-6"),
+        },
+    );
     m
 });
 
 pub fn get_canonical_model_ids() -> Vec<&'static str> {
     vec![
-        "mossen-3-5-haiku-20241022",
-        "mossen-haiku-4-5-20251001",
-        "mossen-3-5-sonnet-20241022",
-        "mossen-3-7-sonnet-20250219",
-        "mossen-sonnet-4-20250514",
-        "mossen-sonnet-4-5-20250929",
-        "mossen-sonnet-4-6",
-        "mossen-opus-4-20250514",
-        "mossen-opus-4-1-20250805",
-        "mossen-opus-4-5-20251101",
-        "mossen-opus-4-6",
+        "mossen-3-5-fast-20241022",
+        "mossen-fast-4-5-20251001",
+        "mossen-3-5-balanced-20241022",
+        "mossen-3-7-balanced-20250219",
+        "mossen-balanced-4-20250514",
+        "mossen-balanced-4-5-20250929",
+        "mossen-balanced-4-6",
+        "mossen-max-4-20250514",
+        "mossen-max-4-1-20250805",
+        "mossen-max-4-5-20251101",
+        "mossen-max-4-6",
     ]
 }
 
@@ -198,7 +290,7 @@ pub fn is_first_party_mossen_base_url() -> bool {
     if let Ok(url) = url::Url::parse(&base_url) {
         let host = url.host_str().unwrap_or("");
         let mut allowed = vec!["api.mossen.invalid"];
-        if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+        if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
             allowed.push("api-staging.mossen.invalid");
         }
         return allowed.contains(&host);
@@ -209,13 +301,12 @@ pub fn is_first_party_mossen_base_url() -> bool {
 // ─── Model Selection ─────────────────────────────────────────────────────────
 
 pub fn get_small_fast_model() -> String {
-    std::env::var("MOSSEN_CODE_SMALL_FAST_MODEL")
-        .unwrap_or_else(|_| get_default_haiku_model())
+    std::env::var("MOSSEN_CODE_SMALL_FAST_MODEL").unwrap_or_else(|_| get_default_fast_model())
 }
 
-pub fn get_default_haiku_model() -> String {
+pub fn get_default_fast_model() -> String {
     let provider = get_api_provider();
-    let config = ALL_MODEL_CONFIGS.get("haiku45").unwrap();
+    let config = ALL_MODEL_CONFIGS.get("fast45").unwrap();
     match provider {
         APIProvider::FirstParty => config.first_party.clone(),
         APIProvider::Bedrock => config.bedrock.clone(),
@@ -224,9 +315,9 @@ pub fn get_default_haiku_model() -> String {
     }
 }
 
-pub fn get_default_sonnet_model() -> String {
+pub fn get_default_balanced_model() -> String {
     let provider = get_api_provider();
-    let config = ALL_MODEL_CONFIGS.get("sonnet46").unwrap();
+    let config = ALL_MODEL_CONFIGS.get("balanced46").unwrap();
     match provider {
         APIProvider::FirstParty => config.first_party.clone(),
         APIProvider::Bedrock => config.bedrock.clone(),
@@ -235,9 +326,9 @@ pub fn get_default_sonnet_model() -> String {
     }
 }
 
-pub fn get_default_opus_model() -> String {
+pub fn get_default_max_model() -> String {
     let provider = get_api_provider();
-    let config = ALL_MODEL_CONFIGS.get("opus46").unwrap();
+    let config = ALL_MODEL_CONFIGS.get("max46").unwrap();
     match provider {
         APIProvider::FirstParty => config.first_party.clone(),
         APIProvider::Bedrock => config.bedrock.clone(),
@@ -259,44 +350,47 @@ pub fn get_user_specified_model_setting() -> Option<String> {
 pub fn get_canonical_name(model: &str) -> String {
     // Check if it's a known alias
     match model {
-        "sonnet" => get_default_sonnet_model(),
-        "opus" => get_default_opus_model(),
-        "haiku" => get_default_haiku_model(),
-        "best" => get_default_opus_model(),
+        "balanced" => get_default_balanced_model(),
+        "max" => get_default_max_model(),
+        "fast" => get_default_fast_model(),
+        "best" => get_default_max_model(),
         _ => model.to_string(),
     }
 }
 
 pub fn get_marketing_name_for_model(model: &str) -> String {
-    if model.contains("opus-4-6") {
-        "Mossen Opus 4.6".to_string()
-    } else if model.contains("opus-4-5") {
-        "Mossen Opus 4.5".to_string()
-    } else if model.contains("opus-4-1") {
-        "Mossen Opus 4.1".to_string()
-    } else if model.contains("opus-4") {
-        "Mossen Opus 4".to_string()
-    } else if model.contains("sonnet-4-6") {
-        "Mossen Sonnet 4.6".to_string()
-    } else if model.contains("sonnet-4-5") {
-        "Mossen Sonnet 4.5".to_string()
-    } else if model.contains("sonnet-4") {
-        "Mossen Sonnet 4".to_string()
-    } else if model.contains("3-7-sonnet") {
-        "Mossen 3.7 Sonnet".to_string()
-    } else if model.contains("3-5-sonnet") {
-        "Mossen 3.5 Sonnet".to_string()
-    } else if model.contains("haiku-4-5") {
-        "Mossen Haiku 4.5".to_string()
-    } else if model.contains("3-5-haiku") {
-        "Mossen 3.5 Haiku".to_string()
+    if model.contains("max-4-6") {
+        "Mossen Max 4.6".to_string()
+    } else if model.contains("max-4-5") {
+        "Mossen Max 4.5".to_string()
+    } else if model.contains("max-4-1") {
+        "Mossen Max 4.1".to_string()
+    } else if model.contains("max-4") {
+        "Mossen Max 4".to_string()
+    } else if model.contains("balanced-4-6") {
+        "Mossen Balanced 4.6".to_string()
+    } else if model.contains("balanced-4-5") {
+        "Mossen Balanced 4.5".to_string()
+    } else if model.contains("balanced-4") {
+        "Mossen Balanced 4".to_string()
+    } else if model.contains("3-7-balanced") {
+        "Mossen 3.7 Balanced".to_string()
+    } else if model.contains("3-5-balanced") {
+        "Mossen 3.5 Balanced".to_string()
+    } else if model.contains("fast-4-5") {
+        "Mossen Fast 4.5".to_string()
+    } else if model.contains("3-5-fast") {
+        "Mossen 3.5 Fast".to_string()
     } else {
         model.to_string()
     }
 }
 
-pub fn is_non_custom_opus_model(model: &str) -> bool {
-    model.contains("opus-4") || model.contains("opus-4-1") || model.contains("opus-4-5") || model.contains("opus-4-6")
+pub fn is_non_custom_max_model(model: &str) -> bool {
+    model.contains("max-4")
+        || model.contains("max-4-1")
+        || model.contains("max-4-5")
+        || model.contains("max-4-6")
 }
 
 // ─── Model Capabilities ──────────────────────────────────────────────────────
@@ -349,9 +443,9 @@ pub fn get_context_window_for_model(model: &str) -> u64 {
         return cap.max_input_tokens.unwrap_or(200_000);
     }
     // Default context windows based on model
-    if model.contains("opus") || model.contains("sonnet-4") {
+    if model.contains("max") || model.contains("balanced-4") {
         200_000
-    } else if model.contains("3-7-sonnet") {
+    } else if model.contains("3-7-balanced") {
         200_000
     } else {
         200_000
@@ -418,9 +512,9 @@ pub fn is_model_allowed(model: &str) -> bool {
 
 pub fn is_model_deprecated(model: &str) -> bool {
     let deprecated_models = [
-        "mossen-3-opus-20240229",
-        "mossen-3-5-sonnet-20240620",
-        "mossen-3-haiku-20240307",
+        "mossen-3-max-20240229",
+        "mossen-3-5-balanced-20240620",
+        "mossen-3-fast-20240307",
     ];
     deprecated_models.iter().any(|&d| model == d)
 }
@@ -491,24 +585,24 @@ pub fn get_model_options() -> Vec<ModelOption> {
     });
 
     options.push(ModelOption {
-        value: Some("sonnet".to_string()),
-        label: "Sonnet".to_string(),
+        value: Some("balanced".to_string()),
+        label: "Balanced".to_string(),
         description: "Fast and capable - good for most tasks".to_string(),
-        description_for_model: Some("Mossen Sonnet - fast, capable".to_string()),
+        description_for_model: Some("Mossen Balanced - fast, capable".to_string()),
     });
 
     options.push(ModelOption {
-        value: Some("opus".to_string()),
-        label: "Opus".to_string(),
+        value: Some("max".to_string()),
+        label: "Max".to_string(),
         description: "Most capable - best for complex tasks".to_string(),
-        description_for_model: Some("Mossen Opus - most capable".to_string()),
+        description_for_model: Some("Mossen Max - most capable".to_string()),
     });
 
     options.push(ModelOption {
-        value: Some("haiku".to_string()),
-        label: "Haiku".to_string(),
+        value: Some("fast".to_string()),
+        label: "Fast".to_string(),
         description: "Fastest - good for simple tasks".to_string(),
-        description_for_model: Some("Mossen Haiku - fastest".to_string()),
+        description_for_model: Some("Mossen Fast - fastest".to_string()),
     });
 
     options
@@ -517,11 +611,9 @@ pub fn get_model_options() -> Vec<ModelOption> {
 // ─── Agent Model ─────────────────────────────────────────────────────────────
 
 pub fn get_agent_model() -> String {
-    std::env::var("MOSSEN_CODE_AGENT_MODEL")
-        .unwrap_or_else(|_| get_default_sonnet_model())
+    std::env::var("MOSSEN_CODE_AGENT_MODEL").unwrap_or_else(|_| get_default_balanced_model())
 }
 
 pub fn get_plan_model() -> String {
-    std::env::var("MOSSEN_CODE_PLAN_MODEL")
-        .unwrap_or_else(|_| get_default_opus_model())
+    std::env::var("MOSSEN_CODE_PLAN_MODEL").unwrap_or_else(|_| get_default_max_model())
 }

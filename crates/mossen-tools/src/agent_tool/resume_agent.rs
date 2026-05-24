@@ -9,8 +9,10 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use super::load_agents_dir::{AgentDefinition, is_built_in_agent};
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 use super::fork_subagent::{is_fork_subagent_enabled, FORK_SUBAGENT_TYPE};
+use super::load_agents_dir::{is_built_in_agent, AgentDefinition};
 
 /// Result of resuming an agent.
 #[derive(Debug, Clone, Serialize)]
@@ -48,8 +50,8 @@ pub async fn read_agent_metadata(agent_id: &str) -> Option<AgentMetadata> {
 
 /// Get the session directory for an agent.
 fn get_agent_session_dir(agent_id: &str) -> PathBuf {
-    let base = std::env::var("MOSSEN_SESSION_DIR")
-        .unwrap_or_else(|_| ".mossen/sessions".to_string());
+    let base =
+        std::env::var("MOSSEN_SESSION_DIR").unwrap_or_else(|_| ".mossen/sessions".to_string());
     PathBuf::from(base).join("agents").join(agent_id)
 }
 
@@ -103,9 +105,7 @@ pub fn filter_orphaned_thinking_only_messages(
 }
 
 /// Filter out unresolved tool uses (tool_use blocks without matching tool_result).
-pub fn filter_unresolved_tool_uses(
-    messages: Vec<serde_json::Value>,
-) -> Vec<serde_json::Value> {
+pub fn filter_unresolved_tool_uses(messages: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     // Collect all tool_result IDs
     let result_ids: std::collections::HashSet<String> = messages
         .iter()
@@ -187,11 +187,8 @@ pub async fn resume_agent_background(
         .and_then(|m| m.agent_type.as_deref())
         .unwrap_or("general");
 
-    let is_resumed_fork = meta
-        .as_ref()
-        .and_then(|m| m.is_fork)
-        .unwrap_or(false)
-        || agent_type == FORK_SUBAGENT_TYPE;
+    let is_resumed_fork =
+        meta.as_ref().and_then(|m| m.is_fork).unwrap_or(false) || agent_type == FORK_SUBAGENT_TYPE;
 
     // Find agent definition
     let selected_agent = if is_resumed_fork && is_fork_subagent_enabled() {
@@ -261,9 +258,9 @@ pub async fn resume_agent_background(
 
     // Read and filter the transcript
     let transcript = get_agent_transcript(agent_id).await;
-    let resumed_messages = filter_whitespace_only_assistant_messages(
-        filter_unresolved_tool_uses(filter_orphaned_thinking_only_messages(transcript)),
-    );
+    let resumed_messages = filter_whitespace_only_assistant_messages(filter_unresolved_tool_uses(
+        filter_orphaned_thinking_only_messages(transcript),
+    ));
 
     debug!(
         "Resuming agent {} (type: {}, {} messages in transcript)",
@@ -277,11 +274,7 @@ pub async fn resume_agent_background(
     info!(
         "Agent {} resumed with prompt: {}",
         agent_id,
-        if prompt.len() > 100 {
-            format!("{}...", &prompt[..100])
-        } else {
-            prompt.to_string()
-        }
+        truncate_chars_with_suffix(prompt, 100, "...")
     );
 
     Ok(ResumeAgentResult {

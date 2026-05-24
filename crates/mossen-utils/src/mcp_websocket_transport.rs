@@ -3,9 +3,9 @@
 //! Implements a WebSocket-based transport that handles JSON-RPC messages
 //! over WebSocket connections.
 
+use anyhow::{anyhow, Result};
 use std::sync::Arc;
-use tokio::sync::{Mutex, Notify, mpsc, oneshot};
-use anyhow::{Result, anyhow};
+use tokio::sync::Mutex;
 
 /// WebSocket ready state constants.
 const WS_CONNECTING: u8 = 0;

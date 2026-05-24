@@ -12,7 +12,10 @@ pub struct StatusDirective;
 fn build_status_summary(ctx: &CommandContext) -> String {
     let mut lines = Vec::new();
 
-    lines.push(format!("┌─ {} Status ─────────────────────", ctx.product_name));
+    lines.push(format!(
+        "┌─ {} Status ─────────────────────",
+        ctx.product_name
+    ));
     lines.push(format!("│ Version: {}", ctx.version));
 
     if let Some(ref build_time) = ctx.build_time {

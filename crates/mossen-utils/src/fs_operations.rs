@@ -6,8 +6,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 /// Result of reading a file range.
 #[derive(Debug, Clone)]
 pub struct ReadFileRangeResult {
@@ -108,7 +106,10 @@ pub fn safe_resolve_path(file_path: &Path) -> SafeResolveResult {
 }
 
 /// Check if a file path is a duplicate and should be skipped.
-pub fn is_duplicate_path(file_path: &Path, loaded_paths: &mut std::collections::HashSet<PathBuf>) -> bool {
+pub fn is_duplicate_path(
+    file_path: &Path,
+    loaded_paths: &mut std::collections::HashSet<PathBuf>,
+) -> bool {
     let result = safe_resolve_path(file_path);
     if loaded_paths.contains(&result.resolved_path) {
         return true;
@@ -151,9 +152,7 @@ pub fn resolve_deepest_existing_ancestor(absolute_path: &Path) -> Option<PathBuf
                                     let abs_target = if target.is_absolute() {
                                         target
                                     } else {
-                                        dir.parent()
-                                            .unwrap_or(Path::new("/"))
-                                            .join(&target)
+                                        dir.parent().unwrap_or(Path::new("/")).join(&target)
                                     };
                                     return if segments.is_empty() {
                                         Some(abs_target)

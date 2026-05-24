@@ -15,6 +15,7 @@ mossen-utils.workspace = true
 mossen-agent.workspace = true
 mossen-commands.workspace = true
 mossen-skills.workspace = true
+mossen-tools.workspace = true
 
 # TUI
 ratatui.workspace = true
@@ -22,6 +23,7 @@ crossterm.workspace = true
 
 # 核心
 tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -51,3 +53,8 @@ base64.workspace = true
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true
+criterion = "0.5"
+
+[[bench]]
+name = "markdown_streaming"
+harness = false

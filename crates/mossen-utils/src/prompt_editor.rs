@@ -94,10 +94,8 @@ pub fn edit_prompt_in_editor(
     editor: &str,
     pasted_contents: Option<&[(usize, String)]>,
 ) -> EditorResult {
-    let temp_file = std::env::temp_dir().join(format!(
-        "mossen-prompt-{}.txt",
-        uuid::Uuid::new_v4()
-    ));
+    let temp_file =
+        std::env::temp_dir().join(format!("mossen-prompt-{}.txt", uuid::Uuid::new_v4()));
 
     // Expand pasted text references before editing
     let expanded_prompt = if let Some(contents) = pasted_contents {
@@ -137,8 +135,7 @@ pub fn edit_prompt_in_editor(
 
             // Re-collapse pasted content if it wasn't edited
             if let Some(contents) = pasted_contents {
-                final_content =
-                    recollapse_pasted_content(&final_content, current_prompt, contents);
+                final_content = recollapse_pasted_content(&final_content, current_prompt, contents);
             }
 
             EditorResult {

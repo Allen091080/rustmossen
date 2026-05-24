@@ -44,7 +44,11 @@ impl Directive for FilesDirective {
     }
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /files [filter]\n\n                 List files modified in this session.\n\n                 Filters:\n                   --created    Show only created files\n                   --modified   Show only modified files\n                   --all        Show all file operations (default)\n\n                 Output shows files grouped by operation type."
                     .to_string(),
@@ -54,7 +58,11 @@ impl Directive for FilesDirective {
         // Filter by operation type if specified
         let filter = args.first().and_then(|a| {
             let stripped = a.trim_start_matches('-');
-            if FILE_OPS.contains(&stripped) { Some(stripped) } else { None }
+            if FILE_OPS.contains(&stripped) {
+                Some(stripped)
+            } else {
+                None
+            }
         });
 
         // In full implementation: query session state for file operations

@@ -9,11 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
 use tokio::fs;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::error;
 
 /// All supported IDE types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -110,24 +109,186 @@ pub fn get_supported_ide_configs() -> &'static HashMap<IdeType, IdeConfig> {
     static CONFIGS: OnceLock<HashMap<IdeType, IdeConfig>> = OnceLock::new();
     CONFIGS.get_or_init(|| {
         let mut m = HashMap::new();
-        m.insert(IdeType::Cursor, IdeConfig { ide_kind: IdeKind::Vscode, display_name: "Cursor", process_keywords_mac: &["Cursor Helper", "Cursor.app"], process_keywords_windows: &["cursor.exe"], process_keywords_linux: &["cursor"] });
-        m.insert(IdeType::Windsurf, IdeConfig { ide_kind: IdeKind::Vscode, display_name: "Windsurf", process_keywords_mac: &["Windsurf Helper", "Windsurf.app"], process_keywords_windows: &["windsurf.exe"], process_keywords_linux: &["windsurf"] });
-        m.insert(IdeType::Vscode, IdeConfig { ide_kind: IdeKind::Vscode, display_name: "VS Code", process_keywords_mac: &["Visual Studio Code", "Code Helper"], process_keywords_windows: &["code.exe"], process_keywords_linux: &["code"] });
-        m.insert(IdeType::Intellij, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "IntelliJ IDEA", process_keywords_mac: &["IntelliJ IDEA"], process_keywords_windows: &["idea64.exe"], process_keywords_linux: &["idea", "intellij"] });
-        m.insert(IdeType::Pycharm, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "PyCharm", process_keywords_mac: &["PyCharm"], process_keywords_windows: &["pycharm64.exe"], process_keywords_linux: &["pycharm"] });
-        m.insert(IdeType::Webstorm, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "WebStorm", process_keywords_mac: &["WebStorm"], process_keywords_windows: &["webstorm64.exe"], process_keywords_linux: &["webstorm"] });
-        m.insert(IdeType::Phpstorm, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "PhpStorm", process_keywords_mac: &["PhpStorm"], process_keywords_windows: &["phpstorm64.exe"], process_keywords_linux: &["phpstorm"] });
-        m.insert(IdeType::Rubymine, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "RubyMine", process_keywords_mac: &["RubyMine"], process_keywords_windows: &["rubymine64.exe"], process_keywords_linux: &["rubymine"] });
-        m.insert(IdeType::Clion, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "CLion", process_keywords_mac: &["CLion"], process_keywords_windows: &["clion64.exe"], process_keywords_linux: &["clion"] });
-        m.insert(IdeType::Goland, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "GoLand", process_keywords_mac: &["GoLand"], process_keywords_windows: &["goland64.exe"], process_keywords_linux: &["goland"] });
-        m.insert(IdeType::Rider, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "Rider", process_keywords_mac: &["Rider"], process_keywords_windows: &["rider64.exe"], process_keywords_linux: &["rider"] });
-        m.insert(IdeType::Datagrip, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "DataGrip", process_keywords_mac: &["DataGrip"], process_keywords_windows: &["datagrip64.exe"], process_keywords_linux: &["datagrip"] });
-        m.insert(IdeType::Appcode, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "AppCode", process_keywords_mac: &["AppCode"], process_keywords_windows: &["appcode.exe"], process_keywords_linux: &["appcode"] });
-        m.insert(IdeType::Dataspell, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "DataSpell", process_keywords_mac: &["DataSpell"], process_keywords_windows: &["dataspell64.exe"], process_keywords_linux: &["dataspell"] });
-        m.insert(IdeType::Aqua, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "Aqua", process_keywords_mac: &[], process_keywords_windows: &["aqua64.exe"], process_keywords_linux: &[] });
-        m.insert(IdeType::Gateway, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "Gateway", process_keywords_mac: &[], process_keywords_windows: &["gateway64.exe"], process_keywords_linux: &[] });
-        m.insert(IdeType::Fleet, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "Fleet", process_keywords_mac: &[], process_keywords_windows: &["fleet.exe"], process_keywords_linux: &[] });
-        m.insert(IdeType::Androidstudio, IdeConfig { ide_kind: IdeKind::JetBrains, display_name: "Android Studio", process_keywords_mac: &["Android Studio"], process_keywords_windows: &["studio64.exe"], process_keywords_linux: &["android-studio"] });
+        m.insert(
+            IdeType::Cursor,
+            IdeConfig {
+                ide_kind: IdeKind::Vscode,
+                display_name: "Cursor",
+                process_keywords_mac: &["Cursor Helper", "Cursor.app"],
+                process_keywords_windows: &["cursor.exe"],
+                process_keywords_linux: &["cursor"],
+            },
+        );
+        m.insert(
+            IdeType::Windsurf,
+            IdeConfig {
+                ide_kind: IdeKind::Vscode,
+                display_name: "Windsurf",
+                process_keywords_mac: &["Windsurf Helper", "Windsurf.app"],
+                process_keywords_windows: &["windsurf.exe"],
+                process_keywords_linux: &["windsurf"],
+            },
+        );
+        m.insert(
+            IdeType::Vscode,
+            IdeConfig {
+                ide_kind: IdeKind::Vscode,
+                display_name: "VS Code",
+                process_keywords_mac: &["Visual Studio Code", "Code Helper"],
+                process_keywords_windows: &["code.exe"],
+                process_keywords_linux: &["code"],
+            },
+        );
+        m.insert(
+            IdeType::Intellij,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "IntelliJ IDEA",
+                process_keywords_mac: &["IntelliJ IDEA"],
+                process_keywords_windows: &["idea64.exe"],
+                process_keywords_linux: &["idea", "intellij"],
+            },
+        );
+        m.insert(
+            IdeType::Pycharm,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "PyCharm",
+                process_keywords_mac: &["PyCharm"],
+                process_keywords_windows: &["pycharm64.exe"],
+                process_keywords_linux: &["pycharm"],
+            },
+        );
+        m.insert(
+            IdeType::Webstorm,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "WebStorm",
+                process_keywords_mac: &["WebStorm"],
+                process_keywords_windows: &["webstorm64.exe"],
+                process_keywords_linux: &["webstorm"],
+            },
+        );
+        m.insert(
+            IdeType::Phpstorm,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "PhpStorm",
+                process_keywords_mac: &["PhpStorm"],
+                process_keywords_windows: &["phpstorm64.exe"],
+                process_keywords_linux: &["phpstorm"],
+            },
+        );
+        m.insert(
+            IdeType::Rubymine,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "RubyMine",
+                process_keywords_mac: &["RubyMine"],
+                process_keywords_windows: &["rubymine64.exe"],
+                process_keywords_linux: &["rubymine"],
+            },
+        );
+        m.insert(
+            IdeType::Clion,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "CLion",
+                process_keywords_mac: &["CLion"],
+                process_keywords_windows: &["clion64.exe"],
+                process_keywords_linux: &["clion"],
+            },
+        );
+        m.insert(
+            IdeType::Goland,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "GoLand",
+                process_keywords_mac: &["GoLand"],
+                process_keywords_windows: &["goland64.exe"],
+                process_keywords_linux: &["goland"],
+            },
+        );
+        m.insert(
+            IdeType::Rider,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "Rider",
+                process_keywords_mac: &["Rider"],
+                process_keywords_windows: &["rider64.exe"],
+                process_keywords_linux: &["rider"],
+            },
+        );
+        m.insert(
+            IdeType::Datagrip,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "DataGrip",
+                process_keywords_mac: &["DataGrip"],
+                process_keywords_windows: &["datagrip64.exe"],
+                process_keywords_linux: &["datagrip"],
+            },
+        );
+        m.insert(
+            IdeType::Appcode,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "AppCode",
+                process_keywords_mac: &["AppCode"],
+                process_keywords_windows: &["appcode.exe"],
+                process_keywords_linux: &["appcode"],
+            },
+        );
+        m.insert(
+            IdeType::Dataspell,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "DataSpell",
+                process_keywords_mac: &["DataSpell"],
+                process_keywords_windows: &["dataspell64.exe"],
+                process_keywords_linux: &["dataspell"],
+            },
+        );
+        m.insert(
+            IdeType::Aqua,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "Aqua",
+                process_keywords_mac: &[],
+                process_keywords_windows: &["aqua64.exe"],
+                process_keywords_linux: &[],
+            },
+        );
+        m.insert(
+            IdeType::Gateway,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "Gateway",
+                process_keywords_mac: &[],
+                process_keywords_windows: &["gateway64.exe"],
+                process_keywords_linux: &[],
+            },
+        );
+        m.insert(
+            IdeType::Fleet,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "Fleet",
+                process_keywords_mac: &[],
+                process_keywords_windows: &["fleet.exe"],
+                process_keywords_linux: &[],
+            },
+        );
+        m.insert(
+            IdeType::Androidstudio,
+            IdeConfig {
+                ide_kind: IdeKind::JetBrains,
+                display_name: "Android Studio",
+                process_keywords_mac: &["Android Studio"],
+                process_keywords_windows: &["studio64.exe"],
+                process_keywords_linux: &["android-studio"],
+            },
+        );
         m
     })
 }
@@ -224,11 +385,9 @@ pub async fn check_ide_connection(host: &str, port: u16, timeout_ms: u64) -> boo
     let addr = format!("{}:{}", host, port);
     let timeout_dur = Duration::from_millis(timeout_ms);
 
-    tokio::time::timeout(timeout_dur, async {
-        TcpStream::connect(&addr).is_ok()
-    })
-    .await
-    .unwrap_or(false)
+    tokio::time::timeout(timeout_dur, async { TcpStream::connect(&addr).is_ok() })
+        .await
+        .unwrap_or(false)
 }
 
 /// Get sorted IDE lockfiles from the IDE directory.
@@ -479,7 +638,11 @@ pub async fn find_available_ide(
                     let resolved = PathBuf::from(folder);
                     let resolved_str = resolved.to_string_lossy();
                     cwd == resolved_str.as_ref()
-                        || cwd.starts_with(&format!("{}{}", resolved_str, std::path::MAIN_SEPARATOR))
+                        || cwd.starts_with(&format!(
+                            "{}{}",
+                            resolved_str,
+                            std::path::MAIN_SEPARATOR
+                        ))
                 });
 
                 if is_valid {
@@ -611,7 +774,10 @@ pub async fn maybe_notify_ide_connected(client_name: &str) {
 
 /// 当前用户是否可以访问 IDE 扩展的 diff 功能。
 pub fn has_access_to_ide_extension_diff_feature(ide: Option<IdeType>) -> bool {
-    matches!(ide, Some(IdeType::Vscode) | Some(IdeType::Cursor) | Some(IdeType::Windsurf))
+    matches!(
+        ide,
+        Some(IdeType::Vscode) | Some(IdeType::Cursor) | Some(IdeType::Windsurf)
+    )
 }
 
 /// IDE 扩展是否已安装。对应 TS `isIDEExtensionInstalled`。
@@ -627,11 +793,9 @@ pub async fn is_ide_extension_installed(ide: IdeType, extension_id: &str) -> boo
         .output()
         .await
     {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .any(|l| l.trim() == extension_id)
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .any(|l| l.trim() == extension_id),
         _ => false,
     }
 }

@@ -396,12 +396,7 @@ pub fn exclude_stale_plugin_clients(
         .and_then(|c| c.as_object())
         .map(|m| {
             m.iter()
-                .map(|(k, v)| {
-                    (
-                        k.clone(),
-                        v.as_array().cloned().unwrap_or_default(),
-                    )
-                })
+                .map(|(k, v)| (k.clone(), v.as_array().cloned().unwrap_or_default()))
                 .collect()
         })
         .unwrap_or_default();
@@ -412,12 +407,11 @@ pub fn exclude_stale_plugin_clients(
             let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let cfg = c.get("config").cloned().unwrap_or(JsonValue::Null);
             match configs.get(name) {
-                None => {
-                    cfg.get("scope")
-                        .and_then(|s| s.as_str())
-                        .map(|s| s == "dynamic")
-                        .unwrap_or(false)
-                }
+                None => cfg
+                    .get("scope")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s == "dynamic")
+                    .unwrap_or(false),
                 Some(fresh) => hash_mcp_config(&cfg) != hash_mcp_config(fresh),
             }
         })
@@ -437,8 +431,7 @@ pub fn exclude_stale_plugin_clients(
     let mut tools_out = tools.clone();
     let mut commands_out = commands.clone();
     let mut resources_out = resources.clone();
-    let mut stale_names: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut stale_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for s in &stale {
         if let Some(name) = s.get("name").and_then(|n| n.as_str()) {
             stale_names.insert(name.to_string());
@@ -490,7 +483,9 @@ pub fn extract_agent_mcp_servers(agents: &[JsonValue]) -> Vec<JsonValue> {
             if spec.is_string() {
                 continue;
             }
-            let Some(obj) = spec.as_object() else { continue };
+            let Some(obj) = spec.as_object() else {
+                continue;
+            };
             if obj.len() != 1 {
                 continue;
             }

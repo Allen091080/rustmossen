@@ -1,6 +1,5 @@
+use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
-use serde::{Deserialize, Serialize};
 
 /// Priority levels for queued commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -86,19 +85,19 @@ impl CommandValue {
     pub fn extract_text(&self) -> String {
         match self {
             CommandValue::Text(s) => s.clone(),
-            CommandValue::Blocks(blocks) => {
-                blocks
-                    .iter()
-                    .filter_map(|b| {
-                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            b.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
+            CommandValue::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|b| {
+                    if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        b.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
         }
     }
 }
@@ -206,7 +205,10 @@ impl MessageQueueManager {
     }
 
     /// Remove and return the highest-priority command, or None if empty.
-    pub fn dequeue(&mut self, filter: Option<&dyn Fn(&QueuedCommand) -> bool>) -> Option<QueuedCommand> {
+    pub fn dequeue(
+        &mut self,
+        filter: Option<&dyn Fn(&QueuedCommand) -> bool>,
+    ) -> Option<QueuedCommand> {
         if self.command_queue.is_empty() {
             return None;
         }
@@ -433,7 +435,10 @@ pub fn pop_all_editable(
         return None;
     }
 
-    let queued_texts: Vec<String> = editable.iter().map(|cmd| cmd.value.extract_text()).collect();
+    let queued_texts: Vec<String> = editable
+        .iter()
+        .map(|cmd| cmd.value.extract_text())
+        .collect();
     let new_input_parts: Vec<&str> = queued_texts
         .iter()
         .map(|s| s.as_str())
@@ -521,8 +526,7 @@ static PENDING_NOTIFICATIONS_SIGNAL: once_cell::sync::Lazy<Signal> =
     once_cell::sync::Lazy::new(Signal::new);
 static COMMAND_QUEUE_SIGNAL: once_cell::sync::Lazy<Signal> =
     once_cell::sync::Lazy::new(Signal::new);
-static PENDING_HINT_SIGNAL: once_cell::sync::Lazy<Signal> =
-    once_cell::sync::Lazy::new(Signal::new);
+static PENDING_HINT_SIGNAL: once_cell::sync::Lazy<Signal> = once_cell::sync::Lazy::new(Signal::new);
 
 /// 对应 TS `subscribeToCommandQueue`：返回命令队列订阅入口。
 pub fn subscribe_to_command_queue() -> &'static Signal {
@@ -587,4 +591,5 @@ pub fn dequeue_pending_notification() -> Option<PendingNotification> {
 }
 
 /// 类型别名：对应 TS `SetAppState`。Rust 端用 `dyn FnMut` 表示状态更新回调签名。
-pub type SetAppState = Box<dyn FnMut(Box<dyn FnOnce(serde_json::Value) -> serde_json::Value>) + Send + Sync>;
+pub type SetAppState =
+    Box<dyn FnMut(Box<dyn FnOnce(serde_json::Value) -> serde_json::Value>) + Send + Sync>;

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
@@ -177,11 +177,10 @@ impl Default for ChicagoConfig {
     }
 }
 
-static FROZEN_COORDINATE_MODE: Lazy<Mutex<Option<CoordinateMode>>> =
-    Lazy::new(|| Mutex::new(None));
+static FROZEN_COORDINATE_MODE: Lazy<Mutex<Option<CoordinateMode>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn get_chicago_enabled() -> bool {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         if std::env::var("MONOREPO_ROOT_DIR").is_ok() {
             let allow = std::env::var("ALLOW_ANT_COMPUTER_USE_MCP").unwrap_or_default();
             if allow != "1" && allow.to_lowercase() != "true" {
@@ -205,7 +204,7 @@ pub fn get_chicago_coordinate_mode() -> CoordinateMode {
 }
 
 fn has_required_subscription() -> bool {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
         return true;
     }
     // In production, would check subscription tier
@@ -330,9 +329,7 @@ pub async fn try_acquire_computer_use_lock() -> Result<AcquireResult> {
                 .unwrap_or_else(|| "unknown".to_string());
             Ok(AcquireResult::Blocked { by: blocker })
         }
-        Some(ref ex) if ex.session_id == session_id => {
-            Ok(AcquireResult::Acquired { fresh: false })
-        }
+        Some(ref ex) if ex.session_id == session_id => Ok(AcquireResult::Acquired { fresh: false }),
         Some(ref ex) if is_process_running(ex.pid) => Ok(AcquireResult::Blocked {
             by: ex.session_id.clone(),
         }),
@@ -458,11 +455,7 @@ fn is_bare_escape(parts: &[&str]) -> bool {
     lower == "escape" || lower == "esc"
 }
 
-pub fn compute_target_dims(
-    logical_w: u32,
-    logical_h: u32,
-    scale_factor: f64,
-) -> (u32, u32) {
+pub fn compute_target_dims(logical_w: u32, logical_h: u32, scale_factor: f64) -> (u32, u32) {
     let phys_w = (logical_w as f64 * scale_factor).round() as u32;
     let phys_h = (logical_h as f64 * scale_factor).round() as u32;
     target_image_size(phys_w, phys_h)
@@ -611,9 +604,7 @@ pub fn filter_apps_for_description(
     for app in installed {
         if ALWAYS_KEEP_BUNDLE_IDS.contains(app.bundle_id.as_str()) {
             always_kept.push(app.display_name.clone());
-        } else if is_user_facing_path(&app.path, home_dir)
-            && !is_noisy_name(&app.display_name)
-        {
+        } else if is_user_facing_path(&app.path, home_dir) && !is_noisy_name(&app.display_name) {
             rest.push(app.display_name.clone());
         }
     }
@@ -715,12 +706,11 @@ impl CliExecutor {
 
     pub async fn screenshot(
         &self,
-        allowed_bundle_ids: &[String],
+        _allowed_bundle_ids: &[String],
         display_id: Option<u32>,
     ) -> Result<ScreenshotResult> {
         let d = self.get_display_size(display_id).await;
-        let (target_w, target_h) =
-            compute_target_dims(d.width, d.height, d.scale_factor);
+        let (target_w, target_h) = compute_target_dims(d.width, d.height, d.scale_factor);
         // In production: call Swift screenshot.captureExcluding with drain_run_loop
         Ok(ScreenshotResult {
             base64: String::new(),
@@ -736,8 +726,7 @@ impl CliExecutor {
         display_id: Option<u32>,
     ) -> Result<ScreenshotResult> {
         let d = self.get_display_size(display_id).await;
-        let (out_w, out_h) =
-            compute_target_dims(region.2 as u32, region.3 as u32, d.scale_factor);
+        let (out_w, out_h) = compute_target_dims(region.2 as u32, region.3 as u32, d.scale_factor);
         Ok(ScreenshotResult {
             base64: String::new(),
             width: out_w,
@@ -840,11 +829,7 @@ impl CliExecutor {
         (0.0, 0.0)
     }
 
-    pub async fn drag(
-        &self,
-        from: Option<(f64, f64)>,
-        to: (f64, f64),
-    ) -> Result<()> {
+    pub async fn drag(&self, from: Option<(f64, f64)>, to: (f64, f64)) -> Result<()> {
         if let Some((fx, fy)) = from {
             self.move_mouse(fx, fy).await?;
         }
@@ -919,9 +904,7 @@ impl CliExecutor {
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
-pub async fn cleanup_computer_use_after_turn(
-    hidden_during_turn: Option<&HashSet<String>>,
-) {
+pub async fn cleanup_computer_use_after_turn(hidden_during_turn: Option<&HashSet<String>>) {
     if let Some(hidden) = hidden_during_turn {
         if !hidden.is_empty() {
             // In production: unhideComputerUseApps with timeout
@@ -1145,9 +1128,7 @@ pub fn get_computer_use_mcp_rendering_overrides() -> Vec<ComputerUseRenderingOve
 ///
 /// 真实实现会构造一个 MCP server 实例，此处返回描述性的 JSON 元数据，
 /// 由调用方通过 [`run_computer_use_mcp_server`] 实际启动。
-pub fn create_computer_use_mcp_server_for_cli(
-    server_name: Option<&str>,
-) -> serde_json::Value {
+pub fn create_computer_use_mcp_server_for_cli(server_name: Option<&str>) -> serde_json::Value {
     serde_json::json!({
         "kind": "computer-use-mcp-server",
         "serverName": server_name.unwrap_or(COMPUTER_USE_MCP_SERVER_NAME),

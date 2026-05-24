@@ -92,10 +92,7 @@ impl Directive for InstallDirective {
         // Step 3: Success report
         output.push_str(&format!("{} successfully installed!\n", product_name));
         output.push_str(&format!("Location: {}\n", get_installation_path(cli_name)));
-        output.push_str(&format!(
-            "\nNext: Run {} --help to get started",
-            cli_name
-        ));
+        output.push_str(&format!("\nNext: Run {} --help to get started", cli_name));
 
         // If user specified a channel, note it was saved
         if matches!(channel_or_version, "latest" | "stable") {

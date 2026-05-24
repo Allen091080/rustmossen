@@ -23,8 +23,7 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing;
 
 /// 内部事件 flush 回调签名。
-pub type FlushInternalEventsHook =
-    Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync + 'static>;
+pub type FlushInternalEventsHook = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync + 'static>;
 
 /// 内部事件待发送数量回调签名。
 pub type InternalEventsPendingHook = Arc<dyn Fn() -> usize + Send + Sync + 'static>;

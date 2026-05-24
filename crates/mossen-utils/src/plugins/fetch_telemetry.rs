@@ -69,8 +69,7 @@ static KNOWN_PUBLIC_HOSTS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 
 /// Extract hostname from a URL or git spec and bucket to the allowlist.
 fn extract_host(url_or_spec: &str) -> &'static str {
-    static SCP_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^[^@/]+@([^:/]+):").unwrap());
+    static SCP_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[^@/]+@([^:/]+):").unwrap());
 
     let host = if let Some(caps) = SCP_RE.captures(url_or_spec) {
         caps.get(1).map(|m| m.as_str().to_lowercase())
@@ -110,7 +109,7 @@ pub fn log_plugin_fetch(
     let is_official = url_or_spec.map(is_official_repo).unwrap_or(false);
 
     debug!(
-        event = "tengu_plugin_remote_fetch",
+        event = "mossen_plugin_remote_fetch",
         source = %source,
         host = host,
         is_official = is_official,
@@ -123,12 +122,16 @@ pub fn log_plugin_fetch(
 /// Classify an error into a stable bucket for the error_kind field.
 pub fn classify_fetch_error(error: &str) -> &'static str {
     static DNS_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)ENOTFOUND|ECONNREFUSED|EAI_AGAIN|Could not resolve host|Connection refused").unwrap()
+        Regex::new(
+            r"(?i)ENOTFOUND|ECONNREFUSED|EAI_AGAIN|Could not resolve host|Connection refused",
+        )
+        .unwrap()
     });
     static TIMEOUT_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?i)ETIMEDOUT|timed out|timeout").unwrap());
     static RESET_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)ECONNRESET|socket hang up|Connection reset by peer|remote end hung up").unwrap()
+        Regex::new(r"(?i)ECONNRESET|socket hang up|Connection reset by peer|remote end hung up")
+            .unwrap()
     });
     static AUTH_RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"(?i)403|401|authentication|permission denied").unwrap());

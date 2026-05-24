@@ -154,8 +154,8 @@ pub fn is_debug_mode() -> bool {
 /// Enable debug logging mid-session (e.g., via /debug command).
 /// Returns true if logging was already active.
 pub fn enable_debug_logging() -> bool {
-    let was_active = is_debug_mode()
-        || std::env::var("USER_TYPE").ok().as_deref() == Some("ant");
+    let was_active =
+        is_debug_mode() || std::env::var("USER_TYPE").ok().as_deref() == Some("internal");
     RUNTIME_DEBUG_ENABLED.store(true, Ordering::Relaxed);
     was_active
 }
@@ -175,9 +175,8 @@ pub fn get_debug_filter() -> Option<DebugFilter> {
 
 /// Check if debug output should go to stderr.
 pub fn is_debug_to_stderr() -> bool {
-    static IS_STDERR: Lazy<bool> = Lazy::new(|| {
-        std::env::args().any(|a| a == "--debug-to-stderr" || a == "-d2e")
-    });
+    static IS_STDERR: Lazy<bool> =
+        Lazy::new(|| std::env::args().any(|a| a == "--debug-to-stderr" || a == "-d2e"));
     *IS_STDERR
 }
 
@@ -216,7 +215,7 @@ fn should_log_debug_message(message: &str) -> bool {
     }
 
     // Non-ants only write debug logs when debug mode is active
-    if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") && !is_debug_mode() {
+    if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") && !is_debug_mode() {
         return false;
     }
 
@@ -330,7 +329,12 @@ pub fn get_debug_log_path(session_id: &str, config_home: &Path) -> PathBuf {
 ///
 /// Respects the minimum log level, debug mode state, and debug filter.
 /// Formats messages with ISO timestamp and level prefix.
-pub fn log_for_debugging(message: &str, level: DebugLogLevel, session_id: &str, config_home: &Path) {
+pub fn log_for_debugging(
+    message: &str,
+    level: DebugLogLevel,
+    session_id: &str,
+    config_home: &Path,
+) {
     if level < get_min_debug_log_level() {
         return;
     }
@@ -385,8 +389,13 @@ pub fn update_latest_debug_log_symlink(debug_log_path: &Path) {
 }
 
 /// Log errors for Ants only, always visible in production.
-pub fn log_ant_error(context: &str, error: &dyn std::error::Error, session_id: &str, config_home: &Path) {
-    if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+pub fn log_ant_error(
+    context: &str,
+    error: &dyn std::error::Error,
+    session_id: &str,
+    config_home: &Path,
+) {
+    if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return;
     }
 

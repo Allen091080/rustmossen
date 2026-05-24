@@ -44,7 +44,11 @@ impl Directive for ExtraUsageDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let sources = USAGE_SOURCES.join(", ");
             return Ok(CommandResult::Text(format!(
                 "Usage: /extra-usage\n\n                 View your extended usage allowance, including:\n                 - Additional token capacity from your plan\n                 - Temporary usage boosts\n                 - Rate limit headroom\n\n                 Sources: {}",

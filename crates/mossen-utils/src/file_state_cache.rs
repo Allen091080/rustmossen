@@ -161,7 +161,10 @@ pub fn create_file_state_cache_with_size_limit(
     max_entries: usize,
     max_size_bytes: Option<usize>,
 ) -> FileStateCache {
-    FileStateCache::new(max_entries, max_size_bytes.unwrap_or(DEFAULT_MAX_CACHE_SIZE_BYTES))
+    FileStateCache::new(
+        max_entries,
+        max_size_bytes.unwrap_or(DEFAULT_MAX_CACHE_SIZE_BYTES),
+    )
 }
 
 /// Convert cache to a HashMap (used by compact)
@@ -176,10 +179,7 @@ pub fn cache_keys(cache: &FileStateCache) -> Vec<String> {
 
 /// Clone a FileStateCache preserving size limit configuration
 pub fn clone_file_state_cache(cache: &FileStateCache) -> FileStateCache {
-    let mut cloned = create_file_state_cache_with_size_limit(
-        cache.max(),
-        Some(cache.max_size()),
-    );
+    let mut cloned = create_file_state_cache_with_size_limit(cache.max(), Some(cache.max_size()));
     for (key, state) in cache.entries().into_iter().rev() {
         cloned.set(&key, state);
     }
@@ -187,10 +187,7 @@ pub fn clone_file_state_cache(cache: &FileStateCache) -> FileStateCache {
 }
 
 /// Merge two file state caches, with more recent entries (by timestamp) overriding older ones
-pub fn merge_file_state_caches(
-    first: &FileStateCache,
-    second: &FileStateCache,
-) -> FileStateCache {
+pub fn merge_file_state_caches(first: &FileStateCache, second: &FileStateCache) -> FileStateCache {
     let mut merged = clone_file_state_cache(first);
     for (file_path, file_state) in second.entries() {
         let existing = merged.get(&file_path);

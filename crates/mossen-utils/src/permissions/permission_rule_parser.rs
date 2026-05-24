@@ -3,8 +3,8 @@
 //! Translates `utils/permissions/permissionRuleParser.ts`.
 //! Handles parsing permission rule strings, escape/unescape, and legacy tool name aliasing.
 
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 
 use super::permission_result::PermissionRuleValue;
 

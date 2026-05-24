@@ -119,10 +119,7 @@ fn write_team_file(team_name: &str, team_file: &TeamFile) -> std::io::Result<()>
 }
 
 /// 写入团队文件（异步 — 用于工具处理器）
-pub async fn write_team_file_async(
-    team_name: &str,
-    team_file: &TeamFile,
-) -> std::io::Result<()> {
+pub async fn write_team_file_async(team_name: &str, team_file: &TeamFile) -> std::io::Result<()> {
     let team_dir = get_team_dir(team_name);
     tokio::fs::create_dir_all(&team_dir).await?;
     let content = serde_json::to_string_pretty(team_file)
@@ -143,7 +140,7 @@ pub fn remove_teammate_from_team_file(
         Some(tf) => tf,
         None => return false,
     };
-    
+
     let original_length = team_file.members.len();
     let members: Vec<TeamMember> = team_file
         .members
@@ -162,71 +159,65 @@ pub fn remove_teammate_from_team_file(
             true
         })
         .collect();
-    
+
     if members.len() == original_length {
         return false;
     }
-    
+
     let new_team_file = TeamFile {
         members,
         ..team_file
     };
-    
+
     write_team_file(team_name, &new_team_file).is_ok()
 }
 
 /// 从团队配置文件中按窗格 ID 移除队友。
 /// 同时从 hiddenPaneIds 中移除（如果存在）。
-pub fn remove_member_from_team(
-    team_name: &str,
-    tmux_pane_id: &str,
-) -> bool {
+pub fn remove_member_from_team(team_name: &str, tmux_pane_id: &str) -> bool {
     let mut team_file = match read_team_file(team_name) {
         Some(tf) => tf,
         None => return false,
     };
-    
+
     let member_index = team_file
         .members
         .iter()
         .position(|m| m.tmux_pane_id == tmux_pane_id);
-    
+
     let Some(idx) = member_index else {
         return false;
     };
-    
+
     // 从 members 数组中移除
     team_file.members.remove(idx);
-    
+
     // 同时从 hiddenPaneIds 中移除（如果存在）
     if let Some(ref mut hidden) = team_file.hidden_pane_ids {
         if let Some(hidden_idx) = hidden.iter().position(|id| *id == tmux_pane_id) {
             hidden.remove(hidden_idx);
         }
     }
-    
+
     write_team_file(team_name, &team_file).is_ok()
 }
 
 /// 按代理 ID 从团队的成员列表中移除队友。
-pub fn remove_member_by_agent_id(
-    team_name: &str,
-    agent_id: &str,
-) -> bool {
+pub fn remove_member_by_agent_id(team_name: &str, agent_id: &str) -> bool {
     let mut team_file = match read_team_file(team_name) {
         Some(tf) => tf,
         None => return false,
     };
-    
+
     let member_index = team_file
         .members
         .iter()
         .position(|m| m.agent_id == agent_id);
-    
+
     let Some(idx) = member_index else {
         return false;
     };
-    
+
     team_file.members.remove(idx);
     write_team_file(team_name, &team_file).is_ok()
 }

@@ -113,7 +113,10 @@ pub fn build_status_line_observability_input(
     model_tier: ModelTier,
 ) -> StatusLineObservabilityInput {
     let context_percent = if effective_window > 0 {
-        std::cmp::min(100, ((current_tokens as f64 / effective_window as f64) * 100.0).round() as u32)
+        std::cmp::min(
+            100,
+            ((current_tokens as f64 / effective_window as f64) * 100.0).round() as u32,
+        )
     } else {
         0
     };

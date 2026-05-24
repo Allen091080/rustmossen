@@ -28,10 +28,19 @@ pub struct PermissionLoggingState {
 
 impl PermissionLoggingState {
     pub fn new() -> Self {
-        Self { entries: Vec::new(), max_entries: 1000 }
+        Self {
+            entries: Vec::new(),
+            max_entries: 1000,
+        }
     }
 
-    pub fn log(&mut self, tool_name: &str, decision: PermissionDecision, mode: &str, reason: Option<String>) {
+    pub fn log(
+        &mut self,
+        tool_name: &str,
+        decision: PermissionDecision,
+        mode: &str,
+        reason: Option<String>,
+    ) {
         self.entries.push(PermissionLogEntry {
             tool_name: tool_name.to_string(),
             decision,
@@ -50,7 +59,10 @@ impl PermissionLoggingState {
     }
 
     pub fn denied_count(&self) -> usize {
-        self.entries.iter().filter(|e| e.decision == PermissionDecision::Denied).count()
+        self.entries
+            .iter()
+            .filter(|e| e.decision == PermissionDecision::Denied)
+            .count()
     }
 }
 

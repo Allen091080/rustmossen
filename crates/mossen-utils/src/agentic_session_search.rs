@@ -2,7 +2,9 @@
 
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
+use crate::string_utils::truncate_chars;
 
 // Limits for transcript extraction
 const MAX_TRANSCRIPT_CHARS: usize = 2000;
@@ -119,11 +121,7 @@ fn extract_transcript(messages: &[SerializedMessage]) -> String {
     // Collapse whitespace
     let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
 
-    if collapsed.len() > MAX_TRANSCRIPT_CHARS {
-        format!("{}…", &collapsed[..MAX_TRANSCRIPT_CHARS])
-    } else {
-        collapsed
-    }
+    truncate_chars(&collapsed, MAX_TRANSCRIPT_CHARS)
 }
 
 /// Gets the display title for a log.
@@ -284,7 +282,7 @@ pub async fn agentic_session_search(
     );
 
     let config = SideQueryConfig {
-        model: "haiku".to_string(),
+        model: "fast".to_string(),
         system: SESSION_SEARCH_SYSTEM_PROMPT.to_string(),
         user_message,
     };

@@ -85,7 +85,10 @@ pub fn check_cross_project_resume(
             command: String::new(),
         }
     } else {
-        let cmd = format!("mossen --resume --session-id {}", log.session_id.as_deref().unwrap_or(""));
+        let cmd = format!(
+            "mossen --resume --session-id {}",
+            log.session_id.as_deref().unwrap_or("")
+        );
         CrossProjectCheck {
             is_cross_project: true,
             is_same_repo_worktree: false,
@@ -111,9 +114,7 @@ pub struct ResumeData {
 }
 
 /// 加载会话用于恢复。
-pub async fn load_conversation_for_resume(
-    log: &LogOption,
-) -> anyhow::Result<Option<ResumeData>> {
+pub async fn load_conversation_for_resume(log: &LogOption) -> anyhow::Result<Option<ResumeData>> {
     let full_path = match &log.full_path {
         Some(p) => p.clone(),
         None => return Ok(None),
@@ -186,10 +187,15 @@ pub fn filter_logs_by_pr(logs: &[LogOption], filter: &PrFilter) -> Vec<LogOption
     match filter {
         PrFilter::None => base,
         PrFilter::Any => base.into_iter().filter(|l| l.pr_number.is_some()).collect(),
-        PrFilter::Number(n) => base.into_iter().filter(|l| l.pr_number == Some(*n)).collect(),
+        PrFilter::Number(n) => base
+            .into_iter()
+            .filter(|l| l.pr_number == Some(*n))
+            .collect(),
         PrFilter::String(s) => {
             if let Some(n) = parse_pr_identifier(s) {
-                base.into_iter().filter(|l| l.pr_number == Some(n)).collect()
+                base.into_iter()
+                    .filter(|l| l.pr_number == Some(n))
+                    .collect()
             } else {
                 base
             }
@@ -331,7 +337,11 @@ async fn check_ripgrep_status() -> RipgrepStatus {
                 .map(|p| p.to_string_lossy().to_string());
             RipgrepStatus {
                 working: true,
-                mode: if path.is_some() { "system".to_string() } else { "embedded".to_string() },
+                mode: if path.is_some() {
+                    "system".to_string()
+                } else {
+                    "embedded".to_string()
+                },
                 system_path: path,
             }
         }
@@ -475,9 +485,16 @@ pub fn format_doctor_output(diag: &DiagnosticInfo) -> String {
     }
     output.push_str(&format!("Path: {}\n", diag.installation_path));
     output.push_str(&format!("Invoked: {}\n", diag.invoked_binary));
-    output.push_str(&format!("Config install method: {}\n", diag.config_install_method));
+    output.push_str(&format!(
+        "Config install method: {}\n",
+        diag.config_install_method
+    ));
 
-    let rg_status = if diag.ripgrep_status.working { "OK" } else { "Not working" };
+    let rg_status = if diag.ripgrep_status.working {
+        "OK"
+    } else {
+        "Not working"
+    };
     let rg_mode = &diag.ripgrep_status.mode;
     output.push_str(&format!("Search: {} ({})\n", rg_status, rg_mode));
 
@@ -502,7 +519,10 @@ pub fn format_doctor_output(diag: &DiagnosticInfo) -> String {
     }
 
     for warning in &diag.warnings {
-        output.push_str(&format!("\nWarning: {}\nFix: {}\n", warning.issue, warning.fix));
+        output.push_str(&format!(
+            "\nWarning: {}\nFix: {}\n",
+            warning.issue, warning.fix
+        ));
     }
 
     output
@@ -602,10 +622,7 @@ pub fn selectable_user_messages_filter(msg: &serde_json::Value) -> bool {
 }
 
 /// 检查消息后续是否只有合成消息。
-pub fn messages_after_are_only_synthetic(
-    messages: &[serde_json::Value],
-    index: usize,
-) -> bool {
+pub fn messages_after_are_only_synthetic(messages: &[serde_json::Value], index: usize) -> bool {
     messages[index + 1..].iter().all(|m| {
         m.get("synthetic")
             .and_then(|s| s.as_bool())
@@ -628,9 +645,9 @@ pub fn get_tab_status(state: &ReplState) -> TabStatusKind {
     match state {
         ReplState::WaitingForInput => TabStatusKind::Idle,
         ReplState::Processing => TabStatusKind::Working,
-        ReplState::PermissionRequest | ReplState::CostThresholdDialog | ReplState::IdleReturnDialog => {
-            TabStatusKind::Waiting
-        }
+        ReplState::PermissionRequest
+        | ReplState::CostThresholdDialog
+        | ReplState::IdleReturnDialog => TabStatusKind::Waiting,
         ReplState::MessageSelection => TabStatusKind::Idle,
         ReplState::Done => TabStatusKind::Done,
     }

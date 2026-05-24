@@ -14,7 +14,9 @@ use std::time::{Duration, Instant};
 
 // Re-export log macros for this module
 macro_rules! log_debug {
-    ($($arg:tt)*) => { /* debug logging placeholder */ };
+    ($($arg:tt)*) => {
+        /* debug logging placeholder */
+    };
 }
 macro_rules! log_error {
     ($($arg:tt)*) => { eprintln!($($arg)*); };
@@ -485,9 +487,8 @@ lazy_static::lazy_static! {
 ///     true (a non-managed switch can't kill managed hooks, so it degrades
 ///     to "managed-only").
 pub fn should_allow_managed_hooks_only() -> bool {
-    let policy = crate::settings::load_settings_for_source(
-        crate::settings::SettingSource::PolicySettings,
-    );
+    let policy =
+        crate::settings::load_settings_for_source(crate::settings::SettingSource::PolicySettings);
     if policy
         .as_ref()
         .and_then(|s| s.allow_managed_hooks_only)
@@ -657,7 +658,9 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         "PermissionDenied".to_string(),
         HookEventMetadata {
             summary: "After auto mode classifier denies a tool call".to_string(),
-            description: "Input to command is JSON with tool_name, tool_input, tool_use_id, and reason.".to_string(),
+            description:
+                "Input to command is JSON with tool_name, tool_input, tool_use_id, and reason."
+                    .to_string(),
             matcher_metadata: Some(MatcherMetadata {
                 field_to_match: "tool_name".to_string(),
                 values: tool_names.to_vec(),
@@ -684,20 +687,31 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         },
     );
 
-    metadata.insert("UserPromptSubmit".to_string(), HookEventMetadata {
-        summary: "When the user submits a prompt".to_string(),
-        description: "Input to command is JSON with original user prompt text.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "UserPromptSubmit".to_string(),
+        HookEventMetadata {
+            summary: "When the user submits a prompt".to_string(),
+            description: "Input to command is JSON with original user prompt text.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
-    metadata.insert("SessionStart".to_string(), HookEventMetadata {
-        summary: "When a new session is started".to_string(),
-        description: "Input to command is JSON with session start source.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "source".to_string(),
-            values: vec!["startup".into(), "resume".into(), "clear".into(), "compact".into()],
-        }),
-    });
+    metadata.insert(
+        "SessionStart".to_string(),
+        HookEventMetadata {
+            summary: "When a new session is started".to_string(),
+            description: "Input to command is JSON with session start source.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "source".to_string(),
+                values: vec![
+                    "startup".into(),
+                    "resume".into(),
+                    "clear".into(),
+                    "compact".into(),
+                ],
+            }),
+        },
+    );
 
     metadata.insert("Stop".to_string(), HookEventMetadata {
         summary: "Right before Mossen concludes its response".to_string(),
@@ -705,87 +719,127 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         matcher_metadata: None,
     });
 
-    metadata.insert("StopFailure".to_string(), HookEventMetadata {
-        summary: "When the turn ends due to an API error".to_string(),
-        description: "Fires instead of Stop when an API error ended the turn.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "error".to_string(),
-            values: vec![
-                "rate_limit".into(), "authentication_failed".into(),
-                "billing_error".into(), "invalid_request".into(),
-                "server_error".into(), "max_output_tokens".into(), "unknown".into(),
-            ],
-        }),
-    });
+    metadata.insert(
+        "StopFailure".to_string(),
+        HookEventMetadata {
+            summary: "When the turn ends due to an API error".to_string(),
+            description: "Fires instead of Stop when an API error ended the turn.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "error".to_string(),
+                values: vec![
+                    "rate_limit".into(),
+                    "authentication_failed".into(),
+                    "billing_error".into(),
+                    "invalid_request".into(),
+                    "server_error".into(),
+                    "max_output_tokens".into(),
+                    "unknown".into(),
+                ],
+            }),
+        },
+    );
 
-    metadata.insert("SubagentStart".to_string(), HookEventMetadata {
-        summary: "When a subagent is started".to_string(),
-        description: "Input to command is JSON with agent_id and agent_type.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "agent_type".to_string(),
-            values: vec![],
-        }),
-    });
+    metadata.insert(
+        "SubagentStart".to_string(),
+        HookEventMetadata {
+            summary: "When a subagent is started".to_string(),
+            description: "Input to command is JSON with agent_id and agent_type.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "agent_type".to_string(),
+                values: vec![],
+            }),
+        },
+    );
 
-    metadata.insert("SubagentStop".to_string(), HookEventMetadata {
-        summary: "Right before a subagent concludes its response".to_string(),
-        description: "Input to command is JSON with agent_id, agent_type, and agent_transcript_path.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "agent_type".to_string(),
-            values: vec![],
-        }),
-    });
+    metadata.insert(
+        "SubagentStop".to_string(),
+        HookEventMetadata {
+            summary: "Right before a subagent concludes its response".to_string(),
+            description:
+                "Input to command is JSON with agent_id, agent_type, and agent_transcript_path."
+                    .to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "agent_type".to_string(),
+                values: vec![],
+            }),
+        },
+    );
 
-    metadata.insert("PreCompact".to_string(), HookEventMetadata {
-        summary: "Before conversation compaction".to_string(),
-        description: "Input to command is JSON with compaction details.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "trigger".to_string(),
-            values: vec!["manual".into(), "auto".into()],
-        }),
-    });
+    metadata.insert(
+        "PreCompact".to_string(),
+        HookEventMetadata {
+            summary: "Before conversation compaction".to_string(),
+            description: "Input to command is JSON with compaction details.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "trigger".to_string(),
+                values: vec!["manual".into(), "auto".into()],
+            }),
+        },
+    );
 
-    metadata.insert("PostCompact".to_string(), HookEventMetadata {
-        summary: "After conversation compaction".to_string(),
-        description: "Input to command is JSON with compaction details and the summary.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "trigger".to_string(),
-            values: vec!["manual".into(), "auto".into()],
-        }),
-    });
+    metadata.insert(
+        "PostCompact".to_string(),
+        HookEventMetadata {
+            summary: "After conversation compaction".to_string(),
+            description: "Input to command is JSON with compaction details and the summary."
+                .to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "trigger".to_string(),
+                values: vec!["manual".into(), "auto".into()],
+            }),
+        },
+    );
 
-    metadata.insert("SessionEnd".to_string(), HookEventMetadata {
-        summary: "When a session is ending".to_string(),
-        description: "Input to command is JSON with session end reason.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "reason".to_string(),
-            values: vec!["clear".into(), "logout".into(), "prompt_input_exit".into(), "other".into()],
-        }),
-    });
+    metadata.insert(
+        "SessionEnd".to_string(),
+        HookEventMetadata {
+            summary: "When a session is ending".to_string(),
+            description: "Input to command is JSON with session end reason.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "reason".to_string(),
+                values: vec![
+                    "clear".into(),
+                    "logout".into(),
+                    "prompt_input_exit".into(),
+                    "other".into(),
+                ],
+            }),
+        },
+    );
 
-    metadata.insert("PermissionRequest".to_string(), HookEventMetadata {
-        summary: "When a permission dialog is displayed".to_string(),
-        description: "Input to command is JSON with tool_name, tool_input, and tool_use_id.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "tool_name".to_string(),
-            values: tool_names.to_vec(),
-        }),
-    });
+    metadata.insert(
+        "PermissionRequest".to_string(),
+        HookEventMetadata {
+            summary: "When a permission dialog is displayed".to_string(),
+            description: "Input to command is JSON with tool_name, tool_input, and tool_use_id."
+                .to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "tool_name".to_string(),
+                values: tool_names.to_vec(),
+            }),
+        },
+    );
 
-    metadata.insert("Setup".to_string(), HookEventMetadata {
-        summary: "Repo setup hooks for init and maintenance".to_string(),
-        description: "Input to command is JSON with trigger (init or maintenance).".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "trigger".to_string(),
-            values: vec!["init".into(), "maintenance".into()],
-        }),
-    });
+    metadata.insert(
+        "Setup".to_string(),
+        HookEventMetadata {
+            summary: "Repo setup hooks for init and maintenance".to_string(),
+            description: "Input to command is JSON with trigger (init or maintenance).".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "trigger".to_string(),
+                values: vec!["init".into(), "maintenance".into()],
+            }),
+        },
+    );
 
-    metadata.insert("TeammateIdle".to_string(), HookEventMetadata {
-        summary: "When a teammate is about to go idle".to_string(),
-        description: "Input to command is JSON with teammate_name and team_name.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "TeammateIdle".to_string(),
+        HookEventMetadata {
+            summary: "When a teammate is about to go idle".to_string(),
+            description: "Input to command is JSON with teammate_name and team_name.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
     metadata.insert("TaskCreated".to_string(), HookEventMetadata {
         summary: "When a task is being created".to_string(),
@@ -799,14 +853,19 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         matcher_metadata: None,
     });
 
-    metadata.insert("Elicitation".to_string(), HookEventMetadata {
-        summary: "When an MCP server requests user input".to_string(),
-        description: "Input to command is JSON with mcp_server_name, message, and requested_schema.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "mcp_server_name".to_string(),
-            values: vec![],
-        }),
-    });
+    metadata.insert(
+        "Elicitation".to_string(),
+        HookEventMetadata {
+            summary: "When an MCP server requests user input".to_string(),
+            description:
+                "Input to command is JSON with mcp_server_name, message, and requested_schema."
+                    .to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "mcp_server_name".to_string(),
+                values: vec![],
+            }),
+        },
+    );
 
     metadata.insert("ElicitationResult".to_string(), HookEventMetadata {
         summary: "After a user responds to an MCP elicitation".to_string(),
@@ -817,17 +876,23 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         }),
     });
 
-    metadata.insert("ConfigChange".to_string(), HookEventMetadata {
-        summary: "When configuration files change during a session".to_string(),
-        description: "Input to command is JSON with source and file_path.".to_string(),
-        matcher_metadata: Some(MatcherMetadata {
-            field_to_match: "source".to_string(),
-            values: vec![
-                "user_settings".into(), "project_settings".into(),
-                "local_settings".into(), "policy_settings".into(), "skills".into(),
-            ],
-        }),
-    });
+    metadata.insert(
+        "ConfigChange".to_string(),
+        HookEventMetadata {
+            summary: "When configuration files change during a session".to_string(),
+            description: "Input to command is JSON with source and file_path.".to_string(),
+            matcher_metadata: Some(MatcherMetadata {
+                field_to_match: "source".to_string(),
+                values: vec![
+                    "user_settings".into(),
+                    "project_settings".into(),
+                    "local_settings".into(),
+                    "policy_settings".into(),
+                    "skills".into(),
+                ],
+            }),
+        },
+    );
 
     metadata.insert("InstructionsLoaded".to_string(), HookEventMetadata {
         summary: "When an instruction file is loaded".to_string(),
@@ -841,29 +906,41 @@ pub fn get_hook_event_metadata(tool_names: &[String]) -> HashMap<String, HookEve
         }),
     });
 
-    metadata.insert("WorktreeCreate".to_string(), HookEventMetadata {
-        summary: "Create an isolated worktree for VCS-agnostic isolation".to_string(),
-        description: "Input to command is JSON with name.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "WorktreeCreate".to_string(),
+        HookEventMetadata {
+            summary: "Create an isolated worktree for VCS-agnostic isolation".to_string(),
+            description: "Input to command is JSON with name.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
-    metadata.insert("WorktreeRemove".to_string(), HookEventMetadata {
-        summary: "Remove a previously created worktree".to_string(),
-        description: "Input to command is JSON with worktree_path.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "WorktreeRemove".to_string(),
+        HookEventMetadata {
+            summary: "Remove a previously created worktree".to_string(),
+            description: "Input to command is JSON with worktree_path.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
-    metadata.insert("CwdChanged".to_string(), HookEventMetadata {
-        summary: "After the working directory changes".to_string(),
-        description: "Input to command is JSON with old_cwd and new_cwd.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "CwdChanged".to_string(),
+        HookEventMetadata {
+            summary: "After the working directory changes".to_string(),
+            description: "Input to command is JSON with old_cwd and new_cwd.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
-    metadata.insert("FileChanged".to_string(), HookEventMetadata {
-        summary: "When a watched file changes".to_string(),
-        description: "Input to command is JSON with file_path and event.".to_string(),
-        matcher_metadata: None,
-    });
+    metadata.insert(
+        "FileChanged".to_string(),
+        HookEventMetadata {
+            summary: "When a watched file changes".to_string(),
+            description: "Input to command is JSON with file_path and event.".to_string(),
+            matcher_metadata: None,
+        },
+    );
 
     metadata
 }
@@ -918,9 +995,9 @@ pub fn add_session_hook(
         .entry(event.to_string())
         .or_insert_with(Vec::new);
 
-    let existing = event_matchers.iter_mut().find(|m| {
-        m.matcher == matcher && m.skill_root.as_deref() == skill_root
-    });
+    let existing = event_matchers
+        .iter_mut()
+        .find(|m| m.matcher == matcher && m.skill_root.as_deref() == skill_root);
 
     if let Some(existing_matcher) = existing {
         existing_matcher.hooks.push(SessionHookEntry { hook });
@@ -932,7 +1009,11 @@ pub fn add_session_hook(
         });
     }
 
-    log_debug!("Added session hook for event {} in session {}", event, session_id);
+    log_debug!(
+        "Added session hook for event {} in session {}",
+        event,
+        session_id
+    );
 }
 
 pub fn remove_session_hook(session_id: &str, event: &str, hook: &HookCommand) {
@@ -948,7 +1029,11 @@ pub fn remove_session_hook(session_id: &str, event: &str, hook: &HookCommand) {
             }
         }
     }
-    log_debug!("Removed session hook for event {} in session {}", event, session_id);
+    log_debug!(
+        "Removed session hook for event {} in session {}",
+        event,
+        session_id
+    );
 }
 
 #[derive(Debug, Clone)]
@@ -1162,7 +1247,10 @@ fn sanitize_header_value(value: &str) -> String {
     value.replace(['\r', '\n', '\0'], "")
 }
 
-fn interpolate_env_vars(value: &str, allowed_env_vars: &std::collections::HashSet<String>) -> String {
+fn interpolate_env_vars(
+    value: &str,
+    allowed_env_vars: &std::collections::HashSet<String>,
+) -> String {
     let re = regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}|\$([A-Z_][A-Z0-9_]*)").unwrap();
     let interpolated = re.replace_all(value, |caps: &regex::Captures| {
         let var_name = caps
@@ -1359,7 +1447,7 @@ pub fn execute_post_sampling_hooks() {
 pub fn register_frontmatter_hooks(
     session_id: &str,
     hooks: &HooksSettings,
-    source_name: &str,
+    _source_name: &str,
     is_agent: bool,
 ) {
     if hooks.is_empty() {
@@ -1407,7 +1495,7 @@ pub fn register_frontmatter_hooks(
 pub fn register_skill_hooks(
     session_id: &str,
     hooks: &HooksSettings,
-    skill_name: &str,
+    _skill_name: &str,
     skill_root: Option<&str>,
 ) {
     let mut registered_count = 0;
@@ -1468,7 +1556,11 @@ pub async fn apply_skill_improvement(
     let current_content = match tokio::fs::read_to_string(&file_path).await {
         Ok(c) => c,
         Err(e) => {
-            log_error!("Failed to read skill file for improvement: {:?}: {}", file_path, e);
+            log_error!(
+                "Failed to read skill file for improvement: {:?}: {}",
+                file_path,
+                e
+            );
             return Err(anyhow::anyhow!("Failed to read skill file: {}", e));
         }
     };
@@ -1677,10 +1769,12 @@ pub fn release_pump() {}
 // =============================================================================
 
 /// 对应 TS `FunctionHookCallback`：进程内 hook 回调签名。
-pub type FunctionHookCallback = std::sync::Arc<dyn Fn(serde_json::Value) -> serde_json::Value + Send + Sync>;
+pub type FunctionHookCallback =
+    std::sync::Arc<dyn Fn(serde_json::Value) -> serde_json::Value + Send + Sync>;
 
-static SESSION_FUNCTION_HOOKS: once_cell::sync::Lazy<StdMutex<HashMap<String, FunctionHookCallback>>> =
-    once_cell::sync::Lazy::new(|| StdMutex::new(HashMap::new()));
+static SESSION_FUNCTION_HOOKS: once_cell::sync::Lazy<
+    StdMutex<HashMap<String, FunctionHookCallback>>,
+> = once_cell::sync::Lazy::new(|| StdMutex::new(HashMap::new()));
 
 /// 对应 TS `addFunctionHook`：注册函数式钩子。
 pub fn add_function_hook(name: &str, callback: FunctionHookCallback) {
@@ -1697,7 +1791,12 @@ pub fn remove_function_hook(name: &str) {
 
 /// 对应 TS `getSessionFunctionHooks`：返回当前 session 的所有 hook 名称。
 pub fn get_session_function_hooks() -> Vec<String> {
-    SESSION_FUNCTION_HOOKS.lock().unwrap().keys().cloned().collect()
+    SESSION_FUNCTION_HOOKS
+        .lock()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect()
 }
 
 /// 对应 TS `getSessionHookCallback`：根据名字取回回调。
@@ -1709,8 +1808,9 @@ pub fn get_session_hook_callback(name: &str) -> Option<FunctionHookCallback> {
 // 与 TS `hooks/fileChangedWatcher.ts` 对齐的导出。
 // =============================================================================
 
-static ENV_HOOK_NOTIFIER: once_cell::sync::Lazy<StdMutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>> =
-    once_cell::sync::Lazy::new(|| StdMutex::new(None));
+static ENV_HOOK_NOTIFIER: once_cell::sync::Lazy<
+    StdMutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
+> = once_cell::sync::Lazy::new(|| StdMutex::new(None));
 
 /// 对应 TS `setEnvHookNotifier`：注入 env 变更通知器。
 pub fn set_env_hook_notifier(notifier: std::sync::Arc<dyn Fn() + Send + Sync>) {
@@ -1788,7 +1888,9 @@ pub struct ApiQueryResult {
 }
 
 /// 对应 TS `createApiQueryHook`：构造一个 API query 钩子。
-pub fn create_api_query_hook(_config: ApiQueryHookConfig) -> std::sync::Arc<dyn Fn(ApiQueryHookContext) -> ApiQueryResult + Send + Sync> {
+pub fn create_api_query_hook(
+    _config: ApiQueryHookConfig,
+) -> std::sync::Arc<dyn Fn(ApiQueryHookContext) -> ApiQueryResult + Send + Sync> {
     std::sync::Arc::new(|_ctx| ApiQueryResult::default())
 }
 
@@ -1803,7 +1905,8 @@ pub struct REPLHookContext {
 }
 
 /// 对应 TS `PostSamplingHook`：post-sampling 钩子签名。
-pub type PostSamplingHook = std::sync::Arc<dyn Fn(REPLHookContext) -> serde_json::Value + Send + Sync>;
+pub type PostSamplingHook =
+    std::sync::Arc<dyn Fn(REPLHookContext) -> serde_json::Value + Send + Sync>;
 
 // =============================================================================
 // 与 TS `hooks/hooksConfigManager.ts` 对齐的导出。
@@ -1831,10 +1934,7 @@ pub fn group_hooks_by_event_and_matcher(
 }
 
 /// 对应 TS `getSortedMatchersForEvent`：返回事件下所有 matcher（按字典序）。
-pub fn get_sorted_matchers_for_event(
-    hooks: &[serde_json::Value],
-    event: &str,
-) -> Vec<String> {
+pub fn get_sorted_matchers_for_event(hooks: &[serde_json::Value], event: &str) -> Vec<String> {
     let mut matchers: Vec<String> = hooks
         .iter()
         .filter(|h| h.get("event").and_then(|v| v.as_str()) == Some(event))

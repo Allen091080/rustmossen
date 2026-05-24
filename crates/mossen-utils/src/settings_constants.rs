@@ -43,9 +43,7 @@ pub fn get_setting_source_name(source: SettingSource) -> &'static str {
 }
 
 /// 获取设置来源的短显示名称（首字母大写，用于上下文/技能 UI）
-pub fn get_source_display_name(
-    source: SettingSource,
-) -> &'static str {
+pub fn get_source_display_name(source: SettingSource) -> &'static str {
     match source {
         SettingSource::UserSettings => "User",
         SettingSource::ProjectSettings => "Project",
@@ -56,9 +54,7 @@ pub fn get_source_display_name(
 }
 
 /// 获取设置来源的显示名称（小写，用于内联使用）
-pub fn get_setting_source_display_name_lowercase(
-    source: SettingSource,
-) -> &'static str {
+pub fn get_setting_source_display_name_lowercase(source: SettingSource) -> &'static str {
     match source {
         SettingSource::UserSettings => "user settings",
         SettingSource::ProjectSettings => "shared project settings",
@@ -69,9 +65,7 @@ pub fn get_setting_source_display_name_lowercase(
 }
 
 /// 获取设置来源的显示名称（大写，用于 UI 标签）
-pub fn get_setting_source_display_name_capitalized(
-    source: SettingSource,
-) -> &'static str {
+pub fn get_setting_source_display_name_capitalized(source: SettingSource) -> &'static str {
     match source {
         SettingSource::UserSettings => "User settings",
         SettingSource::ProjectSettings => "Shared project settings",
@@ -117,6 +111,9 @@ mod tests {
     #[test]
     fn test_get_source_display_name() {
         assert_eq!(get_source_display_name(SettingSource::UserSettings), "User");
-        assert_eq!(get_source_display_name(SettingSource::PolicySettings), "Managed");
+        assert_eq!(
+            get_source_display_name(SettingSource::PolicySettings),
+            "Managed"
+        );
     }
 }

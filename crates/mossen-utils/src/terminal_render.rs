@@ -1,4 +1,6 @@
 /// Text rendering utilities for terminal display
+use crate::string_utils::prefix_chars;
+
 const MAX_LINES_TO_SHOW: usize = 3;
 /// Account for MessageResponse prefix ("  ⎿ " = 5 chars) + parent width
 /// reduction (columns - 5 in tool result rendering)
@@ -91,17 +93,17 @@ pub fn render_truncated_content(
 
     // Only process enough content for the visible lines
     let max_chars = MAX_LINES_TO_SHOW * wrap_width * 4;
-    let pre_truncated = trimmed_content.len() > max_chars;
+    let pre_truncated = trimmed_content.chars().count() > max_chars;
     let content_for_wrapping = if pre_truncated {
-        &trimmed_content[..max_chars]
+        prefix_chars(trimmed_content, max_chars)
     } else {
-        trimmed_content
+        trimmed_content.to_string()
     };
 
     let WrapResult {
         above_the_fold,
         remaining_lines,
-    } = wrap_text(content_for_wrapping, wrap_width);
+    } = wrap_text(&content_for_wrapping, wrap_width);
 
     let estimated_remaining = if pre_truncated {
         std::cmp::max(

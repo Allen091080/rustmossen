@@ -61,7 +61,11 @@ impl AssistantHistoryState {
 
     /// Prepend a page of messages at the front.
     pub fn prepend_page(&mut self, page: HistoryPage, is_initial: bool) {
-        self.cursor = if page.has_more { page.first_id.clone() } else { None };
+        self.cursor = if page.has_more {
+            page.first_id.clone()
+        } else {
+            None
+        };
         self.has_older = page.has_more;
 
         let mut new_messages = page.messages;
@@ -71,13 +75,16 @@ impl AssistantHistoryState {
         }
         // Add sentinel at front if there is more history
         if !page.has_more {
-            new_messages.insert(0, HistoryMessage {
-                uuid: self.sentinel_uuid.clone(),
-                content: "--- Start of conversation ---".to_string(),
-                role: MessageRole::System,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                is_meta: true,
-            });
+            new_messages.insert(
+                0,
+                HistoryMessage {
+                    uuid: self.sentinel_uuid.clone(),
+                    content: "--- Start of conversation ---".to_string(),
+                    role: MessageRole::System,
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    is_meta: true,
+                },
+            );
         }
         new_messages.append(&mut self.messages);
         self.messages = new_messages;

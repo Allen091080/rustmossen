@@ -101,7 +101,9 @@ pub struct LspNotificationEvent {
 /// polling should stop).
 ///
 /// TS source: `useLspInitializationNotification()`.
-pub fn use_lsp_initialization_notification(inputs: &LspInitializationInputs) -> (Vec<LspNotificationEvent>, bool) {
+pub fn use_lsp_initialization_notification(
+    inputs: &LspInitializationInputs,
+) -> (Vec<LspNotificationEvent>, bool) {
     let mut out = Vec::new();
     let mut stop_polling = false;
     if inputs.is_remote_mode || inputs.is_scroll_draining || !inputs.should_poll {
@@ -147,7 +149,9 @@ mod tests {
     fn suppresses_enoent() {
         assert!(should_suppress_lsp_notification("Error: spawn enoent foo"));
         assert!(should_suppress_lsp_notification("command not found"));
-        assert!(should_suppress_lsp_notification("spawn typescript-language-server not found"));
+        assert!(should_suppress_lsp_notification(
+            "spawn typescript-language-server not found"
+        ));
         assert!(!should_suppress_lsp_notification("unexpected response"));
     }
 }

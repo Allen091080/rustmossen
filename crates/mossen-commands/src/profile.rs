@@ -15,10 +15,7 @@ fn get_profile_display(ctx: &CommandContext) -> String {
         .get("USER")
         .cloned()
         .unwrap_or_else(|| "unknown".to_string());
-    let user_type = ctx
-        .user_type
-        .as_deref()
-        .unwrap_or("standard");
+    let user_type = ctx.user_type.as_deref().unwrap_or("standard");
     format!("{} ({})", user, user_type)
 }
 

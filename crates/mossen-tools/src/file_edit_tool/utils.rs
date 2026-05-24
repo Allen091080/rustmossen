@@ -65,7 +65,10 @@ pub fn find_actual_string<'a>(file_content: &'a str, search_string: &str) -> Opt
     if let Some(search_index) = normalized_file.find(&normalized_search) {
         let char_offset = normalized_file[..search_index].chars().count();
         let char_len = normalized_search.chars().count();
-        let start_byte = file_content.char_indices().nth(char_offset).map(|(i, _)| i)?;
+        let start_byte = file_content
+            .char_indices()
+            .nth(char_offset)
+            .map(|(i, _)| i)?;
         let end_byte = file_content
             .char_indices()
             .nth(char_offset + char_len)
@@ -183,11 +186,15 @@ pub fn get_patch_for_edit(
     new_string: &str,
     replace_all: bool,
 ) -> Result<(Vec<StructuredPatchHunk>, String), String> {
-    get_patch_for_edits(file_path, file_contents, &[FileEdit {
-        old_string: old_string.to_string(),
-        new_string: new_string.to_string(),
-        replace_all,
-    }])
+    get_patch_for_edits(
+        file_path,
+        file_contents,
+        &[FileEdit {
+            old_string: old_string.to_string(),
+            new_string: new_string.to_string(),
+            replace_all,
+        }],
+    )
 }
 
 /// Applies a list of edits and returns (patch, updated_file).
@@ -218,7 +225,12 @@ pub fn get_patch_for_edits(
         if edit.old_string.is_empty() {
             updated = edit.new_string.clone();
         } else {
-            updated = apply_edit_to_file(&updated, &edit.old_string, &edit.new_string, edit.replace_all);
+            updated = apply_edit_to_file(
+                &updated,
+                &edit.old_string,
+                &edit.new_string,
+                edit.replace_all,
+            );
         }
         if updated == prev_content {
             return Err("String not found in file. Failed to apply edit.".to_string());
@@ -254,13 +266,10 @@ fn compute_structured_patch(old_content: &str, new_content: &str) -> Vec<Structu
         }
         let di = i;
         let dj = j;
-        while i < old_lines.len()
-            && (j >= new_lines.len() || old_lines[i] != new_lines[j])
-        {
+        while i < old_lines.len() && (j >= new_lines.len() || old_lines[i] != new_lines[j]) {
             i += 1;
         }
-        while j < new_lines.len()
-            && (i >= old_lines.len() || old_lines.get(i) != new_lines.get(j))
+        while j < new_lines.len() && (i >= old_lines.len() || old_lines.get(i) != new_lines.get(j))
         {
             j += 1;
         }
@@ -273,7 +282,8 @@ fn compute_structured_patch(old_content: &str, new_content: &str) -> Vec<Structu
         let trailing = std::cmp::min(
             old_lines.len().saturating_sub(i),
             new_lines.len().saturating_sub(j),
-        ).min(3);
+        )
+        .min(3);
         for k in 0..trailing {
             if i + k < old_lines.len() {
                 hunk_lines.push(format!(" {}", old_lines[i + k]));
@@ -308,7 +318,12 @@ pub fn get_snippet_for_patch(patch: &[StructuredPatchHunk], new_file: &str) -> (
     let start = min_line.saturating_sub(4).max(1);
     let end = max_line + 4;
     let lines: Vec<&str> = new_file.lines().collect();
-    let snippet: Vec<&str> = lines.iter().skip(start - 1).take(end - start + 1).copied().collect();
+    let snippet: Vec<&str> = lines
+        .iter()
+        .skip(start - 1)
+        .take(end - start + 1)
+        .copied()
+        .collect();
     let formatted = add_line_numbers(&snippet.join("\n"), start);
     (formatted, start)
 }
@@ -321,31 +336,39 @@ pub fn get_snippet(original: &str, old_str: &str, new_str: &str, ctx: usize) -> 
     let lines: Vec<&str> = new_file.lines().collect();
     let start = repl_line.saturating_sub(ctx);
     let end = repl_line + ctx + new_str.lines().count();
-    let snip: Vec<&str> = lines.iter().skip(start).take(end - start).copied().collect();
+    let snip: Vec<&str> = lines
+        .iter()
+        .skip(start)
+        .take(end - start)
+        .copied()
+        .collect();
     (snip.join("\n"), start + 1)
 }
 
 /// Extract edits from a structured patch.
 pub fn get_edits_for_patch(patch: &[StructuredPatchHunk]) -> Vec<FileEdit> {
-    patch.iter().map(|hunk| {
-        let mut old_lines = Vec::new();
-        let mut new_lines = Vec::new();
-        for line in &hunk.lines {
-            if let Some(rest) = line.strip_prefix(' ') {
-                old_lines.push(rest.to_string());
-                new_lines.push(rest.to_string());
-            } else if let Some(rest) = line.strip_prefix('-') {
-                old_lines.push(rest.to_string());
-            } else if let Some(rest) = line.strip_prefix('+') {
-                new_lines.push(rest.to_string());
+    patch
+        .iter()
+        .map(|hunk| {
+            let mut old_lines = Vec::new();
+            let mut new_lines = Vec::new();
+            for line in &hunk.lines {
+                if let Some(rest) = line.strip_prefix(' ') {
+                    old_lines.push(rest.to_string());
+                    new_lines.push(rest.to_string());
+                } else if let Some(rest) = line.strip_prefix('-') {
+                    old_lines.push(rest.to_string());
+                } else if let Some(rest) = line.strip_prefix('+') {
+                    new_lines.push(rest.to_string());
+                }
             }
-        }
-        FileEdit {
-            old_string: old_lines.join("\n"),
-            new_string: new_lines.join("\n"),
-            replace_all: false,
-        }
-    }).collect()
+            FileEdit {
+                old_string: old_lines.join("\n"),
+                new_string: new_lines.join("\n"),
+                replace_all: false,
+            }
+        })
+        .collect()
 }
 
 /// Desanitization map.

@@ -118,9 +118,7 @@ pub fn apply_grouping(
                     let mut result_indices = Vec::new();
                     for &g_idx in group {
                         if let Some(ref g_info) = tool_use_infos[g_idx] {
-                            if let Some(&r_idx) =
-                                results_by_tool_use_id.get(&g_info.tool_use_id)
-                            {
+                            if let Some(&r_idx) = results_by_tool_use_id.get(&g_info.tool_use_id) {
                                 result_indices.push(r_idx);
                             }
                         }

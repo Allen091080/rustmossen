@@ -92,9 +92,16 @@ pub fn use_rate_limit_warning_notification(
 ) -> (Vec<RateLimitNotification>, bool, Option<String>) {
     let mut notifications = Vec::new();
     if inputs.is_remote_mode {
-        return (notifications, has_shown_overage, last_shown_warning.map(String::from));
+        return (
+            notifications,
+            has_shown_overage,
+            last_shown_warning.map(String::from),
+        );
     }
-    let is_team_or_ent = matches!(inputs.subscription_type, SubscriptionType::Team | SubscriptionType::Enterprise);
+    let is_team_or_ent = matches!(
+        inputs.subscription_type,
+        SubscriptionType::Team | SubscriptionType::Enterprise
+    );
 
     let mut new_has_shown = has_shown_overage;
     if inputs.is_using_overage

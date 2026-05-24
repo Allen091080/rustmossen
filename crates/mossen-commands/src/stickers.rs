@@ -12,10 +12,7 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 fn open_browser(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .is_ok()
+        std::process::Command::new("open").arg(url).spawn().is_ok()
     }
     #[cfg(target_os = "linux")]
     {
@@ -49,9 +46,7 @@ fn open_browser(url: &str) -> bool {
 pub struct StickersDirective;
 
 /// Available sticker categories.
-const STICKER_CATEGORIES: &[&str] = &[
-    "reactions", "celebrations", "status", "custom",
-];
+const STICKER_CATEGORIES: &[&str] = &["reactions", "celebrations", "status", "custom"];
 
 #[async_trait]
 impl Directive for StickersDirective {

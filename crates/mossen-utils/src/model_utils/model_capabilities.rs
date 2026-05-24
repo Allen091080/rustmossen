@@ -1,7 +1,7 @@
 //! Provider-reported model capabilities cache.
 //!
 //! Direct translation of `utils/model/modelCapabilities.ts`. The TS source
-//! fetches `/v1/models` via the Anthropic SDK; here we keep the on-disk cache
+//! fetches `/v1/models` via the Provider SDK; here we keep the on-disk cache
 //! reader and the lookup path that the rest of the codebase calls into. The
 //! refresh helper is wired up so it can be invoked at startup: it reads from a
 //! pre-staged JSON file (the request layer in `mossen-agent` writes there
@@ -153,7 +153,7 @@ pub fn write_model_capabilities(models: Vec<ModelCapability>) -> anyhow::Result<
 
 /// `refreshModelCapabilities` — best-effort refresh of the on-disk cache.
 ///
-/// The TS source talks to the live Anthropic API; here we let the request
+/// The TS source talks to the live Provider API; here we let the request
 /// layer (mossen-agent) hand us the freshly-fetched list via the
 /// `MOSSEN_CODE_MODEL_CAPABILITIES_FEED` env var (a JSON array). When
 /// nothing is supplied we simply return without an error so this is safe to

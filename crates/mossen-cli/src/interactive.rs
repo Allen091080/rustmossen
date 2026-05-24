@@ -6,7 +6,6 @@
 //! - projectOnboardingState.ts → 项目引导状态
 //! - costHook.ts → 费用 hook（退出时保存）
 //! - replLauncher.tsx → REPL 启动器
-//! - ink.ts → 终端渲染抽象
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -66,12 +65,7 @@ impl Default for RenderOptions {
 fn is_synchronized_output_supported() -> bool {
     // 仅在现代终端中支持（iTerm2, WezTerm, kitty 等）
     std::env::var("TERM_PROGRAM")
-        .map(|p| {
-            matches!(
-                p.as_str(),
-                "iTerm.app" | "WezTerm" | "kitty" | "Ghostty"
-            )
-        })
+        .map(|p| matches!(p.as_str(), "iTerm.app" | "WezTerm" | "kitty" | "Ghostty"))
         .unwrap_or(false)
 }
 
@@ -186,8 +180,8 @@ pub struct OnboardingStep {
 /// 获取引导步骤列表。
 pub fn get_onboarding_steps() -> Vec<OnboardingStep> {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let has_instructions_file = cwd.join("MOSSEN.md").exists()
-        || cwd.join(".mossen").join("MOSSEN.md").exists();
+    let has_instructions_file =
+        cwd.join("MOSSEN.md").exists() || cwd.join(".mossen").join("MOSSEN.md").exists();
     let is_workspace_empty = is_dir_empty(&cwd);
 
     let mut steps = Vec::new();
@@ -262,7 +256,9 @@ fn is_dir_empty(path: &Path) -> bool {
 /// 注册退出时保存费用的 hook。
 ///
 /// 在 TS 中这是一个 React hook (useEffect)，Rust 中以显式注册替代。
-pub fn register_cost_summary_hook(tracker: &std::sync::Arc<std::sync::Mutex<super::root_modules::CostTracker>>) {
+pub fn register_cost_summary_hook(
+    tracker: &std::sync::Arc<std::sync::Mutex<super::root_modules::CostTracker>>,
+) {
     let tracker_clone = tracker.clone();
     // 使用 signal-hook 注册退出处理
     // 这里仅记录日志，实际的退出处理由 signal 模块负责
@@ -304,7 +300,7 @@ pub async fn launch_repl_from_config(_config: ReplLaunchConfig) -> anyhow::Resul
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ink.ts (终端 UI 渲染抽象)
+// 终端 UI 生命周期抽象
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// 终端 UI 实例。
@@ -567,10 +563,7 @@ pub fn accumulate_stream_events(
                 }
                 "message_start" => {
                     if let Some(m) = event.get("message") {
-                        state.model = m
-                            .get("model")
-                            .and_then(|v| v.as_str())
-                            .map(String::from);
+                        state.model = m.get("model").and_then(|v| v.as_str()).map(String::from);
                     }
                 }
                 _ => {}
@@ -803,15 +796,15 @@ pub async fn initialize_keybinding_watcher() -> anyhow::Result<()> {
 
     // 计算 keybindings.json 路径（~/.mossen/keybindings.json）
     let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
-    let path = std::path::PathBuf::from(home).join(".mossen").join("keybindings.json");
+    let path = std::path::PathBuf::from(home)
+        .join(".mossen")
+        .join("keybindings.json");
 
     let handle = tokio::spawn(async move {
         let mut last_mtime: Option<std::time::SystemTime> = None;
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            let mtime = std::fs::metadata(&path)
-                .and_then(|m| m.modified())
-                .ok();
+            let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
             if mtime != last_mtime {
                 last_mtime = mtime;
                 tracing::debug!(path = %path.display(), "keybindings changed (mtime watcher)");
@@ -856,12 +849,10 @@ pub fn disposeKeybindingWatcher() {
     dispose_keybinding_watcher()
 }
 
-type KeybindingListener =
-    Box<dyn Fn(&crate::keybindings::KeybindingsLoadResult) + Send + Sync>;
+type KeybindingListener = Box<dyn Fn(&crate::keybindings::KeybindingsLoadResult) + Send + Sync>;
 
-static KEYBINDING_LISTENERS: once_cell::sync::Lazy<
-    std::sync::RwLock<Vec<KeybindingListener>>,
-> = once_cell::sync::Lazy::new(|| std::sync::RwLock::new(Vec::new()));
+static KEYBINDING_LISTENERS: once_cell::sync::Lazy<std::sync::RwLock<Vec<KeybindingListener>>> =
+    once_cell::sync::Lazy::new(|| std::sync::RwLock::new(Vec::new()));
 
 /// 订阅 keybinding 变更事件；返回 unsubscribe 闭包。
 pub fn subscribe_to_keybinding_changes(
@@ -1001,9 +992,7 @@ pub fn get_active_agent_for_input(
         })
 }
 
-pub fn getActiveAgentForInput(
-    state: &crate::app_state::AppState,
-) -> Option<ActiveAgentForInput> {
+pub fn getActiveAgentForInput(state: &crate::app_state::AppState) -> Option<ActiveAgentForInput> {
     get_active_agent_for_input(state)
 }
 
@@ -1380,7 +1369,8 @@ pub struct BackgroundTaskState {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 pub fn companion_intro_text() -> String {
-    "Mossen has a small companion that hangs out in the corner. It's harmless and decorative.".to_string()
+    "Mossen has a small companion that hangs out in the corner. It's harmless and decorative."
+        .to_string()
 }
 
 pub fn companionIntroText() -> String {
@@ -1625,7 +1615,8 @@ pub async fn primePlatformRuntimeObservability() {
 
 pub type InProcessTeammateTaskState = serde_json::Value;
 
-pub async fn get_direct_connect_runtime_snapshot() -> crate::platform::DirectConnectRuntimeSnapshot {
+pub async fn get_direct_connect_runtime_snapshot() -> crate::platform::DirectConnectRuntimeSnapshot
+{
     crate::platform::DirectConnectRuntimeSnapshot {
         feature_enabled: false,
         server_command_exposed: false,
@@ -1662,22 +1653,6 @@ pub fn pill_needs_cta(task: &crate::tasks::TaskInfo) -> bool {
 
 pub fn pillNeedsCta(task: &crate::tasks::TaskInfo) -> bool {
     pill_needs_cta(task)
-}
-
-/// `ink.ts` — `createRoot` 等价物。
-///
-/// Rust 版 TUI 由 ratatui 驱动；Ink 的 createRoot 在 React 上下文中
-/// 创建一个虚拟 DOM 根节点，对应到我们这里仅返回一个 marker。
-/// 真实渲染发生在 `mossen_tui::App::run`。该 marker 仅用于 SDK
-/// 类型兼容性（部分上层期望 `createRoot()` 不报错）。
-pub struct InkRoot;
-
-pub fn create_root() -> InkRoot {
-    InkRoot
-}
-
-pub fn createRoot() -> InkRoot {
-    create_root()
 }
 
 pub async fn get_ssh_runtime_snapshot() -> crate::platform::SshRuntimeSnapshot {
@@ -1768,14 +1743,14 @@ pub async fn getAssistantRuntimeSnapshot() -> crate::platform::AssistantRuntimeS
     get_assistant_runtime_snapshot().await
 }
 
-pub fn get_shortcut_display(action: &str, _platform: crate::keybindings::DisplayPlatform) -> String {
+pub fn get_shortcut_display(
+    action: &str,
+    _platform: crate::keybindings::DisplayPlatform,
+) -> String {
     format!("[{}]", action)
 }
 
-pub fn getShortcutDisplay(
-    action: &str,
-    platform: crate::keybindings::DisplayPlatform,
-) -> String {
+pub fn getShortcutDisplay(action: &str, platform: crate::keybindings::DisplayPlatform) -> String {
     get_shortcut_display(action, platform)
 }
 
@@ -1830,15 +1805,48 @@ pub async fn getLocalGitRuntimeSnapshot() -> crate::platform::LocalGitRuntimeSna
 }
 
 pub async fn get_team_memory_runtime_snapshot() -> crate::platform::TeamMemoryRuntimeSnapshot {
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let auto_memory_enabled = crate::memdir::is_auto_memory_enabled();
+    let rollout_enabled = crate::memdir::is_team_memory_rollout_enabled();
+    let enabled = crate::memdir::is_team_memory_enabled();
+    let sync_available = mossen_agent::services::team_memory_sync::is_team_memory_sync_available();
+    let path = if auto_memory_enabled {
+        Some(
+            crate::memdir::get_team_mem_path(&project_root)
+                .display()
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    let entrypoint = if auto_memory_enabled {
+        Some(
+            crate::memdir::get_team_mem_entrypoint(&project_root)
+                .display()
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    let status_reason = if !auto_memory_enabled {
+        Some("auto memory disabled".to_string())
+    } else if !rollout_enabled {
+        Some("team memory disabled".to_string())
+    } else if !sync_available {
+        Some("team memory sync unavailable".to_string())
+    } else {
+        None
+    };
+
     crate::platform::TeamMemoryRuntimeSnapshot {
-        build_enabled: false,
-        enabled: false,
-        sync_available: false,
-        auto_memory_enabled: false,
-        rollout_enabled: false,
-        path: None,
-        entrypoint: None,
-        status_reason: None,
+        build_enabled: true,
+        enabled,
+        sync_available,
+        auto_memory_enabled,
+        rollout_enabled,
+        path,
+        entrypoint,
+        status_reason,
     }
 }
 
@@ -1950,11 +1958,30 @@ pub async fn getRemoteRuntimeSnapshot() -> crate::platform::RemoteRuntimeSnapsho
 }
 
 pub async fn get_memory_runtime_snapshot() -> crate::platform::MemoryRuntimeSnapshot {
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let enabled = crate::memdir::is_auto_memory_enabled();
+    let auto_memory_path = if enabled {
+        Some(
+            crate::memdir::get_auto_mem_path(&project_root)
+                .display()
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    let entrypoint = if enabled {
+        crate::memdir::get_auto_mem_entrypoint(&project_root)
+            .display()
+            .to_string()
+    } else {
+        String::new()
+    };
+
     crate::platform::MemoryRuntimeSnapshot {
-        enabled: false,
-        auto_memory_path: None,
-        prompt_loaded: false,
-        entrypoint: String::new(),
+        enabled,
+        auto_memory_path,
+        prompt_loaded: enabled,
+        entrypoint,
         daily_log_mode: false,
     }
 }

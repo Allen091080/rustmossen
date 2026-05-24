@@ -140,22 +140,63 @@ struct Phase {
 }
 
 const PHASES: &[Phase] = &[
-    Phase { name: "Context loading", start: "query_context_loading_start", end: "query_context_loading_end" },
-    Phase { name: "Microcompact", start: "query_microcompact_start", end: "query_microcompact_end" },
-    Phase { name: "Autocompact", start: "query_autocompact_start", end: "query_autocompact_end" },
-    Phase { name: "Query setup", start: "query_setup_start", end: "query_setup_end" },
-    Phase { name: "Tool schemas", start: "query_tool_schema_build_start", end: "query_tool_schema_build_end" },
-    Phase { name: "Message normalization", start: "query_message_normalization_start", end: "query_message_normalization_end" },
-    Phase { name: "Client creation", start: "query_client_creation_start", end: "query_client_creation_end" },
-    Phase { name: "Network TTFB", start: "query_api_request_sent", end: "query_first_chunk_received" },
-    Phase { name: "Tool execution", start: "query_tool_execution_start", end: "query_tool_execution_end" },
+    Phase {
+        name: "Context loading",
+        start: "query_context_loading_start",
+        end: "query_context_loading_end",
+    },
+    Phase {
+        name: "Microcompact",
+        start: "query_microcompact_start",
+        end: "query_microcompact_end",
+    },
+    Phase {
+        name: "Autocompact",
+        start: "query_autocompact_start",
+        end: "query_autocompact_end",
+    },
+    Phase {
+        name: "Query setup",
+        start: "query_setup_start",
+        end: "query_setup_end",
+    },
+    Phase {
+        name: "Tool schemas",
+        start: "query_tool_schema_build_start",
+        end: "query_tool_schema_build_end",
+    },
+    Phase {
+        name: "Message normalization",
+        start: "query_message_normalization_start",
+        end: "query_message_normalization_end",
+    },
+    Phase {
+        name: "Client creation",
+        start: "query_client_creation_start",
+        end: "query_client_creation_end",
+    },
+    Phase {
+        name: "Network TTFB",
+        start: "query_api_request_sent",
+        end: "query_first_chunk_received",
+    },
+    Phase {
+        name: "Tool execution",
+        start: "query_tool_execution_start",
+        end: "query_tool_execution_end",
+    },
 ];
 
 /// Get phase-based summary.
 fn get_phase_summary(marks: &[Mark], baseline: Instant) -> String {
     let mark_map: HashMap<&str, f64> = marks
         .iter()
-        .map(|m| (m.name.as_str(), m.time.duration_since(baseline).as_secs_f64() * 1000.0))
+        .map(|m| {
+            (
+                m.name.as_str(),
+                m.time.duration_since(baseline).as_secs_f64() * 1000.0,
+            )
+        })
         .collect();
 
     let mut lines = Vec::new();
@@ -163,7 +204,9 @@ fn get_phase_summary(marks: &[Mark], baseline: Instant) -> String {
     lines.push("PHASE BREAKDOWN:".to_string());
 
     for phase in PHASES {
-        if let (Some(&start_time), Some(&end_time)) = (mark_map.get(phase.start), mark_map.get(phase.end)) {
+        if let (Some(&start_time), Some(&end_time)) =
+            (mark_map.get(phase.start), mark_map.get(phase.end))
+        {
             let duration = end_time - start_time;
             let bar_len = ((duration / 10.0).ceil() as usize).min(50);
             let bar = "█".repeat(bar_len);
@@ -206,7 +249,10 @@ pub fn get_query_profile_report() -> String {
 
     let mut lines = Vec::new();
     lines.push("=".repeat(80));
-    lines.push(format!("QUERY PROFILING REPORT - Query #{}", state.query_count));
+    lines.push(format!(
+        "QUERY PROFILING REPORT - Query #{}",
+        state.query_count
+    ));
     lines.push("=".repeat(80));
     lines.push(String::new());
 

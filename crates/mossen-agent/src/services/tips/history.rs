@@ -1,8 +1,8 @@
 //! Tip history - tracks which tips have been shown and when
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 /// Persistent tip history record
@@ -61,7 +61,9 @@ pub fn get_sessions_since_last_shown(tip_id: &str) -> u32 {
 /// Record that a tip was shown in the current session
 pub fn record_tip_shown_in_history(tip_id: &str) {
     let mut history = load_tip_history();
-    history.shown.insert(tip_id.to_string(), history.current_session);
+    history
+        .shown
+        .insert(tip_id.to_string(), history.current_session);
     save_tip_history(&history);
 }
 

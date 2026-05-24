@@ -15,7 +15,7 @@ M14 — Browser/Chrome/computer-use 命令默认隐藏 (G5-2 必需).
 
 反测信号:
   - 改 commands.ts 把 chrome 命令注册回去 → 验失败
-  - 删 G5-2 alias 让 tengu_chrome_auto_enable 真 fallback 到 GB → mock 收到请求
+  - 删 G5-2 alias 让 mossen_chrome_auto_enable 真 fallback 到 GB → mock 收到请求
 """
 
 from __future__ import annotations

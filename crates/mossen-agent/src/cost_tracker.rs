@@ -91,11 +91,11 @@ pub fn calculate_usd_cost(model: &str, usage: &ApiUsage) -> f64 {
 /// 获取模型的成本费率（input, output）每 1M token。
 fn cost_rates_for_model(model: &str) -> (f64, f64) {
     // 按模型族匹配
-    if model.contains("opus") {
+    if model.contains("max") {
         (15.0, 75.0)
-    } else if model.contains("sonnet") {
+    } else if model.contains("balanced") {
         (3.0, 15.0)
-    } else if model.contains("haiku") {
+    } else if model.contains("fast") {
         (0.25, 1.25)
     } else {
         (
@@ -188,8 +188,8 @@ pub fn format_cost(cost_usd: f64) -> String {
 // TS-mirror — `cost-tracker.ts` exports.
 // ---------------------------------------------------------------------------
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 /// `cost-tracker.ts` `StoredSessionCosts`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

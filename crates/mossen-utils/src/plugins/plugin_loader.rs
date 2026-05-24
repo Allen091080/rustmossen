@@ -9,17 +9,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tracing::debug;
 
 use super::schemas::{
-    CommandMetadata, HooksSettings, PluginManifest, PluginMarketplaceEntry,
-    PluginSource, StructuredPluginSource,
+    CommandMetadata, HooksSettings, PluginManifest, PluginMarketplaceEntry, PluginSource,
+    StructuredPluginSource,
 };
 
 /// Loaded plugin representation
@@ -139,7 +137,10 @@ pub trait PluginLoaderEnv: Send + Sync {
     fn is_env_truthy(&self, key: &str) -> bool;
 
     // Marketplace
-    async fn get_marketplace_cache_only(&self, name: &str) -> Option<super::schemas::PluginMarketplace>;
+    async fn get_marketplace_cache_only(
+        &self,
+        name: &str,
+    ) -> Option<super::schemas::PluginMarketplace>;
     async fn get_plugin_by_id_cache_only(
         &self,
         plugin_id: &str,
@@ -156,9 +157,7 @@ pub trait PluginLoaderEnv: Send + Sync {
     fn get_blocked_marketplaces(&self) -> Option<Vec<super::schemas::MarketplaceSource>>;
 
     // Installed plugins
-    fn get_in_memory_installed_plugins(
-        &self,
-    ) -> super::schemas::InstalledPluginsFileV2;
+    fn get_in_memory_installed_plugins(&self) -> super::schemas::InstalledPluginsFileV2;
 
     // Filesystem
     async fn path_exists(&self, path: &Path) -> bool;
@@ -173,7 +172,11 @@ pub trait PluginLoaderEnv: Send + Sync {
 
     // Git
     fn git_exe(&self) -> String;
-    async fn exec_git(&self, args: &[&str], cwd: Option<&Path>) -> super::marketplace_manager::GitResult;
+    async fn exec_git(
+        &self,
+        args: &[&str],
+        cwd: Option<&Path>,
+    ) -> super::marketplace_manager::GitResult;
     async fn check_git_available(&self) -> bool;
 
     // Versioning
@@ -233,12 +236,10 @@ pub fn get_versioned_cache_path_in(
     env: &dyn PluginLoaderEnv,
 ) -> PathBuf {
     let (plugin_name, marketplace) = env.parse_plugin_identifier(plugin_id);
-    let sanitized_marketplace = sanitize_path_component(
-        &marketplace.unwrap_or_else(|| "unknown".to_string()),
-    );
-    let sanitized_plugin = sanitize_path_component(
-        &plugin_name.unwrap_or_else(|| plugin_id.to_string()),
-    );
+    let sanitized_marketplace =
+        sanitize_path_component(&marketplace.unwrap_or_else(|| "unknown".to_string()));
+    let sanitized_plugin =
+        sanitize_path_component(&plugin_name.unwrap_or_else(|| plugin_id.to_string()));
     let sanitized_version = sanitize_version(version);
     base_dir
         .join("cache")
@@ -429,7 +430,10 @@ pub async fn install_from_npm(
     }
 
     env.copy_dir(&package_path, target_path).await?;
-    debug!("Copied npm package {} from cache to {:?}", package_name, target_path);
+    debug!(
+        "Copied npm package {} from cache to {:?}",
+        package_name, target_path
+    );
     Ok(())
 }
 
@@ -490,7 +494,10 @@ pub async fn git_clone_plugin(
             .await;
 
         if fetch_result.code != 0 {
-            debug!("Shallow fetch of SHA {} failed, falling back to unshallow fetch", commit_sha);
+            debug!(
+                "Shallow fetch of SHA {} failed, falling back to unshallow fetch",
+                commit_sha
+            );
             let unshallow_result = env
                 .exec_git(&["fetch", "--unshallow"], Some(target_path))
                 .await;
@@ -546,8 +553,13 @@ async fn install_from_git(
 ) -> Result<()> {
     let safe_url = validate_git_url(git_url)?;
     git_clone_plugin(env, safe_url, target_path, git_ref, sha).await?;
-    let ref_message = git_ref.map(|r| format!(" (ref: {})", r)).unwrap_or_default();
-    debug!("Cloned repository from {}{} to {:?}", safe_url, ref_message, target_path);
+    let ref_message = git_ref
+        .map(|r| format!(" (ref: {})", r))
+        .unwrap_or_default();
+    debug!(
+        "Cloned repository from {}{} to {:?}",
+        safe_url, ref_message, target_path
+    );
     Ok(())
 }
 
@@ -661,18 +673,14 @@ pub async fn install_from_git_subdir(
             }
             resolved_sha = Some(commit_sha.to_string());
         } else {
-            let checkout = env
-                .exec_git(&["checkout", "HEAD"], Some(&clone_dir))
-                .await;
+            let checkout = env.exec_git(&["checkout", "HEAD"], Some(&clone_dir)).await;
             if checkout.code != 0 {
                 return Err(anyhow!(
                     "git checkout after sparse-checkout failed: {}",
                     checkout.stderr
                 ));
             }
-            let rev_parse = env
-                .exec_git(&["rev-parse", "HEAD"], Some(&clone_dir))
-                .await;
+            let rev_parse = env.exec_git(&["rev-parse", "HEAD"], Some(&clone_dir)).await;
             resolved_sha = if rev_parse.code == 0 {
                 rev_parse.stdout.map(|s| s.trim().to_string())
             } else {
@@ -681,14 +689,18 @@ pub async fn install_from_git_subdir(
         }
 
         let resolved_subdir = env.validate_path_within_base(&clone_dir, subdir_path)?;
-        env.rename(&resolved_subdir, target_path).await.map_err(|_| {
-            anyhow!(
-                "Subdirectory '{}' not found in repository {}{}",
-                subdir_path,
-                git_url,
-                git_ref.map(|r| format!(" (ref: {})", r)).unwrap_or_default()
-            )
-        })?;
+        env.rename(&resolved_subdir, target_path)
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "Subdirectory '{}' not found in repository {}{}",
+                    subdir_path,
+                    git_url,
+                    git_ref
+                        .map(|r| format!(" (ref: {})", r))
+                        .unwrap_or_default()
+                )
+            })?;
 
         Ok(resolved_sha)
     }
@@ -755,13 +767,21 @@ pub async fn cache_plugin(
 
     let mut git_commit_sha: Option<String> = None;
 
-    debug!("Caching plugin from source to temporary path {:?}", temp_path);
+    debug!(
+        "Caching plugin from source to temporary path {:?}",
+        temp_path
+    );
 
     let install_result = match source {
         PluginSource::RelativePath(path) => {
             install_from_local(env, Path::new(path), &temp_path).await
         }
-        PluginSource::Structured(StructuredPluginSource::Npm { package, registry, version, .. }) => {
+        PluginSource::Structured(StructuredPluginSource::Npm {
+            package,
+            registry,
+            version,
+            ..
+        }) => {
             install_from_npm(
                 env,
                 package,
@@ -771,21 +791,19 @@ pub async fn cache_plugin(
             )
             .await
         }
-        PluginSource::Structured(StructuredPluginSource::GitHub { repo, git_ref, sha, .. }) => {
-            install_from_github(
-                env,
-                repo,
-                &temp_path,
-                git_ref.as_deref(),
-                sha.as_deref(),
-            )
-            .await
-        }
-        PluginSource::Structured(StructuredPluginSource::Url { url, git_ref, sha, .. }) => {
-            install_from_git(env, url, &temp_path, git_ref.as_deref(), sha.as_deref())
-                .await
-        }
-        PluginSource::Structured(StructuredPluginSource::GitSubdir { url, path, git_ref, sha, .. }) => {
+        PluginSource::Structured(StructuredPluginSource::GitHub {
+            repo, git_ref, sha, ..
+        }) => install_from_github(env, repo, &temp_path, git_ref.as_deref(), sha.as_deref()).await,
+        PluginSource::Structured(StructuredPluginSource::Url {
+            url, git_ref, sha, ..
+        }) => install_from_git(env, url, &temp_path, git_ref.as_deref(), sha.as_deref()).await,
+        PluginSource::Structured(StructuredPluginSource::GitSubdir {
+            url,
+            path,
+            git_ref,
+            sha,
+            ..
+        }) => {
             let result = install_from_git_subdir(
                 env,
                 url,
@@ -836,7 +854,10 @@ pub async fn cache_plugin(
     }
 
     env.rename(&temp_path, &final_path).await?;
-    debug!("Successfully cached plugin {} to {:?}", manifest.name, final_path);
+    debug!(
+        "Successfully cached plugin {} to {:?}",
+        manifest.name, final_path
+    );
 
     Ok(CachedPlugin {
         path: final_path,
@@ -893,13 +914,19 @@ pub async fn copy_plugin_to_versioned_cache(
     // Check existing cache
     if zip_cache_mode {
         if env.path_exists(&zip_path).await {
-            debug!("Plugin {} version {} already cached at {:?}", plugin_id, version, zip_path);
+            debug!(
+                "Plugin {} version {} already cached at {:?}",
+                plugin_id, version, zip_path
+            );
             return Ok(zip_path);
         }
     } else if env.path_exists(&cache_path).await {
         if let Ok(entries) = env.read_dir(&cache_path).await {
             if !entries.is_empty() {
-                debug!("Plugin {} version {} already cached at {:?}", plugin_id, version, cache_path);
+                debug!(
+                    "Plugin {} version {} already cached at {:?}",
+                    plugin_id, version, cache_path
+                );
                 return Ok(cache_path);
             }
         }
@@ -908,7 +935,10 @@ pub async fn copy_plugin_to_versioned_cache(
 
     // Seed cache check
     if let Some(seed_path) = probe_seed_cache(env, plugin_id, version).await {
-        debug!("Using seed cache for {}@{} at {:?}", plugin_id, version, seed_path);
+        debug!(
+            "Using seed cache for {}@{} at {:?}",
+            plugin_id, version, seed_path
+        );
         return Ok(seed_path);
     }
 
@@ -921,7 +951,10 @@ pub async fn copy_plugin_to_versioned_cache(
     if let (Some(e), Some(mp_dir)) = (entry, marketplace_dir) {
         if let PluginSource::RelativePath(ref source_str) = e.source {
             let source_dir = env.validate_path_within_base(mp_dir, source_str)?;
-            debug!("Copying source directory {} for plugin {}", source_str, plugin_id);
+            debug!(
+                "Copying source directory {} for plugin {}",
+                source_str, plugin_id
+            );
             env.copy_dir(&source_dir, &cache_path).await?;
         } else {
             env.copy_dir(source_path, &cache_path).await?;
@@ -945,12 +978,19 @@ pub async fn copy_plugin_to_versioned_cache(
 
     // Zip cache mode conversion
     if zip_cache_mode {
-        env.convert_directory_to_zip_in_place(&cache_path, &zip_path).await?;
-        debug!("Successfully cached plugin {} as ZIP at {:?}", plugin_id, zip_path);
+        env.convert_directory_to_zip_in_place(&cache_path, &zip_path)
+            .await?;
+        debug!(
+            "Successfully cached plugin {} as ZIP at {:?}",
+            plugin_id, zip_path
+        );
         return Ok(zip_path);
     }
 
-    debug!("Successfully cached plugin {} at {:?}", plugin_id, cache_path);
+    debug!(
+        "Successfully cached plugin {} at {:?}",
+        plugin_id, cache_path
+    );
     Ok(cache_path)
 }
 
@@ -997,7 +1037,7 @@ pub async fn create_plugin_from_path(
     source: &str,
     enabled: bool,
     fallback_name: &str,
-    strict: bool,
+    _strict: bool,
 ) -> Result<(LoadedPlugin, Vec<PluginError>)> {
     let mut errors: Vec<PluginError> = Vec::new();
 
@@ -1049,8 +1089,15 @@ pub async fn create_plugin_from_path(
     // Step 4: Process manifest commands/agents/skills/outputStyles paths
     if let Some(ref commands) = manifest.commands {
         let valid_paths = validate_plugin_paths_from_manifest(
-            env, commands, plugin_path, &manifest.name, source, PluginComponent::Commands, &mut errors,
-        ).await;
+            env,
+            commands,
+            plugin_path,
+            &manifest.name,
+            source,
+            PluginComponent::Commands,
+            &mut errors,
+        )
+        .await;
         if !valid_paths.is_empty() {
             plugin.commands_paths = Some(valid_paths);
         }
@@ -1058,8 +1105,15 @@ pub async fn create_plugin_from_path(
 
     if let Some(ref agents) = manifest.agents {
         let valid_paths = validate_plugin_paths_from_manifest(
-            env, agents, plugin_path, &manifest.name, source, PluginComponent::Agents, &mut errors,
-        ).await;
+            env,
+            agents,
+            plugin_path,
+            &manifest.name,
+            source,
+            PluginComponent::Agents,
+            &mut errors,
+        )
+        .await;
         if !valid_paths.is_empty() {
             plugin.agents_paths = Some(valid_paths);
         }
@@ -1067,8 +1121,15 @@ pub async fn create_plugin_from_path(
 
     if let Some(ref skills) = manifest.skills {
         let valid_paths = validate_plugin_paths_from_manifest(
-            env, skills, plugin_path, &manifest.name, source, PluginComponent::Skills, &mut errors,
-        ).await;
+            env,
+            skills,
+            plugin_path,
+            &manifest.name,
+            source,
+            PluginComponent::Skills,
+            &mut errors,
+        )
+        .await;
         if !valid_paths.is_empty() {
             plugin.skills_paths = Some(valid_paths);
         }
@@ -1076,8 +1137,15 @@ pub async fn create_plugin_from_path(
 
     if let Some(ref output_styles) = manifest.output_styles {
         let valid_paths = validate_plugin_paths_from_manifest(
-            env, output_styles, plugin_path, &manifest.name, source, PluginComponent::OutputStyles, &mut errors,
-        ).await;
+            env,
+            output_styles,
+            plugin_path,
+            &manifest.name,
+            source,
+            PluginComponent::OutputStyles,
+            &mut errors,
+        )
+        .await;
         if !valid_paths.is_empty() {
             plugin.output_styles_paths = Some(valid_paths);
         }
@@ -1089,7 +1157,10 @@ pub async fn create_plugin_from_path(
         match load_plugin_hooks(env, &standard_hooks_path, &manifest.name).await {
             Ok(hooks) => {
                 plugin.hooks_config = Some(hooks);
-                debug!("Loaded hooks from standard location for plugin {}", manifest.name);
+                debug!(
+                    "Loaded hooks from standard location for plugin {}",
+                    manifest.name
+                );
             }
             Err(e) => {
                 errors.push(PluginError::HookLoadFailed {
@@ -1139,7 +1210,9 @@ async fn validate_plugin_paths_from_manifest(
         } else {
             debug!(
                 "{} path {} specified in manifest but not found for {}",
-                component.as_str(), rel_path, plugin_name
+                component.as_str(),
+                rel_path,
+                plugin_name
             );
             errors.push(PluginError::PathNotFound {
                 source: source.to_string(),
@@ -1180,7 +1253,10 @@ async fn load_plugin_settings(
             // Filter to allowed keys
             let filtered = filter_plugin_settings(parsed);
             if !filtered.is_empty() {
-                debug!("Loaded settings from settings.json for plugin {}", manifest.name);
+                debug!(
+                    "Loaded settings from settings.json for plugin {}",
+                    manifest.name
+                );
                 return Some(filtered);
             }
         }
@@ -1250,7 +1326,10 @@ pub fn merge_plugin_sources(
         .into_iter()
         .filter(|p| {
             if session_names.contains(&p.name) {
-                debug!("Plugin \"{}\" from --plugin-dir overrides installed version", p.name);
+                debug!(
+                    "Plugin \"{}\" from --plugin-dir overrides installed version",
+                    p.name
+                );
                 return false;
             }
             true
@@ -1265,9 +1344,7 @@ pub fn merge_plugin_sources(
 }
 
 /// Main plugin loading function — cache only variant
-pub async fn load_all_plugins_cache_only(
-    env: &dyn PluginLoaderEnv,
-) -> PluginLoadResult {
+pub async fn load_all_plugins_cache_only(env: &dyn PluginLoaderEnv) -> PluginLoadResult {
     if env.is_env_truthy("MOSSEN_CODE_SYNC_PLUGIN_INSTALL") {
         return load_all_plugins(env).await;
     }
@@ -1326,8 +1403,10 @@ async fn assemble_plugin_load_result(
         }
     }
 
-    let enabled_plugins: Vec<LoadedPlugin> = all_plugins.iter().filter(|p| p.enabled).cloned().collect();
-    let disabled_plugins: Vec<LoadedPlugin> = all_plugins.iter().filter(|p| !p.enabled).cloned().collect();
+    let enabled_plugins: Vec<LoadedPlugin> =
+        all_plugins.iter().filter(|p| p.enabled).cloned().collect();
+    let disabled_plugins: Vec<LoadedPlugin> =
+        all_plugins.iter().filter(|p| !p.enabled).cloned().collect();
 
     debug!(
         "Found {} plugins ({} enabled, {} disabled)",
@@ -1402,7 +1481,11 @@ async fn load_plugins_from_marketplaces(
                 blocked_by_blocklist: strict_allowlist.is_none(),
                 allowed_sources: strict_allowlist
                     .as_ref()
-                    .map(|list| list.iter().map(|s| env.format_source_for_display(s)).collect())
+                    .map(|list| {
+                        list.iter()
+                            .map(|s| env.format_source_for_display(s))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             });
             continue;
@@ -1421,7 +1504,11 @@ async fn load_plugins_from_marketplaces(
                     } else {
                         strict_allowlist
                             .as_ref()
-                            .map(|list| list.iter().map(|s| env.format_source_for_display(s)).collect())
+                            .map(|list| {
+                                list.iter()
+                                    .map(|s| env.format_source_for_display(s))
+                                    .collect()
+                            })
                             .unwrap_or_default()
                     },
                 });
@@ -1555,7 +1642,10 @@ async fn load_session_only_plugins(
 /// Clears the memoized plugin cache.
 pub fn clear_plugin_cache(env: &dyn PluginLoaderEnv, reason: Option<&str>) {
     if let Some(r) = reason {
-        debug!("clearPluginCache: invalidating loadAllPlugins cache ({})", r);
+        debug!(
+            "clearPluginCache: invalidating loadAllPlugins cache ({})",
+            r
+        );
     }
     if env.get_plugin_settings_base().is_some() {
         env.reset_settings_cache();

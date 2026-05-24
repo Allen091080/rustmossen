@@ -69,7 +69,7 @@ def case_logError_before_sink_then_drain() -> dict:
     Sink attach 前 logError → errorQueue → attach spy sink → spy.logError 真被调。
 
     用 spy sink (不是真 errorLogSink) 因为：
-    - 不需要 USER_TYPE=ant
+    - 不需要 USER_TYPE=internal
     - 直接观察 sink.logError 调用次数 + 参数
     """
     # NOTE: 拼成单行后 // 注释会吞后续代码（已踩过坑两次），全部删掉

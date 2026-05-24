@@ -1,6 +1,6 @@
 //! # streaming — SSE 流式响应解析
 //!
-//! 对应 TS 中 Anthropic SDK 的 stream 消费逻辑。
+//! 对应 TS 中 Provider SDK 的 stream 消费逻辑。
 //! 解析 Server-Sent Events 流并转化为类型化的 StreamEvent。
 
 use std::time::Duration;

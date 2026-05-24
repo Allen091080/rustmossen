@@ -12,7 +12,9 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
-use crate::config::{AccountInfo, get_global_config, save_global_config, check_has_trust_dialog_accepted};
+use crate::config::{
+    check_has_trust_dialog_accepted, get_global_config, save_global_config, AccountInfo,
+};
 
 // ---------------------------------------------------------------------------
 // External dependency stubs
@@ -58,19 +60,27 @@ fn is_running_on_homespace() -> bool {
 }
 
 fn is_custom_backend_enabled() -> bool {
-    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_URL").ok().map_or(false, |v| !v.is_empty())
+    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_URL")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
 }
 
 fn get_custom_backend_api_key() -> Option<String> {
-    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_API_KEY").ok().filter(|v| !v.is_empty())
+    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_API_KEY")
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn get_custom_backend_auth_token() -> Option<String> {
-    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_AUTH_TOKEN").ok().filter(|v| !v.is_empty())
+    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_AUTH_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn get_custom_backend_base_url() -> Option<String> {
-    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_URL").ok().filter(|v| !v.is_empty())
+    std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_URL")
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 fn get_custom_backend_name() -> String {
@@ -130,7 +140,11 @@ fn is_oauth_token_expired(expires_at: Option<u64>) -> bool {
 }
 
 fn should_use_mock_subscription() -> bool {
-    is_env_truthy(std::env::var("MOSSEN_CODE_MOCK_SUBSCRIPTION").ok().as_deref())
+    is_env_truthy(
+        std::env::var("MOSSEN_CODE_MOCK_SUBSCRIPTION")
+            .ok()
+            .as_deref(),
+    )
 }
 
 fn get_mock_subscription_type() -> Option<SubscriptionType> {
@@ -165,11 +179,7 @@ fn get_mossen_config_home_dir() -> std::path::PathBuf {
 }
 
 fn exec_sync_with_defaults(cmd: &str) -> Option<String> {
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
-        .ok()?;
+    let output = Command::new("sh").arg("-c").arg(cmd).output().ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
@@ -364,10 +374,19 @@ pub fn is_hosted_auth_adapter_enabled() -> bool {
     if is_custom_backend_enabled() || is_bare_mode() {
         return false;
     }
-    is_env_truthy(std::env::var("MOSSEN_CODE_ENABLE_HOSTED_AUTH_ADAPTER").ok().as_deref())
-        || std::env::var("MOSSEN_CODE_AUTH_TOKEN").ok().map_or(false, |v| !v.is_empty())
-        || std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR").ok().map_or(false, |v| !v.is_empty())
-        || std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN").ok().map_or(false, |v| !v.is_empty())
+    is_env_truthy(
+        std::env::var("MOSSEN_CODE_ENABLE_HOSTED_AUTH_ADAPTER")
+            .ok()
+            .as_deref(),
+    ) || std::env::var("MOSSEN_CODE_AUTH_TOKEN")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
+        || std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR")
+            .ok()
+            .map_or(false, |v| !v.is_empty())
+        || std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN")
+            .ok()
+            .map_or(false, |v| !v.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -386,8 +405,13 @@ pub fn is_mossen_hosted_auth_enabled() -> bool {
     }
 
     // `mossen ssh` remote
-    if std::env::var("MOSSEN_CODE_UNIX_SOCKET").ok().map_or(false, |v| !v.is_empty()) {
-        return std::env::var("MOSSEN_CODE_AUTH_TOKEN").ok().map_or(false, |v| !v.is_empty());
+    if std::env::var("MOSSEN_CODE_UNIX_SOCKET")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
+    {
+        return std::env::var("MOSSEN_CODE_AUTH_TOKEN")
+            .ok()
+            .map_or(false, |v| !v.is_empty());
     }
 
     let is_3p = is_env_truthy(std::env::var("MOSSEN_CODE_USE_BEDROCK").ok().as_deref())
@@ -395,12 +419,22 @@ pub fn is_mossen_hosted_auth_enabled() -> bool {
         || is_env_truthy(std::env::var("MOSSEN_CODE_USE_FOUNDRY").ok().as_deref());
 
     let settings = get_settings_deprecated().unwrap_or_default();
-    let api_key_helper = settings.get("apiKeyHelper").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let has_external_auth_token = std::env::var("MOSSEN_CODE_AUTH_TOKEN").ok().map_or(false, |v| !v.is_empty())
+    let api_key_helper = settings
+        .get("apiKeyHelper")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let has_external_auth_token = std::env::var("MOSSEN_CODE_AUTH_TOKEN")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
         || api_key_helper.is_some()
-        || std::env::var("MOSSEN_CODE_API_KEY_FILE_DESCRIPTOR").ok().map_or(false, |v| !v.is_empty());
+        || std::env::var("MOSSEN_CODE_API_KEY_FILE_DESCRIPTOR")
+            .ok()
+            .map_or(false, |v| !v.is_empty());
 
-    let ApiKeyWithSource { source: api_key_source, .. } = get_mossen_api_key_with_source(true);
+    let ApiKeyWithSource {
+        source: api_key_source,
+        ..
+    } = get_mossen_api_key_with_source(true);
     let has_external_api_key = api_key_source == ApiKeySource::MossenCodeApiKey
         || api_key_source == ApiKeySource::ApiKeyHelper;
 
@@ -427,38 +461,67 @@ pub fn get_auth_token_source() -> AuthTokenSourceInfo {
 
     if is_bare_mode() {
         if get_configured_api_key_helper().is_some() {
-            return AuthTokenSourceInfo { source: AuthTokenSource::ApiKeyHelper, has_token: true };
+            return AuthTokenSourceInfo {
+                source: AuthTokenSource::ApiKeyHelper,
+                has_token: true,
+            };
         }
-        return AuthTokenSourceInfo { source: AuthTokenSource::None, has_token: false };
+        return AuthTokenSourceInfo {
+            source: AuthTokenSource::None,
+            has_token: false,
+        };
     }
 
-    if std::env::var("MOSSEN_CODE_AUTH_TOKEN").ok().map_or(false, |v| !v.is_empty())
+    if std::env::var("MOSSEN_CODE_AUTH_TOKEN")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
         && !is_managed_oauth_context()
     {
-        return AuthTokenSourceInfo { source: AuthTokenSource::MossenCodeAuthToken, has_token: true };
+        return AuthTokenSourceInfo {
+            source: AuthTokenSource::MossenCodeAuthToken,
+            has_token: true,
+        };
     }
 
     let oauth_token_from_fd = get_oauth_token_from_file_descriptor();
     if oauth_token_from_fd.is_some() {
-        if std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR").ok().map_or(false, |v| !v.is_empty()) {
-            return AuthTokenSourceInfo { source: AuthTokenSource::MossenCodeAuthTokenFileDescriptor, has_token: true };
+        if std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR")
+            .ok()
+            .map_or(false, |v| !v.is_empty())
+        {
+            return AuthTokenSourceInfo {
+                source: AuthTokenSource::MossenCodeAuthTokenFileDescriptor,
+                has_token: true,
+            };
         }
-        return AuthTokenSourceInfo { source: AuthTokenSource::CcrOauthTokenFile, has_token: true };
+        return AuthTokenSourceInfo {
+            source: AuthTokenSource::CcrOauthTokenFile,
+            has_token: true,
+        };
     }
 
     let api_key_helper = get_configured_api_key_helper();
     if api_key_helper.is_some() && !is_managed_oauth_context() {
-        return AuthTokenSourceInfo { source: AuthTokenSource::ApiKeyHelper, has_token: true };
+        return AuthTokenSourceInfo {
+            source: AuthTokenSource::ApiKeyHelper,
+            has_token: true,
+        };
     }
 
     let oauth_tokens = get_hosted_oauth_tokens();
     if let Some(ref tokens) = oauth_tokens {
         if should_use_hosted_auth(Some(&tokens.scopes)) && !tokens.access_token.is_empty() {
-            return AuthTokenSourceInfo { source: AuthTokenSource::Hosted, has_token: true };
+            return AuthTokenSourceInfo {
+                source: AuthTokenSource::Hosted,
+                has_token: true,
+            };
         }
     }
 
-    AuthTokenSourceInfo { source: AuthTokenSource::None, has_token: false }
+    AuthTokenSourceInfo {
+        source: AuthTokenSource::None,
+        has_token: false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -475,11 +538,17 @@ pub fn has_mossen_api_key_auth() -> bool {
     result.key.is_some() && result.source != ApiKeySource::None
 }
 
-pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: bool) -> ApiKeyWithSource {
+pub fn get_mossen_api_key_with_source(
+    skip_retrieving_key_from_api_key_helper: bool,
+) -> ApiKeyWithSource {
     if is_custom_backend_enabled() {
         let custom_api_key = get_custom_backend_api_key();
         return ApiKeyWithSource {
-            source: if custom_api_key.is_some() { ApiKeySource::CustomBackend } else { ApiKeySource::None },
+            source: if custom_api_key.is_some() {
+                ApiKeySource::CustomBackend
+            } else {
+                ApiKeySource::None
+            },
             key: custom_api_key,
         };
     }
@@ -487,27 +556,42 @@ pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: b
     if is_bare_mode() {
         if let Ok(api_key) = std::env::var("MOSSEN_CODE_API_KEY") {
             if !api_key.is_empty() {
-                return ApiKeyWithSource { key: Some(api_key), source: ApiKeySource::MossenCodeApiKey };
+                return ApiKeyWithSource {
+                    key: Some(api_key),
+                    source: ApiKeySource::MossenCodeApiKey,
+                };
             }
         }
         if get_configured_api_key_helper().is_some() {
             return ApiKeyWithSource {
-                key: if skip_retrieving_key_from_api_key_helper { None } else { get_api_key_from_api_key_helper_cached() },
+                key: if skip_retrieving_key_from_api_key_helper {
+                    None
+                } else {
+                    get_api_key_from_api_key_helper_cached()
+                },
                 source: ApiKeySource::ApiKeyHelper,
             };
         }
-        return ApiKeyWithSource { key: None, source: ApiKeySource::None };
+        return ApiKeyWithSource {
+            key: None,
+            source: ApiKeySource::None,
+        };
     }
 
     let api_key_env = if is_running_on_homespace() {
         None
     } else {
-        std::env::var("MOSSEN_CODE_API_KEY").ok().filter(|v| !v.is_empty())
+        std::env::var("MOSSEN_CODE_API_KEY")
+            .ok()
+            .filter(|v| !v.is_empty())
     };
 
     if prefer_third_party_authentication() {
         if let Some(ref key) = api_key_env {
-            return ApiKeyWithSource { key: Some(key.clone()), source: ApiKeySource::MossenCodeApiKey };
+            return ApiKeyWithSource {
+                key: Some(key.clone()),
+                source: ApiKeySource::MossenCodeApiKey,
+            };
         }
     }
 
@@ -517,17 +601,29 @@ pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: b
     if is_ci {
         let api_key_from_fd = get_api_key_from_file_descriptor();
         if let Some(key) = api_key_from_fd {
-            return ApiKeyWithSource { key: Some(key), source: ApiKeySource::MossenCodeApiKey };
+            return ApiKeyWithSource {
+                key: Some(key),
+                source: ApiKeySource::MossenCodeApiKey,
+            };
         }
         if api_key_env.is_none() {
             // In CI, API key is required — return None with error logged
             error!("MOSSEN_CODE_API_KEY env var is required in CI");
-            return ApiKeyWithSource { key: None, source: ApiKeySource::None };
+            return ApiKeyWithSource {
+                key: None,
+                source: ApiKeySource::None,
+            };
         }
         if let Some(key) = api_key_env {
-            return ApiKeyWithSource { key: Some(key), source: ApiKeySource::MossenCodeApiKey };
+            return ApiKeyWithSource {
+                key: Some(key),
+                source: ApiKeySource::MossenCodeApiKey,
+            };
         }
-        return ApiKeyWithSource { key: None, source: ApiKeySource::None };
+        return ApiKeyWithSource {
+            key: None,
+            source: ApiKeySource::None,
+        };
     }
 
     // Check approved custom API keys
@@ -537,7 +633,10 @@ pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: b
         if let Some(ref responses) = config.custom_api_key_responses {
             if let Some(ref approved) = responses.approved {
                 if approved.iter().any(|a| a == &normalized) {
-                    return ApiKeyWithSource { key: Some(key.clone()), source: ApiKeySource::MossenCodeApiKey };
+                    return ApiKeyWithSource {
+                        key: Some(key.clone()),
+                        source: ApiKeySource::MossenCodeApiKey,
+                    };
                 }
             }
         }
@@ -546,14 +645,20 @@ pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: b
     // Check API key from file descriptor
     let api_key_from_fd = get_api_key_from_file_descriptor();
     if let Some(key) = api_key_from_fd {
-        return ApiKeyWithSource { key: Some(key), source: ApiKeySource::MossenCodeApiKey };
+        return ApiKeyWithSource {
+            key: Some(key),
+            source: ApiKeySource::MossenCodeApiKey,
+        };
     }
 
     // Check apiKeyHelper
     let api_key_helper_command = get_configured_api_key_helper();
     if api_key_helper_command.is_some() {
         if skip_retrieving_key_from_api_key_helper {
-            return ApiKeyWithSource { key: None, source: ApiKeySource::ApiKeyHelper };
+            return ApiKeyWithSource {
+                key: None,
+                source: ApiKeySource::ApiKeyHelper,
+            };
         }
         return ApiKeyWithSource {
             key: get_api_key_from_api_key_helper_cached(),
@@ -566,7 +671,10 @@ pub fn get_mossen_api_key_with_source(skip_retrieving_key_from_api_key_helper: b
         return result;
     }
 
-    ApiKeyWithSource { key: None, source: ApiKeySource::None }
+    ApiKeyWithSource {
+        key: None,
+        source: ApiKeySource::None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +687,10 @@ pub fn get_configured_api_key_helper() -> Option<String> {
             .and_then(|s| s.get("apiKeyHelper")?.as_str().map(|s| s.to_string()));
     }
     let settings = get_settings_deprecated().unwrap_or_default();
-    settings.get("apiKeyHelper").and_then(|v| v.as_str()).map(|s| s.to_string())
+    settings
+        .get("apiKeyHelper")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +721,10 @@ fn is_api_key_helper_from_project_or_local_settings() -> bool {
 
 fn get_configured_aws_auth_refresh() -> Option<String> {
     let settings = get_settings_deprecated().unwrap_or_default();
-    settings.get("awsAuthRefresh").and_then(|v| v.as_str()).map(|s| s.to_string())
+    settings
+        .get("awsAuthRefresh")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 pub fn is_aws_auth_refresh_from_project_settings() -> bool {
@@ -620,13 +734,20 @@ pub fn is_aws_auth_refresh_from_project_settings() -> bool {
     };
     let project_settings = get_settings_for_source("projectSettings");
     let local_settings = get_settings_for_source("localSettings");
-    project_settings.and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == aws_auth_refresh)
-        || local_settings.and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == aws_auth_refresh)
+    project_settings
+        .and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string()))
+        .map_or(false, |v| v == aws_auth_refresh)
+        || local_settings
+            .and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string()))
+            .map_or(false, |v| v == aws_auth_refresh)
 }
 
 fn get_configured_aws_credential_export() -> Option<String> {
     let settings = get_settings_deprecated().unwrap_or_default();
-    settings.get("awsCredentialExport").and_then(|v| v.as_str()).map(|s| s.to_string())
+    settings
+        .get("awsCredentialExport")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 pub fn is_aws_credential_export_from_project_settings() -> bool {
@@ -636,8 +757,20 @@ pub fn is_aws_credential_export_from_project_settings() -> bool {
     };
     let project_settings = get_settings_for_source("projectSettings");
     let local_settings = get_settings_for_source("localSettings");
-    project_settings.and_then(|s| s.get("awsCredentialExport")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == val)
-        || local_settings.and_then(|s| s.get("awsCredentialExport")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == val)
+    project_settings
+        .and_then(|s| {
+            s.get("awsCredentialExport")?
+                .as_str()
+                .map(|s| s.to_string())
+        })
+        .map_or(false, |v| v == val)
+        || local_settings
+            .and_then(|s| {
+                s.get("awsCredentialExport")?
+                    .as_str()
+                    .map(|s| s.to_string())
+            })
+            .map_or(false, |v| v == val)
 }
 
 // ---------------------------------------------------------------------------
@@ -663,9 +796,10 @@ pub fn calculate_api_key_helper_ttl() -> u64 {
 
 pub fn get_api_key_helper_elapsed_ms() -> u64 {
     let inflight = API_KEY_HELPER_INFLIGHT.lock();
-    inflight.as_ref().and_then(|i| i.started_at).map_or(0, |started| {
-        started.elapsed().as_millis() as u64
-    })
+    inflight
+        .as_ref()
+        .and_then(|i| i.started_at)
+        .map_or(0, |started| started.elapsed().as_millis() as u64)
 }
 
 pub async fn get_api_key_from_api_key_helper(is_non_interactive_session: bool) -> Option<String> {
@@ -705,7 +839,9 @@ pub async fn get_api_key_from_api_key_helper(is_non_interactive_session: bool) -
 
     {
         let mut inflight = API_KEY_HELPER_INFLIGHT.lock();
-        *inflight = Some(ApiKeyHelperInflight { started_at: Some(Instant::now()) });
+        *inflight = Some(ApiKeyHelperInflight {
+            started_at: Some(Instant::now()),
+        });
     }
 
     run_and_cache_api_key_helper(is_non_interactive_session, true, epoch)
@@ -723,7 +859,10 @@ fn run_and_cache_api_key_helper(
             }
             if let Some(ref v) = value {
                 let mut cache = API_KEY_HELPER_CACHE.write();
-                *cache = Some(ApiKeyHelperCache { value: v.clone(), timestamp: now_millis() });
+                *cache = Some(ApiKeyHelperCache {
+                    value: v.clone(),
+                    timestamp: now_millis(),
+                });
             }
             if epoch == API_KEY_HELPER_EPOCH.load(Ordering::Relaxed) {
                 *API_KEY_HELPER_INFLIGHT.lock() = None;
@@ -757,7 +896,10 @@ fn run_and_cache_api_key_helper(
             }
 
             let mut cache = API_KEY_HELPER_CACHE.write();
-            *cache = Some(ApiKeyHelperCache { value: " ".to_string(), timestamp: now_millis() });
+            *cache = Some(ApiKeyHelperCache {
+                value: " ".to_string(),
+                timestamp: now_millis(),
+            });
             if epoch == API_KEY_HELPER_EPOCH.load(Ordering::Relaxed) {
                 *API_KEY_HELPER_INFLIGHT.lock() = None;
             }
@@ -793,7 +935,11 @@ fn execute_api_key_helper(is_non_interactive_session: bool) -> anyhow::Result<Op
         } else {
             format!("exited {}", output.status.code().unwrap_or(-1))
         };
-        return Err(anyhow::anyhow!(if stderr.is_empty() { why } else { format!("{}: {}", why, stderr) }));
+        return Err(anyhow::anyhow!(if stderr.is_empty() {
+            why
+        } else {
+            format!("{}: {}", why, stderr)
+        }));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -865,10 +1011,7 @@ fn check_sts_caller_identity() -> anyhow::Result<()> {
 
 pub async fn refresh_aws_auth(aws_auth_refresh: &str) -> bool {
     log_for_debugging("Running AWS auth refresh command");
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(aws_auth_refresh)
-        .output();
+    let output = Command::new("sh").arg("-c").arg(aws_auth_refresh).output();
 
     match output {
         Ok(o) if o.status.success() => {
@@ -926,7 +1069,11 @@ async fn get_aws_creds_from_credential_export() -> Option<AwsCredentials> {
     let session_token = credentials.get("SessionToken")?.as_str()?.to_string();
 
     log_for_debugging("AWS credentials retrieved from awsCredentialExport");
-    Some(AwsCredentials { access_key_id, secret_access_key, session_token })
+    Some(AwsCredentials {
+        access_key_id,
+        secret_access_key,
+        session_token,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -951,7 +1098,7 @@ pub async fn refresh_and_get_aws_credentials() -> Option<AwsCredentials> {
         }
     }
 
-    let refreshed = run_aws_auth_refresh().await;
+    let _refreshed = run_aws_auth_refresh().await;
     let credentials = get_aws_creds_from_credential_export().await;
 
     if let Some(ref creds) = credentials {
@@ -977,7 +1124,10 @@ pub fn clear_aws_credentials_cache() {
 
 fn get_configured_gcp_auth_refresh() -> Option<String> {
     let settings = get_settings_deprecated().unwrap_or_default();
-    settings.get("gcpAuthRefresh").and_then(|v| v.as_str()).map(|s| s.to_string())
+    settings
+        .get("gcpAuthRefresh")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 pub fn is_gcp_auth_refresh_from_project_settings() -> bool {
@@ -987,8 +1137,12 @@ pub fn is_gcp_auth_refresh_from_project_settings() -> bool {
     };
     let project_settings = get_settings_for_source("projectSettings");
     let local_settings = get_settings_for_source("localSettings");
-    project_settings.and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == val)
-        || local_settings.and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == val)
+    project_settings
+        .and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string()))
+        .map_or(false, |v| v == val)
+        || local_settings
+            .and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string()))
+            .map_or(false, |v| v == val)
 }
 
 pub async fn check_gcp_credentials_valid() -> bool {
@@ -1027,10 +1181,7 @@ async fn run_gcp_auth_refresh() -> bool {
 
 pub async fn refresh_gcp_auth(gcp_auth_refresh: &str) -> bool {
     log_for_debugging("Running GCP auth refresh command");
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(gcp_auth_refresh)
-        .output();
+    let output = Command::new("sh").arg("-c").arg(gcp_auth_refresh).output();
 
     match output {
         Ok(o) if o.status.success() => {
@@ -1071,7 +1222,7 @@ pub fn clear_gcp_credentials_cache() {
 }
 
 pub fn prefetch_gcp_credentials_if_safe() {
-    let gcp_auth_refresh = match get_configured_gcp_auth_refresh() {
+    let _gcp_auth_refresh = match get_configured_gcp_auth_refresh() {
         Some(r) => r,
         None => return,
     };
@@ -1096,7 +1247,9 @@ pub fn prefetch_aws_credentials_and_bedrock_info_if_safe() {
         return;
     }
 
-    if is_aws_auth_refresh_from_project_settings() || is_aws_credential_export_from_project_settings() {
+    if is_aws_auth_refresh_from_project_settings()
+        || is_aws_credential_export_from_project_settings()
+    {
         let has_trust = check_has_trust_dialog_accepted();
         if !has_trust && !get_is_non_interactive_session() {
             return;
@@ -1131,11 +1284,15 @@ fn get_api_key_from_config_or_macos_keychain() -> Option<ApiKeyWithSource> {
     // macOS keychain check
     if cfg!(target_os = "macos") {
         let storage_service_name = "mossen-code-credentials";
-        if let Some(result) = exec_sync_with_defaults(
-            &format!("security find-generic-password -a $USER -w -s \"{}\"", storage_service_name)
-        ) {
+        if let Some(result) = exec_sync_with_defaults(&format!(
+            "security find-generic-password -a $USER -w -s \"{}\"",
+            storage_service_name
+        )) {
             if !result.is_empty() {
-                let r = ApiKeyWithSource { key: Some(result), source: ApiKeySource::MossenManagedKey };
+                let r = ApiKeyWithSource {
+                    key: Some(result),
+                    source: ApiKeySource::MossenManagedKey,
+                };
                 *API_KEY_FROM_CONFIG_CACHE.write() = Some(r.clone());
                 return Some(r);
             }
@@ -1145,7 +1302,10 @@ fn get_api_key_from_config_or_macos_keychain() -> Option<ApiKeyWithSource> {
     let config = get_global_config();
     if let Some(ref primary_api_key) = config.primary_api_key {
         if !primary_api_key.is_empty() {
-            let r = ApiKeyWithSource { key: Some(primary_api_key.clone()), source: ApiKeySource::MossenManagedKey };
+            let r = ApiKeyWithSource {
+                key: Some(primary_api_key.clone()),
+                source: ApiKeySource::MossenManagedKey,
+            };
             *API_KEY_FROM_CONFIG_CACHE.write() = Some(r.clone());
             return Some(r);
         }
@@ -1159,7 +1319,9 @@ fn get_api_key_from_config_or_macos_keychain() -> Option<ApiKeyWithSource> {
 // ---------------------------------------------------------------------------
 
 fn is_valid_api_key(api_key: &str) -> bool {
-    api_key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    api_key
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
 }
 
 // ---------------------------------------------------------------------------
@@ -1176,10 +1338,14 @@ pub async fn save_api_key(api_key: &str) -> anyhow::Result<()> {
 
     if cfg!(target_os = "macos") {
         let storage_service_name = "mossen-code-credentials";
-        let hex_value = api_key.as_bytes().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+        let hex_value = api_key
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
         // Use whoami for username on macOS
         let username = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
-        let command = format!(
+        let _command = format!(
             "add-generic-password -U -a \"{}\" -s \"{}\" -X \"{}\"",
             username, storage_service_name, hex_value
         );
@@ -1188,8 +1354,12 @@ pub async fn save_api_key(api_key: &str) -> anyhow::Result<()> {
             .stdin(std::process::Stdio::piped())
             .output();
         match result {
-            Ok(_) => { saved_to_keychain = true; }
-            Err(e) => { log_error(&e); }
+            Ok(_) => {
+                saved_to_keychain = true;
+            }
+            Err(e) => {
+                log_error(&e);
+            }
         }
     }
 
@@ -1202,7 +1372,9 @@ pub async fn save_api_key(api_key: &str) -> anyhow::Result<()> {
             new_config.primary_api_key = Some(api_key_owned.clone());
         }
         // Update custom_api_key_responses.approved
-        let responses = new_config.custom_api_key_responses.get_or_insert_with(Default::default);
+        let responses = new_config
+            .custom_api_key_responses
+            .get_or_insert_with(Default::default);
         let approved = responses.approved.get_or_insert_with(Vec::new);
         if !approved.contains(&normalized_key) {
             approved.push(normalized_key.clone());
@@ -1223,7 +1395,8 @@ pub async fn save_api_key(api_key: &str) -> anyhow::Result<()> {
 pub fn is_custom_api_key_approved(api_key: &str) -> bool {
     let config = get_global_config();
     let normalized_key = normalize_api_key_for_config(api_key);
-    config.custom_api_key_responses
+    config
+        .custom_api_key_responses
         .as_ref()
         .and_then(|r| r.approved.as_ref())
         .map_or(false, |arr| arr.iter().any(|a| a == &normalized_key))
@@ -1260,15 +1433,24 @@ async fn maybe_remove_api_key_from_macos_keychain() {
 
 pub fn save_oauth_tokens_if_needed(tokens: &OAuthTokens) -> SaveResult {
     if !should_use_hosted_auth(Some(&tokens.scopes)) {
-        return SaveResult { success: true, warning: None };
+        return SaveResult {
+            success: true,
+            warning: None,
+        };
     }
 
     if tokens.refresh_token.is_none() || tokens.expires_at.is_none() {
-        return SaveResult { success: true, warning: None };
+        return SaveResult {
+            success: true,
+            warning: None,
+        };
     }
 
     // Stub: actual secure storage write
-    SaveResult { success: true, warning: None }
+    SaveResult {
+        success: true,
+        warning: None,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1278,8 +1460,12 @@ pub struct SaveResult {
 }
 
 pub fn get_hosted_oauth_tokens() -> Option<OAuthTokens> {
-    if is_bare_mode() { return None; }
-    if !is_hosted_auth_adapter_enabled() { return None; }
+    if is_bare_mode() {
+        return None;
+    }
+    if !is_hosted_auth_adapter_enabled() {
+        return None;
+    }
 
     // Check env var token
     if let Ok(token) = std::env::var("MOSSEN_CODE_AUTH_TOKEN") {
@@ -1327,7 +1513,9 @@ pub async fn invalidate_oauth_cache_if_disk_changed() {
     let credentials_path = get_mossen_config_home_dir().join(".credentials.json");
     match tokio::fs::metadata(&credentials_path).await {
         Ok(meta) => {
-            let mtime_ms = meta.modified().ok()
+            let mtime_ms = meta
+                .modified()
+                .ok()
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
@@ -1367,9 +1555,13 @@ async fn handle_oauth_401_error_impl(failed_access_token: &str) -> bool {
 }
 
 pub async fn get_hosted_oauth_tokens_async() -> Option<OAuthTokens> {
-    if is_bare_mode() { return None; }
+    if is_bare_mode() {
+        return None;
+    }
 
-    if std::env::var("MOSSEN_CODE_AUTH_TOKEN").ok().map_or(false, |v| !v.is_empty())
+    if std::env::var("MOSSEN_CODE_AUTH_TOKEN")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
         || get_oauth_token_from_file_descriptor().is_some()
     {
         return get_hosted_oauth_tokens();
@@ -1435,14 +1627,18 @@ async fn check_and_refresh_oauth_token_if_needed_impl(retry_count: u32, force: b
             if retry_count < MAX_RETRIES {
                 let jitter = rand::random::<u64>() % 1000;
                 tokio::time::sleep(Duration::from_millis(1000 + jitter)).await;
-                return Box::pin(check_and_refresh_oauth_token_if_needed_impl(retry_count + 1, force)).await;
+                return Box::pin(check_and_refresh_oauth_token_if_needed_impl(
+                    retry_count + 1,
+                    force,
+                ))
+                .await;
             }
             false
         }
     }
 }
 
-async fn attempt_token_refresh(tokens: &OAuthTokens) -> anyhow::Result<bool> {
+async fn attempt_token_refresh(_tokens: &OAuthTokens) -> anyhow::Result<bool> {
     // Stub: actual token refresh via OAuth endpoint
     // In production, this would call refreshOAuthToken() and saveOAuthTokensIfNeeded()
     log_for_debugging("Attempting OAuth token refresh");
@@ -1463,9 +1659,9 @@ pub fn is_hosted_subscriber() -> bool {
 }
 
 pub fn has_profile_scope() -> bool {
-    get_hosted_oauth_tokens()
-        .as_ref()
-        .map_or(false, |t| t.scopes.iter().any(|s| s == HOSTED_PROFILE_SCOPE))
+    get_hosted_oauth_tokens().as_ref().map_or(false, |t| {
+        t.scopes.iter().any(|s| s == HOSTED_PROFILE_SCOPE)
+    })
 }
 
 pub fn is_1p_api_customer() -> bool {
@@ -1500,12 +1696,14 @@ pub fn is_overage_provisioning_allowed() -> bool {
     let billing_type = billing_type.unwrap();
     matches!(
         billing_type.as_str(),
-        "stripe_subscription" | "stripe_subscription_contracted"
-            | "apple_subscription" | "google_play_subscription"
+        "stripe_subscription"
+            | "stripe_subscription_contracted"
+            | "apple_subscription"
+            | "google_play_subscription"
     )
 }
 
-pub fn has_opus_access() -> bool {
+pub fn has_max_access() -> bool {
     let sub_type = get_subscription_type();
     matches!(
         sub_type.as_deref(),
@@ -1575,7 +1773,10 @@ pub fn is_using_3p_services() -> bool {
 
 pub fn get_configured_custom_headers_helper() -> Option<String> {
     let settings = get_settings_deprecated().unwrap_or_default();
-    settings.get("customHeadersHelper").and_then(|v| v.as_str()).map(|s| s.to_string())
+    settings
+        .get("customHeadersHelper")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 pub fn is_custom_headers_helper_from_project_or_local_settings() -> bool {
@@ -1585,8 +1786,20 @@ pub fn is_custom_headers_helper_from_project_or_local_settings() -> bool {
     };
     let project_settings = get_settings_for_source("projectSettings");
     let local_settings = get_settings_for_source("localSettings");
-    project_settings.and_then(|s| s.get("customHeadersHelper")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == value)
-        || local_settings.and_then(|s| s.get("customHeadersHelper")?.as_str().map(|s| s.to_string())).map_or(false, |v| v == value)
+    project_settings
+        .and_then(|s| {
+            s.get("customHeadersHelper")?
+                .as_str()
+                .map(|s| s.to_string())
+        })
+        .map_or(false, |v| v == value)
+        || local_settings
+            .and_then(|s| {
+                s.get("customHeadersHelper")?
+                    .as_str()
+                    .map(|s| s.to_string())
+            })
+            .map_or(false, |v| v == value)
 }
 
 pub fn get_custom_headers_for_request() -> HashMap<String, String> {
@@ -1626,7 +1839,10 @@ pub fn get_custom_headers_for_request() -> HashMap<String, String> {
                         if let Some(s) = value.as_str() {
                             headers.insert(key.clone(), s.to_string());
                         } else {
-                            error!("customHeadersHelper returned non-string value for key \"{}\": {}", key, value);
+                            error!(
+                                "customHeadersHelper returned non-string value for key \"{}\": {}",
+                                key, value
+                            );
                             return HashMap::new();
                         }
                     }
@@ -1688,7 +1904,8 @@ pub fn get_account_information() -> Option<UserAccountInfo> {
     let mut info = UserAccountInfo::default();
 
     match auth_token_source.source {
-        AuthTokenSource::MossenCodeAuthToken | AuthTokenSource::MossenCodeAuthTokenFileDescriptor => {
+        AuthTokenSource::MossenCodeAuthToken
+        | AuthTokenSource::MossenCodeAuthTokenFileDescriptor => {
             info.token_source = Some(format!("{:?}", auth_token_source.source));
         }
         _ if is_hosted_subscriber() => {
@@ -1732,7 +1949,10 @@ pub fn get_account_information() -> Option<UserAccountInfo> {
 // ---------------------------------------------------------------------------
 
 pub async fn validate_force_login_org() -> OrgValidationResult {
-    if std::env::var("MOSSEN_CODE_UNIX_SOCKET").ok().map_or(false, |v| !v.is_empty()) {
+    if std::env::var("MOSSEN_CODE_UNIX_SOCKET")
+        .ok()
+        .map_or(false, |v| !v.is_empty())
+    {
         return OrgValidationResult::Valid;
     }
 
@@ -1740,7 +1960,7 @@ pub async fn validate_force_login_org() -> OrgValidationResult {
         return OrgValidationResult::Valid;
     }
 
-    let required_org_uuid = match get_settings_for_source("policySettings")
+    let _required_org_uuid = match get_settings_for_source("policySettings")
         .and_then(|s| s.get("forceLoginOrgUUID")?.as_str().map(|s| s.to_string()))
     {
         Some(uuid) => uuid,
@@ -1749,7 +1969,7 @@ pub async fn validate_force_login_org() -> OrgValidationResult {
 
     let _ = check_and_refresh_oauth_token_if_needed(0, false).await;
 
-    let tokens = match get_hosted_oauth_tokens() {
+    let _tokens = match get_hosted_oauth_tokens() {
         Some(t) => t,
         None => return OrgValidationResult::Valid,
     };
@@ -1757,7 +1977,7 @@ pub async fn validate_force_login_org() -> OrgValidationResult {
     // In production, this would call getOauthProfileFromOauthToken
     // Stub: assume validation passes
     let auth_source = get_auth_token_source();
-    let is_env_var_token = matches!(
+    let _is_env_var_token = matches!(
         auth_source.source,
         AuthTokenSource::MossenCodeAuthToken | AuthTokenSource::MossenCodeAuthTokenFileDescriptor
     );

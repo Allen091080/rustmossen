@@ -2,9 +2,9 @@
 //!
 //! 对应 TypeScript `utils/cliHighlight.ts`。
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
-use std::collections::HashMap;
 
 static LANGUAGE_CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 

@@ -150,7 +150,11 @@ pub fn get_image_paste_ids(
             _ => None,
         })
         .collect();
-    if ids.is_empty() { None } else { Some(ids) }
+    if ids.is_empty() {
+        None
+    } else {
+        Some(ids)
+    }
 }
 
 /// 粘贴累积状态。

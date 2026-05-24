@@ -6,7 +6,6 @@
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use regex::Regex;
-use std::path::Path;
 
 /// Supported interactive language tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,9 +44,7 @@ pub fn read_persisted_settings_language_preference(config_path: &str) -> Option<
 }
 
 /// Read persisted interactive language preference setting.
-pub fn read_persisted_interactive_language_preference_setting(
-    config_path: &str,
-) -> Option<String> {
+pub fn read_persisted_interactive_language_preference_setting(config_path: &str) -> Option<String> {
     let content = std::fs::read_to_string(config_path).ok()?;
     let content = strip_bom(&content);
     let parsed: serde_json::Value = serde_json::from_str(content).ok()?;
@@ -69,9 +66,7 @@ pub fn read_persisted_interactive_language_preference(config_path: &str) -> Opti
 }
 
 /// Get persisted interactive language tag.
-pub fn get_persisted_interactive_language_tag(
-    config_path: &str,
-) -> Option<InteractiveLanguageTag> {
+pub fn get_persisted_interactive_language_tag(config_path: &str) -> Option<InteractiveLanguageTag> {
     normalize_language_preference(
         read_persisted_interactive_language_preference(config_path).as_deref(),
     )
@@ -142,9 +137,8 @@ pub fn to_persisted_language_preference(value: Option<&str>) -> Option<String> {
 }
 
 /// Regex for CJK character detection.
-static CJK_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[\p{Han}\x{3000}-\x{303f}\x{ff00}-\x{ffef}]").unwrap()
-});
+static CJK_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[\p{Han}\x{3000}-\x{303f}\x{ff00}-\x{ffef}]").unwrap());
 
 /// Regex for Latin words.
 static LATIN_WORDS_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z]+").unwrap());
@@ -221,10 +215,7 @@ fn persist_observed_interactive_language_tag(tag: InteractiveLanguageTag, config
 }
 
 /// Set interactive language preference in config.
-pub fn set_interactive_language_preference(
-    tag: Option<InteractiveLanguageTag>,
-    config_path: &str,
-) {
+pub fn set_interactive_language_preference(tag: Option<InteractiveLanguageTag>, config_path: &str) {
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(config_path).unwrap_or_else(|_| "{}".to_string());
         let content_str = strip_bom(&content);
@@ -331,7 +322,7 @@ pub fn get_localized_text(
 pub fn get_interactive_language_preference(
     config_path: &str,
     configured_language: Option<&str>,
-    system_locale: Option<&str>,
+    _system_locale: Option<&str>,
 ) -> Option<String> {
     if let Some(configured) = configured_language {
         let trimmed = configured.trim();
@@ -340,9 +331,7 @@ pub fn get_interactive_language_preference(
             let observed = *OBSERVED_LANGUAGE_TAG.lock();
             if let (Some(ct), Some(obs)) = (configured_tag, observed) {
                 if obs != ct {
-                    return Some(
-                        get_interactive_language_display_name(obs).to_string(),
-                    );
+                    return Some(get_interactive_language_display_name(obs).to_string());
                 }
             }
             return Some(match configured_tag {
@@ -360,9 +349,7 @@ pub fn get_interactive_language_preference(
             let observed = *OBSERVED_LANGUAGE_TAG.lock();
             if let (Some(ct), Some(obs)) = (configured_tag, observed) {
                 if obs != ct {
-                    return Some(
-                        get_interactive_language_display_name(obs).to_string(),
-                    );
+                    return Some(get_interactive_language_display_name(obs).to_string());
                 }
             }
             return Some(match configured_tag {

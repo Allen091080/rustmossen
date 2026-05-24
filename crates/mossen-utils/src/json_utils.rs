@@ -18,9 +18,8 @@ const PARSE_CACHE_MAX_KEY_BYTES: usize = 8 * 1024;
 const MAX_JSONL_READ_BYTES: u64 = 100 * 1024 * 1024;
 
 /// LRU cache for parsed JSON values.
-static PARSE_CACHE: Lazy<Mutex<LruCache<String, Option<Value>>>> = Lazy::new(|| {
-    Mutex::new(LruCache::new(NonZeroUsize::new(50).unwrap()))
-});
+static PARSE_CACHE: Lazy<Mutex<LruCache<String, Option<Value>>>> =
+    Lazy::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(50).unwrap())));
 
 /// Strip UTF-8 BOM from a string.
 pub fn strip_bom(s: &str) -> &str {
@@ -112,7 +111,9 @@ fn strip_jsonc_comments(input: &str) -> String {
                     chars.next();
                     // Skip until end of line
                     while let Some(&nc) = chars.peek() {
-                        if nc == '\n' { break; }
+                        if nc == '\n' {
+                            break;
+                        }
                         chars.next();
                     }
                 }
@@ -169,7 +170,9 @@ pub fn parse_jsonl_bytes<T: serde::de::DeserializeOwned>(data: &[u8]) -> Vec<T> 
 
     let mut results = Vec::new();
     while start < data.len() {
-        let end = data[start..].iter().position(|&b| b == b'\n')
+        let end = data[start..]
+            .iter()
+            .position(|&b| b == b'\n')
             .map(|p| start + p)
             .unwrap_or(data.len());
 
@@ -191,7 +194,9 @@ pub fn parse_jsonl_bytes<T: serde::de::DeserializeOwned>(data: &[u8]) -> Vec<T> 
 }
 
 /// Read and parse a JSONL file, reading at most the last 100 MB.
-pub async fn read_jsonl_file<T: serde::de::DeserializeOwned>(file_path: &Path) -> anyhow::Result<Vec<T>> {
+pub async fn read_jsonl_file<T: serde::de::DeserializeOwned>(
+    file_path: &Path,
+) -> anyhow::Result<Vec<T>> {
     let metadata = fs::metadata(file_path).await?;
     let size = metadata.len();
 
@@ -210,7 +215,9 @@ pub async fn read_jsonl_file<T: serde::de::DeserializeOwned>(file_path: &Path) -
     let mut total_read = 0;
     while total_read < buf.len() {
         let n = file.read(&mut buf[total_read..]).await?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         total_read += n;
     }
 
@@ -235,13 +242,10 @@ pub fn add_item_to_jsonc_array(content: &str, new_item: &Value) -> String {
     match serde_json::from_str::<Value>(&strip_jsonc_comments(clean_content)) {
         Ok(Value::Array(mut arr)) => {
             arr.push(new_item.clone());
-            serde_json::to_string_pretty(&Value::Array(arr))
-                .unwrap_or_else(|_| "[]".to_string())
+            serde_json::to_string_pretty(&Value::Array(arr)).unwrap_or_else(|_| "[]".to_string())
         }
-        Ok(_) => {
-            serde_json::to_string_pretty(&Value::Array(vec![new_item.clone()]))
-                .unwrap_or_else(|_| "[]".to_string())
-        }
+        Ok(_) => serde_json::to_string_pretty(&Value::Array(vec![new_item.clone()]))
+            .unwrap_or_else(|_| "[]".to_string()),
         Err(e) => {
             tracing::error!("Failed to parse JSONC: {}", e);
             serde_json::to_string_pretty(&Value::Array(vec![new_item.clone()]))

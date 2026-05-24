@@ -5,6 +5,8 @@
 
 use std::path::PathBuf;
 
+use crate::string_utils::prefix_chars;
+
 /// 获取缓存根目录。
 /// 对应 TS 中 `env-paths('mossen-cli').cache`：使用 dirs crate 解析平台缓存目录
 /// （macOS `~/Library/Caches`、Linux `$XDG_CACHE_HOME` 或 `~/.cache`、Windows `%LOCALAPPDATA%`）。
@@ -50,15 +52,20 @@ pub const CACHE_PATHS: CachePaths = CachePaths;
 const MAX_SANITIZED_LENGTH: usize = 200;
 
 fn sanitize_path(name: &str) -> String {
-    let sanitized: String = name.chars()
+    let sanitized: String = name
+        .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect();
-    
+
     if sanitized.len() <= MAX_SANITIZED_LENGTH {
         sanitized
     } else {
         let hash = djb2_hash(name);
-        format!("{}-{}", &sanitized[..MAX_SANITIZED_LENGTH], hash.abs())
+        format!(
+            "{}-{}",
+            prefix_chars(&sanitized, MAX_SANITIZED_LENGTH),
+            hash.abs()
+        )
     }
 }
 

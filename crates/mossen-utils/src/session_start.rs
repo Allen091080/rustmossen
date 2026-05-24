@@ -3,8 +3,6 @@
 //! Processes SessionStart and Setup hooks during session initialization,
 //! loading plugin hooks and executing registered hook handlers.
 
-use std::collections::HashMap;
-
 /// Source/trigger for session start processing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStartSource {
@@ -78,8 +76,7 @@ pub struct AttachmentMessage {
 }
 
 /// Module-level pending initial user message (set by hooks, consumed once).
-static PENDING_INITIAL_USER_MESSAGE: std::sync::Mutex<Option<String>> =
-    std::sync::Mutex::new(None);
+static PENDING_INITIAL_USER_MESSAGE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Take (consume) the initial user message set by a hook, if any.
 pub fn take_initial_user_message() -> Option<String> {
@@ -302,9 +299,5 @@ pub trait AsyncExecuteHooks {
 /// Trait for async setup hook execution.
 #[async_trait::async_trait]
 pub trait AsyncExecuteSetupHooks {
-    async fn execute(
-        &self,
-        trigger: SetupTrigger,
-        force_sync: bool,
-    ) -> Vec<HookExecutionResult>;
+    async fn execute(&self, trigger: SetupTrigger, force_sync: bool) -> Vec<HookExecutionResult>;
 }

@@ -1,8 +1,8 @@
 //! Official conversation — tool request/result extraction and message content utilities.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 use super::canonical::AssistantToolRequest;
 
@@ -113,9 +113,7 @@ pub fn extract_assistant_tool_request_ids(content: &Value) -> Vec<String> {
 /// Count tool requests across multiple messages.
 pub fn count_assistant_tool_requests_in_messages(messages: &[Value]) -> usize {
     messages.iter().fold(0, |total, msg| {
-        let content = msg
-            .pointer("/message/content")
-            .unwrap_or(&Value::Null);
+        let content = msg.pointer("/message/content").unwrap_or(&Value::Null);
         total + count_assistant_tool_requests(content)
     })
 }
@@ -127,9 +125,7 @@ pub fn extract_assistant_tool_requests_in_messages(
     messages
         .iter()
         .flat_map(|msg| {
-            let content = msg
-                .pointer("/message/content")
-                .unwrap_or(&Value::Null);
+            let content = msg.pointer("/message/content").unwrap_or(&Value::Null);
             extract_assistant_tool_requests(content)
         })
         .collect()
@@ -150,10 +146,7 @@ pub fn find_most_recent_assistant_tool_request(
 }
 
 /// Check if any message has a tool request with the given name.
-pub fn has_assistant_tool_request_named_in_messages(
-    messages: &[Value],
-    tool_name: &str,
-) -> bool {
+pub fn has_assistant_tool_request_named_in_messages(messages: &[Value], tool_name: &str) -> bool {
     find_most_recent_assistant_tool_request(messages, tool_name).is_some()
 }
 
@@ -309,10 +302,7 @@ pub fn is_official_tool_result_block(block: &Value) -> bool {
         None => return false,
     };
     obj.get("type").and_then(|v| v.as_str()) == Some("tool_result")
-        && obj
-            .get("tool_use_id")
-            .and_then(|v| v.as_str())
-            .is_some()
+        && obj.get("tool_use_id").and_then(|v| v.as_str()).is_some()
 }
 
 /// Find a specific tool result block by tool_use_id.
@@ -327,7 +317,9 @@ pub fn find_official_tool_result_block(
 
 /// Find the first tool result block in content.
 pub fn find_first_official_tool_result_block(content: &Value) -> Option<OfficialToolResultBlock> {
-    extract_official_tool_result_blocks(content).into_iter().next()
+    extract_official_tool_result_blocks(content)
+        .into_iter()
+        .next()
 }
 
 /// Map tool request inputs using a mapper function.
@@ -349,7 +341,11 @@ where
             let mapped_input = mapper(req);
             if mapped_input != req.input {
                 let mut obj = block.as_object().unwrap().clone();
-                obj.insert("input".to_string(), serde_json::to_value(&mapped_input).unwrap_or(Value::Object(Default::default())));
+                obj.insert(
+                    "input".to_string(),
+                    serde_json::to_value(&mapped_input)
+                        .unwrap_or(Value::Object(Default::default())),
+                );
                 result[i] = Value::Object(obj);
                 modified = true;
             }

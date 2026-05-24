@@ -154,9 +154,7 @@ pub fn check_cached_passes_eligibility(
     now_ms: u64,
 ) -> CachedPassesEligibilityResult {
     // Prechecks for if user can access guest passes feature
-    let should_check = org_id.is_some()
-        && is_hosted_subscriber
-        && subscription_type == Some("max");
+    let should_check = org_id.is_some() && is_hosted_subscriber && subscription_type == Some("max");
 
     if !should_check {
         return CachedPassesEligibilityResult {
@@ -259,9 +257,7 @@ pub fn get_cached_or_fetch_passes_eligibility(
     subscription_type: Option<&str>,
     now_ms: u64,
 ) -> Option<ReferralEligibilityResponse> {
-    let should_check = org_id.is_some()
-        && is_hosted_subscriber
-        && subscription_type == Some("max");
+    let should_check = org_id.is_some() && is_hosted_subscriber && subscription_type == Some("max");
 
     if !should_check {
         return None;

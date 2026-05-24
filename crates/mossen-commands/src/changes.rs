@@ -43,7 +43,11 @@ impl Directive for ChangesDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         // Handle help flag
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /diff [options]\n\n                 Show all file changes made during this session.\n\n                 Options:\n                   --stat    Show only file names and change counts\n                   --full    Show complete diffs (no truncation)\n\n                 Aliases: /changes"
                     .to_string(),

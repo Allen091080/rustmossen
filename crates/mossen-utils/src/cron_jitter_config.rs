@@ -52,7 +52,7 @@ fn validate_cron_jitter_config(config: &CronJitterConfig) -> bool {
 
 /// 获取 Cron 抖动配置。
 ///
-/// 从远程配置读取 `tengu_kairos_cron_config`，验证后返回。
+/// 从远程配置读取 `mossen_kairos_cron_config`，验证后返回。
 /// 配置格式错误或超出范围时回退到默认值。
 ///
 /// 将此函数作为 `get_jitter_config` 传递给 REPL 上下文中的 createCronScheduler。

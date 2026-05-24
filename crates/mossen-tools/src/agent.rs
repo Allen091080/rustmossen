@@ -20,6 +20,7 @@ use tracing::{debug, info, warn};
 use mossen_agent::tool_registry::{Tool, ToolResult, ToolType};
 use mossen_types::{ContentBlock, Message, TextBlock};
 use mossen_types::{ToolDefinition, ToolInputSchema, ToolUseContext};
+use mossen_utils::string_utils::truncate_chars_with_suffix;
 
 /// 进度阈值（毫秒）—超过此时间显示后台提示
 const PROGRESS_THRESHOLD_MS: u64 = 2000;
@@ -216,7 +217,7 @@ const FORK_AGENT: &str = "fork";
 
 /// 检查是否启用 fork subagent。
 ///
-/// 历史：TS 实现通过 GrowthBook gate `tengu_fork_subagent` 控制此功能。
+/// 历史：TS 实现通过 GrowthBook gate `mossen_fork_subagent` 控制此功能。
 /// 该 GrowthBook 客户端在 Rust 移植中已被删除（见
 /// `GrowthBook迁移计划.md`），所有 gate 默认 GA。fork subagent 已默认启用。
 fn is_fork_subagent_enabled(_ctx: &dyn AgentToolContext) -> bool {
@@ -262,7 +263,7 @@ fn build_input_schema() -> ToolInputSchema {
         "model".to_string(),
         serde_json::json!({
             "type": "string",
-            "enum": ["sonnet", "opus", "haiku"],
+            "enum": ["balanced", "max", "fast"],
             "description": "Optional model override for this agent"
         }),
     );
@@ -343,32 +344,36 @@ pub async fn execute_agent_tool(
     let permission_mode = ctx.get_permission_mode();
 
     // 记录日志
-    ctx.log_event(
-        "tengu_agent_tool_called",
-        {
-            let mut m = HashMap::new();
-            m.insert("prompt_len".to_string(), input.prompt.len().to_string());
-            m.insert("agent_type".to_string(), input.subagent_type.clone().unwrap_or_default());
-            m.insert("background".to_string(), input.run_in_background.unwrap_or(false).to_string());
-            m
-        },
-    );
+    ctx.log_event("mossen_agent_tool_called", {
+        let mut m = HashMap::new();
+        m.insert("prompt_len".to_string(), input.prompt.len().to_string());
+        m.insert(
+            "agent_type".to_string(),
+            input.subagent_type.clone().unwrap_or_default(),
+        );
+        m.insert(
+            "background".to_string(),
+            input.run_in_background.unwrap_or(false).to_string(),
+        );
+        m
+    });
 
     // 检查多 agent 团队访问
     if input.team_name.is_some() && !ctx.is_agent_swarms_enabled() {
-        return Err(anyhow::anyhow!("Agent Teams is not yet available on your plan."));
+        return Err(anyhow::anyhow!(
+            "Agent Teams is not yet available on your plan."
+        ));
     }
 
     // 解析有效 agent 类型
     let is_fork_path = input.subagent_type.is_none() && is_fork_subagent_enabled(ctx);
-    let effective_type = input
-        .subagent_type
-        .clone()
-        .unwrap_or_else(|| if is_fork_path {
+    let effective_type = input.subagent_type.clone().unwrap_or_else(|| {
+        if is_fork_path {
             FORK_AGENT.to_string()
         } else {
             GENERAL_PURPOSE_AGENT.to_string()
-        });
+        }
+    });
 
     // 检查必要条件
     if ctx.is_teammate() && input.team_name.is_some() && input.name.is_some() {
@@ -377,16 +382,18 @@ pub async fn execute_agent_tool(
         ));
     }
 
-    if ctx.is_in_process_teammate() && input.team_name.is_some() && input.run_in_background == Some(true) {
+    if ctx.is_in_process_teammate()
+        && input.team_name.is_some()
+        && input.run_in_background == Some(true)
+    {
         return Err(anyhow::anyhow!(
             "In-process teammates cannot spawn background agents."
         ));
     }
 
     // 确定是否为异步执行
-    let is_async = input.run_in_background.unwrap_or(false)
-        || ctx.is_coordinator_mode()
-        || is_fork_path;
+    let is_async =
+        input.run_in_background.unwrap_or(false) || ctx.is_coordinator_mode() || is_fork_path;
 
     // 创建 agent ID
     let agent_id = ctx.create_agent_id();
@@ -399,21 +406,23 @@ pub async fn execute_agent_tool(
     };
 
     // 记录 agent 选择
-    ctx.log_event(
-        "tengu_agent_tool_selected",
-        {
-            let mut m = HashMap::new();
-            m.insert("agent_type".to_string(), effective_type.clone());
-            m.insert("model".to_string(), resolved_model.unwrap_or_default());
-            m.insert("is_async".to_string(), is_async.to_string());
-            m.insert("is_fork".to_string(), is_fork_path.to_string());
-            m
-        },
-    );
+    ctx.log_event("mossen_agent_tool_selected", {
+        let mut m = HashMap::new();
+        m.insert("agent_type".to_string(), effective_type.clone());
+        m.insert("model".to_string(), resolved_model.unwrap_or_default());
+        m.insert("is_async".to_string(), is_async.to_string());
+        m.insert("is_fork".to_string(), is_fork_path.to_string());
+        m
+    });
 
     if is_async {
         // 异步模式：注册后台任务并立即返回
-        let registration = ctx.register_async_agent(&agent_id, &input.description, &input.prompt, &effective_type);
+        let registration = ctx.register_async_agent(
+            &agent_id,
+            &input.description,
+            &input.prompt,
+            &effective_type,
+        );
 
         let output = SubagentLauncherOutput::async_launched(
             registration.agent_id,
@@ -438,11 +447,7 @@ pub async fn execute_agent_tool(
             text: format!(
                 "Agent completed task. Description: {}. Prompt: {}",
                 input.description,
-                if input.prompt.len() > 200 {
-                    format!("{}...", &input.prompt[..200])
-                } else {
-                    input.prompt.clone()
-                }
+                truncate_chars_with_suffix(&input.prompt, 200, "...")
             ),
         })];
 
@@ -455,14 +460,11 @@ pub async fn execute_agent_tool(
             elapsed,
         );
 
-        ctx.log_event(
-            "tengu_agent_tool_completed",
-            {
-                let mut m = HashMap::new();
-                m.insert("duration_ms".to_string(), elapsed.to_string());
-                m
-            },
-        );
+        ctx.log_event("mossen_agent_tool_completed", {
+            let mut m = HashMap::new();
+            m.insert("duration_ms".to_string(), elapsed.to_string());
+            m
+        });
 
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
@@ -500,11 +502,7 @@ impl Tool for SubagentLauncher {
         false
     }
 
-    async fn execute(
-        &self,
-        input: Value,
-        context: &ToolUseContext,
-    ) -> anyhow::Result<ToolResult> {
+    async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
         let input: SubagentLauncherInput = serde_json::from_value(input)?;
 
         // 获取 context（通过 context 的属性）
@@ -546,7 +544,11 @@ impl AgentToolContext for DefaultAgentToolContext {
     }
 
     fn is_coordinator_mode(&self) -> bool {
-        is_env_truthy(std::env::var("MOSSEN_CODE_COORDINATOR_MODE").ok().as_deref())
+        is_env_truthy(
+            std::env::var("MOSSEN_CODE_COORDINATOR_MODE")
+                .ok()
+                .as_deref(),
+        )
     }
 
     fn is_agent_swarms_enabled(&self) -> bool {

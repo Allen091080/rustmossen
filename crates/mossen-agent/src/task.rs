@@ -337,9 +337,8 @@ pub struct LocalShellSpawnInput {
 /// `Task.ts` `SetAppState = (f: (prev: AppState) => AppState) => void` — a
 /// callback that takes a transform fn over `AppState`. We use `serde_json::Value`
 /// for `AppState` until the strongly-typed view is wired through.
-pub type SetAppState = Box<
-    dyn Fn(Box<dyn Fn(&serde_json::Value) -> serde_json::Value + Send + Sync>) + Send + Sync,
->;
+pub type SetAppState =
+    Box<dyn Fn(Box<dyn Fn(&serde_json::Value) -> serde_json::Value + Send + Sync>) + Send + Sync>;
 
 /// `Task.ts` `TaskContext` — runtime context passed to task handlers. Holds an
 /// abort handle, an app-state getter, and a setter.

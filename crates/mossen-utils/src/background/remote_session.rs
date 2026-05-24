@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
-use super::preconditions::{
-    check_github_app_installed, check_has_remote_environment,
-    check_is_in_git_repo, check_needs_hosted_login,
-};
+use super::preconditions::{check_github_app_installed, check_is_in_git_repo};
 use crate::todo::TodoList;
 
 /// Background remote session type for managing teleport sessions
@@ -71,7 +68,7 @@ pub async fn check_background_remote_session_eligibility(
     options: &EligibilityCheckOptions,
     cwd: &Path,
     is_policy_allowed: bool,
-    is_hosted_subscriber: bool,
+    _is_hosted_subscriber: bool,
     repository: Option<&DetectedRepository>,
     has_remote_env: bool,
     needs_login: bool,

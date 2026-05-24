@@ -34,7 +34,7 @@ pub const MAX_TOOL_RESULT_BYTES: usize = MAX_TOOL_RESULT_TOKENS * BYTES_PER_TOKE
 /// This prevents N parallel tools from each hitting the per-tool max and
 /// collectively producing e.g. 10 × 40K = 400K in one turn's user message.
 ///
-/// Overridable at runtime via GrowthBook flag `tengu_hawthorn_window` — see
+/// Overridable at runtime via GrowthBook flag `mossen_hawthorn_window` — see
 /// `getPerMessageBudgetLimit()` in toolResultStorage.ts.
 pub const MAX_TOOL_RESULTS_PER_MESSAGE_CHARS: usize = 200_000;
 

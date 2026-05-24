@@ -96,7 +96,9 @@ pub fn play_animation(skill_dir: &Path) -> Result<PlayResult> {
     if !player_path.exists() {
         return Ok(PlayResult {
             success: false,
-            message: "Player script not found. The player.js file is missing from the thinkback skill.".to_string(),
+            message:
+                "Player script not found. The player.js file is missing from the thinkback skill."
+                    .to_string(),
         });
     }
 

@@ -65,6 +65,18 @@ pub async fn execute_craft(
     vec![ContentBlock::Text { text: content }]
 }
 
+/// Wrap a rendered skill prompt with the command tags consumed by the model
+/// prompt and transcript recovery paths.
+pub fn format_invoked_skill_prompt(skill_name: &str, args: &str, rendered_prompt: &str) -> String {
+    let tags = mossen_utils::messages::format_command_input_tags(skill_name, args);
+    let body = rendered_prompt.trim();
+    if body.is_empty() {
+        tags
+    } else {
+        format!("{tags}\n\n{body}")
+    }
+}
+
 /// 参数替换。
 ///
 /// 对应 TS `substituteArguments(content, args, true, argumentNames)`。

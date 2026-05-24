@@ -11,7 +11,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{info, warn};
 
 // ----------------------------------------------------------------------------
 // PromptValue
@@ -151,10 +151,7 @@ pub struct RunHeadlessOptions {
 ///
 /// 真实实现：构造 query loop、注册 hooks/MCP、输出流式结果到 stdout。
 /// 此处提供完整生命周期框架；具体 query 由 mossen-agent::query 驱动。
-pub async fn run_headless(
-    input_prompt: PromptValue,
-    opts: RunHeadlessOptions,
-) -> Result<()> {
+pub async fn run_headless(input_prompt: PromptValue, opts: RunHeadlessOptions) -> Result<()> {
     info!("headless mode start");
     // 1. 检查 startup-exit env (兼容 TS test harness)
     if std::env::var("MOSSEN_CODE_EXIT_AFTER_FIRST_RENDER")
@@ -209,7 +206,10 @@ pub async fn run_headless(
             "total_cost_usd": 0.0,
         });
         println!("{}", result);
-    } else if matches!(opts.output_format.as_deref(), Some("json_lines") | Some("stream-json")) {
+    } else if matches!(
+        opts.output_format.as_deref(),
+        Some("json_lines") | Some("stream-json")
+    ) {
         // 每条消息一行 JSON
         let assistant = serde_json::json!({
             "type": "assistant",
@@ -230,10 +230,7 @@ pub async fn run_headless(
     Ok(())
 }
 
-pub async fn runHeadless(
-    input_prompt: PromptValue,
-    opts: RunHeadlessOptions,
-) -> Result<()> {
+pub async fn runHeadless(input_prompt: PromptValue, opts: RunHeadlessOptions) -> Result<()> {
     run_headless(input_prompt, opts).await
 }
 
@@ -255,10 +252,14 @@ pub enum PermissionPromptDecision {
 }
 
 /// 调用 SDK MCP 权限提示工具的回调类型。
-pub type PermissionPromptCallback =
-    std::sync::Arc<dyn Fn(String, Value) -> futures_util::future::BoxFuture<'static, Result<PermissionPromptDecision>>
+pub type PermissionPromptCallback = std::sync::Arc<
+    dyn Fn(
+            String,
+            Value,
+        ) -> futures_util::future::BoxFuture<'static, Result<PermissionPromptDecision>>
         + Send
-        + Sync>;
+        + Sync,
+>;
 
 /// 工具调用上下文。
 #[derive(Debug, Clone)]
@@ -275,7 +276,127 @@ pub enum CanUseToolResult {
     Deny { reason: String },
 }
 
+fn value_declares_tool(value: &Value, prompt_tool: &str, depth: usize) -> bool {
+    if depth > 6 {
+        return false;
+    }
+
+    match value {
+        Value::String(name) => name == prompt_tool,
+        Value::Array(items) => items
+            .iter()
+            .any(|item| value_declares_tool(item, prompt_tool, depth + 1)),
+        Value::Object(map) => {
+            for key in ["name", "toolName", "id"] {
+                if map.get(key).and_then(Value::as_str) == Some(prompt_tool) {
+                    return true;
+                }
+            }
+
+            for key in ["tools", "availableTools", "toolNames"] {
+                if map
+                    .get(key)
+                    .map(|child| value_declares_tool(child, prompt_tool, depth + 1))
+                    .unwrap_or(false)
+                {
+                    return true;
+                }
+            }
+
+            if map
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("tools"))
+                .map(|tools| value_declares_tool(tools, prompt_tool, depth + 1))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+
+            map.contains_key(prompt_tool)
+        }
+        _ => false,
+    }
+}
+
+fn find_permission_prompt_server(
+    sdk_mcp_servers: &HashMap<String, Value>,
+    prompt_tool: &str,
+) -> Option<String> {
+    sdk_mcp_servers
+        .iter()
+        .find(|(_, server)| value_declares_tool(server, prompt_tool, 0))
+        .map(|(name, _)| name.clone())
+}
+
 /// 创建一个使用 SDK MCP permission_prompt_tool 决策的 canUseTool 函数。
+pub fn create_can_use_tool_with_permission_prompt_callback(
+    permission_prompt_tool_name: String,
+    sdk_mcp_servers: HashMap<String, Value>,
+    prompt_callback: Option<PermissionPromptCallback>,
+) -> impl Fn(ToolCallContext) -> futures_util::future::BoxFuture<'static, CanUseToolResult>
+       + Send
+       + Sync
+       + Clone {
+    let prompt_tool = permission_prompt_tool_name;
+    let servers = sdk_mcp_servers;
+    let callback = prompt_callback;
+    move |ctx: ToolCallContext| {
+        let prompt_tool = prompt_tool.clone();
+        let servers = servers.clone();
+        let callback = callback.clone();
+        Box::pin(async move {
+            let Some(server_name) = find_permission_prompt_server(&servers, &prompt_tool) else {
+                let reason = format!(
+                    "Permission prompt tool '{}' is not advertised by any SDK MCP server; refusing to run '{}'",
+                    prompt_tool, ctx.tool_name
+                );
+                warn!(tool = %ctx.tool_name, prompt_tool = %prompt_tool, "permission prompt unavailable");
+                return CanUseToolResult::Deny { reason };
+            };
+
+            let Some(callback) = callback else {
+                let reason = format!(
+                    "Permission prompt tool '{}' on server '{}' has no callable bridge; refusing to run '{}'",
+                    prompt_tool, server_name, ctx.tool_name
+                );
+                warn!(
+                    tool = %ctx.tool_name,
+                    prompt_tool = %prompt_tool,
+                    server = %server_name,
+                    "permission prompt bridge unavailable"
+                );
+                return CanUseToolResult::Deny { reason };
+            };
+
+            let prompt_input = serde_json::json!({
+                "toolName": ctx.tool_name,
+                "input": ctx.input,
+                "sessionId": ctx.session_id,
+                "serverName": server_name,
+            });
+
+            match callback(prompt_tool.clone(), prompt_input).await {
+                Ok(PermissionPromptDecision::Allow { updated_input }) => {
+                    info!(prompt_tool = %prompt_tool, "permission prompt allowed tool use");
+                    CanUseToolResult::Allow { updated_input }
+                }
+                Ok(PermissionPromptDecision::Deny { message }) => {
+                    info!(prompt_tool = %prompt_tool, "permission prompt denied tool use");
+                    CanUseToolResult::Deny { reason: message }
+                }
+                Err(error) => {
+                    let reason = format!(
+                        "Permission prompt tool '{}' failed: {}; refusing to run tool",
+                        prompt_tool, error
+                    );
+                    warn!(prompt_tool = %prompt_tool, "permission prompt callback failed");
+                    CanUseToolResult::Deny { reason }
+                }
+            }
+        })
+    }
+}
+
 pub fn create_can_use_tool_with_permission_prompt(
     permission_prompt_tool_name: String,
     sdk_mcp_servers: HashMap<String, Value>,
@@ -283,24 +404,11 @@ pub fn create_can_use_tool_with_permission_prompt(
        + Send
        + Sync
        + Clone {
-    let prompt_tool = permission_prompt_tool_name;
-    let servers = sdk_mcp_servers;
-    move |ctx: ToolCallContext| {
-        let prompt_tool = prompt_tool.clone();
-        let _servers = servers.clone();
-        Box::pin(async move {
-            // 真实实现：找到 servers 中提供 `prompt_tool` 的实例并调用。
-            // 此处返回 allow 作为默认（由 SDK 端自行接管）。
-            info!(
-                tool = %ctx.tool_name,
-                prompt_tool = %prompt_tool,
-                "permission prompt invoked (placeholder allow)"
-            );
-            CanUseToolResult::Allow {
-                updated_input: None,
-            }
-        })
-    }
+    create_can_use_tool_with_permission_prompt_callback(
+        permission_prompt_tool_name,
+        sdk_mcp_servers,
+        None,
+    )
 }
 
 pub fn createCanUseToolWithPermissionPrompt(
@@ -318,16 +426,22 @@ pub fn createCanUseToolWithPermissionPrompt(
 // ----------------------------------------------------------------------------
 
 /// 获取默认 canUseTool 函数（不询问，直接允许）。
-pub fn get_can_use_tool_fn() -> impl Fn(ToolCallContext) -> futures_util::future::BoxFuture<'static, CanUseToolResult>
+pub fn get_can_use_tool_fn(
+) -> impl Fn(ToolCallContext) -> futures_util::future::BoxFuture<'static, CanUseToolResult>
        + Send
        + Sync
        + Clone {
     move |_ctx: ToolCallContext| {
-        Box::pin(async move { CanUseToolResult::Allow { updated_input: None } })
+        Box::pin(async move {
+            CanUseToolResult::Allow {
+                updated_input: None,
+            }
+        })
     }
 }
 
-pub fn getCanUseToolFn() -> impl Fn(ToolCallContext) -> futures_util::future::BoxFuture<'static, CanUseToolResult>
+pub fn getCanUseToolFn(
+) -> impl Fn(ToolCallContext) -> futures_util::future::BoxFuture<'static, CanUseToolResult>
        + Send
        + Sync
        + Clone {
@@ -421,4 +535,114 @@ pub async fn reconcileMcpServers(
     desired: HashMap<String, Value>,
 ) -> Result<()> {
     reconcile_mcp_servers(state, desired).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn tool_ctx() -> ToolCallContext {
+        ToolCallContext {
+            tool_name: "Bash".to_string(),
+            input: json!({ "command": "rm -rf /tmp/example" }),
+            session_id: "session-1".to_string(),
+        }
+    }
+
+    fn server_with_prompt_tool() -> HashMap<String, Value> {
+        HashMap::from([(
+            "sdk".to_string(),
+            json!({
+                "tools": [
+                    { "name": "permission_prompt" }
+                ]
+            }),
+        )])
+    }
+
+    #[tokio::test]
+    async fn permission_prompt_denies_when_tool_is_not_advertised() {
+        let can_use = create_can_use_tool_with_permission_prompt(
+            "permission_prompt".to_string(),
+            HashMap::new(),
+        );
+
+        let result = can_use(tool_ctx()).await;
+
+        match result {
+            CanUseToolResult::Deny { reason } => {
+                assert!(reason.contains("not advertised"));
+            }
+            CanUseToolResult::Allow { .. } => panic!("permission prompt must fail closed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_prompt_denies_when_bridge_is_missing() {
+        let can_use = create_can_use_tool_with_permission_prompt(
+            "permission_prompt".to_string(),
+            server_with_prompt_tool(),
+        );
+
+        let result = can_use(tool_ctx()).await;
+
+        match result {
+            CanUseToolResult::Deny { reason } => {
+                assert!(reason.contains("no callable bridge"));
+            }
+            CanUseToolResult::Allow { .. } => panic!("missing bridge must fail closed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_prompt_callback_can_allow_with_updated_input() {
+        let callback: PermissionPromptCallback = Arc::new(|tool_name, input| {
+            Box::pin(async move {
+                assert_eq!(tool_name, "permission_prompt");
+                assert_eq!(input["toolName"], "Bash");
+                Ok(PermissionPromptDecision::Allow {
+                    updated_input: Some(json!({ "command": "echo safe" })),
+                })
+            })
+        });
+        let can_use = create_can_use_tool_with_permission_prompt_callback(
+            "permission_prompt".to_string(),
+            server_with_prompt_tool(),
+            Some(callback),
+        );
+
+        let result = can_use(tool_ctx()).await;
+
+        match result {
+            CanUseToolResult::Allow {
+                updated_input: Some(updated_input),
+            } => {
+                assert_eq!(updated_input["command"], "echo safe");
+            }
+            other => panic!("expected allow with updated input, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_prompt_callback_errors_fail_closed() {
+        let callback: PermissionPromptCallback =
+            Arc::new(|_, _| Box::pin(async { Err(anyhow!("transport down")) }));
+        let can_use = create_can_use_tool_with_permission_prompt_callback(
+            "permission_prompt".to_string(),
+            server_with_prompt_tool(),
+            Some(callback),
+        );
+
+        let result = can_use(tool_ctx()).await;
+
+        match result {
+            CanUseToolResult::Deny { reason } => {
+                assert!(reason.contains("transport down"));
+            }
+            CanUseToolResult::Allow { .. } => panic!("callback errors must fail closed"),
+        }
+    }
 }

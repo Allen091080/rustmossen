@@ -8,8 +8,7 @@ use tokio::fs;
 
 const MAX_RELEASE_NOTES_SHOWN: usize = 5;
 
-pub const CHANGELOG_URL: &str =
-    "https://github.com/mossen/mossen-code/blob/main/CHANGELOG.md";
+pub const CHANGELOG_URL: &str = "https://github.com/mossen/mossen-code/blob/main/CHANGELOG.md";
 const RAW_CHANGELOG_URL: &str =
     "https://raw.githubusercontent.com/mossen/mossen-code/refs/heads/main/CHANGELOG.md";
 
@@ -138,7 +137,13 @@ pub fn parse_changelog(content: &str) -> std::collections::HashMap<String, Vec<S
         let notes: Vec<String> = lines[1..]
             .iter()
             .filter(|line| line.trim().starts_with("- "))
-            .map(|line| line.trim().strip_prefix("- ").unwrap_or("").trim().to_string())
+            .map(|line| {
+                line.trim()
+                    .strip_prefix("- ")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            })
             .filter(|s| !s.is_empty())
             .collect();
 
@@ -211,9 +216,7 @@ pub fn get_recent_release_notes(
 }
 
 /// Gets all release notes sorted oldest first.
-pub fn get_all_release_notes(
-    changelog_content: &str,
-) -> Vec<(String, Vec<String>)> {
+pub fn get_all_release_notes(changelog_content: &str) -> Vec<(String, Vec<String>)> {
     let release_notes = parse_changelog(changelog_content);
 
     let mut sorted: Vec<(String, Vec<String>)> = release_notes

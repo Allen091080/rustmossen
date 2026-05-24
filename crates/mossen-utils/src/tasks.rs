@@ -163,7 +163,8 @@ pub fn get_tasks_dir(config_dir: &Path, task_list_id: &str) -> PathBuf {
 
 /// Get the task file path.
 pub fn get_task_path(config_dir: &Path, task_list_id: &str, task_id: &str) -> PathBuf {
-    get_tasks_dir(config_dir, task_list_id).join(format!("{}.json", sanitize_path_component(task_id)))
+    get_tasks_dir(config_dir, task_list_id)
+        .join(format!("{}.json", sanitize_path_component(task_id)))
 }
 
 /// Get the high water mark file path.
@@ -257,11 +258,7 @@ pub async fn create_task(
 }
 
 /// Get a single task by ID.
-pub async fn get_task(
-    config_dir: &Path,
-    task_list_id: &str,
-    task_id: &str,
-) -> Option<Task> {
+pub async fn get_task(config_dir: &Path, task_list_id: &str, task_id: &str) -> Option<Task> {
     let path = get_task_path(config_dir, task_list_id, task_id);
     let content = match fs::read_to_string(&path).await {
         Ok(c) => c,
@@ -309,11 +306,7 @@ pub async fn update_task(
 }
 
 /// Delete a task.
-pub async fn delete_task(
-    config_dir: &Path,
-    task_list_id: &str,
-    task_id: &str,
-) -> bool {
+pub async fn delete_task(config_dir: &Path, task_list_id: &str, task_id: &str) -> bool {
     // Update high water mark before deleting
     if let Ok(numeric_id) = task_id.parse::<u64>() {
         let current_mark = read_high_water_mark(config_dir, task_list_id).await;
@@ -328,8 +321,12 @@ pub async fn delete_task(
             // Remove references from other tasks
             let all_tasks = list_tasks(config_dir, task_list_id).await;
             for task in &all_tasks {
-                let new_blocks: Vec<String> =
-                    task.blocks.iter().filter(|id| *id != task_id).cloned().collect();
+                let new_blocks: Vec<String> = task
+                    .blocks
+                    .iter()
+                    .filter(|id| *id != task_id)
+                    .cloned()
+                    .collect();
                 let new_blocked_by: Vec<String> = task
                     .blocked_by
                     .iter()
@@ -422,8 +419,15 @@ pub fn get_task_display_priority(
     match task.status {
         TaskStatus::InProgress => 0,
         TaskStatus::Pending => {
-            let is_blocked = task.blocked_by.iter().any(|id| unresolved_task_ids.contains(id));
-            if is_blocked { 2 } else { 1 }
+            let is_blocked = task
+                .blocked_by
+                .iter()
+                .any(|id| unresolved_task_ids.contains(id));
+            if is_blocked {
+                2
+            } else {
+                1
+            }
         }
         TaskStatus::Completed => {
             if let Some(completed_at) = completion_timestamps.get(&task.id) {
@@ -679,10 +683,7 @@ pub async fn unassign_teammate_tasks(
 }
 
 /// Check if tasks v2 is enabled.
-pub fn is_todo_v2_enabled(
-    is_non_interactive: bool,
-    enable_tasks_env: bool,
-) -> bool {
+pub fn is_todo_v2_enabled(is_non_interactive: bool, enable_tasks_env: bool) -> bool {
     if enable_tasks_env {
         return true;
     }

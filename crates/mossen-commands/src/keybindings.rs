@@ -18,13 +18,7 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 pub struct KeybindingsDirective;
 
 /// Default keybinding categories shown in template.
-const KEYBINDING_CATEGORIES: &[&str] = &[
-    "navigation",
-    "editing",
-    "commands",
-    "panels",
-    "global",
-];
+const KEYBINDING_CATEGORIES: &[&str] = &["navigation", "editing", "commands", "panels", "global"];
 
 #[async_trait]
 impl Directive for KeybindingsDirective {
@@ -45,7 +39,11 @@ impl Directive for KeybindingsDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             let cats = KEYBINDING_CATEGORIES.join(", ");
             return Ok(CommandResult::Text(format!(
                 "Usage: /keybindings\n\n                 Open the keybindings configuration file in your editor.\n                 Creates a template if the file doesn't exist.\n\n                 Categories: {}",

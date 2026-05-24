@@ -192,14 +192,15 @@ impl Directive for ShipDirective {
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let default_branch = get_default_branch();
         let pr_attribution = get_pr_attribution(ctx);
-        let mut prompt_content =
-            get_prompt_content(ctx, &default_branch, &pr_attribution);
+        let mut prompt_content = get_prompt_content(ctx, &default_branch, &pr_attribution);
 
         // Append user instructions if args provided
         let trimmed_args = args.join(" ").trim().to_string();
         if !trimmed_args.is_empty() {
-            prompt_content
-                .push_str(&format!("\n\n## Additional instructions from user\n\n{}", trimmed_args));
+            prompt_content.push_str(&format!(
+                "\n\n## Additional instructions from user\n\n{}",
+                trimmed_args
+            ));
         }
 
         Ok(CommandResult::Text(prompt_content))

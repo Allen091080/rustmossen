@@ -1,7 +1,6 @@
 //! Syntax-highlighted code display widget.
 //!
-//! Translates: components/HighlightedCode.tsx + components/HighlightedCode/
-//! Uses `syntect` for syntax highlighting, rendered into ratatui styled spans.
+//! Syntax highlighting rendered into ratatui styled spans with `syntect`.
 
 use ratatui::{
     buffer::Buffer,
@@ -35,6 +34,7 @@ pub struct HighlightedCodeWidget<'a> {
     pub language: Option<&'a str>,
     pub file_path: Option<&'a str>,
     pub line_numbers: bool,
+    pub line_number_separator: &'a str,
     pub start_line: usize,
     pub highlight_lines: Vec<usize>,
     pub theme: &'a Theme,
@@ -48,6 +48,7 @@ impl<'a> HighlightedCodeWidget<'a> {
             language: None,
             file_path: None,
             line_numbers: true,
+            line_number_separator: " ",
             start_line: 1,
             highlight_lines: Vec::new(),
             theme,
@@ -67,6 +68,11 @@ impl<'a> HighlightedCodeWidget<'a> {
 
     pub fn line_numbers(mut self, show: bool) -> Self {
         self.line_numbers = show;
+        self
+    }
+
+    pub fn line_number_separator(mut self, separator: &'a str) -> Self {
+        self.line_number_separator = separator;
         self
     }
 
@@ -104,8 +110,8 @@ impl<'a> HighlightedCodeWidget<'a> {
     }
 
     /// Convert syntect color to ratatui Color.
-    fn syntect_to_ratatui(c: highlighting::Color) -> Color {
-        Color::Rgb(c.r, c.g, c.b)
+    fn syntect_to_ratatui(&self, c: highlighting::Color) -> Color {
+        self.theme.terminal_color(Color::Rgb(c.r, c.g, c.b))
     }
 
     /// Build styled lines from code using syntect. Public so callers
@@ -125,8 +131,10 @@ impl<'a> HighlightedCodeWidget<'a> {
         let code_lines: Vec<&str> = self.code.lines().collect();
         let max = self.max_lines.unwrap_or(code_lines.len());
         let gutter_width = if self.line_numbers {
-            let last = self.start_line + max.min(code_lines.len());
-            format!("{}", last).len() + 1
+            let last = self
+                .start_line
+                .saturating_add(max.min(code_lines.len()).saturating_sub(1));
+            format!("{}", last).len() + usize::from(self.line_number_separator == " ")
         } else {
             0
         };
@@ -151,7 +159,12 @@ impl<'a> HighlightedCodeWidget<'a> {
 
             // Line number gutter
             if self.line_numbers {
-                let gutter = format!("{:>width$} ", line_no, width = gutter_width);
+                let gutter = format!(
+                    "{:>width$}{}",
+                    line_no,
+                    self.line_number_separator,
+                    width = gutter_width
+                );
                 spans.push(Span::styled(
                     gutter,
                     Style::default().fg(self.theme.text_subtle),
@@ -160,7 +173,7 @@ impl<'a> HighlightedCodeWidget<'a> {
 
             // Highlighted spans
             for (style, text) in regions {
-                let fg = Self::syntect_to_ratatui(style.foreground);
+                let fg = self.syntect_to_ratatui(style.foreground);
                 let mut ratatui_style = Style::default().fg(fg);
                 if style.font_style.contains(highlighting::FontStyle::BOLD) {
                     ratatui_style = ratatui_style.add_modifier(Modifier::BOLD);
@@ -168,7 +181,7 @@ impl<'a> HighlightedCodeWidget<'a> {
                 if style.font_style.contains(highlighting::FontStyle::ITALIC) {
                     ratatui_style = ratatui_style.add_modifier(Modifier::ITALIC);
                 }
-                if is_highlighted {
+                if is_highlighted && self.theme.uses_color() {
                     ratatui_style = ratatui_style.bg(Color::Rgb(60, 60, 30));
                 }
                 spans.push(Span::styled(text.to_string(), ratatui_style));
@@ -202,7 +215,7 @@ impl<'a> Widget for HighlightedCodeWidget<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// FilePathLinkWidget — clickable file path (FilePathLink.tsx)
+// FilePathLinkWidget — clickable file path
 // ---------------------------------------------------------------------------
 
 /// Renders a file path with optional line number, styled as a link.
@@ -246,5 +259,59 @@ impl<'a> Widget for FilePathLinkWidget<'a> {
         let avail = area.width as usize;
         let truncated: String = text.chars().take(avail).collect();
         buf.set_string(area.x, area.y, &truncated, style);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render_profile::RenderColorMode;
+    use crate::theme::ThemeName;
+
+    fn assert_plain_style(style: Style) {
+        assert!(
+            matches!(style.fg, None | Some(Color::Reset)),
+            "plain code style leaked foreground color: {:?}",
+            style.fg
+        );
+        assert!(
+            matches!(style.bg, None | Some(Color::Reset)),
+            "plain code style leaked background color: {:?}",
+            style.bg
+        );
+    }
+
+    #[test]
+    fn plain_color_mode_suppresses_syntax_colors() {
+        let theme = Theme::for_name_with_color_mode(ThemeName::Dark, RenderColorMode::Plain);
+        let lines = HighlightedCodeWidget::new("fn main() {\n    println!(\"hi\");\n}", &theme)
+            .language("rust")
+            .highlight_lines(vec![1])
+            .build_lines();
+
+        assert!(!lines.is_empty());
+        for line in lines {
+            assert_plain_style(line.style);
+            for span in line.spans {
+                assert_plain_style(span.style);
+            }
+        }
+    }
+
+    #[test]
+    fn line_number_gutter_uses_separator() {
+        let theme = Theme::for_name_with_color_mode(ThemeName::Dark, RenderColorMode::Plain);
+        let lines = HighlightedCodeWidget::new("fn main() {}", &theme)
+            .language("rust")
+            .start_line(10)
+            .line_number_separator("│")
+            .build_lines();
+        let first = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert!(first.starts_with("10│"), "{first:?}");
     }
 }

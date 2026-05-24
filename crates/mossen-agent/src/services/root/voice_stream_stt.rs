@@ -1,6 +1,5 @@
 /// Hosted voice_stream speech-to-text adapter for push-to-talk.
 /// Connects to a configured voice_stream WebSocket endpoint.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -132,17 +131,13 @@ pub async fn connect_voice_stream(
         )]);
     }
 
-    let ws_base_url = ctx
-        .get_voice_stream_base_url_env()
-        .unwrap_or_else(|| {
-            if use_custom_backend {
-                to_websocket_base_url(
-                    &ctx.get_custom_voice_stream_base_url().unwrap_or_default(),
-                )
-            } else {
-                to_websocket_base_url(&ctx.get_oauth_base_api_url())
-            }
-        });
+    let ws_base_url = ctx.get_voice_stream_base_url_env().unwrap_or_else(|| {
+        if use_custom_backend {
+            to_websocket_base_url(&ctx.get_custom_voice_stream_base_url().unwrap_or_default())
+        } else {
+            to_websocket_base_url(&ctx.get_oauth_base_api_url())
+        }
+    });
 
     if ws_base_url.is_empty() {
         tracing::debug!("[voice_stream] No voice stream base URL available");
@@ -158,7 +153,7 @@ pub async fn connect_voice_stream(
         ("language", language.unwrap_or("en").to_string()),
     ];
 
-    let is_nova3 = ctx.get_feature_value_cached("tengu_cobalt_frost", false);
+    let is_nova3 = ctx.get_feature_value_cached("mossen_cobalt_frost", false);
     if is_nova3 {
         params.push(("use_conversation_engine", "true".to_string()));
         params.push(("stt_provider", "deepgram-nova3".to_string()));
@@ -216,7 +211,9 @@ pub async fn connect_voice_stream(
         tracing::debug!("[voice_stream] WebSocket connected");
 
         // Send initial keepalive
-        let _ = ws_stream.send(WsMessage::Text(KEEPALIVE_MSG.to_string())).await;
+        let _ = ws_stream
+            .send(WsMessage::Text(KEEPALIVE_MSG.to_string()))
+            .await;
         callbacks_clone.on_ready(connection_for_callback);
 
         let mut keepalive_interval = tokio::time::interval(KEEPALIVE_INTERVAL);

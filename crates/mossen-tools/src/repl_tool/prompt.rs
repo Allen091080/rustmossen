@@ -24,12 +24,12 @@ pub fn is_repl_mode_enabled() -> bool {
 
 /// Tools that are only accessible via REPL when REPL mode is enabled.
 pub const REPL_ONLY_TOOLS: &[&str] = &[
-    "Read",      // FILE_READ_TOOL_NAME
-    "Write",     // FILE_WRITE_TOOL_NAME
-    "Edit",      // FILE_EDIT_TOOL_NAME
-    "Glob",      // GLOB_TOOL_NAME
-    "Grep",      // GREP_TOOL_NAME
-    "Bash",      // BASH_TOOL_NAME
+    "Read",         // FILE_READ_TOOL_NAME
+    "Write",        // FILE_WRITE_TOOL_NAME
+    "Edit",         // FILE_EDIT_TOOL_NAME
+    "Glob",         // GLOB_TOOL_NAME
+    "Grep",         // GREP_TOOL_NAME
+    "Bash",         // BASH_TOOL_NAME
     "NotebookEdit", // NOTEBOOK_EDIT_TOOL_NAME
-    "Agent",     // AGENT_TOOL_NAME
+    "Agent",        // AGENT_TOOL_NAME
 ];

@@ -151,11 +151,9 @@ impl Directive for PluginDirective {
                         .to_string(),
                 ))
             }
-            PluginAction::Status => {
-                Ok(CommandResult::Text(
-                    "All plugins healthy. Run /doctor for detailed diagnostics.".to_string(),
-                ))
-            }
+            PluginAction::Status => Ok(CommandResult::Text(
+                "All plugins healthy. Run /doctor for detailed diagnostics.".to_string(),
+            )),
             PluginAction::Options(name) => {
                 if name.is_empty() {
                     return Ok(CommandResult::Error(
@@ -170,14 +168,11 @@ impl Directive for PluginDirective {
                     name
                 )))
             }
-            PluginAction::Prune => {
-                Ok(CommandResult::System(
-                    "Pruning unused plugin data...".to_string(),
-                ))
-            }
-            PluginAction::Help => {
-                Ok(CommandResult::Text(
-                    "Plugin Management:\n\
+            PluginAction::Prune => Ok(CommandResult::System(
+                "Pruning unused plugin data...".to_string(),
+            )),
+            PluginAction::Help => Ok(CommandResult::Text(
+                "Plugin Management:\n\
                      \n\
                      /plugin              — List installed plugins\n\
                      /plugin install <n>  — Install a plugin by name\n\
@@ -186,9 +181,64 @@ impl Directive for PluginDirective {
                      /plugin status       — Show plugin health\n\
                      /plugin options <n>  — Configure a plugin\n\
                      /plugin prune        — Remove unused data"
-                        .to_string(),
-                ))
-            }
+                    .to_string(),
+            )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+        }
+    }
+
+    fn text(result: CommandResult) -> String {
+        match result {
+            CommandResult::Text(value)
+            | CommandResult::System(value)
+            | CommandResult::Error(value) => value,
+            other => panic!("expected text-like result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn plugin_directive_routes_core_actions() {
+        let directive = PluginDirective;
+        let ctx = test_context();
+
+        let list = text(directive.execute(&[], &ctx).await.unwrap());
+        assert!(list.contains("Installed Plugins"));
+        assert!(list.contains("/plugin install <name>"));
+
+        let install = text(
+            directive
+                .execute(&["install", "demo@local-market"], &ctx)
+                .await
+                .unwrap(),
+        );
+        assert!(install.contains("Installing plugin: demo@local-market"));
+
+        let status = text(directive.execute(&["status"], &ctx).await.unwrap());
+        assert!(status.contains("All plugins healthy"));
+
+        let remove_error = text(directive.execute(&["remove"], &ctx).await.unwrap());
+        assert!(remove_error.contains("Usage: /plugin remove <name>"));
     }
 }

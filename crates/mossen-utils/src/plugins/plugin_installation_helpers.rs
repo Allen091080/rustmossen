@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use rand::Rng;
 use tracing::debug;
 
 use super::schemas::{PluginMarketplaceEntry, PluginScope, PluginSource};
@@ -21,10 +20,15 @@ pub fn get_current_timestamp() -> String {
 
 /// Validate that a resolved path stays within a base directory.
 /// Prevents path traversal attacks.
-pub fn validate_path_within_base(base_path: &Path, relative_path: &str) -> Result<PathBuf, anyhow::Error> {
+pub fn validate_path_within_base(
+    base_path: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, anyhow::Error> {
     let resolved = base_path.join(relative_path);
     let resolved = resolved.canonicalize().unwrap_or(resolved);
-    let normalized_base = base_path.canonicalize().unwrap_or_else(|_| base_path.to_path_buf());
+    let normalized_base = base_path
+        .canonicalize()
+        .unwrap_or_else(|_| base_path.to_path_buf());
 
     if !resolved.starts_with(&normalized_base) && resolved != normalized_base {
         return Err(anyhow::anyhow!(
@@ -39,12 +43,26 @@ pub fn validate_path_within_base(base_path: &Path, relative_path: &str) -> Resul
 /// Structured result from the install core.
 #[derive(Debug, Clone)]
 pub enum InstallCoreResult {
-    Ok { closure: Vec<String>, dep_note: String },
-    LocalSourceNoLocation { plugin_name: String },
-    SettingsWriteFailed { message: String },
-    ResolutionFailed { message: String },
-    BlockedByPolicy { plugin_name: String },
-    DependencyBlockedByPolicy { plugin_name: String, blocked_dependency: String },
+    Ok {
+        closure: Vec<String>,
+        dep_note: String,
+    },
+    LocalSourceNoLocation {
+        plugin_name: String,
+    },
+    SettingsWriteFailed {
+        message: String,
+    },
+    ResolutionFailed {
+        message: String,
+    },
+    BlockedByPolicy {
+        plugin_name: String,
+    },
+    DependencyBlockedByPolicy {
+        plugin_name: String,
+        blocked_dependency: String,
+    },
 }
 
 impl InstallCoreResult {
@@ -59,7 +77,11 @@ pub fn format_resolution_error(resolution: &ResolutionError) -> String {
         ResolutionError::Cycle { chain } => {
             format!("Dependency cycle: {}", chain.join(" → "))
         }
-        ResolutionError::CrossMarketplace { dependency, required_by, dep_marketplace } => {
+        ResolutionError::CrossMarketplace {
+            dependency,
+            required_by,
+            dep_marketplace,
+        } => {
             let where_str = match dep_marketplace {
                 Some(mkt) => format!("marketplace \"{}\"", mkt),
                 None => "a different marketplace".to_string(),
@@ -76,26 +98,38 @@ pub fn format_resolution_error(resolution: &ResolutionError) -> String {
                 dependency, required_by, where_str, hint
             )
         }
-        ResolutionError::NotFound { missing, required_by, marketplace } => {
-            match marketplace {
-                Some(mkt) => format!(
-                    "Dependency \"{}\" (required by {}) not found. Is the \"{}\" marketplace added?",
-                    missing, required_by, mkt
-                ),
-                None => format!(
-                    "Dependency \"{}\" (required by {}) not found in any configured marketplace",
-                    missing, required_by
-                ),
-            }
-        }
+        ResolutionError::NotFound {
+            missing,
+            required_by,
+            marketplace,
+        } => match marketplace {
+            Some(mkt) => format!(
+                "Dependency \"{}\" (required by {}) not found. Is the \"{}\" marketplace added?",
+                missing, required_by, mkt
+            ),
+            None => format!(
+                "Dependency \"{}\" (required by {}) not found in any configured marketplace",
+                missing, required_by
+            ),
+        },
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ResolutionError {
-    Cycle { chain: Vec<String> },
-    CrossMarketplace { dependency: String, required_by: String, dep_marketplace: Option<String> },
-    NotFound { missing: String, required_by: String, marketplace: Option<String> },
+    Cycle {
+        chain: Vec<String>,
+    },
+    CrossMarketplace {
+        dependency: String,
+        required_by: String,
+        dep_marketplace: Option<String>,
+    },
+    NotFound {
+        missing: String,
+        required_by: String,
+        marketplace: Option<String>,
+    },
 }
 
 /// Trait for plugin installation operations.
@@ -111,7 +145,11 @@ pub trait PluginInstallOps: Send + Sync {
     ) -> Result<Vec<String>, ResolutionError>;
     async fn get_marketplace_cache_only(&self, marketplace: &str) -> Option<Vec<String>>;
     fn get_enabled_plugin_ids(&self, setting_source: &str) -> HashSet<String>;
-    fn update_settings_enabled_plugins(&self, source: &str, plugins: &HashMap<String, bool>) -> Result<(), anyhow::Error>;
+    fn update_settings_enabled_plugins(
+        &self,
+        source: &str,
+        plugins: &HashMap<String, bool>,
+    ) -> Result<(), anyhow::Error>;
     async fn cache_and_register_plugin(
         &self,
         plugin_id: &str,
@@ -198,11 +236,7 @@ pub async fn install_resolved_plugin(
     }
 
     // Materialize: cache each closure member
-    let project_path = if scope != "user" {
-        ops.get_cwd()
-    } else {
-        None
-    };
+    let project_path = if scope != "user" { ops.get_cwd() } else { None };
 
     let plugin_scope = match scope {
         "user" => PluginScope::User,
@@ -224,7 +258,10 @@ pub async fn install_resolved_plugin(
 
         if let Some((dep_entry, install_loc)) = info {
             let local_source_path = if ops.is_local_plugin_source(&dep_entry.source) {
-                match validate_path_within_base(Path::new(&install_loc), &dep_entry.source.to_string()) {
+                match validate_path_within_base(
+                    Path::new(&install_loc),
+                    &dep_entry.source.to_string(),
+                ) {
                     Ok(p) => Some(p.to_string_lossy().to_string()),
                     Err(_) => None,
                 }
@@ -307,9 +344,9 @@ pub async fn install_plugin_from_marketplace(
         InstallCoreResult::SettingsWriteFailed { message } => InstallPluginResult::Failure {
             error: format!("Failed to update settings: {}", message),
         },
-        InstallCoreResult::ResolutionFailed { message } => InstallPluginResult::Failure {
-            error: message,
-        },
+        InstallCoreResult::ResolutionFailed { message } => {
+            InstallPluginResult::Failure { error: message }
+        }
         InstallCoreResult::BlockedByPolicy { plugin_name } => InstallPluginResult::Failure {
             error: format!(
                 "Plugin \"{}\" is blocked by your organization's policy and cannot be installed",

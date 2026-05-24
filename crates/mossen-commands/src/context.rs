@@ -18,7 +18,7 @@ pub struct CommandContext {
     pub is_remote_mode: bool,
     /// Whether custom backend is enabled.
     pub is_custom_backend: bool,
-    /// Current user type (e.g., "ant" for internal users).
+    /// Current user type (e.g., "internal" for internal users).
     pub user_type: Option<String>,
     /// Environment variables snapshot.
     pub env_vars: HashMap<String, String>,
@@ -43,7 +43,7 @@ impl CommandContext {
 
     /// Check if the current user is an internal user.
     pub fn is_internal_user(&self) -> bool {
-        self.user_type.as_deref() == Some("ant")
+        self.user_type.as_deref() == Some("internal")
     }
 }
 

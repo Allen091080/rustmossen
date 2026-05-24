@@ -7,7 +7,9 @@ use std::pin::Pin;
 use tokio::sync::mpsc;
 
 /// 获取异步流的最后一个元素
-pub async fn last_x<A>(mut stream: Pin<Box<dyn Stream<Item = A> + Send>>) -> Result<A, GeneratorError> {
+pub async fn last_x<A>(
+    mut stream: Pin<Box<dyn Stream<Item = A> + Send>>,
+) -> Result<A, GeneratorError> {
     let mut last_value: Option<A> = None;
     while let Some(a) = stream.next().await {
         last_value = Some(a);
@@ -32,9 +34,7 @@ impl std::fmt::Display for GeneratorError {
 impl std::error::Error for GeneratorError {}
 
 /// 消耗异步流直到完成，返回最终值
-pub async fn return_value<A>(
-    mut stream: Pin<Box<dyn Stream<Item = A> + Send>>,
-) -> Option<A> {
+pub async fn return_value<A>(mut stream: Pin<Box<dyn Stream<Item = A> + Send>>) -> Option<A> {
     let mut last = None;
     while let Some(v) = stream.next().await {
         last = Some(v);
@@ -47,7 +47,7 @@ pub fn all<A: Send + 'static>(
     streams: Vec<Pin<Box<dyn Stream<Item = A> + Send>>>,
     concurrency_cap: usize,
 ) -> Pin<Box<dyn Stream<Item = A> + Send>> {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded_channel();
     let cap = if concurrency_cap == 0 {
         usize::MAX
     } else {

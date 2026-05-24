@@ -47,11 +47,11 @@ MAGIC_FALLBACK = "__R8_MAGIC_NOT_MIGRATED__"
 # Format: {proposed_mossen_key: {"slice": "G3-1", ...}}
 STRICT_KEYS: dict[str, dict] = {
     'mossen.analytics.eventBatchConfig': {'slice': 'G3-1',
-                                            'old_key': 'tengu_1p_event_batch_config'},
+                                            'old_key': 'mossen_1p_event_batch_config'},
     'mossen.permission.channelsEnabled': {'slice': 'G4-6',
-                                            'old_key': 'tengu_harbor'},
+                                            'old_key': 'mossen_harbor'},
     'mossen.ui.autoModeConfig': {'slice': 'G4-6',
-                                  'old_key': 'tengu_auto_mode_config'},
+                                  'old_key': 'mossen_auto_mode_config'},
 }
 
 

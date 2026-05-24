@@ -108,8 +108,7 @@ pub async fn get_linux_distro_info() -> Option<LinuxDistroInfo> {
             if let Some(rest) = line.strip_prefix("ID=") {
                 result.linux_distro_id = Some(rest.trim_matches('"').to_string());
             } else if let Some(rest) = line.strip_prefix("VERSION_ID=") {
-                result.linux_distro_version =
-                    Some(rest.trim_matches('"').to_string());
+                result.linux_distro_version = Some(rest.trim_matches('"').to_string());
             }
         }
     }

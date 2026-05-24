@@ -25,7 +25,9 @@ pub fn get_errors_path(errors_dir: &Path) -> PathBuf {
 
 /// Gets the path to MCP logs for a server.
 pub fn get_mcp_logs_path(mcp_logs_dir: &Path, server_name: &str) -> PathBuf {
-    mcp_logs_dir.join(server_name).join(format!("{}.jsonl", *DATE))
+    mcp_logs_dir
+        .join(server_name)
+        .join(format!("{}.jsonl", *DATE))
 }
 
 /// A buffered JSONL writer.
@@ -128,14 +130,9 @@ fn write_to_log(path: &Path, message: &serde_json::Value) {
 }
 
 /// Appends a log entry to the given path, enriched with timestamp and metadata.
-fn append_to_log(
-    path: &Path,
-    message: serde_json::Value,
-    session_id: &str,
-    version: &str,
-) {
+fn append_to_log(path: &Path, message: serde_json::Value, session_id: &str, version: &str) {
     let user_type = std::env::var("USER_TYPE").unwrap_or_default();
-    if user_type != "ant" {
+    if user_type != "internal" {
         return;
     }
 
@@ -143,20 +140,14 @@ fn append_to_log(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let mut enriched = match message {
+    let enriched = match message {
         serde_json::Value::Object(mut map) => {
             map.insert(
                 "timestamp".to_string(),
                 serde_json::Value::String(Utc::now().to_rfc3339()),
             );
-            map.insert(
-                "cwd".to_string(),
-                serde_json::Value::String(cwd),
-            );
-            map.insert(
-                "userType".to_string(),
-                serde_json::Value::String(user_type),
-            );
+            map.insert("cwd".to_string(), serde_json::Value::String(cwd));
+            map.insert("userType".to_string(), serde_json::Value::String(user_type));
             map.insert(
                 "sessionId".to_string(),
                 serde_json::Value::String(session_id.to_string()),
@@ -222,7 +213,12 @@ impl ErrorLogSink {
         let message = serde_json::json!({
             "error": error_str,
         });
-        append_to_log(&path, message, &self.config.session_id, &self.config.version);
+        append_to_log(
+            &path,
+            message,
+            &self.config.session_id,
+            &self.config.version,
+        );
     }
 
     /// Log an error string to the error log file.
@@ -233,7 +229,12 @@ impl ErrorLogSink {
         let message = serde_json::json!({
             "error": error,
         });
-        append_to_log(&path, message, &self.config.session_id, &self.config.version);
+        append_to_log(
+            &path,
+            message,
+            &self.config.session_id,
+            &self.config.version,
+        );
     }
 
     /// Log an MCP server error to the MCP log file.

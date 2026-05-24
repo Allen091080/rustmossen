@@ -12,7 +12,7 @@ pub struct EnvDirective;
 /// Environment variable prefixes that are relevant to display.
 const RELEVANT_PREFIXES: &[&str] = &[
     "MOSSEN_",
-    "ANTHROPIC_",
+    "PROVIDER_",
     "OPENAI_",
     "NODE_ENV",
     "HOME",

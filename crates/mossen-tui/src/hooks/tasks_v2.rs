@@ -8,13 +8,30 @@ pub struct TasksV2State {
 }
 
 impl TasksV2State {
-    pub fn new() -> Self { Self { active: false, initialized: false } }
-    pub fn initialize(&mut self) { self.initialized = true; }
-    pub fn activate(&mut self) { self.active = true; }
-    pub fn deactivate(&mut self) { self.active = false; }
-    pub fn is_active(&self) -> bool { self.active }
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            initialized: false,
+        }
+    }
+    pub fn initialize(&mut self) {
+        self.initialized = true;
+    }
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
 }
-impl Default for TasksV2State { fn default() -> Self { Self::new() } }
+impl Default for TasksV2State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// One v2 task slot. Mirrors the TS `Task` shape just enough for the
 /// collapse-effect hook.
@@ -80,14 +97,20 @@ mod collapse_tests {
 
     #[test]
     fn keeps_expanded_when_has_open_tasks() {
-        let tasks = vec![TaskV2 { id: "a".into(), status: TaskV2Status::InProgress }];
+        let tasks = vec![TaskV2 {
+            id: "a".into(),
+            status: TaskV2Status::InProgress,
+        }];
         let r = use_tasks_v2_with_collapse_effect(Some(&tasks), ExpandedView::Tasks);
         assert_eq!(r, CollapseDecision::KeepExpanded);
     }
 
     #[test]
     fn collapses_when_all_completed() {
-        let tasks = vec![TaskV2 { id: "a".into(), status: TaskV2Status::Completed }];
+        let tasks = vec![TaskV2 {
+            id: "a".into(),
+            status: TaskV2Status::Completed,
+        }];
         let r = use_tasks_v2_with_collapse_effect(Some(&tasks), ExpandedView::Tasks);
         assert_eq!(r, CollapseDecision::CollapseToNone);
     }

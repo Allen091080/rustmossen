@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use tokio::fs;
-use tracing::debug;
 
 /// Validation result for plugin/marketplace manifests.
 #[derive(Debug, Clone)]
@@ -30,32 +29,62 @@ pub struct ValidationWarning {
 
 /// Marketplace-only fields that don't belong in plugin.json.
 static MARKETPLACE_ONLY_MANIFEST_FIELDS: once_cell::sync::Lazy<HashSet<&'static str>> =
-    once_cell::sync::Lazy::new(|| ["category", "source", "tags", "strict", "id"].into_iter().collect());
+    once_cell::sync::Lazy::new(|| {
+        ["category", "source", "tags", "strict", "id"]
+            .into_iter()
+            .collect()
+    });
 
 /// Detect whether a file is a plugin manifest or marketplace manifest.
 fn detect_manifest_type(file_path: &Path) -> &'static str {
     let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let dir_name = file_path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
-    if file_name == "plugin.json" { return "plugin"; }
-    if file_name == "marketplace.json" { return "marketplace"; }
-    if dir_name == ".mossen-plugin" { return "plugin"; }
+    let dir_name = file_path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if file_name == "plugin.json" {
+        return "plugin";
+    }
+    if file_name == "marketplace.json" {
+        return "marketplace";
+    }
+    if dir_name == ".mossen-plugin" {
+        return "plugin";
+    }
     "unknown"
 }
 
 /// Check for parent-directory segments in a path string.
-fn check_path_traversal(p: &str, field: &str, errors: &mut Vec<ValidationError>, hint: Option<&str>) {
+fn check_path_traversal(
+    p: &str,
+    field: &str,
+    errors: &mut Vec<ValidationError>,
+    hint: Option<&str>,
+) {
     if p.contains("..") {
         let message = match hint {
             Some(h) => format!("Path contains \"..\": {}. {}", p, h),
-            None => format!("Path contains \"..\" which could be a path traversal attempt: {}", p),
+            None => format!(
+                "Path contains \"..\" which could be a path traversal attempt: {}",
+                p
+            ),
         };
-        errors.push(ValidationError { path: field.to_string(), message, code: None });
+        errors.push(ValidationError {
+            path: field.to_string(),
+            message,
+            code: None,
+        });
     }
 }
 
 fn marketplace_source_hint(p: &str) -> String {
     let stripped = p.trim_start_matches("../");
-    let corrected = if stripped != p { format!("./{}", stripped) } else { "./plugins/my-plugin".to_string() };
+    let corrected = if stripped != p {
+        format!("./{}", stripped)
+    } else {
+        "./plugins/my-plugin".to_string()
+    };
     format!(
         "Plugin source paths are resolved relative to the marketplace root, not relative to marketplace.json. Use \"{}\" instead of \"{}\".",
         corrected, p
@@ -64,7 +93,9 @@ fn marketplace_source_hint(p: &str) -> String {
 
 /// Validate a plugin manifest file (plugin.json).
 pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
-    let absolute_path = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+    let absolute_path = file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf());
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
@@ -79,7 +110,11 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
             };
             return ValidationResult {
                 success: false,
-                errors: vec![ValidationError { path: "file".to_string(), message, code: Some(format!("{:?}", e.kind())) }],
+                errors: vec![ValidationError {
+                    path: "file".to_string(),
+                    message,
+                    code: Some(format!("{:?}", e.kind())),
+                }],
                 warnings: vec![],
                 file_path: absolute_path,
                 file_type: "plugin".to_string(),
@@ -93,7 +128,11 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
         Err(e) => {
             return ValidationResult {
                 success: false,
-                errors: vec![ValidationError { path: "json".to_string(), message: format!("Invalid JSON syntax: {}", e), code: None }],
+                errors: vec![ValidationError {
+                    path: "json".to_string(),
+                    message: format!("Invalid JSON syntax: {}", e),
+                    code: None,
+                }],
                 warnings: vec![],
                 file_path: absolute_path,
                 file_type: "plugin".to_string(),
@@ -132,7 +171,10 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
         }
 
         // Check marketplace-only fields
-        let stray_keys: Vec<&String> = obj.keys().filter(|k| MARKETPLACE_ONLY_MANIFEST_FIELDS.contains(k.as_str())).collect();
+        let stray_keys: Vec<&String> = obj
+            .keys()
+            .filter(|k| MARKETPLACE_ONLY_MANIFEST_FIELDS.contains(k.as_str()))
+            .collect();
         for key in &stray_keys {
             warnings.push(ValidationWarning {
                 path: key.to_string(),
@@ -142,10 +184,17 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
 
         // Validate required fields
         if obj.get("name").and_then(|v| v.as_str()).is_none() {
-            errors.push(ValidationError { path: "name".to_string(), message: "Missing required field: name".to_string(), code: None });
+            errors.push(ValidationError {
+                path: "name".to_string(),
+                message: "Missing required field: name".to_string(),
+                code: None,
+            });
         } else {
             let name = obj.get("name").unwrap().as_str().unwrap();
-            if !regex::Regex::new(r"^[a-z0-9]+(-[a-z0-9]+)*$").unwrap().is_match(name) {
+            if !regex::Regex::new(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+                .unwrap()
+                .is_match(name)
+            {
                 warnings.push(ValidationWarning {
                     path: "name".to_string(),
                     message: format!("Plugin name \"{}\" is not kebab-case.", name),
@@ -154,13 +203,22 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
         }
 
         if obj.get("version").is_none() {
-            warnings.push(ValidationWarning { path: "version".to_string(), message: "No version specified.".to_string() });
+            warnings.push(ValidationWarning {
+                path: "version".to_string(),
+                message: "No version specified.".to_string(),
+            });
         }
         if obj.get("description").is_none() {
-            warnings.push(ValidationWarning { path: "description".to_string(), message: "No description provided.".to_string() });
+            warnings.push(ValidationWarning {
+                path: "description".to_string(),
+                message: "No description provided.".to_string(),
+            });
         }
         if obj.get("author").is_none() {
-            warnings.push(ValidationWarning { path: "author".to_string(), message: "No author information provided.".to_string() });
+            warnings.push(ValidationWarning {
+                path: "author".to_string(),
+                message: "No author information provided.".to_string(),
+            });
         }
     }
 
@@ -175,7 +233,9 @@ pub async fn validate_plugin_manifest(file_path: &Path) -> ValidationResult {
 
 /// Validate a marketplace manifest file (marketplace.json).
 pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult {
-    let absolute_path = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+    let absolute_path = file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf());
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
@@ -189,7 +249,11 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
             };
             return ValidationResult {
                 success: false,
-                errors: vec![ValidationError { path: "file".to_string(), message, code: None }],
+                errors: vec![ValidationError {
+                    path: "file".to_string(),
+                    message,
+                    code: None,
+                }],
                 warnings: vec![],
                 file_path: absolute_path,
                 file_type: "marketplace".to_string(),
@@ -202,7 +266,11 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
         Err(e) => {
             return ValidationResult {
                 success: false,
-                errors: vec![ValidationError { path: "json".to_string(), message: format!("Invalid JSON syntax: {}", e), code: None }],
+                errors: vec![ValidationError {
+                    path: "json".to_string(),
+                    message: format!("Invalid JSON syntax: {}", e),
+                    code: None,
+                }],
                 warnings: vec![],
                 file_path: absolute_path,
                 file_type: "marketplace".to_string(),
@@ -217,11 +285,21 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
                 if let Some(source) = plugin.get("source") {
                     if let Some(s) = source.as_str() {
                         let hint = marketplace_source_hint(s);
-                        check_path_traversal(s, &format!("plugins[{}].source", i), &mut errors, Some(&hint));
+                        check_path_traversal(
+                            s,
+                            &format!("plugins[{}].source", i),
+                            &mut errors,
+                            Some(&hint),
+                        );
                     }
                     if let Some(obj_source) = source.as_object() {
                         if let Some(path) = obj_source.get("path").and_then(|v| v.as_str()) {
-                            check_path_traversal(path, &format!("plugins[{}].source.path", i), &mut errors, None);
+                            check_path_traversal(
+                                path,
+                                &format!("plugins[{}].source.path", i),
+                                &mut errors,
+                                None,
+                            );
                         }
                     }
                 }
@@ -231,7 +309,10 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
         // Validate structure
         if let Some(plugins) = obj.get("plugins").and_then(|v| v.as_array()) {
             if plugins.is_empty() {
-                warnings.push(ValidationWarning { path: "plugins".to_string(), message: "Marketplace has no plugins defined".to_string() });
+                warnings.push(ValidationWarning {
+                    path: "plugins".to_string(),
+                    message: "Marketplace has no plugins defined".to_string(),
+                });
             }
             // Check duplicate names
             let mut names_seen: HashSet<String> = HashSet::new();
@@ -240,7 +321,10 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
                     if !names_seen.insert(name.to_string()) {
                         errors.push(ValidationError {
                             path: format!("plugins[{}].name", i),
-                            message: format!("Duplicate plugin name \"{}\" found in marketplace", name),
+                            message: format!(
+                                "Duplicate plugin name \"{}\" found in marketplace",
+                                name
+                            ),
                             code: None,
                         });
                     }
@@ -248,7 +332,11 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
             }
         }
 
-        if obj.get("metadata").and_then(|v| v.get("description")).is_none() {
+        if obj
+            .get("metadata")
+            .and_then(|v| v.get("description"))
+            .is_none()
+        {
             warnings.push(ValidationWarning {
                 path: "metadata.description".to_string(),
                 message: "No marketplace description provided.".to_string(),
@@ -267,13 +355,19 @@ pub async fn validate_marketplace_manifest(file_path: &Path) -> ValidationResult
 
 /// Validate a hooks configuration file.
 pub async fn validate_hooks_config(file_path: &Path) -> ValidationResult {
-    let absolute_path = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+    let absolute_path = file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf());
     let content = match fs::read_to_string(&absolute_path).await {
         Ok(c) => c,
         Err(e) => {
             return ValidationResult {
                 success: false,
-                errors: vec![ValidationError { path: "file".to_string(), message: format!("Failed to read: {}", e), code: None }],
+                errors: vec![ValidationError {
+                    path: "file".to_string(),
+                    message: format!("Failed to read: {}", e),
+                    code: None,
+                }],
                 warnings: vec![],
                 file_path: absolute_path,
                 file_type: "hooks".to_string(),
@@ -282,10 +376,20 @@ pub async fn validate_hooks_config(file_path: &Path) -> ValidationResult {
     };
     let parsed: Result<Value, _> = serde_json::from_str(&content);
     match parsed {
-        Ok(_) => ValidationResult { success: true, errors: vec![], warnings: vec![], file_path: absolute_path, file_type: "hooks".to_string() },
+        Ok(_) => ValidationResult {
+            success: true,
+            errors: vec![],
+            warnings: vec![],
+            file_path: absolute_path,
+            file_type: "hooks".to_string(),
+        },
         Err(e) => ValidationResult {
             success: false,
-            errors: vec![ValidationError { path: "json".to_string(), message: format!("Invalid JSON: {}", e), code: None }],
+            errors: vec![ValidationError {
+                path: "json".to_string(),
+                message: format!("Invalid JSON: {}", e),
+                code: None,
+            }],
             warnings: vec![],
             file_path: absolute_path,
             file_type: "hooks".to_string(),

@@ -1,8 +1,8 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
-use regex::Regex;
 
 // ============================================================
 // commandSuggestions.ts
@@ -55,7 +55,10 @@ pub struct MidInputSlashCommand {
 
 static SEPARATORS: Lazy<Regex> = Lazy::new(|| Regex::new(r"[:_\-]").unwrap());
 
-pub fn find_mid_input_slash_command(input: &str, cursor_offset: usize) -> Option<MidInputSlashCommand> {
+pub fn find_mid_input_slash_command(
+    input: &str,
+    cursor_offset: usize,
+) -> Option<MidInputSlashCommand> {
     if input.starts_with('/') {
         return None;
     }
@@ -119,9 +122,15 @@ pub fn is_command_input(input: &str) -> bool {
 }
 
 pub fn has_command_args(input: &str) -> bool {
-    if !is_command_input(input) { return false; }
-    if !input.contains(' ') { return false; }
-    if input.ends_with(' ') { return false; }
+    if !is_command_input(input) {
+        return false;
+    }
+    if !input.contains(' ') {
+        return false;
+    }
+    if input.ends_with(' ') {
+        return false;
+    }
     true
 }
 
@@ -162,13 +171,21 @@ fn find_matched_alias(query: &str, aliases: &Option<Vec<String>>) -> Option<Stri
         .cloned()
 }
 
-fn create_command_suggestion_item(cmd: &CommandMetadata, matched_alias: Option<&str>) -> SuggestionItem {
+fn create_command_suggestion_item(
+    cmd: &CommandMetadata,
+    matched_alias: Option<&str>,
+) -> SuggestionItem {
     let alias_text = matched_alias
         .map(|a| format!(" ({})", a))
         .unwrap_or_default();
 
-    let is_workflow = cmd.command_type == CommandType::Prompt && cmd.kind.as_deref() == Some("workflow");
-    let tag = if is_workflow { Some("workflow".to_string()) } else { None };
+    let is_workflow =
+        cmd.command_type == CommandType::Prompt && cmd.kind.as_deref() == Some("workflow");
+    let tag = if is_workflow {
+        Some("workflow".to_string())
+    } else {
+        None
+    };
 
     SuggestionItem {
         id: get_command_id(cmd),
@@ -197,7 +214,10 @@ pub fn generate_command_suggestions(
         let visible: Vec<&CommandMetadata> = commands.iter().filter(|c| !c.is_hidden).collect();
         let mut sorted = visible;
         sorted.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        return sorted.iter().map(|cmd| create_command_suggestion_item(cmd, None)).collect();
+        return sorted
+            .iter()
+            .map(|cmd| create_command_suggestion_item(cmd, None))
+            .collect();
     }
 
     // Filter and sort by match quality
@@ -206,7 +226,9 @@ pub fn generate_command_suggestions(
 
     for cmd in &visible {
         let name_lower = cmd.name.to_lowercase();
-        let aliases_lower: Vec<String> = cmd.aliases.as_ref()
+        let aliases_lower: Vec<String> = cmd
+            .aliases
+            .as_ref()
             .map(|a| a.iter().map(|s| s.to_lowercase()).collect())
             .unwrap_or_default();
 
@@ -220,7 +242,12 @@ pub fn generate_command_suggestions(
             70
         } else if name_lower.contains(&query) {
             50
-        } else if cmd.description.as_ref().map(|d| d.to_lowercase().contains(&query)).unwrap_or(false) {
+        } else if cmd
+            .description
+            .as_ref()
+            .map(|d| d.to_lowercase().contains(&query))
+            .unwrap_or(false)
+        {
             30
         } else {
             // Fuzzy: check parts
@@ -237,7 +264,9 @@ pub fn generate_command_suggestions(
     scored.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
 
     // Also check hidden exact match
-    let hidden_exact = commands.iter().find(|c| c.is_hidden && c.name.to_lowercase() == query);
+    let hidden_exact = commands
+        .iter()
+        .find(|c| c.is_hidden && c.name.to_lowercase() == query);
 
     let mut results: Vec<SuggestionItem> = Vec::new();
     if let Some(hidden) = hidden_exact {
@@ -249,14 +278,18 @@ pub fn generate_command_suggestions(
 
     for (cmd, _) in &scored {
         let matched_alias = find_matched_alias(&query, &cmd.aliases);
-        results.push(create_command_suggestion_item(cmd, matched_alias.as_deref()));
+        results.push(create_command_suggestion_item(
+            cmd,
+            matched_alias.as_deref(),
+        ));
     }
 
     results
 }
 
 pub fn find_slash_command_positions(text: &str) -> Vec<(usize, usize)> {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^|[\s])(/[a-zA-Z][a-zA-Z0-9:\-_]*)").unwrap());
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(^|[\s])(/[a-zA-Z][a-zA-Z0-9:\-_]*)").unwrap());
     let mut positions = Vec::new();
     for cap in RE.captures_iter(text) {
         let preceding = cap.get(1).map(|m| m.as_str().len()).unwrap_or(0);
@@ -327,7 +360,8 @@ fn parse_partial_path(partial_path: &str, base_path: &str) -> ParsedPath {
     }
 
     let path = Path::new(&resolved);
-    let directory = path.parent()
+    let directory = path
+        .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| base_path.to_string());
     let prefix = Path::new(partial_path)
@@ -428,7 +462,11 @@ pub async fn scan_directory_for_paths(dir_path: &str, include_hidden: bool) -> V
                     continue;
                 }
                 if let Ok(ft) = entry.file_type().await {
-                    let entry_type = if ft.is_dir() { EntryType::Directory } else { EntryType::File };
+                    let entry_type = if ft.is_dir() {
+                        EntryType::Directory
+                    } else {
+                        EntryType::File
+                    };
                     result.push(DirectoryEntry {
                         path: entry.path().to_string_lossy().to_string(),
                         name,
@@ -443,7 +481,9 @@ pub async fn scan_directory_for_paths(dir_path: &str, include_hidden: bool) -> V
             result.sort_by(|a, b| {
                 if a.entry_type == EntryType::Directory && b.entry_type != EntryType::Directory {
                     std::cmp::Ordering::Less
-                } else if a.entry_type != EntryType::Directory && b.entry_type == EntryType::Directory {
+                } else if a.entry_type != EntryType::Directory
+                    && b.entry_type == EntryType::Directory
+                {
                     std::cmp::Ordering::Greater
                 } else {
                     a.name.cmp(&b.name)
@@ -466,7 +506,8 @@ pub async fn get_path_completions(
     let entries = scan_directory_for_paths(&parsed.directory, include_hidden).await;
     let prefix_lower = parsed.prefix.to_lowercase();
 
-    let has_separator = partial_path.contains('/') || partial_path.contains(std::path::MAIN_SEPARATOR);
+    let has_separator =
+        partial_path.contains('/') || partial_path.contains(std::path::MAIN_SEPARATOR);
     let dir_portion = if has_separator {
         let last_slash = partial_path.rfind('/').unwrap_or(0);
         let last_sep = partial_path.rfind(std::path::MAIN_SEPARATOR).unwrap_or(0);
@@ -483,7 +524,9 @@ pub async fn get_path_completions(
     entries
         .iter()
         .filter(|e| {
-            if !include_files && e.entry_type == EntryType::File { return false; }
+            if !include_files && e.entry_type == EntryType::File {
+                return false;
+            }
             e.name.to_lowercase().starts_with(&prefix_lower)
         })
         .take(max_results)
@@ -594,10 +637,7 @@ pub struct SkillUsageEntry {
 static LAST_WRITE_BY_SKILL: Lazy<Mutex<HashMap<String, u64>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub fn record_skill_usage(
-    skill_name: &str,
-    current_usage: &mut HashMap<String, SkillUsageEntry>,
-) {
+pub fn record_skill_usage(skill_name: &str, current_usage: &mut HashMap<String, SkillUsageEntry>) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -704,9 +744,7 @@ pub fn parse_slack_channels(text: &str) -> Vec<String> {
     channels
 }
 
-pub fn get_slack_channel_suggestions_from_cache(
-    search_token: &str,
-) -> Vec<SuggestionItem> {
+pub fn get_slack_channel_suggestions_from_cache(search_token: &str) -> Vec<SuggestionItem> {
     if search_token.is_empty() {
         return vec![];
     }
@@ -715,17 +753,17 @@ pub fn get_slack_channel_suggestions_from_cache(
     let lower = search_token.to_lowercase();
 
     let cache = CHANNEL_CACHE.lock().unwrap();
-    let channels = cache.get(&mcp_query)
-        .or_else(|| {
-            // Find reusable cache entry
-            cache.iter()
-                .filter(|(key, channels)| {
-                    mcp_query.starts_with(key.as_str())
-                        && channels.iter().any(|c| c.starts_with(&lower))
-                })
-                .max_by_key(|(key, _)| key.len())
-                .map(|(_, v)| v)
-        });
+    let channels = cache.get(&mcp_query).or_else(|| {
+        // Find reusable cache entry
+        cache
+            .iter()
+            .filter(|(key, channels)| {
+                mcp_query.starts_with(key.as_str())
+                    && channels.iter().any(|c| c.starts_with(&lower))
+            })
+            .max_by_key(|(key, _)| key.len())
+            .map(|(_, v)| v)
+    });
 
     match channels {
         Some(chs) => chs
@@ -805,7 +843,9 @@ pub fn subscribe_known_channels() -> &'static crate::signal::Signal {
 
 /// 对应 TS `hasSlackMcpServer`：检查是否配置了 Slack MCP server。
 pub fn has_slack_mcp_server(mcp_configs: &HashMap<String, serde_json::Value>) -> bool {
-    mcp_configs.iter().any(|(k, _)| k.to_lowercase().contains("slack"))
+    mcp_configs
+        .iter()
+        .any(|(k, _)| k.to_lowercase().contains("slack"))
 }
 
 /// 对应 TS `getSlackChannelSuggestions`：返回缓存的 Slack 频道建议。

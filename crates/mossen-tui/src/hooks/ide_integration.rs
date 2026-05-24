@@ -1,4 +1,4 @@
-//! IDE integration hook (useIDEIntegration.tsx).
+//! IDE integration hook.
 //!
 //! Manages the full integration with an IDE: file syncing, selection
 //! tracking, and command forwarding.
@@ -71,7 +71,10 @@ impl IdeIntegrationState {
     /// Open a file in the IDE.
     pub fn open_file(&mut self, path: &str, line: Option<u32>) {
         let mut args = HashMap::new();
-        args.insert("path".to_string(), serde_json::Value::String(path.to_string()));
+        args.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string()),
+        );
         if let Some(l) = line {
             args.insert("line".to_string(), serde_json::Value::Number(l.into()));
         }
@@ -84,9 +87,18 @@ impl IdeIntegrationState {
     /// Show a diff in the IDE.
     pub fn show_diff(&mut self, old_path: &str, new_path: &str, title: &str) {
         let mut args = HashMap::new();
-        args.insert("oldPath".to_string(), serde_json::Value::String(old_path.to_string()));
-        args.insert("newPath".to_string(), serde_json::Value::String(new_path.to_string()));
-        args.insert("title".to_string(), serde_json::Value::String(title.to_string()));
+        args.insert(
+            "oldPath".to_string(),
+            serde_json::Value::String(old_path.to_string()),
+        );
+        args.insert(
+            "newPath".to_string(),
+            serde_json::Value::String(new_path.to_string()),
+        );
+        args.insert(
+            "title".to_string(),
+            serde_json::Value::String(title.to_string()),
+        );
         self.send_command(IdeCommand {
             command: "showDiff".to_string(),
             args,

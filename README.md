@@ -33,7 +33,7 @@ python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
 
 - 将高频用户可见品牌统一为 `Mossen / 🍃`
 - 欢迎页、Logo、Header、状态说明、命令帮助、OAuth/MCP/IDE/插件/权限等大量用户面文案已收口
-- 旧品牌、通用 coding assistant 文案和 Opus marketing 已大幅清理
+- 旧品牌、通用 coding assistant 文案和 Max marketing 已大幅清理
 - spinner 已改成绿色品牌风格，并使用叶子动画帧序列：
   - `🍃 → 🌿 → ☘️ → 🍀 → ☘️ → 🌿`
 

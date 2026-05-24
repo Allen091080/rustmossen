@@ -83,6 +83,9 @@ pub fn use_plugin_autoupdate_notification(
     let heading = if count == 1 { "Plugin" } else { "Plugins" };
     Some((
         "plugin-autoupdate-restart".to_string(),
-        format!("{} updated: {} · Run /reload-plugins to apply", heading, display_names),
+        format!(
+            "{} updated: {} · Run /reload-plugins to apply",
+            heading, display_names
+        ),
     ))
 }

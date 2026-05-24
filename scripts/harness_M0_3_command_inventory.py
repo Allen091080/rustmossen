@@ -72,7 +72,7 @@ CATEGORY_PATTERNS = {
     "high_risk_tool": {
         "names": {"compact", "rewind", "init", "init-verifiers",
                   "commit", "commit-push-pr", "review", "security-review",
-                  "autofix-pr", "doctor", "ant-trace", "break-cache",
+                  "autofix-pr", "doctor", "internal-trace", "break-cache",
                   "heapdump", "debug-tool-call", "mock-limits",
                   "reset-limits", "rate-limit-options", "extra-usage"},
     },

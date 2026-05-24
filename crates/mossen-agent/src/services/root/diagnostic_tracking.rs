@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 /// Diagnostic severity
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagnosticSeverity {
@@ -133,16 +135,17 @@ impl DiagnosticTrackingService {
 
         for file in files_with_baselines {
             let normalized_path = Self::normalize_file_uri(&file.uri);
-            let baseline_diagnostics = self.baseline.get(&normalized_path).cloned().unwrap_or_default();
+            let baseline_diagnostics = self
+                .baseline
+                .get(&normalized_path)
+                .cloned()
+                .unwrap_or_default();
 
             // Choose file or right-file based on state changes
             let file_to_use = if let Some(right_file) = right_files.get(&normalized_path) {
                 let prev = self.right_file_diagnostics_state.get(&normalized_path);
                 let use_right = prev.is_none()
-                    || !Self::are_diagnostic_arrays_equal(
-                        prev.unwrap(),
-                        &right_file.diagnostics,
-                    );
+                    || !Self::are_diagnostic_arrays_equal(prev.unwrap(), &right_file.diagnostics);
                 self.right_file_diagnostics_state
                     .insert(normalized_path.clone(), right_file.diagnostics.clone());
                 if use_right {
@@ -158,7 +161,11 @@ impl DiagnosticTrackingService {
             let new_diagnostics: Vec<Diagnostic> = file_to_use
                 .diagnostics
                 .iter()
-                .filter(|d| !baseline_diagnostics.iter().any(|b| Self::are_diagnostics_equal(d, b)))
+                .filter(|d| {
+                    !baseline_diagnostics
+                        .iter()
+                        .any(|b| Self::are_diagnostics_equal(d, b))
+                })
                 .cloned()
                 .collect();
 
@@ -189,8 +196,10 @@ impl DiagnosticTrackingService {
         if a.len() != b.len() {
             return false;
         }
-        a.iter().all(|da| b.iter().any(|db| Self::are_diagnostics_equal(da, db)))
-            && b.iter().all(|db| a.iter().any(|da| Self::are_diagnostics_equal(da, db)))
+        a.iter()
+            .all(|da| b.iter().any(|db| Self::are_diagnostics_equal(da, db)))
+            && b.iter()
+                .all(|db| a.iter().any(|da| Self::are_diagnostics_equal(da, db)))
     }
 
     /// Format diagnostics into a summary string
@@ -199,18 +208,22 @@ impl DiagnosticTrackingService {
         let result: String = files
             .iter()
             .map(|file| {
-                let filename = file
-                    .uri
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&file.uri);
+                let filename = file.uri.rsplit('/').next().unwrap_or(&file.uri);
                 let diagnostics: String = file
                     .diagnostics
                     .iter()
                     .map(|d| {
                         let symbol = Self::get_severity_symbol(&d.severity);
-                        let code_str = d.code.as_deref().map(|c| format!(" [{}]", c)).unwrap_or_default();
-                        let source_str = d.source.as_deref().map(|s| format!(" ({})", s)).unwrap_or_default();
+                        let code_str = d
+                            .code
+                            .as_deref()
+                            .map(|c| format!(" [{}]", c))
+                            .unwrap_or_default();
+                        let source_str = d
+                            .source
+                            .as_deref()
+                            .map(|s| format!(" ({})", s))
+                            .unwrap_or_default();
                         format!(
                             "  {} [Line {}:{}] {}{}{}",
                             symbol,
@@ -228,9 +241,12 @@ impl DiagnosticTrackingService {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        if result.len() > MAX_DIAGNOSTICS_SUMMARY_CHARS {
-            let cut = MAX_DIAGNOSTICS_SUMMARY_CHARS - truncation_marker.len();
-            format!("{}{}", &result[..cut], truncation_marker)
+        if result.chars().count() > MAX_DIAGNOSTICS_SUMMARY_CHARS {
+            truncate_chars_with_suffix(
+                &result,
+                MAX_DIAGNOSTICS_SUMMARY_CHARS.saturating_sub(truncation_marker.chars().count()),
+                truncation_marker,
+            )
         } else {
             result
         }
@@ -249,6 +265,34 @@ impl DiagnosticTrackingService {
 /// Module-level diagnostic tracker singleton. Mirrors TS
 /// `export const diagnosticTracker = new DiagnosticTrackingService(...)`.
 #[allow(non_upper_case_globals)]
-pub static diagnosticTracker: once_cell::sync::Lazy<
-    std::sync::Mutex<DiagnosticTrackingService>,
-> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(DiagnosticTrackingService::new()));
+pub static diagnosticTracker: once_cell::sync::Lazy<std::sync::Mutex<DiagnosticTrackingService>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(DiagnosticTrackingService::new()));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_summary_truncates_multibyte_text_safely() {
+        let files = vec![DiagnosticFile {
+            uri: "file:///src/main.rs".to_string(),
+            diagnostics: vec![Diagnostic {
+                message: "读".repeat(MAX_DIAGNOSTICS_SUMMARY_CHARS + 32),
+                severity: DiagnosticSeverity::Error,
+                range: DiagnosticRange {
+                    start_line: 0,
+                    start_character: 0,
+                    end_line: 0,
+                    end_character: 1,
+                },
+                source: None,
+                code: None,
+            }],
+        }];
+
+        let summary = DiagnosticTrackingService::format_diagnostics_summary(&files);
+
+        assert!(summary.ends_with("…[truncated]"));
+        assert!(summary.is_char_boundary(summary.len()));
+    }
+}

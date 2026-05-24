@@ -42,7 +42,9 @@ pub async fn read_edit_context(
         Err(e) => return Err(e),
     };
 
-    Ok(Some(scan_for_context(&mut file, needle, context_lines).await?))
+    Ok(Some(
+        scan_for_context(&mut file, needle, context_lines).await?,
+    ))
 }
 
 /// Core scanning logic.
@@ -75,7 +77,9 @@ async fn scan_for_context(
 
     while pos < MAX_SCAN_BYTES {
         file.seek(SeekFrom::Start(pos as u64)).await?;
-        let bytes_read = file.read(&mut buf[prev_tail..prev_tail + CHUNK_SIZE]).await?;
+        let bytes_read = file
+            .read(&mut buf[prev_tail..prev_tail + CHUNK_SIZE])
+            .await?;
         if bytes_read == 0 {
             break;
         }
@@ -95,8 +99,7 @@ async fn scan_for_context(
 
         if let Some(at) = match_at {
             let abs_match = pos - prev_tail + at;
-            let lines_before_match =
-                lines_before_pos + count_newlines(&buf, 0, at);
+            let lines_before_match = lines_before_pos + count_newlines(&buf, 0, at);
             return slice_context(
                 file,
                 abs_match,
@@ -214,13 +217,11 @@ async fn slice_context(
     }
 
     let walked_back = match_start - ctx_start;
-    let line_offset = lines_before_match
-        .saturating_sub(count_newlines(
-            &back_buf,
-            back_read.saturating_sub(walked_back),
-            back_read,
-        ))
-        + 1;
+    let line_offset = lines_before_match.saturating_sub(count_newlines(
+        &back_buf,
+        back_read.saturating_sub(walked_back),
+        back_read,
+    )) + 1;
 
     // Scan forward from match_end to find context_lines trailing newlines.
     let match_end = match_start + match_len;

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tracing::debug;
 
 /// User configuration schema entry (from DXT manifest).
 pub type UserConfigSchema = HashMap<String, UserConfigOption>;
@@ -78,15 +77,22 @@ pub async fn load_mcpb_file(
 
     let mcpb_data = if mcpb_path.starts_with("http://") || mcpb_path.starts_with("https://") {
         status_callback("Downloading MCPB...");
-        http_client.download(mcpb_path).await.map_err(|e| McpbError::Download(e.to_string()))?
+        http_client
+            .download(mcpb_path)
+            .await
+            .map_err(|e| McpbError::Download(e.to_string()))?
     } else {
         let full_path = plugin_path.join(mcpb_path);
-        tokio::fs::read(&full_path).await.map_err(|e| McpbError::Read(e.to_string()))?
+        tokio::fs::read(&full_path)
+            .await
+            .map_err(|e| McpbError::Read(e.to_string()))?
     };
 
     status_callback("Extracting MCPB...");
     let extract_dir = get_data_dir(plugin_id).join("mcpb");
-    tokio::fs::create_dir_all(&extract_dir).await.map_err(|e| McpbError::Extract(e.to_string()))?;
+    tokio::fs::create_dir_all(&extract_dir)
+        .await
+        .map_err(|e| McpbError::Extract(e.to_string()))?;
 
     // Extract zip contents
     let manifest = extract_and_parse_mcpb(&mcpb_data, &extract_dir).await?;
@@ -102,7 +108,10 @@ pub async fn load_mcpb_file(
 }
 
 /// Validate user configuration against schema.
-pub fn validate_user_config(values: &UserConfigValues, schema: &UserConfigSchema) -> ValidationResult {
+pub fn validate_user_config(
+    values: &UserConfigValues,
+    schema: &UserConfigSchema,
+) -> ValidationResult {
     let mut errors: HashMap<String, String> = HashMap::new();
     for (key, option) in schema {
         if option.required {
@@ -111,7 +120,10 @@ pub fn validate_user_config(values: &UserConfigValues, schema: &UserConfigSchema
                     errors.insert(key.clone(), format!("Required field '{}' is missing", key));
                 }
                 Some(serde_json::Value::String(s)) if s.is_empty() => {
-                    errors.insert(key.clone(), format!("Required field '{}' cannot be empty", key));
+                    errors.insert(
+                        key.clone(),
+                        format!("Required field '{}' cannot be empty", key),
+                    );
                 }
                 _ => {}
             }
@@ -182,13 +194,21 @@ pub trait McpbHttpClient: Send + Sync {
 /// MCPB settings provider trait.
 pub trait McpbSettingsProvider: Send + Sync {
     fn get_plugin_config_options(&self, key: &str) -> Option<UserConfigValues>;
-    fn set_plugin_config_options(&self, key: &str, values: &UserConfigValues) -> Result<(), anyhow::Error>;
+    fn set_plugin_config_options(
+        &self,
+        key: &str,
+        values: &UserConfigValues,
+    ) -> Result<(), anyhow::Error>;
 }
 
 /// MCPB secure storage trait.
 pub trait McpbSecureStorage: Send + Sync {
     fn read_secrets(&self, key: &str) -> Option<HashMap<String, String>>;
-    fn write_secrets(&self, key: &str, secrets: &HashMap<String, String>) -> Result<(), anyhow::Error>;
+    fn write_secrets(
+        &self,
+        key: &str,
+        secrets: &HashMap<String, String>,
+    ) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug)]
@@ -217,20 +237,30 @@ impl std::error::Error for McpbError {}
 async fn extract_and_parse_mcpb(data: &[u8], extract_dir: &Path) -> Result<DxtManifest, McpbError> {
     // Extract zip contents
     let reader = std::io::Cursor::new(data);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| McpbError::Extract(e.to_string()))?;
+    let mut archive =
+        zip::ZipArchive::new(reader).map_err(|e| McpbError::Extract(e.to_string()))?;
 
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| McpbError::Extract(e.to_string()))?;
+        let mut file = archive
+            .by_index(i)
+            .map_err(|e| McpbError::Extract(e.to_string()))?;
         let outpath = extract_dir.join(file.name());
         if file.name().ends_with('/') {
-            tokio::fs::create_dir_all(&outpath).await.map_err(|e| McpbError::Extract(e.to_string()))?;
+            tokio::fs::create_dir_all(&outpath)
+                .await
+                .map_err(|e| McpbError::Extract(e.to_string()))?;
         } else {
             if let Some(parent) = outpath.parent() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| McpbError::Extract(e.to_string()))?;
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| McpbError::Extract(e.to_string()))?;
             }
             let mut buf = Vec::new();
-            std::io::Read::read_to_end(&mut file, &mut buf).map_err(|e| McpbError::Extract(e.to_string()))?;
-            tokio::fs::write(&outpath, &buf).await.map_err(|e| McpbError::Extract(e.to_string()))?;
+            std::io::Read::read_to_end(&mut file, &mut buf)
+                .map_err(|e| McpbError::Extract(e.to_string()))?;
+            tokio::fs::write(&outpath, &buf)
+                .await
+                .map_err(|e| McpbError::Extract(e.to_string()))?;
         }
     }
 
@@ -246,7 +276,7 @@ async fn extract_and_parse_mcpb(data: &[u8], extract_dir: &Path) -> Result<DxtMa
 }
 
 fn build_mcp_config_from_manifest(
-    manifest: &DxtManifest,
+    _manifest: &DxtManifest,
     extracted_path: &Path,
 ) -> Result<super::schemas::McpServerConfig, McpbError> {
     // Build MCP server config from DXT manifest

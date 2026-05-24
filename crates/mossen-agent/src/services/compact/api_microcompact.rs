@@ -10,7 +10,13 @@ const DEFAULT_TARGET_INPUT_TOKENS: usize = 40_000;
 
 /// Tool names whose results can be cleared.
 const TOOLS_CLEARABLE_RESULTS: &[&str] = &[
-    "Bash", "Execute", "Glob", "Grep", "Read", "WebFetch", "WebSearch",
+    "Bash",
+    "Execute",
+    "Glob",
+    "Grep",
+    "Read",
+    "WebFetch",
+    "WebSearch",
 ];
 
 /// Tool names whose uses can be cleared.
@@ -29,9 +35,7 @@ pub enum ContextEditStrategy {
         clear_at_least: Option<TokenTrigger>,
     },
     #[serde(rename = "clear_thinking_20251015")]
-    ClearThinking {
-        keep: ThinkingKeep,
-    },
+    ClearThinking { keep: ThinkingKeep },
 }
 
 /// Token-based trigger configuration.
@@ -63,7 +67,11 @@ pub enum ClearToolInputs {
 #[serde(untagged)]
 pub enum ThinkingKeep {
     All(String), // "all"
-    Turns { #[serde(rename = "type")] keep_type: String, value: usize },
+    Turns {
+        #[serde(rename = "type")]
+        keep_type: String,
+        value: usize,
+    },
 }
 
 /// Context management configuration wrapper.
@@ -102,7 +110,7 @@ pub fn get_api_context_management(
 
     // Tool clearing strategies are internal-only
     let user_type = env::var("USER_TYPE").unwrap_or_default();
-    if user_type != "ant" {
+    if user_type != "internal" {
         return if strategies.is_empty() {
             None
         } else {
@@ -138,7 +146,10 @@ pub fn get_api_context_management(
             }),
             keep: None,
             clear_tool_inputs: Some(ClearToolInputs::Specific(
-                TOOLS_CLEARABLE_RESULTS.iter().map(|s| s.to_string()).collect(),
+                TOOLS_CLEARABLE_RESULTS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
             )),
             exclude_tools: None,
             clear_at_least: Some(TokenTrigger {
@@ -165,9 +176,7 @@ pub fn get_api_context_management(
             }),
             keep: None,
             clear_tool_inputs: None,
-            exclude_tools: Some(
-                TOOLS_CLEARABLE_USES.iter().map(|s| s.to_string()).collect(),
-            ),
+            exclude_tools: Some(TOOLS_CLEARABLE_USES.iter().map(|s| s.to_string()).collect()),
             clear_at_least: Some(TokenTrigger {
                 trigger_type: "input_tokens".to_string(),
                 value: trigger_threshold.saturating_sub(keep_target),

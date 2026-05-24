@@ -58,7 +58,8 @@ impl Directive for SessionDirective {
 
         if remote_url.is_empty() {
             return Ok(CommandResult::System(
-                "Remote session URL not available. The session may still be initializing.".to_string(),
+                "Remote session URL not available. The session may still be initializing."
+                    .to_string(),
             ));
         }
 

@@ -95,11 +95,7 @@ impl ElicitationHandler {
         cancel: CancellationToken,
     ) -> ElicitResult {
         let mode = get_elicitation_mode(&params);
-        tracing::debug!(
-            server_name,
-            mode,
-            "Received elicitation request"
-        );
+        tracing::debug!(server_name, mode, "Received elicitation request");
 
         let elicitation_id = if mode == "url" {
             params.elicitation_id.clone()
@@ -107,12 +103,10 @@ impl ElicitationHandler {
             None
         };
 
-        let waiting_state = elicitation_id
-            .as_ref()
-            .map(|_| ElicitationWaitingState {
-                action_label: "Skip confirmation".to_string(),
-                show_cancel: None,
-            });
+        let waiting_state = elicitation_id.as_ref().map(|_| ElicitationWaitingState {
+            action_label: "Skip confirmation".to_string(),
+            show_cancel: None,
+        });
 
         let event = ElicitationRequestEvent {
             server_name: server_name.to_string(),
@@ -209,10 +203,7 @@ pub async fn run_elicitation_hooks(
 ) -> Option<ElicitResult> {
     let mode = get_elicitation_mode(params);
     for hook in hooks {
-        match hook
-            .on_elicitation(server_name, params, mode)
-            .await
-        {
+        match hook.on_elicitation(server_name, params, mode).await {
             Ok(Some(response)) => {
                 tracing::debug!(server_name, "Elicitation resolved by hook");
                 return Some(ElicitResult {

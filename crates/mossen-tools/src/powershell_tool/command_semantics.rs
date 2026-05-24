@@ -61,7 +61,10 @@ pub fn interpret_command_result(
 /// Extract the base command name from a PowerShell command line.
 /// Takes the LAST pipeline segment since that determines the exit code.
 fn heuristically_extract_base_command(command: &str) -> String {
-    let segments: Vec<&str> = command.split([';', '|']).filter(|s| !s.trim().is_empty()).collect();
+    let segments: Vec<&str> = command
+        .split([';', '|'])
+        .filter(|s| !s.trim().is_empty())
+        .collect();
     let last = segments.last().copied().unwrap_or(command);
     extract_base_command(last)
 }
@@ -84,10 +87,7 @@ fn extract_base_command(segment: &str) -> String {
     let unquoted = first_token.trim_matches(|c| c == '"' || c == '\'');
 
     // Strip path: C:\bin\grep.exe → grep.exe
-    let basename = unquoted
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(unquoted);
+    let basename = unquoted.rsplit(['/', '\\']).next().unwrap_or(unquoted);
 
     // Strip .exe suffix and lowercase
     let lower = basename.to_lowercase();

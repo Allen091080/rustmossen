@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::schemas::{KnownMarketplacesFile, MarketplaceSource};
@@ -95,7 +94,8 @@ pub fn diff_marketplaces(
     let mut up_to_date = Vec::new();
 
     for (name, intent) in declared {
-        let normalized_intent = normalize_source(&intent.source, project_root, &find_canonical_git_root);
+        let normalized_intent =
+            normalize_source(&intent.source, project_root, &find_canonical_git_root);
 
         match materialized.get(name) {
             None => {
@@ -129,10 +129,23 @@ pub fn diff_marketplaces(
 /// Idempotent. Additive only (never deletes).
 pub async fn reconcile_marketplaces(
     get_declared_marketplaces: impl Fn() -> HashMap<String, DeclaredMarketplace>,
-    load_known_marketplaces_config: impl std::future::Future<Output = Result<KnownMarketplacesFile, anyhow::Error>>,
+    load_known_marketplaces_config: impl std::future::Future<
+        Output = Result<KnownMarketplacesFile, anyhow::Error>,
+    >,
     get_original_cwd: impl Fn() -> String,
     find_canonical_git_root: impl Fn(&str) -> Option<String>,
-    add_marketplace_source: impl Fn(&MarketplaceSource) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<super::marketplace_add_plan::AddMarketplaceResult, anyhow::Error>> + Send>>,
+    add_marketplace_source: impl Fn(
+        &MarketplaceSource,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        super::marketplace_add_plan::AddMarketplaceResult,
+                        anyhow::Error,
+                    >,
+                > + Send,
+        >,
+    >,
     path_exists: impl Fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>,
     skip: Option<&dyn Fn(&str, &MarketplaceSource) -> bool>,
     on_progress: Option<&dyn Fn(ReconcileProgressEvent)>,
@@ -157,7 +170,12 @@ pub async fn reconcile_marketplaces(
     };
 
     let project_root = get_original_cwd();
-    let diff = diff_marketplaces(&declared, &materialized, Some(&project_root), &find_canonical_git_root);
+    let diff = diff_marketplaces(
+        &declared,
+        &materialized,
+        Some(&project_root),
+        &find_canonical_git_root,
+    );
 
     struct WorkItem {
         name: String,
@@ -196,7 +214,9 @@ pub async fn reconcile_marketplaces(
             }
         }
         // For sourceChanged local-path entries, skip if path doesn't exist
-        if matches!(item.action, ReconcileAction::Update) && is_local_marketplace_source(&item.source) {
+        if matches!(item.action, ReconcileAction::Update)
+            && is_local_marketplace_source(&item.source)
+        {
             let path = get_local_source_path(&item.source).unwrap_or_default();
             if !path_exists(&path).await {
                 debug!(

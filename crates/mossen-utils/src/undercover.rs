@@ -33,9 +33,7 @@ static REPO_CLASS_CACHE: OnceLock<RepoClass> = OnceLock::new();
 /// 测试/手动 prime（与 TS `primeRepoClassCache` 等价）；同样允许通过
 /// `MOSSEN_REPO_CLASS` 环境变量覆盖（保留旧行为，便于测试和 CI）。
 pub fn prime_repo_class_cache(remote_url: Option<&str>) {
-    let _ = REPO_CLASS_CACHE.set(
-        crate::commit_attribution::classify_repo(remote_url).into(),
-    );
+    let _ = REPO_CLASS_CACHE.set(crate::commit_attribution::classify_repo(remote_url).into());
 }
 
 /// 获取缓存的仓库分类；缺省按 `MOSSEN_REPO_CLASS` env 回落到 `None`。
@@ -61,7 +59,7 @@ fn is_env_truthy(val: &str) -> bool {
 
 /// 检查是否处于卧底模式
 pub fn is_undercover() -> bool {
-    if env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if env::var("USER_TYPE").as_deref() == Ok("internal") {
         if let Ok(val) = env::var("MOSSEN_CODE_UNDERCOVER") {
             if is_env_truthy(&val) {
                 return true;
@@ -76,7 +74,7 @@ pub fn is_undercover() -> bool {
 
 /// 获取卧底模式指令
 pub fn get_undercover_instructions() -> &'static str {
-    if env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if env::var("USER_TYPE").as_deref() == Ok("internal") {
         return r#"## UNDERCOVER MODE — CRITICAL
 
 You are operating UNDERCOVER in a PUBLIC/OPEN-SOURCE repository. Your commit
@@ -84,8 +82,8 @@ messages, PR titles, and PR bodies MUST NOT contain ANY Mossen-internal
 information. Do not blow your cover.
 
 NEVER include in commit messages or PR descriptions:
-- Internal model codenames (animal names like Capybara, Tengu, etc.)
-- Unreleased model version numbers (e.g., opus-4-7, sonnet-4-8)
+- Internal model codenames (animal names like Capybara, Mossen, etc.)
+- Unreleased model version numbers (e.g., max-4-7, balanced-4-8)
 - Internal repo or project names (e.g., mossen-cli-internal, mossen/…)
 - Internal tooling, Slack channels, or short links (e.g., go/cc, #mossen-code-…)
 - The phrase "Mossen" or any mention that you are an AI
@@ -102,7 +100,7 @@ GOOD:
 
 BAD (never write these):
 - "Fix bug found while testing with internal Capybara build"
-- "1-shotted by internal-opus-4-6"
+- "1-shotted by internal-max-4-6"
 - "Generated with Mossen"
 - "Co-Authored-By: internal agent <…>"
 "#;
@@ -114,7 +112,7 @@ BAD (never write these):
 /// 当以下条件满足时返回 true：卧底模式通过自动检测激活（非通过 env 强制），
 /// 且用户之前未看过通知。
 pub fn should_show_undercover_auto_notice() -> bool {
-    if env::var("USER_TYPE").as_deref() == Ok("ant") {
+    if env::var("USER_TYPE").as_deref() == Ok("internal") {
         // 如果通过 env 强制，用户已经知道；不要打扰
         if let Ok(val) = env::var("MOSSEN_CODE_UNDERCOVER") {
             if is_env_truthy(&val) {

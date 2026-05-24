@@ -1,4 +1,4 @@
-//! LSP plugin recommendation hook (useLspPluginRecommendation.tsx).
+//! LSP plugin recommendation hook.
 //!
 //! Recommends LSP plugins based on detected file types in the workspace.
 
@@ -41,7 +41,9 @@ impl LspPluginRecommendationState {
                 _ => continue,
             };
 
-            if !installed_plugins.contains(&plugin_id.to_string()) && !self.dismissed.contains(&plugin_id.to_string()) {
+            if !installed_plugins.contains(&plugin_id.to_string())
+                && !self.dismissed.contains(&plugin_id.to_string())
+            {
                 self.recommendations.push(PluginRecommendation {
                     plugin_id: plugin_id.to_string(),
                     plugin_name: format!("{} Language Server", lang),

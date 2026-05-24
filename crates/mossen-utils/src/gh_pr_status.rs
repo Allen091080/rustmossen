@@ -71,7 +71,11 @@ async fn get_current_branch() -> Option<String> {
     .await;
     if result.code == 0 {
         let branch = result.stdout.trim().to_string();
-        if branch.is_empty() { None } else { Some(branch) }
+        if branch.is_empty() {
+            None
+        } else {
+            Some(branch)
+        }
     } else {
         None
     }
@@ -161,7 +165,10 @@ pub async fn fetch_pr_status() -> Option<PrStatus> {
         .get("isDraft")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let head_ref_name = data.get("headRefName").and_then(|v| v.as_str()).unwrap_or("");
+    let head_ref_name = data
+        .get("headRefName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let state = data.get("state").and_then(|v| v.as_str()).unwrap_or("");
 
     // Don't show PR status for PRs from the default branch

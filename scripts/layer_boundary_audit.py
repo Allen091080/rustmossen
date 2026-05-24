@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit high-risk imports across Core / CLI / Workbench boundaries."""
+"""Audit high-risk imports across the current Rust TUI boundaries."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ IMPORT_RE = re.compile(
     re.MULTILINE,
 )
 DYNAMIC_RE = re.compile(r"""(?:import|require)\(\s*["']([^"']+)["']\s*\)""")
+RUST_USE_RE = re.compile(r"""^\s*(?:pub\s+)?use\s+([^;]+);""", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -60,13 +61,88 @@ def line_number(text: str, offset: int) -> int:
 
 
 def strip_known_extension(path: str) -> str:
-    for suffix in (".js", ".jsx", ".ts", ".tsx"):
+    for suffix in (".rs", ".js", ".jsx", ".ts", ".tsx"):
         if path.endswith(suffix):
             return path[: -len(suffix)]
     return path
 
 
+def crate_src_root(source: Path) -> Path | None:
+    rel = source.relative_to(ROOT)
+    parts = rel.parts
+    if len(parts) >= 3 and parts[0] == "crates" and parts[2] == "src":
+        return ROOT / parts[0] / parts[1] / parts[2]
+    if "src" in parts:
+        index = parts.index("src")
+        return ROOT.joinpath(*parts[: index + 1])
+    return None
+
+
+def current_rust_module_parts(source: Path, src_root: Path) -> list[str]:
+    rel = source.relative_to(src_root)
+    if rel.name == "mod.rs":
+        return list(rel.parent.parts)
+    return list(rel.with_suffix("").parts)
+
+
+def rust_module_file(src_root: Path, parts: list[str]) -> Path | None:
+    if not parts:
+        return None
+    direct = src_root.joinpath(*parts).with_suffix(".rs")
+    if direct.exists():
+        return direct
+    module = src_root.joinpath(*parts) / "mod.rs"
+    if module.exists():
+        return module
+    return None
+
+
+def normalize_rust_specifier(source: Path, specifier: str) -> tuple[str, ...]:
+    src_root = crate_src_root(source)
+    if src_root is None:
+        return ()
+
+    spec = re.sub(r"\s+", "", specifier)
+    if "as" in spec:
+        spec = spec.split("as", 1)[0]
+
+    base_parts: list[str]
+    if spec.startswith("crate::"):
+        rest = spec[len("crate::") :]
+        base_parts = []
+    elif spec.startswith("super::"):
+        current = current_rust_module_parts(source, src_root)
+        base_parts = current[:-1]
+        rest = spec[len("super::") :]
+    elif spec.startswith("self::"):
+        base_parts = current_rust_module_parts(source, src_root)
+        rest = spec[len("self::") :]
+    else:
+        return ()
+
+    if "::<" in rest:
+        rest = rest.split("::<", 1)[0]
+    if "::{" in rest:
+        rest = rest.split("::{", 1)[0]
+    if "," in rest:
+        rest = rest.split(",", 1)[0]
+    rest = rest.strip("{}")
+    parts = base_parts + [part for part in rest.split("::") if part]
+
+    targets: set[str] = set()
+    for end in range(len(parts), 0, -1):
+        candidate = rust_module_file(src_root, parts[:end])
+        if candidate is None:
+            continue
+        targets.add(as_posix(candidate.relative_to(ROOT)))
+        break
+    return tuple(sorted(targets))
+
+
 def normalize_specifier(source: Path, specifier: str) -> tuple[str, ...]:
+    if source.suffix == ".rs":
+        return normalize_rust_specifier(source, specifier)
+
     if specifier.startswith("."):
         base = (source.parent / specifier).resolve()
         try:
@@ -91,6 +167,15 @@ def normalize_specifier(source: Path, specifier: str) -> tuple[str, ...]:
 def iter_imports(path: Path) -> Iterable[ImportRef]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     rel = as_posix(path.relative_to(ROOT))
+    if path.suffix == ".rs":
+        for match in RUST_USE_RE.finditer(text):
+            specifier = match.group(1)
+            targets = normalize_specifier(path, specifier)
+            if not targets:
+                continue
+            yield ImportRef(rel, line_number(text, match.start(1)), specifier, targets)
+        return
+
     seen: set[tuple[int, str]] = set()
     for regex in (IMPORT_RE, DYNAMIC_RE):
         for match in regex.finditer(text):

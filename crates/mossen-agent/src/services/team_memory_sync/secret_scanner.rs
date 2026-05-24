@@ -26,49 +26,193 @@ struct SecretRule {
 
 static SECRET_RULES: &[SecretRule] = &[
     // Cloud providers
-    SecretRule { id: "aws-access-token", source: r"\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b", case_insensitive: false },
-    SecretRule { id: "gcp-api-key", source: r#"\b(AIza[\w\-]{35})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "azure-ad-client-secret", source: r#"(?:^|[\\'"`\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.\-]{31,34})(?:$|[\\'"`\s<),])"#, case_insensitive: false },
-    SecretRule { id: "digitalocean-pat", source: r#"\b(dop_v1_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "digitalocean-access-token", source: r#"\b(doo_v1_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
+    SecretRule {
+        id: "aws-access-token",
+        source: r"\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "gcp-api-key",
+        source: r#"\b(AIza[\w\-]{35})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "azure-ad-client-secret",
+        source: r#"(?:^|[\\'"`\s>=:(,)])([a-zA-Z0-9_~.]{3}\dQ~[a-zA-Z0-9_~.\-]{31,34})(?:$|[\\'"`\s<),])"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "digitalocean-pat",
+        source: r#"\b(dop_v1_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "digitalocean-access-token",
+        source: r#"\b(doo_v1_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
     // AI APIs
-    SecretRule { id: "third-party-ai-api-key", source: r#"\b(sk-ant-api03-[a-zA-Z0-9_\-]{93}AA)(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "third-party-ai-admin-api-key", source: r#"\b(sk-ant-admin01-[a-zA-Z0-9_\-]{93}AA)(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "openai-api-key", source: r#"\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_\-]{74}|[A-Za-z0-9_\-]{58})T3BlbkFJ(?:[A-Za-z0-9_\-]{74}|[A-Za-z0-9_\-]{58})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "huggingface-access-token", source: r#"\b(hf_[a-zA-Z]{34})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
+    SecretRule {
+        id: "third-party-ai-api-key",
+        source: r#"\b(sk-mossen-api03-[a-zA-Z0-9_\-]{93}AA)(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "third-party-ai-admin-api-key",
+        source: r#"\b(sk-mossen-admin01-[a-zA-Z0-9_\-]{93}AA)(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "openai-api-key",
+        source: r#"\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_\-]{74}|[A-Za-z0-9_\-]{58})T3BlbkFJ(?:[A-Za-z0-9_\-]{74}|[A-Za-z0-9_\-]{58})\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "huggingface-access-token",
+        source: r#"\b(hf_[a-zA-Z]{34})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
     // Version control
-    SecretRule { id: "github-pat", source: r"ghp_[0-9a-zA-Z]{36}", case_insensitive: false },
-    SecretRule { id: "github-fine-grained-pat", source: r"github_pat_\w{82}", case_insensitive: false },
-    SecretRule { id: "github-app-token", source: r"(?:ghu|ghs)_[0-9a-zA-Z]{36}", case_insensitive: false },
-    SecretRule { id: "github-oauth", source: r"gho_[0-9a-zA-Z]{36}", case_insensitive: false },
-    SecretRule { id: "github-refresh-token", source: r"ghr_[0-9a-zA-Z]{36}", case_insensitive: false },
-    SecretRule { id: "gitlab-pat", source: r"glpat-[\w\-]{20}", case_insensitive: false },
-    SecretRule { id: "gitlab-deploy-token", source: r"gldt-[0-9a-zA-Z_\-]{20}", case_insensitive: false },
+    SecretRule {
+        id: "github-pat",
+        source: r"ghp_[0-9a-zA-Z]{36}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "github-fine-grained-pat",
+        source: r"github_pat_\w{82}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "github-app-token",
+        source: r"(?:ghu|ghs)_[0-9a-zA-Z]{36}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "github-oauth",
+        source: r"gho_[0-9a-zA-Z]{36}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "github-refresh-token",
+        source: r"ghr_[0-9a-zA-Z]{36}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "gitlab-pat",
+        source: r"glpat-[\w\-]{20}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "gitlab-deploy-token",
+        source: r"gldt-[0-9a-zA-Z_\-]{20}",
+        case_insensitive: false,
+    },
     // Communication
-    SecretRule { id: "slack-bot-token", source: r"xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9\-]*", case_insensitive: false },
-    SecretRule { id: "slack-user-token", source: r"xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9\-]{28,34}", case_insensitive: false },
-    SecretRule { id: "slack-app-token", source: r"xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+", case_insensitive: true },
-    SecretRule { id: "twilio-api-key", source: r"SK[0-9a-fA-F]{32}", case_insensitive: false },
-    SecretRule { id: "sendgrid-api-token", source: r#"\b(SG\.[a-zA-Z0-9=_\-.]{66})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
+    SecretRule {
+        id: "slack-bot-token",
+        source: r"xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9\-]*",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "slack-user-token",
+        source: r"xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9\-]{28,34}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "slack-app-token",
+        source: r"xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+",
+        case_insensitive: true,
+    },
+    SecretRule {
+        id: "twilio-api-key",
+        source: r"SK[0-9a-fA-F]{32}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "sendgrid-api-token",
+        source: r#"\b(SG\.[a-zA-Z0-9=_\-.]{66})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
     // Dev tooling
-    SecretRule { id: "npm-access-token", source: r#"\b(npm_[a-zA-Z0-9]{36})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "pypi-upload-token", source: r"pypi-AgEIcHlwaS5vcmc[\w\-]{50,1000}", case_insensitive: false },
-    SecretRule { id: "databricks-api-token", source: r#"\b(dapi[a-f0-9]{32}(?:-\d)?)(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "hashicorp-tf-api-token", source: r"[a-zA-Z0-9]{14}\.atlasv1\.[a-zA-Z0-9\-_=]{60,70}", case_insensitive: false },
-    SecretRule { id: "pulumi-api-token", source: r#"\b(pul-[a-f0-9]{40})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "postman-api-token", source: r#"\b(PMAK-[a-fA-F0-9]{24}-[a-fA-F0-9]{34})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
+    SecretRule {
+        id: "npm-access-token",
+        source: r#"\b(npm_[a-zA-Z0-9]{36})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "pypi-upload-token",
+        source: r"pypi-AgEIcHlwaS5vcmc[\w\-]{50,1000}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "databricks-api-token",
+        source: r#"\b(dapi[a-f0-9]{32}(?:-\d)?)(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "hashicorp-tf-api-token",
+        source: r"[a-zA-Z0-9]{14}\.atlasv1\.[a-zA-Z0-9\-_=]{60,70}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "pulumi-api-token",
+        source: r#"\b(pul-[a-f0-9]{40})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "postman-api-token",
+        source: r#"\b(PMAK-[a-fA-F0-9]{24}-[a-fA-F0-9]{34})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
     // Observability
-    SecretRule { id: "grafana-api-key", source: r#"\b(eyJrIjoi[A-Za-z0-9+/]{70,400}={0,3})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "grafana-cloud-api-token", source: r#"\b(glc_[A-Za-z0-9+/]{32,400}={0,3})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "grafana-service-account-token", source: r#"\b(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "sentry-user-token", source: r#"\b(sntryu_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "sentry-org-token", source: r"\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}", case_insensitive: false },
+    SecretRule {
+        id: "grafana-api-key",
+        source: r#"\b(eyJrIjoi[A-Za-z0-9+/]{70,400}={0,3})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "grafana-cloud-api-token",
+        source: r#"\b(glc_[A-Za-z0-9+/]{32,400}={0,3})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "grafana-service-account-token",
+        source: r#"\b(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "sentry-user-token",
+        source: r#"\b(sntryu_[a-f0-9]{64})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "sentry-org-token",
+        source: r"\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}",
+        case_insensitive: false,
+    },
     // Payment / commerce
-    SecretRule { id: "stripe-access-token", source: r#"\b((?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99})(?:[`'"\s;]|\\[nr]|$)"#, case_insensitive: false },
-    SecretRule { id: "shopify-access-token", source: r"shpat_[a-fA-F0-9]{32}", case_insensitive: false },
-    SecretRule { id: "shopify-shared-secret", source: r"shpss_[a-fA-F0-9]{32}", case_insensitive: false },
+    SecretRule {
+        id: "stripe-access-token",
+        source: r#"\b((?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99})(?:[`'"\s;]|\\[nr]|$)"#,
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "shopify-access-token",
+        source: r"shpat_[a-fA-F0-9]{32}",
+        case_insensitive: false,
+    },
+    SecretRule {
+        id: "shopify-shared-secret",
+        source: r"shpss_[a-fA-F0-9]{32}",
+        case_insensitive: false,
+    },
     // Crypto
-    SecretRule { id: "private-key", source: r"-----BEGIN[ A-Z0-9_\-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S\-]{64,}?-----END[ A-Z0-9_\-]{0,100}PRIVATE KEY(?: BLOCK)?-----", case_insensitive: true },
+    SecretRule {
+        id: "private-key",
+        source: r"-----BEGIN[ A-Z0-9_\-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S\-]{64,}?-----END[ A-Z0-9_\-]{0,100}PRIVATE KEY(?: BLOCK)?-----",
+        case_insensitive: true,
+    },
 ];
 
 struct CompiledRule {

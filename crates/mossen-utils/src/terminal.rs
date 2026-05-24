@@ -5,6 +5,8 @@
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::string_utils::prefix_chars;
+
 /// 最多显示的行数
 const MAX_LINES_TO_SHOW: usize = 3;
 
@@ -66,16 +68,14 @@ fn wrap_text(text: &str, wrap_width: usize) -> WrapResult {
 
     // If there's only 1 line after the fold, show it directly
     if remaining_lines == 1 {
-        let fold = wrapped_lines[..MAX_LINES_TO_SHOW + 1]
-            .join("\n");
+        let fold = wrapped_lines[..MAX_LINES_TO_SHOW + 1].join("\n");
         return WrapResult {
             above_the_fold: fold.trim_end().to_string(),
             remaining_lines: 0,
         };
     }
 
-    let fold = wrapped_lines[..std::cmp::min(MAX_LINES_TO_SHOW, total)]
-        .join("\n");
+    let fold = wrapped_lines[..std::cmp::min(MAX_LINES_TO_SHOW, total)].join("\n");
     WrapResult {
         above_the_fold: fold.trim_end().to_string(),
         remaining_lines,
@@ -112,17 +112,17 @@ pub fn render_truncated_content(
     // Only process enough content for the visible lines. Avoids O(n) wrapping
     // on huge outputs (e.g. 64MB binary dumps that cause 382K-row screens).
     let max_chars = MAX_LINES_TO_SHOW * wrap_width * 4;
-    let pre_truncated = trimmed_content.len() > max_chars;
+    let pre_truncated = trimmed_content.chars().count() > max_chars;
     let content_for_wrapping = if pre_truncated {
-        &trimmed_content[..max_chars.min(trimmed_content.len())]
+        prefix_chars(trimmed_content, max_chars)
     } else {
-        trimmed_content
+        trimmed_content.to_string()
     };
 
     let WrapResult {
         above_the_fold,
         remaining_lines,
-    } = wrap_text(content_for_wrapping, wrap_width);
+    } = wrap_text(&content_for_wrapping, wrap_width);
 
     let estimated_remaining = if pre_truncated {
         let estimated = trimmed_content.len() / wrap_width.max(1);

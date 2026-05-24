@@ -110,10 +110,7 @@ pub fn clear_mcp_auth_cache() {
 
 /// 给上层提供的入口：标记某个 server 已建立 auth。
 pub fn mark_mcp_auth_cached(server_key: &str) {
-    auth_cache()
-        .lock()
-        .unwrap()
-        .insert(server_key.to_string());
+    auth_cache().lock().unwrap().insert(server_key.to_string());
 }
 
 /// 给上层提供的入口：查询某个 server 是否在 auth 缓存中。
@@ -149,10 +146,7 @@ pub struct HostedProxyHeaders {
 ///
 /// 把 hosted-proxy 头注入到调用方传入的 inner fetch。返回值类型是 `FetchLike`，
 /// 调用方对每次请求都会自动得到这些头。
-pub fn create_hosted_proxy_fetch(
-    inner: FetchLike,
-    proxy_headers: HostedProxyHeaders,
-) -> FetchLike {
+pub fn create_hosted_proxy_fetch(inner: FetchLike, proxy_headers: HostedProxyHeaders) -> FetchLike {
     std::sync::Arc::new(move |url, headers, body| {
         let mut merged = headers.clone();
         if let Some(v) = &proxy_headers.authorization {
@@ -170,9 +164,7 @@ pub fn create_hosted_proxy_fetch(
         let inner = inner.clone();
         let body_owned = body.map(|b| b.to_vec());
         let url_owned = url.to_string();
-        Box::pin(async move {
-            inner(&url_owned, &merged, body_owned.as_deref()).await
-        })
+        Box::pin(async move { inner(&url_owned, &merged, body_owned.as_deref()).await })
     })
 }
 
@@ -225,7 +217,11 @@ pub fn get_server_cache_key(name: &str, config: &JsonValue) -> String {
     });
     use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
-    h.update(serde_json::to_string(&canonical).unwrap_or_default().as_bytes());
+    h.update(
+        serde_json::to_string(&canonical)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     let hex = format!("{:x}", h.finalize());
     let short: String = hex.chars().take(16).collect();
     format!("{}|{}", name, short)

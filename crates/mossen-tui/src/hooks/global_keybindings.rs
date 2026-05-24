@@ -1,4 +1,4 @@
-//! Global keybindings hook (useGlobalKeybindings.tsx).
+//! Global keybindings hook.
 //!
 //! Registers application-wide keybindings that are always active.
 
@@ -77,7 +77,7 @@ impl Default for GlobalKeybindingsState {
 }
 
 // ============================================================================
-// GlobalKeybindingHandlers — translated from useGlobalKeybindings.tsx
+// GlobalKeybindingHandlers.
 // ============================================================================
 
 /// Screen identifier mirroring `Screen` from `screens/REPL.ts`.
@@ -113,7 +113,7 @@ pub struct GlobalKeybindingHandlersInput {
 }
 
 /// Action one of the global keybindings should perform. Translated from
-/// the per-binding callbacks in `useGlobalKeybindings.tsx`.
+/// the per-binding callbacks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GlobalKeybindingEffect {
     /// No-op (binding not active in this context).
@@ -127,9 +127,7 @@ pub enum GlobalKeybindingEffect {
         entering_transcript: bool,
     },
     /// Toggle the `showAllInTranscript` flag.
-    ToggleShowAll {
-        next_show_all: bool,
-    },
+    ToggleShowAll { next_show_all: bool },
     /// Exit transcript mode.
     ExitTranscript,
     /// Toggle the brief-only display filter.
@@ -146,11 +144,14 @@ pub enum GlobalKeybindingEffect {
 /// each registered keybinding action should produce given the current
 /// app/screen state.
 ///
-/// TS source: `GlobalKeybindingHandlers` from `useGlobalKeybindings.tsx`.
+/// Global keybinding handler state.
 /// The TS component renders nothing and exists purely to register
 /// callbacks; we model that as pure functions returning effects so the
 /// caller can apply them to its state store.
-pub fn global_keybinding_handlers(action: &str, input: &GlobalKeybindingHandlersInput) -> GlobalKeybindingEffect {
+pub fn global_keybinding_handlers(
+    action: &str,
+    input: &GlobalKeybindingHandlersInput,
+) -> GlobalKeybindingEffect {
     match action {
         // ctrl+t — toggle todos / cycle teammates view
         "app:toggleTodos" => {
@@ -171,7 +172,11 @@ pub fn global_keybinding_handlers(action: &str, input: &GlobalKeybindingHandlers
         // ctrl+o — toggle transcript mode.
         "app:toggleTranscript" => {
             let entering = input.screen != Screen::Transcript;
-            let next_screen = if entering { Screen::Transcript } else { Screen::Prompt };
+            let next_screen = if entering {
+                Screen::Transcript
+            } else {
+                Screen::Prompt
+            };
             GlobalKeybindingEffect::ToggleTranscript {
                 next_screen,
                 next_show_all: false,
@@ -184,7 +189,9 @@ pub fn global_keybinding_handlers(action: &str, input: &GlobalKeybindingHandlers
         // keystrokes).
         "transcript:toggleShowAll" => {
             if input.screen == Screen::Transcript && !input.virtual_scroll_active {
-                GlobalKeybindingEffect::ToggleShowAll { next_show_all: !input.show_all_in_transcript }
+                GlobalKeybindingEffect::ToggleShowAll {
+                    next_show_all: !input.show_all_in_transcript,
+                }
             } else {
                 GlobalKeybindingEffect::NoOp
             }
@@ -243,7 +250,10 @@ mod handlers_tests {
     #[test]
     fn toggle_todos_no_teammates() {
         let r = global_keybinding_handlers("app:toggleTodos", &base());
-        assert_eq!(r, GlobalKeybindingEffect::SetExpandedView(ExpandedView::Tasks));
+        assert_eq!(
+            r,
+            GlobalKeybindingEffect::SetExpandedView(ExpandedView::Tasks)
+        );
     }
 
     #[test]
@@ -252,7 +262,10 @@ mod handlers_tests {
         i.has_teammates = true;
         i.expanded_view = ExpandedView::Tasks;
         let r = global_keybinding_handlers("app:toggleTodos", &i);
-        assert_eq!(r, GlobalKeybindingEffect::SetExpandedView(ExpandedView::Teammates));
+        assert_eq!(
+            r,
+            GlobalKeybindingEffect::SetExpandedView(ExpandedView::Teammates)
+        );
     }
 
     #[test]
@@ -260,6 +273,9 @@ mod handlers_tests {
         let mut i = base();
         i.screen = Screen::Transcript;
         i.search_bar_open = true;
-        assert_eq!(global_keybinding_handlers("transcript:exit", &i), GlobalKeybindingEffect::NoOp);
+        assert_eq!(
+            global_keybinding_handlers("transcript:exit", &i),
+            GlobalKeybindingEffect::NoOp
+        );
     }
 }

@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use mossen_types::{ToolDefinition, ToolUseContext};
@@ -109,7 +110,10 @@ impl ToolRegistry {
 
     /// 按名称查找工具。
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.get(name).map(|t| t.as_ref())
+        self.tools
+            .get(name)
+            .or_else(|| alias_tool_name(name).and_then(|alias| self.tools.get(alias)))
+            .map(|t| t.as_ref())
     }
 
     /// 获取所有工具名称。
@@ -139,13 +143,63 @@ impl ToolRegistry {
         input: Value,
         context: &ToolUseContext,
     ) -> anyhow::Result<ToolResult> {
+        let resolved_name = alias_tool_name(tool_name).unwrap_or(tool_name);
         let tool = self
             .tools
-            .get(tool_name)
+            .get(resolved_name)
             .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
 
         let start = std::time::Instant::now();
         let result = tool.execute(input, context).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(mut r) => {
+                r.duration_ms = duration_ms;
+                Ok(r)
+            }
+            Err(e) => {
+                error!(tool = tool_name, error = %e, "Tool execution failed");
+                Ok(ToolResult {
+                    output: format!("Error: {}", e),
+                    is_error: true,
+                    duration_ms,
+                    metadata: HashMap::new(),
+                })
+            }
+        }
+    }
+
+    /// Execute a tool while watching the current turn cancellation token.
+    ///
+    /// Dropping the in-flight tool future is significant for shell tools:
+    /// their foreground child process is owned by the future and configured
+    /// with `kill_on_drop(true)`, so Ctrl-C can stop a running command instead
+    /// of waiting for the tool timeout.
+    pub async fn execute_with_cancel(
+        &self,
+        tool_name: &str,
+        input: Value,
+        context: &ToolUseContext,
+        cancel: &CancellationToken,
+    ) -> anyhow::Result<ToolResult> {
+        if cancel.is_cancelled() {
+            anyhow::bail!("Tool execution cancelled");
+        }
+
+        let resolved_name = alias_tool_name(tool_name).unwrap_or(tool_name);
+        let tool = self
+            .tools
+            .get(resolved_name)
+            .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", tool_name))?;
+
+        let start = std::time::Instant::now();
+        let result = tokio::select! {
+            result = tool.execute(input, context) => result,
+            _ = cancel.cancelled() => {
+                anyhow::bail!("Tool execution cancelled");
+            }
+        };
         let duration_ms = start.elapsed().as_millis() as u64;
 
         match result {
@@ -172,6 +226,17 @@ impl ToolRegistry {
             .filter(|(_, t)| t.is_read_only())
             .map(|(name, _)| name.as_str())
             .collect()
+    }
+}
+
+fn alias_tool_name(name: &str) -> Option<&'static str> {
+    match name {
+        // Mossen Code-compatible model prompts often call the sub-agent
+        // launcher `Task`; the Rust registry's implementation is named
+        // `Agent`. Accept both spellings so model output does not dead-end
+        // after the user approves a perfectly valid sub-agent call.
+        "Task" => Some("Agent"),
+        _ => None,
     }
 }
 
@@ -399,7 +464,10 @@ pub struct ToolUseContextValue {
 /// `Tool.ts` `buildTool` — applies TOOL_DEFAULTS spread over `def`.
 pub fn build_tool(def: ToolDef) -> BuiltTool {
     BuiltTool {
-        user_facing_name: def.user_facing_name.clone().unwrap_or_else(|| def.name.clone()),
+        user_facing_name: def
+            .user_facing_name
+            .clone()
+            .unwrap_or_else(|| def.name.clone()),
         name: def.name,
         aliases: def.aliases,
         description: def.description,
@@ -413,7 +481,115 @@ pub fn build_tool(def: ToolDef) -> BuiltTool {
         is_concurrency_safe: def.is_concurrency_safe.unwrap_or(false),
         is_destructive: def.is_destructive.unwrap_or(false),
         to_auto_classifier_input: def.to_auto_classifier_input.unwrap_or_default(),
-        input_schema: def.input_schema.unwrap_or_else(ToolInputJSONSchema::new_object),
+        input_schema: def
+            .input_schema
+            .unwrap_or_else(ToolInputJSONSchema::new_object),
         extra: def.extra,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Tool, ToolRegistry, ToolResult, ToolType};
+    use async_trait::async_trait;
+    use mossen_types::{ToolDefinition, ToolInputSchema, ToolUseContext};
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
+
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct BlockingTool {
+        started: Mutex<Option<oneshot::Sender<()>>>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl Tool for BlockingTool {
+        fn name(&self) -> &str {
+            "Blocking"
+        }
+
+        fn description(&self) -> &str {
+            "Blocks until cancelled"
+        }
+
+        fn tool_type(&self) -> ToolType {
+            ToolType::Builtin
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: self.name().to_string(),
+                description: self.description().to_string(),
+                input_schema: ToolInputSchema {
+                    schema_type: "object".to_string(),
+                    properties: None,
+                    required: None,
+                    extra: HashMap::new(),
+                },
+                cache_control: None,
+            }
+        }
+
+        async fn execute(
+            &self,
+            _input: Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            let _drop_flag = DropFlag(self.dropped.clone());
+            if let Some(started) = self.started.lock().expect("started lock").take() {
+                let _ = started.send(());
+            }
+            std::future::pending::<()>().await;
+            unreachable!("pending future should be dropped by cancellation")
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_with_cancel_drops_in_flight_tool_future() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = oneshot::channel();
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(BlockingTool {
+            started: Mutex::new(Some(started_tx)),
+            dropped: dropped.clone(),
+        }));
+        let registry = Arc::new(registry);
+        let cancel = CancellationToken::new();
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let task = {
+            let registry = registry.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                registry
+                    .execute_with_cancel("Blocking", serde_json::json!({}), &context, &cancel)
+                    .await
+            })
+        };
+
+        started_rx.await.expect("blocking tool started");
+        cancel.cancel();
+        let result = tokio::time::timeout(std::time::Duration::from_millis(250), task)
+            .await
+            .expect("cancelled tool returned")
+            .expect("task joined");
+
+        assert!(result.is_err());
+        assert!(dropped.load(Ordering::SeqCst));
     }
 }

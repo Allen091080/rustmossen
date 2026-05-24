@@ -1,11 +1,6 @@
 //! TUI auxiliary services — terminal title / tab-status / desktop notification
 //! glue + cost-threshold / idle-return / message-selector / search dialogs.
 //!
-//! Translates the cluster of `useTerminalTitle`/`useTabStatus`/
-//! `useTerminalNotification`/`useTerminalFocus`/`CostThresholdDialog`/
-//! `IdleReturnDialog`/`MessageSelector`/`GlobalSearchDialog` glue that
-//! `screens/REPL.tsx` wires onto the React App component.
-//!
 //! Design note: the core `App` struct (in `app.rs`) is owned by a parallel
 //! wiring agent. They've added a unified [`crate::app::ActiveModal`] enum
 //! with tag-style variants (`CostThreshold(String)`, `IdleReturn(String)`,
@@ -22,9 +17,8 @@
 //! * Spinner-glue: when `is_streaming` flips true the title becomes
 //!   `"Mossen ▸ ⠋ thinking..."`, tab status flips to **busy**.
 //! * Completion: when streaming ends the title is `"Mossen ▸ ready"`, tab
-//!   status **ok**, and a desktop notification (OSC 9 — written through
-//!   `ink::terminal_notification::use_terminal_notification`) fires when the
-//!   window is not focused.
+//!   status **ok**, and a desktop notification escape fires when the window is
+//!   not focused.
 //! * Submit: the idle timer is reset; a query-slot is reserved on the shared
 //!   [`mossen_utils::query_guard::QueryGuard`] so spinners can show
 //!   immediately.
@@ -34,34 +28,27 @@
 //!   *and* a response is pending the IdleReturn dialog is opened.
 //! * MessageSelector: opened on Esc when not streaming. Populated from the
 //!   on-disk session list via [`mossen_utils::list_sessions_impl`].
-//! * Search filter: opened on Ctrl+R, wraps `hooks::search_input` plus
-//!   `ink::hooks::use_search_highlight` and filters the current message list.
+//! * Search filter: opened on Ctrl+R, wraps `hooks::search_input` plus a small
+//!   local highlight state and filters the current message list.
 //!
 //! Vim mode is deliberately out of scope.
 
 use std::time::{Duration, Instant};
 
-use mossen_utils::list_sessions_impl::{
-    list_sessions_impl, ListSessionsOptions, SessionInfo,
-};
+use mossen_utils::list_sessions_impl::{list_sessions_impl, ListSessionsOptions, SessionInfo};
 use mossen_utils::query_guard::QueryGuard;
 
 use crate::app::{ActiveModal, App};
-use crate::components::dialogs::CostThresholdDialogState;
-use crate::components::root_large::{
+// `hooks::search_input` is a private module but its items are re-exported at
+// the `hooks::` root.
+use crate::hooks::SearchInputState;
+use crate::message_model::{MessageData, MessageType};
+use crate::render_model::{RenderBlockKind, RenderTranscript};
+use crate::widgets::cost_threshold::CostThresholdDialogState;
+use crate::widgets::idle_return::IdleReturnDialogState;
+use crate::widgets::message_selector::{
     MessageSelectorState, RenderableMessage, RenderableMessageType,
 };
-use crate::components::root_medium::IdleReturnDialogState;
-// `hooks::search_input` is a private module but its items are re-exported at
-// the `hooks::` root. Likewise `ink::terminal_notification` is private but
-// its items are re-exported from `ink::`.
-use crate::hooks::SearchInputState;
-use crate::ink::hooks::{
-    SearchHighlightHookState, TabStatusHookState, TabStatusKind, TerminalFocusHookState,
-    TerminalTitleHookState,
-};
-use crate::ink::{use_terminal_notification, TerminalNotification};
-use crate::widgets::message::{MessageData, MessageType};
 
 // ---------------------------------------------------------------------------
 // Defaults — pulled from settings when wired; literal fallbacks otherwise.
@@ -76,13 +63,162 @@ pub const DEFAULT_COST_THRESHOLD_USD: f64 = 5.0;
 pub const IDLE_RETURN_THRESHOLD: Duration = Duration::from_secs(15 * 60);
 
 // ---------------------------------------------------------------------------
+// Terminal chrome state
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct SearchHighlightState {
+    pub active: bool,
+}
+
+impl SearchHighlightState {
+    pub fn new() -> Self {
+        Self { active: true }
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+}
+
+impl Default for SearchHighlightState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalTitleState {
+    pub title: String,
+}
+
+impl TerminalTitleState {
+    pub fn new() -> Self {
+        Self {
+            title: String::new(),
+        }
+    }
+
+    pub fn set_title(&mut self, title: &str) {
+        self.title = sanitize_terminal_title(title);
+    }
+
+    pub fn get_title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn to_escape_sequence(&self) -> String {
+        format!("\x1b]2;{}\x07", self.title)
+    }
+}
+
+fn sanitize_terminal_title(title: &str) -> String {
+    title
+        .chars()
+        .filter_map(|ch| match ch {
+            '\u{1b}' | '\u{7}' => None,
+            ch if ch.is_control() => Some(' '),
+            ch => Some(ch),
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+impl Default for TerminalTitleState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TabStatusState {
+    pub indicator: Option<String>,
+    pub status: Option<String>,
+}
+
+impl TabStatusState {
+    pub fn new() -> Self {
+        Self {
+            indicator: None,
+            status: None,
+        }
+    }
+
+    pub fn set_indicator(&mut self, color: Option<String>) {
+        self.indicator = color;
+    }
+
+    pub fn set_status(&mut self, text: Option<String>) {
+        self.status = text;
+    }
+
+    pub fn clear(&mut self) {
+        self.indicator = None;
+        self.status = None;
+    }
+}
+
+impl Default for TabStatusState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabStatusKind {
+    Idle,
+    Busy,
+    Attention,
+    Error,
+    Success,
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalFocusState {
+    pub focused: bool,
+}
+
+impl TerminalFocusState {
+    pub fn new() -> Self {
+        Self { focused: true }
+    }
+
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+}
+
+impl Default for TerminalFocusState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TerminalNotification {
+    pub title: String,
+    pub body: String,
+    pub urgent: bool,
+}
+
+fn terminal_notification_escape(notification: &TerminalNotification) -> String {
+    format!("\x1b]9;{}: {}\x07", notification.title, notification.body)
+}
+
+// ---------------------------------------------------------------------------
 // Search panel — bundles the hook state for the Ctrl+R filter.
 // ---------------------------------------------------------------------------
 
 /// In-session message search panel state.
 pub struct SearchPanelState {
     pub input: SearchInputState,
-    pub highlight: SearchHighlightHookState,
+    pub highlight: SearchHighlightState,
     /// Indices into `App.messages` that match the current query.
     pub matches: Vec<usize>,
     /// Cursor inside `matches`.
@@ -93,7 +229,7 @@ impl SearchPanelState {
     pub fn new() -> Self {
         let mut s = Self {
             input: SearchInputState::new(),
-            highlight: SearchHighlightHookState::new(),
+            highlight: SearchHighlightState::new(),
             matches: Vec::new(),
             selected: 0,
         };
@@ -167,11 +303,14 @@ impl Default for SearchPanelState {
 /// * the cached session list used by the MessageSelector.
 pub struct TerminalServices {
     /// Title bar state — set via OSC 2.
-    pub title: TerminalTitleHookState,
+    pub title: TerminalTitleState,
+    /// Optional user-chosen terminal-title base. Streaming chrome decorates
+    /// this with the current state instead of replacing it.
+    pub manual_title: Option<String>,
     /// Tab status (busy / ok / attention).
-    pub tab: TabStatusHookState,
+    pub tab: TabStatusState,
     /// Focus tracking.
-    pub focus: TerminalFocusHookState,
+    pub focus: TerminalFocusState,
     /// Query-slot reservation (shared with QueueProcessor).
     pub query_guard: QueryGuard,
     /// Last time the user pressed a key or submitted.
@@ -203,9 +342,10 @@ pub struct TerminalServices {
 impl TerminalServices {
     pub fn new() -> Self {
         Self {
-            title: TerminalTitleHookState::new(),
-            tab: TabStatusHookState::new(),
-            focus: TerminalFocusHookState::new(),
+            title: TerminalTitleState::new(),
+            manual_title: None,
+            tab: TabStatusState::new(),
+            focus: TerminalFocusState::new(),
             query_guard: QueryGuard::new(),
             last_interaction: Instant::now(),
             last_cost_level: 0.0,
@@ -239,8 +379,10 @@ impl TerminalServices {
 
     /// Apply the "thinking" chrome.
     pub fn enter_streaming(&mut self) {
-        self.title.set_title("Mossen ▸ ⠋ thinking...");
-        self.tab.set_status(Some(tab_status_label(TabStatusKind::Busy)));
+        let title = format!("{} ▸ ⠋ thinking...", self.title_base());
+        self.title.set_title(&title);
+        self.tab
+            .set_status(Some(tab_status_label(TabStatusKind::Busy)));
         self.tab.set_indicator(Some("yellow".to_string()));
         self.notification_fired = false;
     }
@@ -248,8 +390,10 @@ impl TerminalServices {
     /// Apply the "ready" chrome. Returns the OSC 9 escape if a desktop
     /// notification should be written (window unfocused, not already fired).
     pub fn finish_streaming(&mut self) -> Option<String> {
-        self.title.set_title("Mossen ▸ ready");
-        self.tab.set_status(Some(tab_status_label(TabStatusKind::Success)));
+        let title = format!("{} ▸ ready", self.title_base());
+        self.title.set_title(&title);
+        self.tab
+            .set_status(Some(tab_status_label(TabStatusKind::Success)));
         self.tab.set_indicator(Some("green".to_string()));
 
         if !self.focus.is_focused() && !self.notification_fired {
@@ -259,7 +403,7 @@ impl TerminalServices {
                 body: "Response ready".to_string(),
                 urgent: false,
             };
-            Some(use_terminal_notification(&n))
+            Some(terminal_notification_escape(&n))
         } else {
             None
         }
@@ -269,6 +413,43 @@ impl TerminalServices {
     pub fn note_interaction(&mut self) {
         self.last_interaction = Instant::now();
         self.idle_dialog_shown = false;
+    }
+
+    pub fn title_base(&self) -> &str {
+        self.manual_title.as_deref().unwrap_or("Mossen")
+    }
+
+    pub fn visible_title(&self) -> String {
+        if self.title.get_title().trim().is_empty() {
+            format!("{} ▸ ready", self.title_base())
+        } else {
+            self.title.get_title().to_string()
+        }
+    }
+
+    pub fn set_manual_title(&mut self, title: &str) -> Option<String> {
+        let title = sanitize_terminal_title(title);
+        if title.is_empty() {
+            self.manual_title = None;
+        } else {
+            self.manual_title = Some(title);
+        }
+        self.refresh_title_for_current_state();
+        self.manual_title.clone()
+    }
+
+    pub fn clear_manual_title(&mut self) {
+        self.manual_title = None;
+        self.refresh_title_for_current_state();
+    }
+
+    pub fn refresh_title_for_current_state(&mut self) {
+        let title = if self.was_streaming {
+            format!("{} ▸ ⠋ thinking...", self.title_base())
+        } else {
+            format!("{} ▸ ready", self.title_base())
+        };
+        self.title.set_title(&title);
     }
 
     /// Idle gap since last interaction.
@@ -329,11 +510,7 @@ pub fn tick_streaming_chrome(svc: &mut TerminalServices, is_streaming: bool) -> 
 
 /// Open the cost-threshold dialog if `current_cost` crosses the configured
 /// threshold for the first time. Idempotent until the user dismisses it.
-pub fn maybe_open_cost_threshold(
-    app: &mut App,
-    svc: &mut TerminalServices,
-    current_cost: f64,
-) {
+pub fn maybe_open_cost_threshold(app: &mut App, svc: &mut TerminalServices, current_cost: f64) {
     if app.active_modal.is_open() {
         svc.last_cost_level = current_cost;
         return;
@@ -354,11 +531,7 @@ pub fn maybe_open_cost_threshold(
 /// Open the IdleReturn dialog when the user has been idle past the threshold
 /// *and* there's an in-flight response they should return to. Once shown,
 /// `idle_dialog_shown` latches until `note_interaction()` is called.
-pub fn maybe_open_idle_return(
-    app: &mut App,
-    svc: &mut TerminalServices,
-    response_pending: bool,
-) {
+pub fn maybe_open_idle_return(app: &mut App, svc: &mut TerminalServices, response_pending: bool) {
     if svc.idle_dialog_shown || app.active_modal.is_open() {
         return;
     }
@@ -388,25 +561,21 @@ pub fn open_message_selector(
     svc: &mut TerminalServices,
     file_history_enabled: bool,
 ) {
-    let renderable: Vec<RenderableMessage> = app
-        .messages
+    let transcript =
+        RenderTranscript::from_messages_and_decisions(&app.messages, &app.approval_decisions);
+    let renderable: Vec<RenderableMessage> = transcript
+        .blocks
         .iter()
-        .enumerate()
-        .map(|(i, m)| RenderableMessage {
-            uuid: format!("msg-{}", i),
-            message_type: match m.message_type {
-                MessageType::User => RenderableMessageType::User,
-                MessageType::Assistant => RenderableMessageType::Assistant,
-                MessageType::System => RenderableMessageType::System,
-                MessageType::Progress => RenderableMessageType::Progress,
-                MessageType::Attachment => RenderableMessageType::Meta,
-                MessageType::ToolUse => RenderableMessageType::ToolUse,
-                MessageType::ToolResult => RenderableMessageType::ToolResult,
-            },
-            content: m.content.clone(),
-            tool_use_id: None,
-            is_meta: false,
-            is_api_error: m.is_error,
+        .map(|block| RenderableMessage {
+            uuid: block.id.clone(),
+            message_type: render_block_kind_to_selector_type(block.kind),
+            content: block.selector_summary(),
+            tool_use_id: block.tool.as_ref().map(|tool| tool.name.clone()),
+            is_meta: matches!(
+                block.kind,
+                RenderBlockKind::Attachment | RenderBlockKind::SkillInvocation
+            ),
+            is_api_error: block.state.error,
             timestamp: None,
             model: None,
             thinking_content: None,
@@ -415,6 +584,25 @@ pub fn open_message_selector(
     let initial_index = renderable.len().saturating_sub(1);
     svc.message_selector_state = Some(MessageSelectorState::new(renderable, file_history_enabled));
     app.active_modal = ActiveModal::MessageSelector(initial_index);
+}
+
+fn render_block_kind_to_selector_type(kind: RenderBlockKind) -> RenderableMessageType {
+    match kind {
+        RenderBlockKind::User => RenderableMessageType::User,
+        RenderBlockKind::Assistant => RenderableMessageType::Assistant,
+        RenderBlockKind::System
+        | RenderBlockKind::CommandOutput
+        | RenderBlockKind::Error
+        | RenderBlockKind::FileChangeSummary => RenderableMessageType::System,
+        RenderBlockKind::Progress => RenderableMessageType::Progress,
+        RenderBlockKind::Attachment | RenderBlockKind::SkillInvocation => {
+            RenderableMessageType::Meta
+        }
+        RenderBlockKind::Tool => RenderableMessageType::ToolResult,
+        RenderBlockKind::ApprovalDecision | RenderBlockKind::FinalSummary => {
+            RenderableMessageType::Meta
+        }
+    }
 }
 
 /// Refresh the cached session list (used by the MessageSelector when the
@@ -564,9 +752,9 @@ mod tests {
                 tool_name: None,
                 is_error: false,
                 thinking: None,
-            thinking_completed_at: None,
-            full_content: None,
-            expanded: false,
+                thinking_completed_at: None,
+                full_content: None,
+                expanded: false,
             },
             MessageData {
                 message_type: MessageType::Assistant,
@@ -576,9 +764,9 @@ mod tests {
                 tool_name: None,
                 is_error: false,
                 thinking: None,
-            thinking_completed_at: None,
-            full_content: None,
-            expanded: false,
+                thinking_completed_at: None,
+                full_content: None,
+                expanded: false,
             },
             MessageData {
                 message_type: MessageType::System,
@@ -588,9 +776,9 @@ mod tests {
                 tool_name: None,
                 is_error: false,
                 thinking: None,
-            thinking_completed_at: None,
-            full_content: None,
-            expanded: false,
+                thinking_completed_at: None,
+                full_content: None,
+                expanded: false,
             },
         ]
     }
@@ -614,6 +802,30 @@ mod tests {
         tick_streaming_chrome(&mut svc, true);
         let r = tick_streaming_chrome(&mut svc, false);
         assert!(r.is_none(), "focused completion must not pop notification");
+    }
+
+    #[test]
+    fn manual_title_is_sanitized_and_persists_across_streaming_edges() {
+        let mut svc = TerminalServices::new();
+
+        let saved = svc.set_manual_title("渲染会话\u{1b}]2;bad\u{7}\nready");
+
+        assert_eq!(saved.as_deref(), Some("渲染会话]2;bad ready"));
+        assert!(svc.title.get_title().contains("渲染会话]2;bad ready"));
+        assert!(!svc.title.get_title().contains('\u{1b}'));
+        assert!(!svc.title.get_title().contains('\u{7}'));
+
+        tick_streaming_chrome(&mut svc, true);
+        assert!(svc.title.get_title().contains("渲染会话]2;bad ready"));
+        assert!(svc.title.get_title().contains("thinking"));
+
+        tick_streaming_chrome(&mut svc, false);
+        assert!(svc.title.get_title().contains("渲染会话]2;bad ready"));
+        assert!(svc.title.get_title().contains("ready"));
+
+        svc.clear_manual_title();
+        assert_eq!(svc.manual_title, None);
+        assert!(svc.title.get_title().starts_with("Mossen"));
     }
 
     #[test]
@@ -683,6 +895,50 @@ mod tests {
         dismiss_modal(&mut app, &mut svc);
         assert!(!app.active_modal.is_open());
         assert!(svc.message_selector_state.is_none());
+    }
+
+    #[test]
+    fn message_selector_uses_semantic_render_summaries() {
+        let mut app = App::new();
+        app.messages = vec![
+            MessageData {
+                message_type: MessageType::ToolUse,
+                content: r#"{"command":"ls -la"}"#.into(),
+                timestamp: None,
+                is_streaming: false,
+                tool_name: Some("Bash".into()),
+                is_error: false,
+                thinking: None,
+                thinking_completed_at: None,
+                full_content: None,
+                expanded: false,
+            },
+            MessageData {
+                message_type: MessageType::ToolResult,
+                content: r#"{"stdout":"ok\n","exit_code":0,"duration_ms":12}"#.into(),
+                timestamp: None,
+                is_streaming: false,
+                tool_name: Some("Bash".into()),
+                is_error: false,
+                thinking: None,
+                thinking_completed_at: None,
+                full_content: None,
+                expanded: false,
+            },
+        ];
+        let mut svc = TerminalServices::new();
+        open_message_selector(&mut app, &mut svc, true);
+
+        let selector = svc
+            .message_selector_state
+            .as_ref()
+            .expect("message selector state");
+        assert_eq!(selector.messages.len(), 1);
+        let content = &selector.messages[0].content;
+        assert!(content.contains("Bash"));
+        assert!(content.contains("exit 0"));
+        assert!(!content.contains("\"stdout\""));
+        assert!(!content.contains('{'));
     }
 
     #[test]

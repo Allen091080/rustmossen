@@ -42,7 +42,12 @@ pub fn unwrap_ccr_proxy_url(url: &str) -> String {
 }
 
 fn get_server_command_array(config: &JsonValue) -> Option<Vec<String>> {
-    if config.get("type").and_then(|t| t.as_str()).unwrap_or("stdio") != "stdio" {
+    if config
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("stdio")
+        != "stdio"
+    {
         return None;
     }
     let cmd = config.get("command").and_then(|v| v.as_str())?;
@@ -58,10 +63,7 @@ fn get_server_command_array(config: &JsonValue) -> Option<Vec<String>> {
 }
 
 fn get_server_url(config: &JsonValue) -> Option<String> {
-    config
-        .get("url")
-        .and_then(|v| v.as_str())
-        .map(String::from)
+    config.get("url").and_then(|v| v.as_str()).map(String::from)
 }
 
 /// `config.ts` `getMcpServerSignature`。
@@ -230,7 +232,9 @@ pub async fn parse_mcp_config_from_file_path(
 /// `config.ts` `getProjectMcpConfigsFromCwd`。
 pub async fn get_project_mcp_configs_from_cwd(cwd: &Path) -> HashMap<String, JsonValue> {
     let path = cwd.join(".mcp.json");
-    parse_mcp_config_from_file_path(&path).await.unwrap_or_default()
+    parse_mcp_config_from_file_path(&path)
+        .await
+        .unwrap_or_default()
 }
 
 /// `config.ts` `getMcpConfigsByScope` 的 Rust 形态。
@@ -296,7 +300,10 @@ pub fn get_all_mcp_configs(
 }
 
 /// `config.ts` `getMcpConfigByName`。
-pub fn get_mcp_config_by_name(configs: &HashMap<String, JsonValue>, name: &str) -> Option<JsonValue> {
+pub fn get_mcp_config_by_name(
+    configs: &HashMap<String, JsonValue>,
+    name: &str,
+) -> Option<JsonValue> {
     configs.get(name).cloned()
 }
 
@@ -374,7 +381,11 @@ pub fn is_mcp_server_disabled(name: &str, disabled_list: &[String]) -> bool {
 }
 
 /// `config.ts` `setMcpServerEnabled` — 返回更新后的 disabled 列表。
-pub fn set_mcp_server_enabled(name: &str, enabled: bool, mut disabled_list: Vec<String>) -> Vec<String> {
+pub fn set_mcp_server_enabled(
+    name: &str,
+    enabled: bool,
+    mut disabled_list: Vec<String>,
+) -> Vec<String> {
     if enabled {
         disabled_list.retain(|n| n != name);
     } else if !disabled_list.iter().any(|n| n == name) {

@@ -189,11 +189,7 @@ impl RemoteSessionManager {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let removed = self
-            .pending_permissions
-            .lock()
-            .unwrap()
-            .remove(&request_id);
+        let removed = self.pending_permissions.lock().unwrap().remove(&request_id);
         let tool_use_id = removed
             .as_ref()
             .and_then(|v| v.get("tool_use_id"))
@@ -354,7 +350,9 @@ pub fn is_success_result(msg: &JsonValue) -> bool {
 
 /// `remote/sdkMessageAdapter.ts` `getResultText`。
 pub fn get_result_text(msg: &JsonValue) -> Option<String> {
-    msg.get("result").and_then(|v| v.as_str()).map(String::from)
+    msg.get("result")
+        .and_then(|v| v.as_str())
+        .map(String::from)
         .or_else(|| {
             msg.get("response")
                 .and_then(|r| r.get("text"))

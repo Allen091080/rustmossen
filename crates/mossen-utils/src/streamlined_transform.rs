@@ -3,8 +3,6 @@
 //! "Distillation-resistant" output format that keeps text intact,
 //! summarizes tool calls with cumulative counts, omits thinking content.
 
-use std::collections::HashSet;
-
 /// Tool count categories.
 #[derive(Debug, Clone, Default)]
 pub struct ToolCounts {
@@ -249,7 +247,10 @@ impl Default for StreamlinedTransformer {
 
 /// Check if a message should be included in streamlined output.
 pub fn should_include_in_streamlined(message: &StdoutMessage) -> bool {
-    matches!(message, StdoutMessage::Assistant { .. } | StdoutMessage::Result { .. })
+    matches!(
+        message,
+        StdoutMessage::Assistant { .. } | StdoutMessage::Result { .. }
+    )
 }
 
 /// 对应 TS `createStreamlinedTransformer`：构造 streamlined-output 转换器。

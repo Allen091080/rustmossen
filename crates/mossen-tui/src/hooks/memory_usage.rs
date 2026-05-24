@@ -58,12 +58,17 @@ impl MemoryUsageState {
 
     /// Get the current status.
     pub fn status(&self) -> MemoryUsageStatus {
-        self.current.as_ref().map_or(MemoryUsageStatus::Normal, |i| i.status)
+        self.current
+            .as_ref()
+            .map_or(MemoryUsageStatus::Normal, |i| i.status)
     }
 
     /// Check if memory is in a warning state.
     pub fn is_warning(&self) -> bool {
-        matches!(self.status(), MemoryUsageStatus::High | MemoryUsageStatus::Critical)
+        matches!(
+            self.status(),
+            MemoryUsageStatus::High | MemoryUsageStatus::Critical
+        )
     }
 }
 

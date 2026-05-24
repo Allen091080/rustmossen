@@ -8,9 +8,9 @@ use std::collections::HashMap;
 /// macOS Option+key 特殊字符映射表。
 /// 用于检测未启用 "Option as Meta" 的 macOS 终端上的 Option+key 快捷键。
 pub const MACOS_OPTION_SPECIAL_CHARS: &[(&str, &str)] = &[
-    ("†", "alt+t"),  // Option+T -> thinking toggle
-    ("π", "alt+p"),  // Option+P -> model picker
-    ("ø", "alt+o"),  // Option+O -> fast mode
+    ("†", "alt+t"), // Option+T -> thinking toggle
+    ("π", "alt+p"), // Option+P -> model picker
+    ("ø", "alt+o"), // Option+O -> fast mode
 ];
 
 /// 转换为 HashMap 以便快速查找。

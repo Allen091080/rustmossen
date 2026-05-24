@@ -14,7 +14,7 @@ pub fn is_internal_user_type_unlocked() -> bool {
 
 /// 标准化用户类型。
 ///
-/// 内部用户类型('ant', 'mossen')仅在显式解锁环境变量设置时才通过；
+/// 内部用户类型('internal', 'mossen')仅在显式解锁环境变量设置时才通过；
 /// 其他情况均折叠为 'external'。
 pub fn normalize_user_type(raw: Option<&str>) -> String {
     let raw = raw.unwrap_or("");
@@ -24,7 +24,7 @@ pub fn normalize_user_type(raw: Option<&str>) -> String {
     if raw.is_empty() {
         return PUBLIC_USER_TYPE.to_string();
     }
-    if (raw == "ant" || raw == "mossen") && is_internal_user_type_unlocked() {
+    if (raw == "internal" || raw == "mossen") && is_internal_user_type_unlocked() {
         return raw.to_string();
     }
     PUBLIC_USER_TYPE.to_string()

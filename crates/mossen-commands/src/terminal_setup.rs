@@ -90,10 +90,7 @@ fn install_bindings_for_vscode_terminal(editor: &str) -> String {
 
     let user_dir = match platform {
         "windows" => format!("{}\\AppData\\Roaming\\{}\\User", home, editor_dir),
-        "macos" => format!(
-            "{}/Library/Application Support/{}/User",
-            home, editor_dir
-        ),
+        "macos" => format!("{}/Library/Application Support/{}/User", home, editor_dir),
         _ => format!("{}/.config/{}/User", home, editor_dir),
     };
     let keybindings_path = format!("{}/keybindings.json", user_dir);
@@ -130,8 +127,7 @@ fn enable_option_as_meta_for_terminal() -> String {
 /// Install keybindings for Alacritty.
 fn install_bindings_for_alacritty() -> String {
     let home = env::var("HOME").unwrap_or_else(|_| "~".to_string());
-    let xdg_config = env::var("XDG_CONFIG_HOME")
-        .unwrap_or_else(|_| format!("{}/.config", home));
+    let xdg_config = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home));
     let config_path = format!("{}/alacritty/alacritty.toml", xdg_config);
 
     // The keybinding to add:

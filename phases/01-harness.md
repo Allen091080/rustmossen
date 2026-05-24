@@ -11,7 +11,7 @@
 
 ### 1.1 Mossen 是什么
 
-**Mossen** 是 Rust 写的 coding agent CLI，对标 Claude Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。代码在 `/Users/allen/Documents/rustmossen/`，按 Cargo workspace 组织成 10 个 crate。
+**Mossen** 是 Rust 写的 coding agent CLI，对标 Mossen Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。代码在 `/Users/allen/Documents/rustmossen/`，按 Cargo workspace 组织成 10 个 crate。
 
 ### 1.2 什么是 "harness"
 

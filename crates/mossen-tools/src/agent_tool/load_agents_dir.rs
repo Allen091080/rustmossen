@@ -111,7 +111,9 @@ impl BuiltInAgentDefinition {
         AgentDefinition {
             agent_type: self.agent_type.to_string(),
             when_to_use: self.when_to_use.to_string(),
-            tools: self.tools.map(|t| t.iter().map(|s| s.to_string()).collect()),
+            tools: self
+                .tools
+                .map(|t| t.iter().map(|s| s.to_string()).collect()),
             disallowed_tools: self
                 .disallowed_tools
                 .map(|t| t.iter().map(|s| s.to_string()).collect()),
@@ -149,10 +151,7 @@ pub struct AgentDefinitions {
 }
 
 /// Load agents from a directory of markdown files.
-pub async fn load_agents_from_dir(
-    dir: &Path,
-    source: &str,
-) -> Vec<AgentDefinition> {
+pub async fn load_agents_from_dir(dir: &Path, source: &str) -> Vec<AgentDefinition> {
     let mut agents = Vec::new();
 
     let mut entries = match tokio::fs::read_dir(dir).await {
@@ -201,14 +200,11 @@ async fn parse_markdown_agent(path: &Path, source: &str) -> Option<AgentDefiniti
     let disallowed_tools = extract_string_array(&frontmatter, "disallowedTools");
     let skills = extract_string_array(&frontmatter, "skills");
     let model = extract_field(&frontmatter, "model");
-    let max_turns = extract_field(&frontmatter, "maxTurns")
-        .and_then(|s| s.parse::<u32>().ok());
-    let permission_mode = extract_field(&frontmatter, "permissionMode")
-        .and_then(|s| parse_permission_mode(&s));
-    let memory = extract_field(&frontmatter, "memory")
-        .and_then(|s| parse_memory_scope(&s));
-    let background = extract_field(&frontmatter, "background")
-        .and_then(|s| s.parse::<bool>().ok());
+    let max_turns = extract_field(&frontmatter, "maxTurns").and_then(|s| s.parse::<u32>().ok());
+    let permission_mode =
+        extract_field(&frontmatter, "permissionMode").and_then(|s| parse_permission_mode(&s));
+    let memory = extract_field(&frontmatter, "memory").and_then(|s| parse_memory_scope(&s));
+    let background = extract_field(&frontmatter, "background").and_then(|s| s.parse::<bool>().ok());
     let isolation = extract_field(&frontmatter, "isolation");
 
     Some(AgentDefinition {
@@ -244,15 +240,24 @@ async fn parse_json_agents(path: &Path, source: &str) -> Option<Vec<AgentDefinit
     let mut agents = Vec::new();
     for (name, config) in parsed {
         let description = config.get("description")?.as_str()?.to_string();
-        let prompt = config.get("prompt").and_then(|p| p.as_str()).unwrap_or("").to_string();
-        let tools = config
-            .get("tools")
-            .and_then(|t| t.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let prompt = config
+            .get("prompt")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tools = config.get("tools").and_then(|t| t.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
         let disallowed_tools = config
             .get("disallowedTools")
             .and_then(|t| t.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
         let model = config.get("model").and_then(|m| m.as_str()).map(|s| {
             if s.eq_ignore_ascii_case("inherit") {
                 "inherit".to_string()
@@ -364,7 +369,13 @@ fn extract_string_array(frontmatter: &[String], key: &str) -> Option<Vec<String>
         }
         if found {
             if trimmed.starts_with("- ") {
-                values.push(trimmed[2..].trim().trim_matches('"').trim_matches('\'').to_string());
+                values.push(
+                    trimmed[2..]
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string(),
+                );
             } else if !trimmed.is_empty() && !trimmed.starts_with('#') {
                 break;
             }
@@ -459,8 +470,8 @@ fn resolve_active_agents(all_agents: &[AgentDefinition]) -> Vec<AgentDefinition>
 // TS-mirror — `tools/AgentTool/loadAgentsDir.ts` exports.
 // ---------------------------------------------------------------------------
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 /// `loadAgentsDir.ts` `isCustomAgent` — not built-in and not plugin.
 pub fn is_custom_agent(agent: &AgentDefinition) -> bool {
@@ -526,10 +537,7 @@ fn agent_required_mcp_servers(agent: &AgentDefinition) -> Vec<String> {
 }
 
 /// `loadAgentsDir.ts` `hasRequiredMcpServers`.
-pub fn has_required_mcp_servers(
-    agent: &AgentDefinition,
-    available_servers: &[String],
-) -> bool {
+pub fn has_required_mcp_servers(agent: &AgentDefinition, available_servers: &[String]) -> bool {
     let required = agent_required_mcp_servers(agent);
     if required.is_empty() {
         return true;
@@ -588,18 +596,24 @@ pub fn parse_agent_from_json(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        tools: def
-            .get("tools")
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+        tools: def.get("tools").and_then(|v| v.as_array()).map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        }),
         disallowed_tools: def
             .get("disallowedTools")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
-        skills: def
-            .get("skills")
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            }),
+        skills: def.get("skills").and_then(|v| v.as_array()).map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        }),
         mcp_servers: None,
         hooks: None,
         color: None,
@@ -614,7 +628,10 @@ pub fn parse_agent_from_json(
         base_dir: None,
         source: source.to_string(),
         background: def.get("background").and_then(|v| v.as_bool()),
-        isolation: def.get("isolation").and_then(|v| v.as_str()).map(String::from),
+        isolation: def
+            .get("isolation")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         memory: None,
         initial_prompt: def
             .get("initialPrompt")
@@ -648,10 +665,7 @@ pub fn parse_agent_from_json(
 }
 
 /// `loadAgentsDir.ts` `parseAgentsFromJson`.
-pub fn parse_agents_from_json(
-    obj: &serde_json::Value,
-    source: &str,
-) -> Vec<AgentDefinition> {
+pub fn parse_agents_from_json(obj: &serde_json::Value, source: &str) -> Vec<AgentDefinition> {
     let Some(map) = obj.as_object() else {
         return Vec::new();
     };
@@ -711,15 +725,27 @@ pub fn parse_agent_from_markdown(
         tools: map
             .get(&serde_yaml::Value::String("tools".to_string()))
             .and_then(|v| v.as_sequence())
-            .map(|s| s.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+            .map(|s| {
+                s.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            }),
         disallowed_tools: map
             .get(&serde_yaml::Value::String("disallowedTools".to_string()))
             .and_then(|v| v.as_sequence())
-            .map(|s| s.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+            .map(|s| {
+                s.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            }),
         skills: map
             .get(&serde_yaml::Value::String("skills".to_string()))
             .and_then(|v| v.as_sequence())
-            .map(|s| s.iter().filter_map(|x| x.as_str().map(String::from)).collect()),
+            .map(|s| {
+                s.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            }),
         mcp_servers: None,
         hooks: None,
         color: None,

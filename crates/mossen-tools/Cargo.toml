@@ -14,6 +14,7 @@ mossen-types.workspace = true
 mossen-utils.workspace = true
 mossen-agent.workspace = true
 mossen-mcp.workspace = true
+mossen-skills.workspace = true
 
 # 核心
 tokio.workspace = true

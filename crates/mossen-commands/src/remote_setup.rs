@@ -129,10 +129,7 @@ impl Directive for RemoteSetupDirective {
                         output.push_str("Opening remote environment in browser...\n");
                     }
                     Some(unknown) => {
-                        output.push_str(&format!(
-                            "Unknown subcommand: \"{}\"\n\n",
-                            unknown
-                        ));
+                        output.push_str(&format!("Unknown subcommand: \"{}\"\n\n", unknown));
                         output.push_str("Available subcommands: create, import, open\n");
                     }
                 }
@@ -220,10 +217,15 @@ where
     F: FnOnce(String, Vec<(String, String)>, String) -> Fut,
     Fut: std::future::Future<Output = Result<(u16, String), String>>,
 {
-    let ctx = ctx_provider.await.map_err(|_| ImportTokenError::NotSignedIn)?;
+    let ctx = ctx_provider
+        .await
+        .map_err(|_| ImportTokenError::NotSignedIn)?;
     let url = format!("{}/v1/code/github/import-token", ctx.base_api_url);
     let headers = vec![
-        ("Authorization".to_string(), format!("Bearer {}", ctx.access_token)),
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", ctx.access_token),
+        ),
         ("Content-Type".to_string(), "application/json".to_string()),
         ("mossen-beta".to_string(), "ccr-byoc-2025-07-29".to_string()),
         ("x-organization-uuid".to_string(), ctx.org_uuid),
@@ -260,12 +262,12 @@ where
     if exists {
         return true;
     }
-    let url = format!(
-        "{}/v1/environment_providers/cloud/create",
-        ctx.base_api_url
-    );
+    let url = format!("{}/v1/environment_providers/cloud/create", ctx.base_api_url);
     let headers = vec![
-        ("Authorization".to_string(), format!("Bearer {}", ctx.access_token)),
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", ctx.access_token),
+        ),
         ("Content-Type".to_string(), "application/json".to_string()),
         ("x-organization-uuid".to_string(), ctx.org_uuid),
     ];
@@ -317,4 +319,3 @@ pub fn get_code_web_url(
         format!("{}/code", hosted_origin.trim_end_matches('/'))
     }
 }
-

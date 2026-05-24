@@ -84,17 +84,46 @@ impl Tool for HaltSignal {
             .or(inp.shell_id)
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: task_id"))?;
 
-        let output = HaltSignalOutput {
-            message: format!("Successfully stopped task: {id}"),
-            task_id: id,
-            task_type: "unknown".to_string(),
-            command: None,
-        };
-        Ok(ToolResult {
-            output: serde_json::to_string(&output)?,
-            is_error: false,
-            duration_ms: 0,
-            metadata: HashMap::new(),
-        })
+        match crate::task_store::stop_background_task(&id) {
+            Some(record) => {
+                let task_type = record
+                    .metadata
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("workitem")
+                    .to_string();
+                let command = record
+                    .metadata
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let output = HaltSignalOutput {
+                    message: format!("Successfully stopped task: {id}"),
+                    task_id: id,
+                    task_type,
+                    command,
+                };
+                Ok(ToolResult {
+                    output: serde_json::to_string(&output)?,
+                    is_error: false,
+                    duration_ms: 0,
+                    metadata: HashMap::new(),
+                })
+            }
+            None => {
+                let output = HaltSignalOutput {
+                    message: format!("Task not found: {id}"),
+                    task_id: id,
+                    task_type: "unknown".to_string(),
+                    command: None,
+                };
+                Ok(ToolResult {
+                    output: serde_json::to_string(&output)?,
+                    is_error: true,
+                    duration_ms: 0,
+                    metadata: HashMap::new(),
+                })
+            }
+        }
     }
 }

@@ -4,8 +4,8 @@
 Verifies utils/permissions/dangerousPatterns.ts after the Wave 0 split:
   * Network/exfil + cloud-write entries (gh / gh api / curl / wget / git /
     kubectl / aws / gcloud / gsutil) are present for ALL USER_TYPE values.
-  * Anthropic-internal launchers (fa run / coo) remain gated behind
-    USER_TYPE === 'ant'.
+  * Provider-internal launchers (fa run / coo) remain gated behind
+    USER_TYPE === 'internal'.
 
 Implementation notes:
   * Pure Bun-runtime evaluation — no LLM, no real backend, no ~/.mossen
@@ -75,15 +75,15 @@ def evaluate(user_type: str | None) -> list[str]:
 def main() -> int:
     cases: dict[str, dict[str, object]] = {}
 
-    for label, ut in [("undefined", None), ("ant", "ant"), ("mossen", "mossen")]:
+    for label, ut in [("undefined", None), ("internal", "internal"), ("mossen", "mossen")]:
         patterns = evaluate(ut)
         missing_always_on = [p for p in ALWAYS_ON if p not in patterns]
-        ant_only_present = [p for p in INTERNAL_ONLY if p in patterns]
+        internal_only_present = [p for p in INTERNAL_ONLY if p in patterns]
         cases[label] = {
             "USER_TYPE": ut,
             "patterns_count": len(patterns),
             "missing_always_on": missing_always_on,
-            "ant_only_present": ant_only_present,
+            "internal_only_present": internal_only_present,
         }
 
     failures: list[str] = []
@@ -96,21 +96,21 @@ def main() -> int:
                 f"{info['missing_always_on']}"
             )
 
-    # 'fa run' / 'coo' must appear ONLY under USER_TYPE=ant.
-    if cases["undefined"]["ant_only_present"]:
+    # 'fa run' / 'coo' must appear ONLY under USER_TYPE=internal.
+    if cases["undefined"]["internal_only_present"]:
         failures.append(
-            "USER_TYPE=undefined: ant-only entries leaked: "
-            f"{cases['undefined']['ant_only_present']}"
+            "USER_TYPE=undefined: internal-only entries leaked: "
+            f"{cases['undefined']['internal_only_present']}"
         )
-    if cases["mossen"]["ant_only_present"]:
+    if cases["mossen"]["internal_only_present"]:
         failures.append(
-            "USER_TYPE=mossen: ant-only entries leaked: "
-            f"{cases['mossen']['ant_only_present']}"
+            "USER_TYPE=mossen: internal-only entries leaked: "
+            f"{cases['mossen']['internal_only_present']}"
         )
-    if set(cases["ant"]["ant_only_present"]) != set(INTERNAL_ONLY):
+    if set(cases["internal"]["internal_only_present"]) != set(INTERNAL_ONLY):
         failures.append(
-            "USER_TYPE=ant: ant-only entries incomplete: "
-            f"have={cases['ant']['ant_only_present']}, want={INTERNAL_ONLY}"
+            "USER_TYPE=internal: internal-only entries incomplete: "
+            f"have={cases['internal']['internal_only_present']}, want={INTERNAL_ONLY}"
         )
 
     report = {

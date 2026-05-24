@@ -39,7 +39,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
 MARKER = "STATUSLINE_M12_1_CUSTOM_xyz_unique"
-MODEL_ID = "claude-sonnet-4-5-mossen-test"
+MODEL_ID = "mossen-balanced-4-5-mossen-test"
 LANG_VALUE = "中文"
 
 

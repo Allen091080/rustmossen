@@ -3,9 +3,9 @@
 //! 对应 TypeScript `utils/sessionState.ts`。
 //! 提供会话状态变更通知、元数据变更通知和权限模式变更通知功能。
 
-use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// 会话运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,8 +58,7 @@ pub enum PermissionMode {
 
 type SessionStateChangedListener =
     Arc<dyn Fn(SessionState, Option<&RequiresActionDetails>) + Send + Sync>;
-type SessionMetadataChangedListener =
-    Arc<dyn Fn(&SessionExternalMetadata) + Send + Sync>;
+type SessionMetadataChangedListener = Arc<dyn Fn(&SessionExternalMetadata) + Send + Sync>;
 type PermissionModeChangedListener = Arc<dyn Fn(&PermissionMode) + Send + Sync>;
 
 /// 全局会话状态管理器
@@ -84,10 +83,7 @@ impl SessionStateManager {
         }
     }
 
-    pub fn set_session_state_changed_listener(
-        &self,
-        cb: Option<SessionStateChangedListener>,
-    ) {
+    pub fn set_session_state_changed_listener(&self, cb: Option<SessionStateChangedListener>) {
         *self.state_listener.lock().unwrap() = cb;
     }
 
@@ -101,10 +97,7 @@ impl SessionStateManager {
     /// Register a listener for permission-mode changes from onChangeAppState.
     /// Wired by print.ts to emit an SDK system:status message so CCR/IDE clients
     /// see mode transitions in real time.
-    pub fn set_permission_mode_changed_listener(
-        &self,
-        cb: Option<PermissionModeChangedListener>,
-    ) {
+    pub fn set_permission_mode_changed_listener(&self, cb: Option<PermissionModeChangedListener>) {
         *self.permission_mode_listener.lock().unwrap() = cb;
     }
 
@@ -129,9 +122,7 @@ impl SessionStateManager {
         if state == SessionState::RequiresAction {
             if let Some(d) = details {
                 *has_pending = true;
-                if let Some(meta_listener) =
-                    self.metadata_listener.lock().unwrap().as_ref()
-                {
+                if let Some(meta_listener) = self.metadata_listener.lock().unwrap().as_ref() {
                     let meta = SessionExternalMetadata {
                         pending_action: Some(Some(d.clone())),
                         ..Default::default()
@@ -141,9 +132,7 @@ impl SessionStateManager {
             }
         } else if *has_pending {
             *has_pending = false;
-            if let Some(meta_listener) =
-                self.metadata_listener.lock().unwrap().as_ref()
-            {
+            if let Some(meta_listener) = self.metadata_listener.lock().unwrap().as_ref() {
                 let meta = SessionExternalMetadata {
                     pending_action: Some(None),
                     ..Default::default()
@@ -155,9 +144,7 @@ impl SessionStateManager {
         // task_summary is written mid-turn by the forked summarizer; clear it at
         // idle so the next turn doesn't briefly show the previous turn's progress.
         if state == SessionState::Idle {
-            if let Some(meta_listener) =
-                self.metadata_listener.lock().unwrap().as_ref()
-            {
+            if let Some(meta_listener) = self.metadata_listener.lock().unwrap().as_ref() {
                 let meta = SessionExternalMetadata {
                     task_summary: Some(None),
                     ..Default::default()
@@ -181,9 +168,7 @@ impl SessionStateManager {
 
     /// Fired by onChangeAppState when toolPermissionContext.mode changes.
     pub fn notify_permission_mode_changed(&self, mode: &PermissionMode) {
-        if let Some(listener) =
-            self.permission_mode_listener.lock().unwrap().as_ref()
-        {
+        if let Some(listener) = self.permission_mode_listener.lock().unwrap().as_ref() {
             listener(mode);
         }
     }

@@ -47,7 +47,7 @@ pub async fn get_worktree_paths(cwd: &str, log_event: Option<&LogEventFn>) -> Ve
         Err(_) => {
             if let Some(log) = log_event {
                 log(
-                    "tengu_worktree_detection",
+                    "mossen_worktree_detection",
                     &serde_json::json!({
                         "duration_ms": duration_ms,
                         "worktree_count": 0,
@@ -62,7 +62,7 @@ pub async fn get_worktree_paths(cwd: &str, log_event: Option<&LogEventFn>) -> Ve
     if !output.status.success() {
         if let Some(log) = log_event {
             log(
-                "tengu_worktree_detection",
+                "mossen_worktree_detection",
                 &serde_json::json!({
                     "duration_ms": duration_ms,
                     "worktree_count": 0,
@@ -84,7 +84,7 @@ pub async fn get_worktree_paths(cwd: &str, log_event: Option<&LogEventFn>) -> Ve
 
     if let Some(log) = log_event {
         log(
-            "tengu_worktree_detection",
+            "mossen_worktree_detection",
             &serde_json::json!({
                 "duration_ms": duration_ms,
                 "worktree_count": worktree_paths.len(),

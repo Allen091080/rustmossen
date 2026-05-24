@@ -206,7 +206,10 @@ async fn upload_user_settings_impl(
                 response.json().await.unwrap_or(serde_json::Value::Null);
             SettingsSyncUploadResult {
                 success: true,
-                checksum: resp_body.get("checksum").and_then(|v| v.as_str()).map(String::from),
+                checksum: resp_body
+                    .get("checksum")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
                 last_modified: resp_body
                     .get("lastModified")
                     .and_then(|v| v.as_str())
@@ -369,10 +372,7 @@ pub async fn upload_user_settings_in_background() {
     let remote_entries = if result.is_empty {
         HashMap::new()
     } else {
-        result
-            .data
-            .map(|d| d.content.entries)
-            .unwrap_or_default()
+        result.data.map(|d| d.content.entries).unwrap_or_default()
     };
 
     let changed_entries: HashMap<String, String> = local_entries

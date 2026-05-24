@@ -22,49 +22,49 @@ use super::providers::{get_api_provider, APIProvider};
 /// `Record<ModelKey, string>`).
 #[derive(Debug, Clone, Default)]
 pub struct ModelStrings {
-    pub haiku35: String,
-    pub haiku45: String,
-    pub sonnet35: String,
-    pub sonnet37: String,
-    pub sonnet40: String,
-    pub sonnet45: String,
-    pub sonnet46: String,
-    pub opus40: String,
-    pub opus41: String,
-    pub opus45: String,
-    pub opus46: String,
+    pub fast35: String,
+    pub fast45: String,
+    pub balanced35: String,
+    pub balanced37: String,
+    pub balanced40: String,
+    pub balanced45: String,
+    pub balanced46: String,
+    pub max40: String,
+    pub max41: String,
+    pub max45: String,
+    pub max46: String,
 }
 
 impl ModelStrings {
     pub fn get(&self, key: ModelKey) -> &str {
         match key {
-            ModelKey::Haiku35 => &self.haiku35,
-            ModelKey::Haiku45 => &self.haiku45,
-            ModelKey::Sonnet35 => &self.sonnet35,
-            ModelKey::Sonnet37 => &self.sonnet37,
-            ModelKey::Sonnet40 => &self.sonnet40,
-            ModelKey::Sonnet45 => &self.sonnet45,
-            ModelKey::Sonnet46 => &self.sonnet46,
-            ModelKey::Opus40 => &self.opus40,
-            ModelKey::Opus41 => &self.opus41,
-            ModelKey::Opus45 => &self.opus45,
-            ModelKey::Opus46 => &self.opus46,
+            ModelKey::Fast35 => &self.fast35,
+            ModelKey::Fast45 => &self.fast45,
+            ModelKey::Balanced35 => &self.balanced35,
+            ModelKey::Balanced37 => &self.balanced37,
+            ModelKey::Balanced40 => &self.balanced40,
+            ModelKey::Balanced45 => &self.balanced45,
+            ModelKey::Balanced46 => &self.balanced46,
+            ModelKey::Max40 => &self.max40,
+            ModelKey::Max41 => &self.max41,
+            ModelKey::Max45 => &self.max45,
+            ModelKey::Max46 => &self.max46,
         }
     }
 
     pub fn set(&mut self, key: ModelKey, value: String) {
         match key {
-            ModelKey::Haiku35 => self.haiku35 = value,
-            ModelKey::Haiku45 => self.haiku45 = value,
-            ModelKey::Sonnet35 => self.sonnet35 = value,
-            ModelKey::Sonnet37 => self.sonnet37 = value,
-            ModelKey::Sonnet40 => self.sonnet40 = value,
-            ModelKey::Sonnet45 => self.sonnet45 = value,
-            ModelKey::Sonnet46 => self.sonnet46 = value,
-            ModelKey::Opus40 => self.opus40 = value,
-            ModelKey::Opus41 => self.opus41 = value,
-            ModelKey::Opus45 => self.opus45 = value,
-            ModelKey::Opus46 => self.opus46 = value,
+            ModelKey::Fast35 => self.fast35 = value,
+            ModelKey::Fast45 => self.fast45 = value,
+            ModelKey::Balanced35 => self.balanced35 = value,
+            ModelKey::Balanced37 => self.balanced37 = value,
+            ModelKey::Balanced40 => self.balanced40 = value,
+            ModelKey::Balanced45 => self.balanced45 = value,
+            ModelKey::Balanced46 => self.balanced46 = value,
+            ModelKey::Max40 => self.max40 = value,
+            ModelKey::Max41 => self.max41 = value,
+            ModelKey::Max45 => self.max45 = value,
+            ModelKey::Max46 => self.max46 = value,
         }
     }
 }

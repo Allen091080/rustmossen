@@ -4,7 +4,6 @@
 //! 仅使用 child_process，无其他依赖。
 
 use std::process::Command;
-use std::time::Duration;
 
 /// 使用 `git worktree list --porcelain` 获取 worktree 路径列表。
 ///

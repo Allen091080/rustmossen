@@ -435,7 +435,10 @@ pub fn save_mcp_client_secret(server_name: &str, client_id: &str, client_secret:
         .entry(server_name.to_string())
         .or_insert_with(|| json!({}));
     if let Some(obj) = cfg.as_object_mut() {
-        obj.insert("client_id".to_string(), JsonValue::String(client_id.to_string()));
+        obj.insert(
+            "client_id".to_string(),
+            JsonValue::String(client_id.to_string()),
+        );
         obj.insert(
             "client_secret".to_string(),
             JsonValue::String(client_secret.to_string()),

@@ -2,8 +2,8 @@
 //! Translated from utils/background/remote/preconditions.ts
 
 use anyhow::Result;
-use tracing::debug;
 use std::path::Path;
+use tracing::debug;
 
 /// Checks if the explicit Mossen bridge adapter credential is missing or stale.
 pub async fn check_needs_hosted_login(is_hosted_subscriber: bool) -> bool {
@@ -124,7 +124,10 @@ pub async fn check_github_app_installed(
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
                     if let Some(status) = body.get("status") {
                         if status.is_null() {
-                            debug!("GitHub app is not installed on {}/{} (status is null)", owner, repo);
+                            debug!(
+                                "GitHub app is not installed on {}/{} (status is null)",
+                                owner, repo
+                            );
                             return false;
                         }
                         let installed = status
@@ -206,7 +209,10 @@ pub async fn check_github_token_synced(
                 }
             }
             if status_code >= 400 && status_code < 500 {
-                debug!("checkGithubTokenSynced: Got {}, token not synced", status_code);
+                debug!(
+                    "checkGithubTokenSynced: Got {}, token not synced",
+                    status_code
+                );
             }
             false
         }

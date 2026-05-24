@@ -163,7 +163,14 @@ pub fn register_bundled_craft(definition: BundledCraftDefinition) {
     let mut registry = BUNDLED_CRAFTS
         .write()
         .expect("bundled crafts lock poisoned");
-    registry.push(command);
+    if let Some(existing) = registry
+        .iter_mut()
+        .find(|craft| craft.base.name == command.base.name)
+    {
+        *existing = command;
+    } else {
+        registry.push(command);
+    }
 }
 
 /// 获取所有已注册的捆绑技能（返回副本）。

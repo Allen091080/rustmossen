@@ -37,7 +37,7 @@ impl EffortLevel {
             Self::Low => "Quick, straightforward implementation with minimal overhead",
             Self::Medium => "Balanced approach with standard implementation and testing",
             Self::High => "Comprehensive implementation with extensive testing and documentation",
-            Self::Max => "Maximum capability with deepest reasoning (Opus 4.6 only)",
+            Self::Max => "Maximum capability with deepest reasoning (Max 4.6 only)",
         }
     }
 }
@@ -54,10 +54,15 @@ impl EffortValue {
         match self {
             Self::Level(l) => *l,
             Self::Numeric(v) => {
-                if *v <= 50 { EffortLevel::Low }
-                else if *v <= 85 { EffortLevel::Medium }
-                else if *v <= 100 { EffortLevel::High }
-                else { EffortLevel::Max }
+                if *v <= 50 {
+                    EffortLevel::Low
+                } else if *v <= 85 {
+                    EffortLevel::Medium
+                } else if *v <= 100 {
+                    EffortLevel::High
+                } else {
+                    EffortLevel::Max
+                }
             }
         }
     }
@@ -77,7 +82,7 @@ pub fn is_effort_level(value: &str) -> bool {
 }
 
 /// Check if a numeric effort value is valid.
-pub fn is_valid_numeric_effort(value: i32) -> bool {
+pub fn is_valid_numeric_effort(_value: i32) -> bool {
     // Any integer is valid
     true
 }
@@ -105,12 +110,12 @@ pub fn parse_effort_value(value: &str) -> Option<EffortValue> {
 
 /// Numeric values are model-default only and not persisted.
 /// Returns the persistable effort level or None.
-pub fn to_persistable_effort(value: Option<EffortValue>, is_ant: bool) -> Option<EffortLevel> {
+pub fn to_persistable_effort(value: Option<EffortValue>, is_internal: bool) -> Option<EffortLevel> {
     match value {
         Some(EffortValue::Level(EffortLevel::Low)) => Some(EffortLevel::Low),
         Some(EffortValue::Level(EffortLevel::Medium)) => Some(EffortLevel::Medium),
         Some(EffortValue::Level(EffortLevel::High)) => Some(EffortLevel::High),
-        Some(EffortValue::Level(EffortLevel::Max)) if is_ant => Some(EffortLevel::Max),
+        Some(EffortValue::Level(EffortLevel::Max)) if is_internal => Some(EffortLevel::Max),
         _ => None,
     }
 }
@@ -121,21 +126,21 @@ pub fn model_supports_effort(model: &str, always_enable: bool, api_provider: &st
         return true;
     }
     let m = model.to_lowercase();
-    if m.contains("opus-4-6") || m.contains("sonnet-4-6") {
+    if m.contains("max-4-6") || m.contains("balanced-4-6") {
         return true;
     }
-    if m.contains("haiku") || m.contains("sonnet") || m.contains("opus") {
+    if m.contains("fast") || m.contains("balanced") || m.contains("max") {
         return false;
     }
     api_provider == "firstParty"
 }
 
 /// Check if a model supports 'max' effort.
-pub fn model_supports_max_effort(model: &str, is_ant: bool) -> bool {
-    if model.to_lowercase().contains("opus-4-6") {
+pub fn model_supports_max_effort(model: &str, is_internal: bool) -> bool {
+    if model.to_lowercase().contains("max-4-6") {
         return true;
     }
-    if is_ant {
+    if is_internal {
         return true;
     }
     false
@@ -148,18 +153,16 @@ pub fn resolve_applied_effort(
     env_override: Option<EffortValue>,
     env_is_unset: bool,
     default_effort: Option<EffortValue>,
-    is_ant: bool,
+    is_internal: bool,
 ) -> Option<EffortValue> {
     if env_is_unset {
         return None;
     }
-    let resolved = env_override
-        .or(app_state_effort)
-        .or(default_effort);
+    let resolved = env_override.or(app_state_effort).or(default_effort);
 
     // Downgrade 'max' for non-supported models
     if let Some(EffortValue::Level(EffortLevel::Max)) = resolved {
-        if !model_supports_max_effort(model, is_ant) {
+        if !model_supports_max_effort(model, is_internal) {
             return Some(EffortValue::Level(EffortLevel::High));
         }
     }
@@ -168,14 +171,19 @@ pub fn resolve_applied_effort(
 }
 
 /// Convert effort value to display level.
-pub fn convert_effort_value_to_level(value: EffortValue, is_ant: bool) -> EffortLevel {
+pub fn convert_effort_value_to_level(value: EffortValue, is_internal: bool) -> EffortLevel {
     match value {
         EffortValue::Level(l) => l,
-        EffortValue::Numeric(v) if is_ant => {
-            if v <= 50 { EffortLevel::Low }
-            else if v <= 85 { EffortLevel::Medium }
-            else if v <= 100 { EffortLevel::High }
-            else { EffortLevel::Max }
+        EffortValue::Numeric(v) if is_internal => {
+            if v <= 50 {
+                EffortLevel::Low
+            } else if v <= 85 {
+                EffortLevel::Medium
+            } else if v <= 100 {
+                EffortLevel::High
+            } else {
+                EffortLevel::Max
+            }
         }
         _ => EffortLevel::High,
     }
@@ -188,21 +196,28 @@ pub fn get_displayed_effort_level(
     env_override: Option<EffortValue>,
     env_is_unset: bool,
     default_effort: Option<EffortValue>,
-    is_ant: bool,
+    is_internal: bool,
 ) -> EffortLevel {
-    let resolved = resolve_applied_effort(model, app_state_effort, env_override, env_is_unset, default_effort, is_ant);
+    let resolved = resolve_applied_effort(
+        model,
+        app_state_effort,
+        env_override,
+        env_is_unset,
+        default_effort,
+        is_internal,
+    );
     match resolved {
-        Some(v) => convert_effort_value_to_level(v, is_ant),
+        Some(v) => convert_effort_value_to_level(v, is_internal),
         None => EffortLevel::High,
     }
 }
 
 /// Build the effort suffix shown in Logo/Spinner.
-pub fn get_effort_suffix(resolved: Option<EffortValue>, is_ant: bool) -> String {
+pub fn get_effort_suffix(resolved: Option<EffortValue>, is_internal: bool) -> String {
     match resolved {
         None => String::new(),
         Some(v) => {
-            let level = convert_effort_value_to_level(v, is_ant);
+            let level = convert_effort_value_to_level(v, is_internal);
             format!(" with {} effort", level.as_str())
         }
     }
@@ -227,27 +242,27 @@ pub fn resolve_picker_effort_persistence(
 // 额外导出 — 对应 TS effort.ts 中尚未覆盖的入口。
 // =============================================================================
 
-/// 对应 TS `OpusDefaultEffortConfig`：Opus 默认 effort 推荐对话框配置。
+/// 对应 TS `MaxDefaultEffortConfig`：Max 默认 effort 推荐对话框配置。
 #[derive(Debug, Clone)]
-pub struct OpusDefaultEffortConfig {
+pub struct MaxDefaultEffortConfig {
     pub enabled: bool,
     pub dialog_title: String,
     pub dialog_description: String,
 }
 
-impl Default for OpusDefaultEffortConfig {
+impl Default for MaxDefaultEffortConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            dialog_title: "We recommend medium effort for Opus".to_string(),
+            dialog_title: "We recommend medium effort for Max".to_string(),
             dialog_description: "Effort determines how long Mossen thinks for when completing your task. We recommend medium effort for most tasks to balance speed and intelligence and maximize rate limits. Use ultrathink to trigger high effort when needed.".to_string(),
         }
     }
 }
 
-/// 获取 Opus 默认 effort 推荐配置（对应 TS `getOpusDefaultEffortConfig`）。
-pub fn get_opus_default_effort_config() -> OpusDefaultEffortConfig {
-    OpusDefaultEffortConfig::default()
+/// 获取 Max 默认 effort 推荐配置（对应 TS `getMaxDefaultEffortConfig`）。
+pub fn get_max_default_effort_config() -> MaxDefaultEffortConfig {
+    MaxDefaultEffortConfig::default()
 }
 
 /// 获取初始 effort 设置（对应 TS `getInitialEffortSetting`）。
@@ -270,9 +285,9 @@ pub fn get_effort_level_description(level: EffortLevel) -> &'static str {
 }
 
 /// 获取 effort 值的描述（对应 TS `getEffortValueDescription`）。
-pub fn get_effort_value_description(value: EffortValue, is_ant: bool) -> String {
+pub fn get_effort_value_description(value: EffortValue, is_internal: bool) -> String {
     match value {
-        EffortValue::Numeric(n) if is_ant => format!("[Internal effort] Numeric value of {n}"),
+        EffortValue::Numeric(n) if is_internal => format!("[Internal effort] Numeric value of {n}"),
         EffortValue::Level(l) => get_effort_level_description(l).to_string(),
         _ => "Balanced approach with standard implementation and testing".to_string(),
     }
@@ -280,19 +295,19 @@ pub fn get_effort_value_description(value: EffortValue, is_ant: bool) -> String 
 
 /// 根据模型返回默认 effort（对应 TS `getDefaultEffortForModel`）。
 ///
-/// Rust 端没有 ant 内部模型覆盖配置，因此只覆盖 Opus 4.6 的默认值。
+/// Rust 端没有 internal 内部模型覆盖配置，因此只覆盖 Max 4.6 的默认值。
 pub fn get_default_effort_for_model(
     model: &str,
-    opus_default_enabled: bool,
+    max_default_enabled: bool,
     is_pro: bool,
     is_max_or_team: bool,
 ) -> Option<EffortValue> {
     let lower = model.to_lowercase();
-    if lower.contains("opus-4-6") {
+    if lower.contains("max-4-6") {
         if is_pro {
             return Some(EffortValue::Level(EffortLevel::Medium));
         }
-        if opus_default_enabled && is_max_or_team {
+        if max_default_enabled && is_max_or_team {
             return Some(EffortValue::Level(EffortLevel::Medium));
         }
     }

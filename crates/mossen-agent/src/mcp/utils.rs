@@ -45,7 +45,12 @@ pub fn filter_tools_by_server<'a>(tools: &'a [Tool], server_name: &'_ str) -> Ve
     let prefix = format!("mcp__{}__", normalize_name_for_mcp(server_name));
     tools
         .iter()
-        .filter(|t| t.name.as_ref().map(|n| n.starts_with(&prefix)).unwrap_or(false))
+        .filter(|t| {
+            t.name
+                .as_ref()
+                .map(|n| n.starts_with(&prefix))
+                .unwrap_or(false)
+        })
         .collect()
 }
 
@@ -61,7 +66,10 @@ pub fn command_belongs_to_server(command: &Command, server_name: &str) -> bool {
 }
 
 /// Filter commands by MCP server name.
-pub fn filter_commands_by_server<'a>(commands: &'a [Command], server_name: &str) -> Vec<&'a Command> {
+pub fn filter_commands_by_server<'a>(
+    commands: &'a [Command],
+    server_name: &str,
+) -> Vec<&'a Command> {
     commands
         .iter()
         .filter(|c| command_belongs_to_server(c, server_name))
@@ -69,12 +77,16 @@ pub fn filter_commands_by_server<'a>(commands: &'a [Command], server_name: &str)
 }
 
 /// Filter MCP prompts (not skills) by server.
-pub fn filter_mcp_prompts_by_server<'a>(commands: &'a [Command], server_name: &str) -> Vec<&'a Command> {
+pub fn filter_mcp_prompts_by_server<'a>(
+    commands: &'a [Command],
+    server_name: &str,
+) -> Vec<&'a Command> {
     commands
         .iter()
         .filter(|c| {
             command_belongs_to_server(c, server_name)
-                && !(c.r#type.as_deref() == Some("prompt") && c.loaded_from.as_deref() == Some("mcp"))
+                && !(c.r#type.as_deref() == Some("prompt")
+                    && c.loaded_from.as_deref() == Some("mcp"))
         })
         .collect()
 }
@@ -84,7 +96,10 @@ pub fn filter_resources_by_server<'a>(
     resources: &'a [ServerResource],
     server_name: &str,
 ) -> Vec<&'a ServerResource> {
-    resources.iter().filter(|r| r.server == server_name).collect()
+    resources
+        .iter()
+        .filter(|r| r.server == server_name)
+        .collect()
 }
 
 /// Exclude tools belonging to a specific MCP server.
@@ -92,12 +107,20 @@ pub fn exclude_tools_by_server<'a>(tools: &'a [Tool], server_name: &str) -> Vec<
     let prefix = format!("mcp__{}__", normalize_name_for_mcp(server_name));
     tools
         .iter()
-        .filter(|t| !t.name.as_ref().map(|n| n.starts_with(&prefix)).unwrap_or(false))
+        .filter(|t| {
+            !t.name
+                .as_ref()
+                .map(|n| n.starts_with(&prefix))
+                .unwrap_or(false)
+        })
         .collect()
 }
 
 /// Exclude commands belonging to a specific MCP server.
-pub fn exclude_commands_by_server<'a>(commands: &'a [Command], server_name: &str) -> Vec<&'a Command> {
+pub fn exclude_commands_by_server<'a>(
+    commands: &'a [Command],
+    server_name: &str,
+) -> Vec<&'a Command> {
     commands
         .iter()
         .filter(|c| !command_belongs_to_server(c, server_name))
@@ -355,14 +378,14 @@ pub fn get_mcp_server_scope_from_tool_name(
 
 /// `utils.ts` `extractAgentMcpServers` — flattens agent-frontmatter MCP
 /// declarations into a sorted list of `AgentMcpServerInfo` for display.
-pub fn extract_agent_mcp_servers(
-    agents: &[AgentDefinitionForMcp],
-) -> Vec<AgentMcpServerInfo> {
+pub fn extract_agent_mcp_servers(agents: &[AgentDefinitionForMcp]) -> Vec<AgentMcpServerInfo> {
     // server name -> (config, list-of-source-agents)
     let mut server_map: HashMap<String, (McpServerConfig, Vec<String>)> = HashMap::new();
     for agent in agents {
         for spec in &agent.mcp_servers {
-            let AgentMcpServerSpec::Inline { name, config } = spec else { continue; };
+            let AgentMcpServerSpec::Inline { name, config } = spec else {
+                continue;
+            };
             server_map
                 .entry(name.clone())
                 .and_modify(|(_, sources)| {

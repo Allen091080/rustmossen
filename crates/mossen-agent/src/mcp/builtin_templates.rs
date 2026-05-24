@@ -170,7 +170,9 @@ pub fn get_localized_builtin_mcp_template_text(name: &str) -> LocalizedTemplateT
     match name {
         "filesystem-readonly" => LocalizedTemplateText {
             title: Some("文件系统只读"),
-            description: Some("用于本地 filesystem MCP server 的模板，仅暴露明确指定的只读根目录。"),
+            description: Some(
+                "用于本地 filesystem MCP server 的模板，仅暴露明确指定的只读根目录。",
+            ),
             notes: Some(&[
                 "启用前必须把 <absolute-project-root> 替换成真实绝对路径。",
                 "可写文件系统工具应放在另一个明确声明的 server 中。",

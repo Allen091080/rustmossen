@@ -217,7 +217,10 @@ pub struct CurrentUsage {
 /// Check if the most recent assistant message exceeds 200k tokens.
 pub fn does_most_recent_assistant_message_exceed_200k(messages: &[Message]) -> bool {
     const THRESHOLD: u64 = 200_000;
-    let last_asst = messages.iter().rev().find(|m| m.message_type == "assistant");
+    let last_asst = messages
+        .iter()
+        .rev()
+        .find(|m| m.message_type == "assistant");
     match last_asst {
         Some(msg) => match get_token_usage(msg) {
             Some(usage) => get_token_count_from_usage(usage) > THRESHOLD,

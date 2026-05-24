@@ -63,10 +63,7 @@ async fn which_posix_async(command: &str) -> Option<String> {
 }
 
 fn which_windows_sync(command: &str) -> Option<String> {
-    let output = Command::new("where.exe")
-        .arg(command)
-        .output()
-        .ok()?;
+    let output = Command::new("where.exe").arg(command).output().ok()?;
 
     if !output.status.success() || output.stdout.is_empty() {
         return None;
@@ -78,10 +75,7 @@ fn which_windows_sync(command: &str) -> Option<String> {
 }
 
 fn which_posix_sync(command: &str) -> Option<String> {
-    let output = Command::new("which")
-        .arg(command)
-        .output()
-        .ok()?;
+    let output = Command::new("which").arg(command).output().ok()?;
 
     if !output.status.success() || output.stdout.is_empty() {
         return None;

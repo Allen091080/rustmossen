@@ -47,7 +47,10 @@ fn ansi_codes_to_string(codes: &[AnsiCode]) -> String {
 
 /// 生成撤销 ANSI 代码的字符串
 fn undo_ansi_codes(codes: &[AnsiCode]) -> String {
-    codes.iter().map(|c| c.end_code.as_str()).collect::<String>()
+    codes
+        .iter()
+        .map(|c| c.end_code.as_str())
+        .collect::<String>()
 }
 
 /// 计算字符串的显示宽度

@@ -31,14 +31,13 @@ impl Tool for ToolItem {
 pub type ToolPermissionMode = String;
 
 /// PR 活动订阅工具后缀
-const PR_ACTIVITY_TOOL_SUFFIXES: &[&str] = &[
-    "subscribe_pr_activity",
-    "unsubscribe_pr_activity",
-];
+const PR_ACTIVITY_TOOL_SUFFIXES: &[&str] = &["subscribe_pr_activity", "unsubscribe_pr_activity"];
 
 /// 检查是否是 PR 活动订阅工具
 pub fn is_pr_activity_subscription_tool(name: &str) -> bool {
-    PR_ACTIVITY_TOOL_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
+    PR_ACTIVITY_TOOL_SUFFIXES
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
 }
 
 /// Coordinator 模式允许的工具集（需从 constants 获取）
@@ -59,9 +58,7 @@ pub fn apply_coordinator_tool_filter<T: Tool>(tools: Vec<T>) -> Vec<T> {
     let allowed = get_coordinator_mode_allowed_tools();
     tools
         .into_iter()
-        .filter(|t| {
-            allowed.contains(t.name()) || is_pr_activity_subscription_tool(t.name())
-        })
+        .filter(|t| allowed.contains(t.name()) || is_pr_activity_subscription_tool(t.name()))
         .collect()
 }
 

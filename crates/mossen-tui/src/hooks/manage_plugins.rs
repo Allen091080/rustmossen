@@ -97,7 +97,8 @@ impl ManagePluginsState {
 
     /// Get all installed plugins.
     pub fn installed(&self) -> Vec<&PluginEntry> {
-        self.plugins.values()
+        self.plugins
+            .values()
             .filter(|p| p.status == PluginStatus::Installed)
             .collect()
     }

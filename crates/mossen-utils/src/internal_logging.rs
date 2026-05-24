@@ -32,7 +32,7 @@ pub async fn get_kubernetes_namespace() -> Option<String> {
 
 async fn detect_k8s_namespace() -> Option<String> {
     // 仅在内部环境检测
-    if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return None;
     }
 
@@ -64,7 +64,7 @@ pub async fn get_container_id() -> Option<String> {
 }
 
 async fn detect_container_id() -> Option<String> {
-    if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return None;
     }
 
@@ -98,7 +98,7 @@ pub async fn log_permission_context(
     _tool_permission_context: Option<&serde_json::Value>,
     moment: &str,
 ) {
-    if std::env::var("USER_TYPE").ok().as_deref() != Some("ant") {
+    if std::env::var("USER_TYPE").ok().as_deref() != Some("internal") {
         return;
     }
 

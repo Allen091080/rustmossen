@@ -30,8 +30,8 @@ pub struct Utilization {
     pub five_hour: Option<RateLimit>,
     pub seven_day: Option<RateLimit>,
     pub seven_day_oauth_apps: Option<RateLimit>,
-    pub seven_day_opus: Option<RateLimit>,
-    pub seven_day_sonnet: Option<RateLimit>,
+    pub seven_day_max: Option<RateLimit>,
+    pub seven_day_balanced: Option<RateLimit>,
     pub extra_usage: Option<ExtraUsage>,
 }
 

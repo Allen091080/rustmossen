@@ -24,13 +24,12 @@ fn get_default_edit_description() -> String {
         "spaces + line number + arrow"
     };
 
-    let minimal_uniqueness_hint =
-        if std::env::var("USER_TYPE").unwrap_or_default() == "mossen" {
-            "\n- Use the smallest old_string that's clearly unique — usually 2-4 adjacent lines \
+    let minimal_uniqueness_hint = if std::env::var("USER_TYPE").unwrap_or_default() == "mossen" {
+        "\n- Use the smallest old_string that's clearly unique — usually 2-4 adjacent lines \
              is sufficient. Avoid including 10+ lines of context when less uniquely identifies the target."
-        } else {
-            ""
-        };
+    } else {
+        ""
+    };
 
     format!(
         "Performs exact string replacements in files.\n\n\

@@ -37,18 +37,66 @@ pub struct PathCommand {
 /// Known path-modifying commands with their operation types.
 pub fn path_commands() -> Vec<PathCommand> {
     vec![
-        PathCommand { name: "cp", operation: CommandOperationType::Write, last_is_dest: true },
-        PathCommand { name: "mv", operation: CommandOperationType::Move, last_is_dest: true },
-        PathCommand { name: "rm", operation: CommandOperationType::Delete, last_is_dest: false },
-        PathCommand { name: "rmdir", operation: CommandOperationType::Delete, last_is_dest: false },
-        PathCommand { name: "mkdir", operation: CommandOperationType::Create, last_is_dest: false },
-        PathCommand { name: "touch", operation: CommandOperationType::Create, last_is_dest: false },
-        PathCommand { name: "ln", operation: CommandOperationType::Write, last_is_dest: true },
-        PathCommand { name: "chmod", operation: CommandOperationType::Write, last_is_dest: false },
-        PathCommand { name: "chown", operation: CommandOperationType::Write, last_is_dest: false },
-        PathCommand { name: "chgrp", operation: CommandOperationType::Write, last_is_dest: false },
-        PathCommand { name: "tee", operation: CommandOperationType::Write, last_is_dest: false },
-        PathCommand { name: "install", operation: CommandOperationType::Write, last_is_dest: true },
+        PathCommand {
+            name: "cp",
+            operation: CommandOperationType::Write,
+            last_is_dest: true,
+        },
+        PathCommand {
+            name: "mv",
+            operation: CommandOperationType::Move,
+            last_is_dest: true,
+        },
+        PathCommand {
+            name: "rm",
+            operation: CommandOperationType::Delete,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "rmdir",
+            operation: CommandOperationType::Delete,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "mkdir",
+            operation: CommandOperationType::Create,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "touch",
+            operation: CommandOperationType::Create,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "ln",
+            operation: CommandOperationType::Write,
+            last_is_dest: true,
+        },
+        PathCommand {
+            name: "chmod",
+            operation: CommandOperationType::Write,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "chown",
+            operation: CommandOperationType::Write,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "chgrp",
+            operation: CommandOperationType::Write,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "tee",
+            operation: CommandOperationType::Write,
+            last_is_dest: false,
+        },
+        PathCommand {
+            name: "install",
+            operation: CommandOperationType::Write,
+            last_is_dest: true,
+        },
     ]
 }
 
@@ -155,8 +203,8 @@ pub fn has_path_traversal(path: &str) -> bool {
 /// Check if a path targets a dangerous system location.
 pub fn is_dangerous_path(path: &str) -> bool {
     let dangerous_prefixes = [
-        "/etc/", "/usr/", "/bin/", "/sbin/", "/lib/", "/boot/",
-        "/sys/", "/proc/", "/dev/", "/root/",
+        "/etc/", "/usr/", "/bin/", "/sbin/", "/lib/", "/boot/", "/sys/", "/proc/", "/dev/",
+        "/root/",
     ];
     let normalized = path.replace('\\', "/");
 
@@ -172,10 +220,7 @@ pub fn is_dangerous_path(path: &str) -> bool {
 ///
 /// Validates that all paths in the command are within allowed directories
 /// and don't target dangerous system locations.
-pub fn check_path_constraints(
-    command: &str,
-    config: &PathValidationConfig,
-) -> PathCheckResult {
+pub fn check_path_constraints(command: &str, config: &PathValidationConfig) -> PathCheckResult {
     let paths = extract_paths_from_command(command);
 
     if paths.is_empty() {
@@ -201,20 +246,14 @@ pub fn check_path_constraints(
         let resolved_str = resolved.to_string_lossy().to_string();
         if is_dangerous_path(&resolved_str) {
             return PathCheckResult::Denied {
-                message: format!(
-                    "Path '{}' targets a protected system directory",
-                    path_str
-                ),
+                message: format!("Path '{}' targets a protected system directory", path_str),
             };
         }
 
         // Check if path is within allowed directories
         if !is_path_in_allowed_directory(&resolved, config) {
             return PathCheckResult::NeedsApproval {
-                message: format!(
-                    "Path '{}' is outside allowed working directories",
-                    path_str
-                ),
+                message: format!("Path '{}' is outside allowed working directories", path_str),
             };
         }
     }
@@ -235,10 +274,7 @@ pub fn check_dangerous_removal_paths(command: &str) -> Option<String> {
     for part in &parts {
         let trimmed = part.trim_matches('"').trim_matches('\'');
         if dangerous_targets.contains(&trimmed) {
-            return Some(format!(
-                "DANGER: Attempting to remove '{}'",
-                trimmed
-            ));
+            return Some(format!("DANGER: Attempting to remove '{}'", trimmed));
         }
     }
 
@@ -313,8 +349,8 @@ use once_cell::sync::Lazy;
 pub static PATH_EXTRACTORS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
     for cmd in [
-        "cat", "cp", "mv", "rm", "ls", "touch", "mkdir", "rmdir", "chmod", "chown", "ln",
-        "find", "grep", "sed", "head", "tail", "wc", "stat", "diff", "less", "more",
+        "cat", "cp", "mv", "rm", "ls", "touch", "mkdir", "rmdir", "chmod", "chown", "ln", "find",
+        "grep", "sed", "head", "tail", "wc", "stat", "diff", "less", "more",
     ] {
         m.insert(cmd, cmd);
     }

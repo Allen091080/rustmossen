@@ -1,9 +1,9 @@
 //! Configuration types — provider interface and shared types.
 
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Source layer for a configuration value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -105,11 +105,7 @@ pub trait MossenConfigFacade: Send + Sync {
         scope: Option<ConfigOverrideScope>,
     );
     /// Clear override(s). When key is None, clears the whole scope.
-    fn clear_mossen_config_overrides(
-        &self,
-        scope: Option<ConfigOverrideScope>,
-        key: Option<&str>,
-    );
+    fn clear_mossen_config_overrides(&self, scope: Option<ConfigOverrideScope>, key: Option<&str>);
     /// All currently-resolved values (debug/UI).
     fn get_all_mossen_config_values(&self) -> HashMap<String, Value>;
     /// Resolve a key returning value + provenance.

@@ -1,7 +1,7 @@
 // output_styles.rs — Translation of outputStyles/loadOutputStylesDir.ts
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputStyleConfig {
@@ -51,22 +51,26 @@ async fn load_markdown_styles(dir: &Path) -> Result<Vec<OutputStyleConfig>, std:
         let path = entry.path();
         if path.extension().map(|e| e == "md").unwrap_or(false) {
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                let file_name = path.file_stem()
+                let file_name = path
+                    .file_stem()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
 
                 let (frontmatter, body) = parse_frontmatter_simple(&content);
 
-                let name = frontmatter.get("name")
+                let name = frontmatter
+                    .get("name")
                     .cloned()
                     .unwrap_or_else(|| file_name.clone());
 
-                let description = frontmatter.get("description")
+                let description = frontmatter
+                    .get("description")
                     .cloned()
                     .unwrap_or_else(|| format!("Custom {} output style", file_name));
 
-                let keep_coding_instructions = frontmatter.get("keep-coding-instructions")
+                let keep_coding_instructions = frontmatter
+                    .get("keep-coding-instructions")
                     .and_then(|v| match v.as_str() {
                         "true" => Some(true),
                         "false" => Some(false),

@@ -4,7 +4,7 @@
 //! 提供粘贴内容的持久化存储，基于内容哈希进行寻址。
 
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::fs;
 use tracing::debug;
 

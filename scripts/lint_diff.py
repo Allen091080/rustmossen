@@ -3,7 +3,7 @@
 lint_diff.py — run eslint and fail only if NEW errors appear vs baseline.
 
 Same delta-gate philosophy as typecheck_diff.py. Repo has ~1300 pre-existing
-lint problems (39 errors, ~1300 warnings) mostly from upstream Claude Code
+lint problems (39 errors, ~1300 warnings) mostly from upstream Mossen Code
 (react-hooks rules-of-hooks violations, console statements, unused vars).
 
   1. Runs `bun run lint`

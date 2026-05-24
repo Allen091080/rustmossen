@@ -51,11 +51,13 @@ async fn ensure_image_store_dir(config_home: &Path, session_id: &str) -> std::io
 }
 
 /// Get the file path for an image by ID.
-fn get_image_path(config_home: &Path, session_id: &str, image_id: u64, media_type: &str) -> PathBuf {
-    let extension = media_type
-        .split('/')
-        .nth(1)
-        .unwrap_or("png");
+fn get_image_path(
+    config_home: &Path,
+    session_id: &str,
+    image_id: u64,
+    media_type: &str,
+) -> PathBuf {
+    let extension = media_type.split('/').nth(1).unwrap_or("png");
     get_image_store_dir(config_home, session_id).join(format!("{}.{}", image_id, extension))
 }
 
@@ -112,10 +114,8 @@ pub async fn store_image(
             let image_path = get_image_path(config_home, session_id, *id, media);
 
             // Decode base64 and write to file
-            match base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                base64_content,
-            ) {
+            match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_content)
+            {
                 Ok(bytes) => {
                     if fs::write(&image_path, &bytes).await.is_err() {
                         return None;
@@ -155,11 +155,7 @@ pub async fn store_images(
 
 /// Get the file path for a stored image by ID.
 pub fn get_stored_image_path(image_id: u64) -> Option<String> {
-    STORED_IMAGE_PATHS
-        .lock()
-        .unwrap()
-        .get(&image_id)
-        .cloned()
+    STORED_IMAGE_PATHS.lock().unwrap().get(&image_id).cloned()
 }
 
 /// Clear the in-memory cache of stored image paths.

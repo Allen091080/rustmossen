@@ -152,10 +152,7 @@ fn remove_spans(command: &str, spans: &[(usize, usize)]) -> String {
 }
 
 /// Replaces spans with just the quote delimiters (preserving ' and " characters).
-fn replace_spans_keep_quotes(
-    command: &str,
-    spans: &[(usize, usize, &str, &str)],
-) -> String {
+fn replace_spans_keep_quotes(command: &str, spans: &[(usize, usize, &str, &str)]) -> String {
     if spans.is_empty() {
         return command.to_string();
     }
@@ -192,7 +189,12 @@ pub fn extract_quote_context(root_node: &TsNode, command: &str) -> QuoteContext 
     collect_quote_spans(root_node, &mut spans, false);
 
     let single_quote_set = build_position_set(
-        &[spans.raw.clone(), spans.ansi_c.clone(), spans.heredoc.clone()].concat(),
+        &[
+            spans.raw.clone(),
+            spans.ansi_c.clone(),
+            spans.heredoc.clone(),
+        ]
+        .concat(),
     );
     let mut double_quote_delim_set = std::collections::HashSet::new();
     for &(start, end) in &spans.double {
@@ -277,8 +279,12 @@ pub fn extract_compound_structure(root_node: &TsNode, command: &str) -> Compound
                                     vec![list_child.clone()],
                                 );
                                 walk_top_level(
-                                    &wrapper, operators, segments, has_subshell,
-                                    has_command_group, has_pipeline,
+                                    &wrapper,
+                                    operators,
+                                    segments,
+                                    has_subshell,
+                                    has_command_group,
+                                    has_pipeline,
                                 );
                             }
                             "pipeline" => {
@@ -332,8 +338,12 @@ pub fn extract_compound_structure(root_node: &TsNode, command: &str) -> Compound
                             vec![inner.clone()],
                         );
                         walk_top_level(
-                            &wrapper, operators, segments, has_subshell,
-                            has_command_group, has_pipeline,
+                            &wrapper,
+                            operators,
+                            segments,
+                            has_subshell,
+                            has_command_group,
+                            has_pipeline,
                         );
                     }
                     if !found_inner {
@@ -343,16 +353,27 @@ pub fn extract_compound_structure(root_node: &TsNode, command: &str) -> Compound
                 "negated_command" => {
                     segments.push(child.text.clone());
                     walk_top_level(
-                        child, operators, segments, has_subshell,
-                        has_command_group, has_pipeline,
+                        child,
+                        operators,
+                        segments,
+                        has_subshell,
+                        has_command_group,
+                        has_pipeline,
                     );
                 }
-                "if_statement" | "while_statement" | "for_statement" | "case_statement"
+                "if_statement"
+                | "while_statement"
+                | "for_statement"
+                | "case_statement"
                 | "function_definition" => {
                     segments.push(child.text.clone());
                     walk_top_level(
-                        child, operators, segments, has_subshell,
-                        has_command_group, has_pipeline,
+                        child,
+                        operators,
+                        segments,
+                        has_subshell,
+                        has_command_group,
+                        has_pipeline,
                     );
                 }
                 _ => {}

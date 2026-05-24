@@ -205,9 +205,9 @@ impl From<&MessageHistory> for HistorySnapshot {
 // TS-mirror — `history.ts` exports.
 // ---------------------------------------------------------------------------
 
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 /// `history.ts` `getPastedTextRefNumLines` — count line separators
 /// (`\r\n` | `\r` | `\n`) in the pasted blob.

@@ -27,9 +27,9 @@ struct TreeCharacters {
 }
 
 const DEFAULT_TREE_CHARS: TreeCharacters = TreeCharacters {
-    branch: "\u{251c}",    // ├
+    branch: "\u{251c}",      // ├
     last_branch: "\u{2514}", // └
-    line: "\u{2502}",      // │
+    line: "\u{2502}",        // │
     empty: " ",
 };
 
@@ -83,11 +83,7 @@ fn grow_branch(
     for (index, key) in keys.iter().enumerate() {
         let value = &node[*key];
         let is_last_key = index == keys.len() - 1;
-        let node_prefix = if depth == 0 && index == 0 {
-            ""
-        } else {
-            prefix
-        };
+        let node_prefix = if depth == 0 && index == 0 { "" } else { prefix };
 
         let tree_char = if is_last_key {
             DEFAULT_TREE_CHARS.last_branch
@@ -134,7 +130,15 @@ fn grow_branch(
                         DEFAULT_TREE_CHARS.line
                     };
                     let next_prefix = format!("{}{} ", node_prefix, continuation_char);
-                    grow_branch(child, &next_prefix, is_last_key, depth + 1, opts, lines, visited);
+                    grow_branch(
+                        child,
+                        &next_prefix,
+                        is_last_key,
+                        depth + 1,
+                        opts,
+                        lines,
+                        visited,
+                    );
                 }
             }
             TreeValue::Leaf(val) => {

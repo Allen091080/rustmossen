@@ -1,15 +1,15 @@
 //! LSP server manager — manages multiple LSP server instances and routes requests by file extension.
 
+use anyhow::{bail, Result};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::{bail, Result};
-use serde_json::Value;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
 use url::Url;
 
-use super::config::{LspServerState, ScopedLspServerConfig, get_all_lsp_servers};
+use super::config::{get_all_lsp_servers, LspServerState, ScopedLspServerConfig};
 use super::server_instance::LspServerInstance;
 
 /// LSP Server Manager — manages multiple LSP server instances
@@ -359,9 +359,7 @@ fn path_to_file_url(file_path: &str) -> String {
     let abs_path = if abs_path.is_absolute() {
         abs_path.to_path_buf()
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(abs_path)
+        std::env::current_dir().unwrap_or_default().join(abs_path)
     };
     Url::from_file_path(&abs_path)
         .map(|u| u.to_string())

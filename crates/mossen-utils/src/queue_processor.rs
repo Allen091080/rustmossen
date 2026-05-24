@@ -58,12 +58,18 @@ fn is_slash_command(cmd: &QueuedCommand) -> bool {
 }
 
 /// 从队列中查看下一个满足条件的命令（不移除）
-fn peek(filter: impl Fn(&QueuedCommand) -> bool, queue: &[QueuedCommand]) -> Option<&QueuedCommand> {
+fn peek(
+    filter: impl Fn(&QueuedCommand) -> bool,
+    queue: &[QueuedCommand],
+) -> Option<&QueuedCommand> {
     queue.iter().find(|cmd| filter(cmd))
 }
 
 /// 从队列中取出第一个满足条件的命令
-fn dequeue(filter: impl Fn(&QueuedCommand) -> bool, queue: &mut Vec<QueuedCommand>) -> Option<QueuedCommand> {
+fn dequeue(
+    filter: impl Fn(&QueuedCommand) -> bool,
+    queue: &mut Vec<QueuedCommand>,
+) -> Option<QueuedCommand> {
     let pos = queue.iter().position(|cmd| filter(cmd))?;
     Some(queue.remove(pos))
 }

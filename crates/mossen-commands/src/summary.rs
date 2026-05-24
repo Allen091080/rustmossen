@@ -41,7 +41,11 @@ impl Directive for SummaryDirective {
     }
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /summary [options]\n\n                 Generate a summary of the current session.\n\n                 Options:\n                   --brief      Short one-paragraph summary\n                   --detailed   Full breakdown with all details\n                   --files      Focus on file changes only"
                     .to_string(),

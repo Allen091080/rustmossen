@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// 会话环境变量映射。
-static SESSION_ENV_VARS: std::sync::LazyLock<Mutex<HashMap<String, String>>> = 
+static SESSION_ENV_VARS: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// 获取会话环境变量映射。

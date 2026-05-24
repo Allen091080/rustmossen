@@ -100,9 +100,7 @@ pub fn get_default_api_base_url(
     if is_hosted_auth_adapter {
         return Ok(oauth_base_url.to_string());
     }
-    Err(anyhow::anyhow!(
-        "No Mossen files backend is configured."
-    ))
+    Err(anyhow::anyhow!("No Mossen files backend is configured."))
 }
 
 /// Retry result for internal use.
@@ -138,7 +136,11 @@ where
         }
     }
 
-    Err(anyhow::anyhow!("{} after {} attempts", last_error, MAX_RETRIES))
+    Err(anyhow::anyhow!(
+        "{} after {} attempts",
+        last_error,
+        MAX_RETRIES
+    ))
 }
 
 /// Download a single file from the Mossen files API.
@@ -418,7 +420,11 @@ pub async fn upload_file(
     let url = format!("{}/v1/files", base_url);
     let token = config.oauth_token.clone();
 
-    log_debug(&format!("Uploading file {} as {}", file_path.display(), relative_path));
+    log_debug(&format!(
+        "Uploading file {} as {}",
+        file_path.display(),
+        relative_path
+    ));
 
     let upload_result = retry_with_backoff(&format!("Upload file {}", relative_path), |_attempt| {
         let client = client.clone();
@@ -432,7 +438,10 @@ pub async fn upload_file(
                 .header("Authorization", format!("Bearer {}", token))
                 .header("mossen-version", PROVIDER_VERSION)
                 .header("mossen-beta", FILES_API_BETA_HEADER)
-                .header("Content-Type", format!("multipart/form-data; boundary={}", boundary))
+                .header(
+                    "Content-Type",
+                    format!("multipart/form-data; boundary={}", boundary),
+                )
                 .timeout(Duration::from_secs(120))
                 .body(body)
                 .send()
@@ -449,7 +458,11 @@ pub async fn upload_file(
                     Ok(d) => d,
                     Err(e) => return RetryResult::Retry(e.to_string()),
                 };
-                let file_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let file_id = data
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if file_id.is_empty() {
                     return RetryResult::Retry("Upload succeeded but no file ID returned".into());
                 }
@@ -604,7 +617,11 @@ pub async fn list_files_created_after(
         )
         .await?;
 
-        let files = page.get("data").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let files = page
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         for f in &files {
             if let (Some(filename), Some(id), Some(size)) = (
                 f.get("filename").and_then(|v| v.as_str()),
@@ -619,7 +636,10 @@ pub async fn list_files_created_after(
             }
         }
 
-        let has_more = page.get("has_more").and_then(|v| v.as_bool()).unwrap_or(false);
+        let has_more = page
+            .get("has_more")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if !has_more {
             break;
         }

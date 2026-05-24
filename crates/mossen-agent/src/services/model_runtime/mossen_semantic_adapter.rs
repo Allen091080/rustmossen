@@ -1,4 +1,4 @@
-//! Mossen semantic adapter — adapts canonical types for Mossen/Claude API.
+//! Mossen semantic adapter — adapts canonical types for Mossen/Mossen API.
 
 use super::canonical::{
     AssistantToolRequest, CanonicalHistoryMessage, CanonicalStreamEvent, CanonicalTurnRequest,
@@ -120,14 +120,22 @@ pub fn extract_tool_requests(content_blocks: &[Value]) -> Vec<AssistantToolReque
         .iter()
         .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
         .map(|block| {
-            let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+            let id = block
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = block
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let input = block
+                .get("input")
+                .cloned()
+                .unwrap_or(Value::Object(Default::default()));
             let arguments_object = match input {
-                Value::Object(map) => map
-                    .into_iter()
-                    .map(|(k, v)| (k, v))
-                    .collect(),
+                Value::Object(map) => map.into_iter().map(|(k, v)| (k, v)).collect(),
                 _ => std::collections::HashMap::new(),
             };
             AssistantToolRequest {

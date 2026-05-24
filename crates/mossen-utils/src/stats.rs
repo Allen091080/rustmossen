@@ -4,9 +4,8 @@
 //! streaks, and token consumption across all projects.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Daily activity record.
@@ -302,7 +301,9 @@ pub fn processed_stats_to_mossen_stats(stats: &ProcessedStats) -> MossenStats {
     // Total days
     let total_days = match (&first_session_date, &last_session_date) {
         (Some(first), Some(last)) => {
-            if let (Some(first_d), Some(last_d)) = (parse_date_string(first), parse_date_string(last)) {
+            if let (Some(first_d), Some(last_d)) =
+                (parse_date_string(first), parse_date_string(last))
+            {
                 ((last_d - first_d).num_days() + 1).max(0) as u64
             } else {
                 0
@@ -373,16 +374,15 @@ pub fn merge_model_usage(target: &mut ModelUsage, source: &ModelUsage) {
 }
 
 /// Merge daily activity into a map.
-pub fn merge_daily_activity(
-    map: &mut HashMap<String, DailyActivity>,
-    activity: &DailyActivity,
-) {
-    let entry = map.entry(activity.date.clone()).or_insert_with(|| DailyActivity {
-        date: activity.date.clone(),
-        message_count: 0,
-        session_count: 0,
-        tool_call_count: 0,
-    });
+pub fn merge_daily_activity(map: &mut HashMap<String, DailyActivity>, activity: &DailyActivity) {
+    let entry = map
+        .entry(activity.date.clone())
+        .or_insert_with(|| DailyActivity {
+            date: activity.date.clone(),
+            message_count: 0,
+            session_count: 0,
+            tool_call_count: 0,
+        });
     entry.message_count += activity.message_count;
     entry.session_count += activity.session_count;
     entry.tool_call_count += activity.tool_call_count;
@@ -399,7 +399,8 @@ pub fn extract_shot_count_from_command(command: &str) -> Option<u32> {
 }
 
 /// Transcript message types for session start date detection.
-const TRANSCRIPT_MESSAGE_TYPES: &[&str] = &["user", "assistant", "attachment", "system", "progress"];
+const TRANSCRIPT_MESSAGE_TYPES: &[&str] =
+    &["user", "assistant", "attachment", "system", "progress"];
 
 /// Peek at the head of a session file to get the session start date.
 pub async fn read_session_start_date(file_path: &str) -> Option<String> {
@@ -480,10 +481,7 @@ pub async fn get_all_session_files(projects_dir: &str) -> Vec<String> {
                     if let Ok(mut sub_entries) = tokio::fs::read_dir(&subagents_dir).await {
                         while let Ok(Some(sub_entry)) = sub_entries.next_entry().await {
                             let sub_path = sub_entry.path();
-                            let name = sub_path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("");
+                            let name = sub_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                             if name.starts_with("agent-") && name.ends_with(".jsonl") {
                                 result.push(sub_path.to_string_lossy().to_string());
                             }
@@ -508,7 +506,12 @@ pub async fn get_all_session_files(projects_dir: &str) -> Vec<String> {
 pub async fn aggregate_mossen_stats() -> MossenStats {
     let projects_dir = std::env::var("MOSSEN_PROJECTS_DIR").unwrap_or_else(|_| {
         dirs::home_dir()
-            .map(|p| p.join(".mossen").join("projects").to_string_lossy().to_string())
+            .map(|p| {
+                p.join(".mossen")
+                    .join("projects")
+                    .to_string_lossy()
+                    .to_string()
+            })
             .unwrap_or_default()
     });
     let session_files = get_all_session_files(&projects_dir).await;
@@ -526,7 +529,12 @@ pub async fn aggregate_mossen_stats_for_range(range: StatsDateRange) -> MossenSt
     }
     let projects_dir = std::env::var("MOSSEN_PROJECTS_DIR").unwrap_or_else(|_| {
         dirs::home_dir()
-            .map(|p| p.join(".mossen").join("projects").to_string_lossy().to_string())
+            .map(|p| {
+                p.join(".mossen")
+                    .join("projects")
+                    .to_string_lossy()
+                    .to_string()
+            })
             .unwrap_or_default()
     });
     let session_files = get_all_session_files(&projects_dir).await;

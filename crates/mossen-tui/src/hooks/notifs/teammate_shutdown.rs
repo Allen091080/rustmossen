@@ -93,10 +93,18 @@ pub struct TeammateLifecycleSeen {
 /// Pluralized spawn / shutdown text. Translated from `makeSpawnNotif` /
 /// `makeShutdownNotif` in TS.
 fn make_spawn_text(count: u32) -> String {
-    if count == 1 { "1 agent spawned".to_string() } else { format!("{} agents spawned", count) }
+    if count == 1 {
+        "1 agent spawned".to_string()
+    } else {
+        format!("{} agents spawned", count)
+    }
 }
 fn make_shutdown_text(count: u32) -> String {
-    if count == 1 { "1 agent shut down".to_string() } else { format!("{} agents shut down", count) }
+    if count == 1 {
+        "1 agent shut down".to_string()
+    } else {
+        format!("{} agents shut down", count)
+    }
 }
 
 /// `useTeammateLifecycleNotification` — pure-logic translation.

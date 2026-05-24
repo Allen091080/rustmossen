@@ -21,14 +21,16 @@ const GOODBYE_MESSAGES: &[&str] = &[
 
 /// Check if currently running inside a background (tmux) session.
 fn is_background_session(ctx: &CommandContext) -> bool {
-    ctx.env_vars.get("MOSSEN_BG_SESSION")
+    ctx.env_vars
+        .get("MOSSEN_BG_SESSION")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
 }
 
 /// Check if there is an active worktree session.
 fn has_worktree_session(ctx: &CommandContext) -> bool {
-    ctx.env_vars.get("MOSSEN_WORKTREE_SESSION")
+    ctx.env_vars
+        .get("MOSSEN_WORKTREE_SESSION")
         .map(|v| !v.is_empty())
         .unwrap_or(false)
 }

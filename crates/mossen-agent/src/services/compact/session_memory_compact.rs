@@ -1,14 +1,18 @@
 //! Session memory compaction — uses session memory as a summary instead of an API call.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tracing::debug;
 
-use mossen_types::{ContentBlock, Message, Role};
+use mossen_types::{ContentBlock, Message, Role, TextBlock};
 
-use super::compact::{CompactionResult, CompactMetadata, PreservedSegment};
+use super::compact::{CompactMetadata, CompactionResult, PreservedSegment};
 use super::micro_compact::estimate_message_tokens;
 use super::prompt::get_compact_user_summary_message;
+use crate::services::session_memory::prompts::truncate_session_memory_for_compact;
+use crate::services::session_memory::utils::{
+    get_last_summarized_message_id, get_session_memory_content,
+};
 
 /// Configuration for session memory compaction thresholds.
 #[derive(Debug, Clone)]
@@ -58,7 +62,10 @@ pub fn reset_session_memory_compact_config() {
 /// Check if a message contains text blocks.
 pub fn has_text_blocks(message: &Message) -> bool {
     if message.role == Role::Assistant || message.role == Role::User {
-        return message.content.iter().any(|b| matches!(b, ContentBlock::Text(_)));
+        return message
+            .content
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Text(_)));
     }
     false
 }
@@ -97,10 +104,7 @@ fn has_tool_use_with_ids(message: &Message, tool_use_ids: &HashSet<String>) -> b
 
 /// Adjust the start index to ensure we don't split tool_use/tool_result pairs
 /// or thinking blocks that share the same message uuid with kept assistant messages.
-pub fn adjust_index_to_preserve_api_invariants(
-    messages: &[Message],
-    start_index: usize,
-) -> usize {
+pub fn adjust_index_to_preserve_api_invariants(messages: &[Message], start_index: usize) -> usize {
     if start_index == 0 || start_index >= messages.len() {
         return start_index;
     }
@@ -175,10 +179,7 @@ pub fn adjust_index_to_preserve_api_invariants(
 }
 
 /// Calculate the starting index for messages to keep after compaction.
-pub fn calculate_messages_to_keep_index(
-    messages: &[Message],
-    last_summarized_index: i64,
-) -> usize {
+pub fn calculate_messages_to_keep_index(messages: &[Message], last_summarized_index: i64) -> usize {
     if messages.is_empty() {
         return 0;
     }
@@ -208,7 +209,9 @@ pub fn calculate_messages_to_keep_index(
     }
 
     // Check if we already meet both minimums
-    if total_tokens >= config.min_tokens && text_block_message_count >= config.min_text_block_messages {
+    if total_tokens >= config.min_tokens
+        && text_block_message_count >= config.min_text_block_messages
+    {
         return adjust_index_to_preserve_api_invariants(messages, start_index);
     }
 
@@ -231,7 +234,9 @@ pub fn calculate_messages_to_keep_index(
         if total_tokens >= config.max_tokens {
             break;
         }
-        if total_tokens >= config.min_tokens && text_block_message_count >= config.min_text_block_messages {
+        if total_tokens >= config.min_tokens
+            && text_block_message_count >= config.min_text_block_messages
+        {
             break;
         }
     }
@@ -274,8 +279,189 @@ pub async fn try_session_memory_compaction(
         return None;
     }
 
-    // In production, would read session memory content from disk
-    // and build a CompactionResult. For now, return None as the
-    // feature requires integration with the session memory system.
-    None
+    let memory = get_session_memory_content().await?;
+    let memory = memory.trim();
+    if memory.is_empty() {
+        return None;
+    }
+
+    let last_summarized_index = get_last_summarized_message_id()
+        .and_then(|id| {
+            messages
+                .iter()
+                .position(|message| message.uuid.as_deref() == Some(id.as_str()))
+        })
+        .map(|index| index as i64)
+        .unwrap_or(-1);
+    build_session_memory_compaction_result(
+        messages,
+        memory,
+        last_summarized_index,
+        auto_compact_threshold,
+    )
+}
+
+fn build_session_memory_compaction_result(
+    messages: &[Message],
+    memory: &str,
+    last_summarized_index: i64,
+    auto_compact_threshold: Option<usize>,
+) -> Option<CompactionResult> {
+    let keep_index = calculate_messages_to_keep_index(messages, last_summarized_index);
+    if keep_index == 0 || keep_index >= messages.len() {
+        debug!(
+            keep_index,
+            message_count = messages.len(),
+            "session memory compaction skipped because it would not preserve a useful recent segment"
+        );
+        return None;
+    }
+
+    let pre_tokens = estimate_message_tokens(messages);
+    if let Some(threshold) = auto_compact_threshold {
+        if pre_tokens < threshold {
+            return None;
+        }
+    }
+
+    let messages_to_keep = messages[keep_index..].to_vec();
+    let compacted_message_count = keep_index;
+    let (memory, was_truncated) = truncate_session_memory_for_compact(memory);
+    let summary = if was_truncated {
+        format!(
+            "Session memory summary used for compaction:\n\n{}\n\n[The session memory was truncated to fit the compaction budget.]",
+            memory
+        )
+    } else {
+        format!("Session memory summary used for compaction:\n\n{}", memory)
+    };
+    let summary_text = get_compact_user_summary_message(&summary, true, None, Some(true));
+    let summary_message = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(TextBlock { text: summary_text })],
+        uuid: None,
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra: HashMap::new(),
+    };
+
+    let mut boundary = Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(TextBlock {
+            text: format!(
+                "[session-memory compact boundary: {} message(s) compacted]",
+                compacted_message_count
+            ),
+        })],
+        uuid: None,
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra: HashMap::new(),
+    };
+
+    let preserved_segment = messages_to_keep.first().map(|head| PreservedSegment {
+        head_uuid: head.uuid.clone().unwrap_or_default(),
+        anchor_uuid: head.uuid.clone().unwrap_or_default(),
+        tail_uuid: messages_to_keep
+            .last()
+            .and_then(|message| message.uuid.clone())
+            .unwrap_or_default(),
+    });
+    let metadata = CompactMetadata {
+        trigger: "session_memory".to_string(),
+        pre_compact_token_count: pre_tokens,
+        pre_compact_discovered_tools: None,
+        preserved_segment,
+    };
+    boundary.extra.insert(
+        "compact_metadata".to_string(),
+        serde_json::to_value(metadata).unwrap_or_else(|_| serde_json::json!({})),
+    );
+    if let Some(threshold) = auto_compact_threshold {
+        boundary.extra.insert(
+            "auto_compact_threshold".to_string(),
+            serde_json::json!(threshold),
+        );
+    }
+
+    let mut post_messages = vec![boundary.clone(), summary_message.clone()];
+    post_messages.extend(messages_to_keep.clone());
+    let post_tokens = estimate_message_tokens(&post_messages);
+
+    Some(CompactionResult {
+        boundary_marker: boundary,
+        summary_messages: vec![summary_message],
+        attachments: Vec::new(),
+        hook_results: Vec::new(),
+        messages_to_keep: Some(messages_to_keep),
+        user_display_message: Some(format!(
+            "Session-memory compacted {} message(s); context is now ~{} tokens.",
+            compacted_message_count, post_tokens
+        )),
+        pre_compact_token_count: Some(pre_tokens),
+        post_compact_token_count: Some(post_tokens),
+        true_post_compact_token_count: Some(post_tokens),
+        compaction_usage: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_message(role: Role, uuid: &str, text: &str) -> Message {
+        Message {
+            role,
+            content: vec![ContentBlock::Text(TextBlock {
+                text: text.to_string(),
+            })],
+            uuid: Some(uuid.to_string()),
+            is_meta: None,
+            origin: None,
+            timestamp: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    fn first_text(message: &Message) -> &str {
+        match message.content.first() {
+            Some(ContentBlock::Text(block)) => block.text.as_str(),
+            _ => panic!("expected text block"),
+        }
+    }
+
+    #[test]
+    fn session_memory_compaction_uses_memory_and_preserves_recent_messages() {
+        let large_recent = "recent context ".repeat(4_000);
+        let messages = vec![
+            text_message(Role::User, "m1", "old user"),
+            text_message(Role::Assistant, "m2", "old assistant"),
+            text_message(Role::User, "m3", &large_recent),
+            text_message(Role::Assistant, "m4", &large_recent),
+            text_message(Role::User, "m5", &large_recent),
+            text_message(Role::Assistant, "m6", &large_recent),
+            text_message(Role::User, "m7", &large_recent),
+        ];
+
+        let result = build_session_memory_compaction_result(
+            &messages,
+            "Project fact: preserve permission decisions",
+            1,
+            Some(1),
+        )
+        .expect("session memory compact result");
+
+        assert_eq!(result.messages_to_keep.as_ref().unwrap().len(), 5);
+        assert_eq!(
+            result.messages_to_keep.as_ref().unwrap()[0].uuid.as_deref(),
+            Some("m3")
+        );
+        assert!(first_text(&result.summary_messages[0]).contains("preserve permission decisions"));
+        assert_eq!(
+            result.boundary_marker.extra["compact_metadata"]["trigger"],
+            "session_memory"
+        );
+    }
 }

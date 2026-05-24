@@ -5,8 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::string_utils::{prefix_chars, truncate_chars};
 
 /// Size of the head/tail buffer for lite metadata reads.
 pub const LITE_READ_BUF_SIZE: usize = 65536;
@@ -42,10 +43,7 @@ pub fn unescape_json_string(raw: &str) -> String {
 
 /// Extracts a simple JSON string field value from raw text without full parsing.
 pub fn extract_json_string_field(text: &str, key: &str) -> Option<String> {
-    let patterns = [
-        format!("\"{}\":\"", key),
-        format!("\"{}\": \"", key),
-    ];
+    let patterns = [format!("\"{}\":\"", key), format!("\"{}\": \"", key)];
 
     for pattern in &patterns {
         if let Some(idx) = text.find(pattern.as_str()) {
@@ -69,10 +67,7 @@ pub fn extract_json_string_field(text: &str, key: &str) -> Option<String> {
 
 /// Like extract_json_string_field but finds the LAST occurrence.
 pub fn extract_last_json_string_field(text: &str, key: &str) -> Option<String> {
-    let patterns = [
-        format!("\"{}\":\"", key),
-        format!("\"{}\": \"", key),
-    ];
+    let patterns = [format!("\"{}\":\"", key), format!("\"{}\": \"", key)];
 
     let mut last_value: Option<String> = None;
 
@@ -216,8 +211,8 @@ pub fn extract_first_prompt_from_head(head: &str) -> String {
                 continue;
             }
 
-            if result.len() > 200 {
-                return format!("{}\u{2026}", result[..200].trim());
+            if result.chars().count() > 200 {
+                return truncate_chars(result.trim(), 200);
             }
             return result;
         }
@@ -240,10 +235,7 @@ pub struct LiteSessionFile {
 }
 
 /// Read head and tail of a file.
-pub async fn read_head_and_tail(
-    file_path: &str,
-    file_size: u64,
-) -> (String, String) {
+pub async fn read_head_and_tail(file_path: &str, file_size: u64) -> (String, String) {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
     let file = match tokio::fs::File::open(file_path).await {
@@ -298,7 +290,9 @@ pub async fn read_session_lite(file_path: &str) -> Option<LiteSessionFile> {
 
     let tail_offset = meta.len().saturating_sub(LITE_READ_BUF_SIZE as u64);
     let tail = if tail_offset > 0 {
-        file.seek(std::io::SeekFrom::Start(tail_offset)).await.ok()?;
+        file.seek(std::io::SeekFrom::Start(tail_offset))
+            .await
+            .ok()?;
         let n = file.read(&mut buf).await.ok()?;
         String::from_utf8_lossy(&buf[..n]).to_string()
     } else {
@@ -346,7 +340,11 @@ pub fn sanitize_path(name: &str) -> String {
 
     let hash = djb2_hash(name);
     let hash_str = format!("{}", radix_fmt(hash, 36));
-    format!("{}-{}", &sanitized[..MAX_SANITIZED_LENGTH], hash_str)
+    format!(
+        "{}-{}",
+        prefix_chars(&sanitized, MAX_SANITIZED_LENGTH),
+        hash_str
+    )
 }
 
 /// Format a number in a given radix (base 36).
@@ -387,10 +385,7 @@ pub async fn canonicalize_path(dir: &str) -> String {
 }
 
 /// Find the project directory for a given path, tolerating hash mismatches.
-pub async fn find_project_dir(
-    config_home: &str,
-    project_path: &str,
-) -> Option<PathBuf> {
+pub async fn find_project_dir(config_home: &str, project_path: &str) -> Option<PathBuf> {
     let exact = get_project_dir(config_home, project_path);
     if tokio::fs::read_dir(&exact).await.is_ok() {
         return Some(exact);
@@ -403,7 +398,7 @@ pub async fn find_project_dir(
     }
 
     // Try prefix matching for long paths
-    let prefix = &sanitized[..MAX_SANITIZED_LENGTH];
+    let prefix = prefix_chars(&sanitized, MAX_SANITIZED_LENGTH);
     let projects_dir = get_projects_dir(config_home);
     let mut entries = tokio::fs::read_dir(&projects_dir).await.ok()?;
 
@@ -516,7 +511,7 @@ pub async fn read_transcript_for_load(
     file_path: &str,
     file_size: u64,
 ) -> std::io::Result<TranscriptLoadResult> {
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio::io::AsyncReadExt;
 
     let mut file = tokio::fs::File::open(file_path).await?;
     let mut output = Vec::with_capacity((file_size as usize).min(8 * 1024 * 1024));
@@ -559,7 +554,7 @@ pub async fn read_transcript_for_load(
                 // Check for compact boundary
                 if line.len() < 256 {
                     // Boundary marker is within first 256 bytes of line
-                    if let Some(pos) = line
+                    if let Some(_pos) = line
                         .windows(COMPACT_BOUNDARY_MARKER.len())
                         .position(|w| w == COMPACT_BOUNDARY_MARKER)
                     {
@@ -569,7 +564,8 @@ pub async fn read_transcript_for_load(
                                 has_preserved_segment = true;
                             } else {
                                 output.clear();
-                                boundary_start_offset = (file_pos as usize) - bytes_read + line_start;
+                                boundary_start_offset =
+                                    (file_pos as usize) - bytes_read + line_start;
                                 has_preserved_segment = false;
                             }
                             line_start = i + 1;
@@ -600,4 +596,35 @@ pub async fn read_transcript_for_load(
         post_boundary_buf: output,
         has_preserved_segment,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_first_prompt_from_head, sanitize_path};
+
+    #[test]
+    fn first_prompt_preview_truncates_multibyte_without_panic() {
+        let prompt = "逐行阅读代码".repeat(60);
+        let head = serde_json::json!({
+            "type": "user",
+            "message": {
+                "content": [{"type": "text", "text": prompt}]
+            }
+        })
+        .to_string();
+
+        let preview = extract_first_prompt_from_head(&head);
+
+        assert!(preview.is_char_boundary(preview.len()));
+        assert!(preview.ends_with('…'));
+    }
+
+    #[test]
+    fn sanitize_path_truncates_unicode_names_without_panic() {
+        let path = "项目路径".repeat(80);
+        let sanitized = sanitize_path(&path);
+
+        assert!(sanitized.is_char_boundary(sanitized.len()));
+        assert!(sanitized.len() > 200);
+    }
 }

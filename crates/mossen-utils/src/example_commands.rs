@@ -157,7 +157,12 @@ pub async fn get_frequently_modified_files(
     };
 
     let base_args = [
-        "log", "-n", "1000", "--pretty=format:", "--name-only", "--diff-filter=M",
+        "log",
+        "-n",
+        "1000",
+        "--pretty=format:",
+        "--name-only",
+        "--diff-filter=M",
     ];
 
     if let Some(email) = user_email {

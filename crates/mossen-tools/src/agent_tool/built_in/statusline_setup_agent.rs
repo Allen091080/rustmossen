@@ -30,7 +30,7 @@ pub fn definition() -> AgentDefinition {
         mcp_servers: None,
         hooks: None,
         color: None,
-        model: Some("haiku".to_string()),
+        model: Some("fast".to_string()),
         effort: None,
         permission_mode: Some(PermissionMode::AcceptEdits),
         max_turns: Some(20),

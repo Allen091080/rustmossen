@@ -9,14 +9,16 @@ static CONTAINER_ID: OnceCell<Option<String>> = OnceCell::const_new();
 
 /// Get the current Kubernetes namespace (internal users only)
 pub async fn get_kubernetes_namespace() -> Option<String> {
-    if std::env::var("USER_TYPE").as_deref() != Ok("ant") {
+    if std::env::var("USER_TYPE").as_deref() != Ok("internal") {
         return None;
     }
 
     K8S_NAMESPACE
         .get_or_init(|| async {
-            match tokio::fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-                .await
+            match tokio::fs::read_to_string(
+                "/var/run/secrets/kubernetes.io/serviceaccount/namespace",
+            )
+            .await
             {
                 Ok(content) => Some(content.trim().to_string()),
                 Err(_) => Some("namespace not found".to_string()),
@@ -28,7 +30,7 @@ pub async fn get_kubernetes_namespace() -> Option<String> {
 
 /// Get the OCI container ID from within a running container
 pub async fn get_container_id() -> Option<String> {
-    if std::env::var("USER_TYPE").as_deref() != Ok("ant") {
+    if std::env::var("USER_TYPE").as_deref() != Ok("internal") {
         return None;
     }
 
@@ -37,10 +39,9 @@ pub async fn get_container_id() -> Option<String> {
             match tokio::fs::read_to_string("/proc/self/mountinfo").await {
                 Ok(content) => {
                     // Match Docker or containerd container IDs
-                    let pattern = regex::Regex::new(
-                        r"(?:/docker/containers/|/sandboxes/)([0-9a-f]{64})",
-                    )
-                    .ok()?;
+                    let pattern =
+                        regex::Regex::new(r"(?:/docker/containers/|/sandboxes/)([0-9a-f]{64})")
+                            .ok()?;
 
                     for line in content.lines() {
                         if let Some(captures) = pattern.captures(line) {
@@ -59,11 +60,8 @@ pub async fn get_container_id() -> Option<String> {
 }
 
 /// Log permission context for internal users
-pub async fn log_permission_context_for_ants(
-    tool_permission_context: Option<&str>,
-    moment: &str,
-) {
-    if std::env::var("USER_TYPE").as_deref() != Ok("ant") {
+pub async fn log_permission_context_for_ants(tool_permission_context: Option<&str>, moment: &str) {
+    if std::env::var("USER_TYPE").as_deref() != Ok("internal") {
         return;
     }
 

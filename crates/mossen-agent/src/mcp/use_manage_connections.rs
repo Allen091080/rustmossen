@@ -11,8 +11,8 @@ use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 use crate::mcp::channel_notification::{
-    ChannelEntry, ChannelGateResult, ChannelGateSkipKind, gate_channel_server,
-    find_channel_entry, ServerCapabilities,
+    find_channel_entry, gate_channel_server, ChannelEntry, ChannelGateResult, ChannelGateSkipKind,
+    ServerCapabilities,
 };
 use crate::mcp::channel_permissions::{
     create_channel_permission_callbacks, ChannelPermissionCallbacks,
@@ -354,10 +354,8 @@ impl McpConnectionState {
                 }
 
                 // Exponential backoff
-                let backoff = std::cmp::min(
-                    INITIAL_BACKOFF_MS * 2u64.pow(attempt - 1),
-                    MAX_BACKOFF_MS,
-                );
+                let backoff =
+                    std::cmp::min(INITIAL_BACKOFF_MS * 2u64.pow(attempt - 1), MAX_BACKOFF_MS);
 
                 tokio::select! {
                     _ = sleep(Duration::from_millis(backoff)) => {}

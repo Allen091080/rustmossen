@@ -58,7 +58,7 @@ fn is_remote_sessions_policy_allowed() -> bool {
 }
 
 /// 是否启用 CCR bundle seeding 路径；对应 TS 中 `CCR_FORCE_BUNDLE`、
-/// `CCR_ENABLE_BUNDLE` 以及 `tengu_ccr_bundle_seed_enabled` GrowthBook gate。
+/// `CCR_ENABLE_BUNDLE` 以及 `mossen_ccr_bundle_seed_enabled` GrowthBook gate。
 /// Rust 端只检查环境变量（GrowthBook 桥接未到位）。
 fn bundle_seed_gate_on(skip_bundle: bool) -> bool {
     if skip_bundle {
@@ -72,15 +72,14 @@ fn bundle_seed_gate_on(skip_bundle: bool) -> bool {
     };
     truthy("CCR_FORCE_BUNDLE")
         || truthy("CCR_ENABLE_BUNDLE")
-        || truthy("MOSSEN_FEATURE_TENGU_CCR_BUNDLE_SEED_ENABLED")
+        || truthy("MOSSEN_FEATURE_MOSSEN_CCR_BUNDLE_SEED_ENABLED")
 }
 
 /// 在当前 cwd 下探测仓库（origin URL 经 `git remote get-url`）。
 async fn detect_repo_in_cwd() -> Option<crate::detect_repository::ParsedRepository> {
     let cwd = get_cwd();
     let origin = fetch_origin_url(&cwd).await;
-    crate::detect_repository::detect_current_repository_with_host(&cwd, async move { origin })
-        .await
+    crate::detect_repository::detect_current_repository_with_host(&cwd, async move { origin }).await
 }
 
 async fn fetch_origin_url(cwd: &str) -> Option<String> {
@@ -94,7 +93,11 @@ async fn fetch_origin_url(cwd: &str) -> Option<String> {
         return None;
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if url.is_empty() { None } else { Some(url) }
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
 }
 
 /// 检查创建背景远程会话的资格。

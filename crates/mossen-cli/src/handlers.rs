@@ -30,10 +30,22 @@ pub struct ResolvedAgent {
 
 /// Agent 来源组常量。
 pub const AGENT_SOURCE_GROUPS: &[AgentSourceGroup] = &[
-    AgentSourceGroup { label: "Built-in", source: "builtin" },
-    AgentSourceGroup { label: "Project", source: "project" },
-    AgentSourceGroup { label: "User", source: "user" },
-    AgentSourceGroup { label: "Enterprise", source: "enterprise" },
+    AgentSourceGroup {
+        label: "Built-in",
+        source: "builtin",
+    },
+    AgentSourceGroup {
+        label: "Project",
+        source: "project",
+    },
+    AgentSourceGroup {
+        label: "User",
+        source: "user",
+    },
+    AgentSourceGroup {
+        label: "Enterprise",
+        source: "enterprise",
+    },
 ];
 
 /// 格式化单个 Agent 的显示文本。
@@ -84,7 +96,11 @@ pub async fn agents_handler(cwd: &std::path::Path) -> Result<()> {
         for agent in &group_agents {
             if let Some(ref overridden_by) = agent.overridden_by {
                 let winner_source = get_override_source_label(overridden_by);
-                lines.push(format!("  (shadowed by {}) {}", winner_source, format_agent(agent)));
+                lines.push(format!(
+                    "  (shadowed by {}) {}",
+                    winner_source,
+                    format_agent(agent)
+                ));
             } else {
                 lines.push(format!("  {}", format_agent(agent)));
                 total_active += 1;
@@ -113,7 +129,11 @@ async fn load_resolved_agents(cwd: &std::path::Path) -> Vec<ResolvedAgent> {
         if let Ok(entries) = std::fs::read_dir(&agents_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map(|e| e == "md" || e == "json").unwrap_or(false) {
+                if path
+                    .extension()
+                    .map(|e| e == "md" || e == "json")
+                    .unwrap_or(false)
+                {
                     let name = path
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
@@ -180,7 +200,9 @@ pub async fn auth_login(
     hosted: bool,
 ) -> Result<()> {
     if is_custom_backend_enabled() {
-        eprintln!("Built-in account flow is disabled. Configure custom backend credentials instead.");
+        eprintln!(
+            "Built-in account flow is disabled. Configure custom backend credentials instead."
+        );
         std::process::exit(1);
     }
 
@@ -193,7 +215,9 @@ pub async fn auth_login(
     if let Ok(env_refresh_token) = std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN") {
         let env_scopes = std::env::var("MOSSEN_CODE_AUTH_SCOPES").ok();
         if env_scopes.is_none() {
-            eprintln!("MOSSEN_CODE_AUTH_SCOPES is required when using MOSSEN_CODE_AUTH_REFRESH_TOKEN.");
+            eprintln!(
+                "MOSSEN_CODE_AUTH_SCOPES is required when using MOSSEN_CODE_AUTH_REFRESH_TOKEN."
+            );
             std::process::exit(1);
         }
 
@@ -243,7 +267,11 @@ pub async fn auth_status(json_output: bool, text_output: bool) -> Result<()> {
             println!("Login method: custom backend");
             println!(
                 "Credential state: {}",
-                if credentials_configured { "configured" } else { "missing" }
+                if credentials_configured {
+                    "configured"
+                } else {
+                    "missing"
+                }
             );
         } else {
             let output = serde_json::json!({
@@ -379,12 +407,24 @@ fn get_default_auto_mode_rules() -> AutoModeRules {
     }
 }
 
-fn format_rules_for_critique(section: &str, user_rules: &[String], default_rules: &[String]) -> String {
+fn format_rules_for_critique(
+    section: &str,
+    user_rules: &[String],
+    default_rules: &[String],
+) -> String {
     if user_rules.is_empty() {
         return String::new();
     }
-    let custom_lines = user_rules.iter().map(|r| format!("- {}", r)).collect::<Vec<_>>().join("\n");
-    let default_lines = default_rules.iter().map(|r| format!("- {}", r)).collect::<Vec<_>>().join("\n");
+    let custom_lines = user_rules
+        .iter()
+        .map(|r| format!("- {}", r))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let default_lines = default_rules
+        .iter()
+        .map(|r| format!("- {}", r))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "## {} (custom rules replacing defaults)\nCustom:\n{}\n\nDefaults being replaced:\n{}\n\n",
         section, custom_lines, default_lines
@@ -452,7 +492,11 @@ pub async fn plugins_list_handler() -> Result<()> {
     } else {
         println!("{} plugins installed:\n", plugins.len());
         for plugin in &plugins {
-            let status = if plugin.enabled { "enabled" } else { "disabled" };
+            let status = if plugin.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            };
             println!("  {} ({})", plugin.name, status);
         }
     }

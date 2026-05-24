@@ -142,8 +142,7 @@ impl Directive for InitDirective {
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let assistant_name = &ctx.product_name;
         // Use new init prompt for internal users or when NEW_INIT feature is enabled
-        let use_new_init = ctx.is_internal_user()
-            || ctx.is_env_truthy("MOSSEN_CODE_NEW_INIT");
+        let use_new_init = ctx.is_internal_user() || ctx.is_env_truthy("MOSSEN_CODE_NEW_INIT");
 
         let prompt = if use_new_init {
             new_init_prompt(assistant_name)

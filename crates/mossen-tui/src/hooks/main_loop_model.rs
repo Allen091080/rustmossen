@@ -48,13 +48,17 @@ impl MainLoopModelState {
 
     /// Get current model info.
     pub fn current_model_info(&self) -> Option<&ModelInfo> {
-        self.available_models.iter().find(|m| m.id == self.current_model)
+        self.available_models
+            .iter()
+            .find(|m| m.id == self.current_model)
     }
 
     /// Get the effective model (considering fast mode and fallback).
     pub fn effective_model(&self) -> &str {
         if self.is_fast_mode {
-            self.fallback_model.as_deref().unwrap_or(&self.current_model)
+            self.fallback_model
+                .as_deref()
+                .unwrap_or(&self.current_model)
         } else {
             &self.current_model
         }

@@ -1,7 +1,6 @@
 //! Structured diff display widget.
 //!
-//! Translates: components/StructuredDiff/ (StructuredDiffView.tsx, DiffSections.tsx)
-//! into a ratatui widget showing side-by-side or unified diffs with file grouping.
+//! Side-by-side or unified ratatui diffs with file grouping.
 
 use ratatui::{
     buffer::Buffer,
@@ -164,8 +163,8 @@ impl<'a> StructuredDiffWidget<'a> {
 
             for dl in &hunk.lines {
                 let (prefix, style) = match dl.kind {
-                    StructuredLineKind::Added => ("+", Style::default().fg(Color::Green)),
-                    StructuredLineKind::Removed => ("-", Style::default().fg(Color::Red)),
+                    StructuredLineKind::Added => ("+", Style::default().fg(theme.success)),
+                    StructuredLineKind::Removed => ("-", Style::default().fg(theme.error)),
                     StructuredLineKind::Context => (" ", Style::default().fg(theme.text_dim)),
                 };
 

@@ -2,10 +2,10 @@
 //!
 //! 基于 userId hash 的确定性宠物生成系统（含稀有度/属性/物种）。
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 // ─── Types (buddy/types.ts) ────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ pub enum Species {
     Blob,
     Cat,
     Dragon,
-    Octopus,
+    Cephalopod,
     Owl,
     Penguin,
     Turtle,
@@ -82,7 +82,7 @@ pub const SPECIES: &[Species] = &[
     Species::Blob,
     Species::Cat,
     Species::Dragon,
-    Species::Octopus,
+    Species::Cephalopod,
     Species::Owl,
     Species::Penguin,
     Species::Turtle,
@@ -115,7 +115,14 @@ pub enum Eye {
 }
 
 /// 所有眼睛样式。
-pub const EYES: &[Eye] = &[Eye::Dot, Eye::Star, Eye::Cross, Eye::Circle, Eye::At, Eye::Degree];
+pub const EYES: &[Eye] = &[
+    Eye::Dot,
+    Eye::Star,
+    Eye::Cross,
+    Eye::Circle,
+    Eye::At,
+    Eye::Degree,
+];
 
 /// 帽子类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -364,7 +371,7 @@ pub const goose: &str = "goose";
 pub const blob: &str = "blob";
 pub const cat: &str = "cat";
 pub const dragon: &str = "dragon";
-pub const octopus: &str = "octopus";
+pub const cephalopod: &str = "cephalopod";
 pub const owl: &str = "owl";
 pub const penguin: &str = "penguin";
 pub const turtle: &str = "turtle";
@@ -380,14 +387,21 @@ pub const chonk: &str = "chonk";
 
 /// 物种名字符串数组（兼容 TS）。
 pub const SPECIES_NAMES: &[&str] = &[
-    duck, goose, blob, cat, dragon, octopus, owl, penguin, turtle, snail, ghost, axolotl,
+    duck, goose, blob, cat, dragon, cephalopod, owl, penguin, turtle, snail, ghost, axolotl,
     capybara, cactus, robot, rabbit, mushroom, chonk,
 ];
 
 pub const EYE_CHARS: &[&str] = &["·", "✦", "×", "◉", "@", "°"];
 
 pub const HAT_NAMES: &[&str] = &[
-    "none", "crown", "tophat", "propeller", "halo", "wizard", "beanie", "tinyduck",
+    "none",
+    "crown",
+    "tophat",
+    "propeller",
+    "halo",
+    "wizard",
+    "beanie",
+    "tinyduck",
 ];
 
 pub const STAT_LABELS: &[&str] = &["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"];
@@ -461,7 +475,7 @@ pub const MIN_COLS_FOR_FULL_SPRITE: usize = 30;
 pub fn companion_reserved_columns(species: &str) -> usize {
     match species {
         "duck" | "goose" => 6,
-        "octopus" | "capybara" => 9,
+        "cephalopod" | "capybara" => 9,
         "dragon" | "mushroom" => 10,
         _ => 5,
     }

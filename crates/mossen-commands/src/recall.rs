@@ -178,7 +178,10 @@ impl Directive for RecallDirective {
         if mossen_local_md.exists() {
             output.push_str(&format!(
                 "  • {}\n",
-                get_relative_memory_path(&mossen_local_md.to_string_lossy(), &cwd.to_string_lossy())
+                get_relative_memory_path(
+                    &mossen_local_md.to_string_lossy(),
+                    &cwd.to_string_lossy()
+                )
             ));
         }
 
@@ -191,7 +194,10 @@ impl Directive for RecallDirective {
                     if path.is_file() {
                         output.push_str(&format!(
                             "  • {}\n",
-                            get_relative_memory_path(&path.to_string_lossy(), &cwd.to_string_lossy())
+                            get_relative_memory_path(
+                                &path.to_string_lossy(),
+                                &cwd.to_string_lossy()
+                            )
                         ));
                     }
                 }

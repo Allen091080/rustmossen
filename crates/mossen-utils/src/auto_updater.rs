@@ -5,13 +5,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use tokio::fs;
 use tracing::{debug, error};
 
 /// Official GCS bucket URL for release feed.
 const OFFICIAL_GCS_BUCKET_URL: &str =
-    "https://storage.googleapis.com/mossen-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/mossen-code-releases";
+    "https://storage.googleapis.com/cli-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/cli-releases";
 
 /// Lock file timeout (5 minutes).
 const LOCK_TIMEOUT_MS: u64 = 5 * 60 * 1000;
@@ -37,7 +37,7 @@ pub struct AutoUpdaterResult {
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct MaxVersionConfig {
     pub external: Option<String>,
-    pub ant: Option<String>,
+    pub internal: Option<String>,
     pub external_message: Option<String>,
     pub ant_message: Option<String>,
 }
@@ -310,7 +310,11 @@ pub async fn get_latest_version_from_gcs(channel: ReleaseChannel) -> Option<Stri
             }
         },
         Err(e) => {
-            debug!("Failed to fetch {} from release feed: {}", channel.as_str(), e);
+            debug!(
+                "Failed to fetch {} from release feed: {}",
+                channel.as_str(),
+                e
+            );
             None
         }
     }
@@ -350,13 +354,16 @@ pub async fn get_max_version() -> Option<String> {
 /// 对应 TS `getMaxVersionMessage`：返回 max-version 提示文案。
 pub async fn get_max_version_message() -> Option<String> {
     let max = get_max_version().await?;
-    Some(format!("A newer version ({}) is available. Run `npm i -g @ant/mossen-code` to upgrade.", max))
+    Some(format!(
+        "A newer version ({}) is available. Run `npm i -g @internal/cli` to upgrade.",
+        max
+    ))
 }
 
 /// 对应 TS `getNpmDistTags`：调用 `npm view ... dist-tags --json`。
 pub async fn get_npm_dist_tags() -> NpmDistTags {
     let output = tokio::process::Command::new("npm")
-        .args(["view", "@ant/mossen-code", "dist-tags", "--json"])
+        .args(["view", "@internal/cli", "dist-tags", "--json"])
         .output()
         .await;
     match output {
@@ -371,7 +378,7 @@ pub async fn get_npm_dist_tags() -> NpmDistTags {
 /// 对应 TS `getVersionHistory`：从 `npm view` 拉取版本列表，返回最近 `limit` 个。
 pub async fn get_version_history(limit: usize) -> Vec<String> {
     let output = tokio::process::Command::new("npm")
-        .args(["view", "@ant/mossen-code", "versions", "--json"])
+        .args(["view", "@internal/cli", "versions", "--json"])
         .output()
         .await;
     let stdout = match output {
@@ -386,7 +393,7 @@ pub async fn get_version_history(limit: usize) -> Vec<String> {
 
 /// 对应 TS `installGlobalPackage`：通过 `npm install -g` 安装指定版本。
 pub async fn install_global_package(version: &str) -> anyhow::Result<()> {
-    let spec = format!("@ant/mossen-code@{version}");
+    let spec = format!("@internal/cli@{version}");
     let output = tokio::process::Command::new("npm")
         .args(["install", "-g", &spec])
         .output()

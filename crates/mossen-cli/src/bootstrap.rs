@@ -306,6 +306,7 @@ pub struct BootstrapStateExtended {
     // ---- SDK ----
     pub init_json_schema: Option<serde_json::Value>,
     pub registered_hooks: Option<HashMap<String, Vec<serde_json::Value>>>,
+    pub registered_plugin_hooks: Option<HashMap<String, Vec<serde_json::Value>>>,
     pub plan_slug_cache: HashMap<String, String>,
     // ---- Teleport ----
     pub teleported_session_info: Option<TeleportedSessionInfo>,
@@ -396,6 +397,7 @@ impl Default for BootstrapStateExtended {
             lsp_recommendation_shown_this_session: false,
             init_json_schema: None,
             registered_hooks: None,
+            registered_plugin_hooks: None,
             plan_slug_cache: HashMap::new(),
             teleported_session_info: None,
             slow_operations: Vec::new(),
@@ -561,8 +563,7 @@ impl BootstrapStateExtended {
     }
 
     pub fn handle_auto_mode_transition(&mut self, from_mode: &str, to_mode: &str) {
-        if (from_mode == "auto" && to_mode == "plan")
-            || (from_mode == "plan" && to_mode == "auto")
+        if (from_mode == "auto" && to_mode == "plan") || (from_mode == "plan" && to_mode == "auto")
         {
             return;
         }
@@ -578,11 +579,20 @@ impl BootstrapStateExtended {
 
     // ---- Hook registration ----
 
-    pub fn register_hook_callbacks(
+    pub fn register_hook_callbacks(&mut self, hooks: HashMap<String, Vec<serde_json::Value>>) {
+        let reg = self.registered_hooks.get_or_insert_with(HashMap::new);
+        for (event, matchers) in hooks {
+            reg.entry(event).or_insert_with(Vec::new).extend(matchers);
+        }
+    }
+
+    pub fn register_plugin_hook_callbacks(
         &mut self,
         hooks: HashMap<String, Vec<serde_json::Value>>,
     ) {
-        let reg = self.registered_hooks.get_or_insert_with(HashMap::new);
+        let reg = self
+            .registered_plugin_hooks
+            .get_or_insert_with(HashMap::new);
         for (event, matchers) in hooks {
             reg.entry(event).or_insert_with(Vec::new).extend(matchers);
         }
@@ -590,11 +600,17 @@ impl BootstrapStateExtended {
 
     pub fn clear_registered_hooks(&mut self) {
         self.registered_hooks = None;
+        self.registered_plugin_hooks = None;
+    }
+
+    pub fn clear_registered_plugin_hooks(&mut self) {
+        self.registered_plugin_hooks = None;
     }
 
     pub fn reset_sdk_init_state(&mut self) {
         self.init_json_schema = None;
         self.registered_hooks = None;
+        self.registered_plugin_hooks = None;
     }
 
     // ---- Invoked skills (via InvokedSkillInfo) ----
@@ -623,7 +639,8 @@ impl BootstrapStateExtended {
         }
         let id_set: HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
         let before = self.session_cron_tasks.len();
-        self.session_cron_tasks.retain(|t| !id_set.contains(t.id.as_str()));
+        self.session_cron_tasks
+            .retain(|t| !id_set.contains(t.id.as_str()));
         before - self.session_cron_tasks.len()
     }
 
@@ -698,7 +715,11 @@ impl BootstrapStateExtended {
 
     // ---- 3P auth preference ----
 
-    pub fn prefer_third_party_authentication(&self, is_non_interactive: bool, client_type: &str) -> bool {
+    pub fn prefer_third_party_authentication(
+        &self,
+        is_non_interactive: bool,
+        client_type: &str,
+    ) -> bool {
         is_non_interactive && client_type != "mossen-vscode"
     }
 
@@ -1447,8 +1468,27 @@ pub fn register_hook_callbacks(hooks: HashMap<String, Vec<serde_json::Value>>) {
     with_state_mut(|s| s.ext.register_hook_callbacks(hooks));
 }
 
+pub fn register_plugin_hook_callbacks(hooks: HashMap<String, Vec<serde_json::Value>>) {
+    with_state_mut(|s| s.ext.register_plugin_hook_callbacks(hooks));
+}
+
 pub fn get_registered_hooks() -> Option<HashMap<String, Vec<serde_json::Value>>> {
-    with_state(|s| s.ext.registered_hooks.clone())
+    with_state(|s| {
+        let mut merged = s.ext.registered_hooks.clone().unwrap_or_default();
+        if let Some(plugin_hooks) = &s.ext.registered_plugin_hooks {
+            for (event, matchers) in plugin_hooks {
+                merged
+                    .entry(event.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(matchers.clone());
+            }
+        }
+        if merged.is_empty() {
+            None
+        } else {
+            Some(merged)
+        }
+    })
 }
 
 pub fn clear_registered_hooks() {
@@ -1456,8 +1496,7 @@ pub fn clear_registered_hooks() {
 }
 
 pub fn clear_registered_plugin_hooks() {
-    // 通用清理；插件 hook 与全部 hook 在此实现下相同。
-    with_state_mut(|s| s.ext.clear_registered_hooks());
+    with_state_mut(|s| s.ext.clear_registered_plugin_hooks());
 }
 
 pub fn reset_sdk_init_state() {

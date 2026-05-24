@@ -38,8 +38,8 @@ pub async fn get_mossen_desktop_config_path(platform: &str) -> Result<PathBuf, S
     // WSL/Windows path detection
     if let Ok(user_profile) = std::env::var("USERPROFILE") {
         let windows_home = user_profile.replace('\\', "/");
-        let wsl_path = windows_home
-            .trim_start_matches(|c: char| c.is_ascii_alphabetic() || c == ':');
+        let wsl_path =
+            windows_home.trim_start_matches(|c: char| c.is_ascii_alphabetic() || c == ':');
         let config_path = PathBuf::from(format!(
             "/mnt/c{}/AppData/Roaming/Mossen/mossen_desktop_config.json",
             wsl_path
@@ -55,7 +55,10 @@ pub async fn get_mossen_desktop_config_path(platform: &str) -> Result<PathBuf, S
     if let Ok(mut entries) = fs::read_dir(users_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name == "Public" || name == "Default" || name == "Default User" || name == "All Users"
+            if name == "Public"
+                || name == "Default"
+                || name == "Default User"
+                || name == "All Users"
             {
                 continue;
             }

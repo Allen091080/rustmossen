@@ -22,7 +22,10 @@ pub fn get_oauth_config_type(use_local: bool, use_staging: bool) -> OauthConfigT
 }
 
 /// Get the file suffix for the current OAuth config.
-pub fn file_suffix_for_oauth_config(custom_oauth_url: Option<&str>, config_type: OauthConfigType) -> &'static str {
+pub fn file_suffix_for_oauth_config(
+    custom_oauth_url: Option<&str>,
+    config_type: OauthConfigType,
+) -> &'static str {
     if custom_oauth_url.is_some() {
         return "-custom-oauth";
     }
@@ -39,10 +42,7 @@ pub const CONSOLE_SCOPE: &str = "org:create_api_key";
 pub const OAUTH_BETA_HEADER: &str = "oauth-2025-04-20";
 
 /// Console OAuth scopes - for API key creation via Console.
-pub const CONSOLE_OAUTH_SCOPES: &[&str] = &[
-    CONSOLE_SCOPE,
-    HOSTED_PROFILE_SCOPE,
-];
+pub const CONSOLE_OAUTH_SCOPES: &[&str] = &[CONSOLE_SCOPE, HOSTED_PROFILE_SCOPE];
 
 /// Hosted OAuth scopes - for hosted subscribers (Pro/Max/Team/Enterprise).
 pub const HOSTED_OAUTH_SCOPES: &[&str] = &[
@@ -193,7 +193,9 @@ pub fn get_oauth_config(
     local_console_base: Option<&str>,
 ) -> Result<OauthConfig, String> {
     let mut config = match config_type {
-        OauthConfigType::Local => local_oauth_config(local_api_base, local_apps_base, local_console_base),
+        OauthConfigType::Local => {
+            local_oauth_config(local_api_base, local_apps_base, local_console_base)
+        }
         OauthConfigType::Staging => staging_oauth_config(),
         OauthConfigType::Prod => prod_oauth_config(),
     };

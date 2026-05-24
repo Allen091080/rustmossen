@@ -11,6 +11,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 // ---------------------------------------------------------------------------
 // 常量
 // ---------------------------------------------------------------------------
@@ -311,9 +313,12 @@ impl DiagnosticTrackingService {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        if result.len() > MAX_DIAGNOSTICS_SUMMARY_CHARS {
-            let cut = MAX_DIAGNOSTICS_SUMMARY_CHARS - truncation_marker.len();
-            format!("{}{}", &result[..cut], truncation_marker)
+        if result.chars().count() > MAX_DIAGNOSTICS_SUMMARY_CHARS {
+            truncate_chars_with_suffix(
+                &result,
+                MAX_DIAGNOSTICS_SUMMARY_CHARS.saturating_sub(truncation_marker.chars().count()),
+                truncation_marker,
+            )
         } else {
             result
         }
@@ -327,5 +332,38 @@ impl DiagnosticTrackingService {
             DiagnosticSeverity::Info => "ℹ",
             DiagnosticSeverity::Hint => "★",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_summary_truncates_multibyte_text_safely() {
+        let files = vec![DiagnosticFile {
+            uri: "file:///src/main.rs".to_string(),
+            diagnostics: vec![Diagnostic {
+                message: "读".repeat(MAX_DIAGNOSTICS_SUMMARY_CHARS + 32),
+                severity: DiagnosticSeverity::Error,
+                range: DiagnosticRange {
+                    start: DiagnosticPosition {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: DiagnosticPosition {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+                source: None,
+                code: None,
+            }],
+        }];
+
+        let summary = DiagnosticTrackingService::format_diagnostics_summary(&files);
+
+        assert!(summary.ends_with("…[truncated]"));
+        assert!(summary.is_char_boundary(summary.len()));
     }
 }

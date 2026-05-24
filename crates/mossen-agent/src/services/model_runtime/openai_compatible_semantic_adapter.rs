@@ -1,7 +1,7 @@
 //! OpenAI-compatible semantic adapter — adapts canonical types for OpenAI-compatible APIs.
 
 use super::canonical::{
-    AssistantToolRequest, CanonicalHistoryMessage, CanonicalStreamEvent, CanonicalStopReason,
+    AssistantToolRequest, CanonicalHistoryMessage, CanonicalStopReason, CanonicalStreamEvent,
     CanonicalTurnRequest, CanonicalUsage, MessageRole,
 };
 use serde_json::Value;
@@ -121,10 +121,17 @@ pub fn map_openai_chunk_to_canonical(chunk: &Value) -> Vec<CanonicalStreamEvent>
         // Tool calls
         if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             for tc in tool_calls {
-                let id = tc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = tc
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let function = tc.get("function");
 
-                if let Some(name) = function.and_then(|f| f.get("name")).and_then(|v| v.as_str()) {
+                if let Some(name) = function
+                    .and_then(|f| f.get("name"))
+                    .and_then(|v| v.as_str())
+                {
                     if !name.is_empty() {
                         events.push(CanonicalStreamEvent::ToolUseStart {
                             id: id.clone(),
@@ -160,10 +167,7 @@ pub fn map_openai_chunk_to_canonical(chunk: &Value) -> Vec<CanonicalStreamEvent>
             let usage = chunk
                 .get("usage")
                 .map(|u| CanonicalUsage {
-                    input_tokens: u
-                        .get("prompt_tokens")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0),
+                    input_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
                     output_tokens: u
                         .get("completion_tokens")
                         .and_then(|v| v.as_u64())
@@ -171,10 +175,7 @@ pub fn map_openai_chunk_to_canonical(chunk: &Value) -> Vec<CanonicalStreamEvent>
                 })
                 .unwrap_or_default();
 
-            events.push(CanonicalStreamEvent::MessageStop {
-                stop_reason,
-                usage,
-            });
+            events.push(CanonicalStreamEvent::MessageStop { stop_reason, usage });
         }
     }
 

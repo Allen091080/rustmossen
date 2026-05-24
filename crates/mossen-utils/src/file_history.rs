@@ -87,11 +87,7 @@ pub fn get_backup_file_name(file_path: &str, version: u32) -> String {
 }
 
 /// Resolve the full backup path for a backup file name.
-pub fn resolve_backup_path(
-    backup_file_name: &str,
-    config_dir: &Path,
-    session_id: &str,
-) -> PathBuf {
+pub fn resolve_backup_path(backup_file_name: &str, config_dir: &Path, session_id: &str) -> PathBuf {
     config_dir
         .join("file-history")
         .join(session_id)
@@ -140,7 +136,7 @@ pub async fn create_backup(
     session_id: &str,
 ) -> anyhow::Result<FileHistoryBackup> {
     // Check if the source file exists
-    let metadata = match fs::metadata(file_path).await {
+    let _metadata = match fs::metadata(file_path).await {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(FileHistoryBackup {
@@ -323,7 +319,9 @@ pub async fn file_history_rewind(
 
     for tracking_path in &state.tracked_files {
         let file_path = maybe_expand_file_path(tracking_path, cwd);
-        let target_backup = target_snapshot.tracked_file_backups.get(tracking_path.as_str());
+        let target_backup = target_snapshot
+            .tracked_file_backups
+            .get(tracking_path.as_str());
 
         let backup_file_name: Option<BackupFileName> = if let Some(backup) = target_backup {
             Some(backup.backup_file_name.clone())
@@ -357,9 +355,7 @@ pub async fn file_history_rewind(
             Some(name) => {
                 // File should exist at a specific version. Restore only if it differs.
                 if check_origin_file_changed(&file_path, name, config_dir, session_id).await {
-                    if let Err(e) =
-                        restore_backup(&file_path, name, config_dir, session_id).await
-                    {
+                    if let Err(e) = restore_backup(&file_path, name, config_dir, session_id).await {
                         eprintln!("FileHistory: Error restoring file: {}", e);
                     } else {
                         files_changed.push(file_path);
@@ -392,7 +388,9 @@ pub async fn file_history_has_any_changes(
 
     for tracking_path in &state.tracked_files {
         let file_path = maybe_expand_file_path(tracking_path, cwd);
-        let target_backup = target_snapshot.tracked_file_backups.get(tracking_path.as_str());
+        let target_backup = target_snapshot
+            .tracked_file_backups
+            .get(tracking_path.as_str());
 
         let backup_file_name: Option<BackupFileName> = if let Some(backup) = target_backup {
             Some(backup.backup_file_name.clone())

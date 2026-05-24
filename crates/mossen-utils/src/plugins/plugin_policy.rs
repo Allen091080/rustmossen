@@ -2,9 +2,9 @@
 //!
 //! Translated from `utils/plugins/pluginPolicy.ts` (20 lines).
 
-use std::collections::HashMap;
-use parking_lot::RwLock;
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+use std::collections::HashMap;
 
 /// In-memory store for policy-enabled plugins.
 /// Maps pluginId -> enabled (true/false).

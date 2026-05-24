@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,7 +17,7 @@ const DEFAULT_STALL_TIMEOUT_MS: u64 = 60_000;
 const MAX_DOWNLOAD_RETRIES: u32 = 3;
 
 pub const GCS_BUCKET_URL: &str =
-    "https://storage.googleapis.com/mossen-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/mossen-code-releases";
+    "https://storage.googleapis.com/cli-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/cli-releases";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -98,10 +97,7 @@ fn is_musl_environment() -> bool {
     #[cfg(target_os = "linux")]
     {
         // Check if running on musl by inspecting the dynamic linker
-        if let Ok(output) = std::process::Command::new("ldd")
-            .arg("--version")
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("ldd").arg("--version").output() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             return stderr.contains("musl") || stdout.contains("musl");
@@ -121,15 +117,12 @@ pub fn get_binary_name(platform: &str) -> &'static str {
 // ─── Directory Structure ─────────────────────────────────────────────────────
 
 pub fn get_base_directories() -> BaseDirectories {
-    let data_home = dirs::data_dir().unwrap_or_else(|| {
-        dirs::home_dir().unwrap_or_default().join(".local/share")
-    });
-    let cache_home = dirs::cache_dir().unwrap_or_else(|| {
-        dirs::home_dir().unwrap_or_default().join(".cache")
-    });
-    let state_home = dirs::data_local_dir().unwrap_or_else(|| {
-        dirs::home_dir().unwrap_or_default().join(".local/state")
-    });
+    let data_home = dirs::data_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".local/share"));
+    let cache_home =
+        dirs::cache_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".cache"));
+    let state_home = dirs::data_local_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".local/state"));
     let bin_dir = dirs::home_dir()
         .unwrap_or_default()
         .join(".local")
@@ -514,7 +507,12 @@ async fn get_os_release() -> Option<OsRelease> {
     let id_like: Vec<String> = id_like_re
         .captures(&content)
         .and_then(|c| c.get(1))
-        .map(|m| m.as_str().split_whitespace().map(|s| s.to_string()).collect())
+        .map(|m| {
+            m.as_str()
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     Some(OsRelease { id, id_like })
 }
@@ -578,10 +576,7 @@ pub async fn get_latest_version(channel_or_version: &str) -> Result<String> {
     get_latest_version_from_binary_repo(channel_or_version, GCS_BUCKET_URL).await
 }
 
-pub async fn get_latest_version_from_binary_repo(
-    channel: &str,
-    base_url: &str,
-) -> Result<String> {
+pub async fn get_latest_version_from_binary_repo(channel: &str, base_url: &str) -> Result<String> {
     let url = format!("{}/{}", base_url, channel);
     let client = reqwest::Client::new();
     let response = client
@@ -685,11 +680,8 @@ async fn download_and_verify_binary(
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(
-                        binary_path,
-                        std::fs::Permissions::from_mode(0o755),
-                    )
-                    .await?;
+                    fs::set_permissions(binary_path, std::fs::Permissions::from_mode(0o755))
+                        .await?;
                 }
                 return Ok(());
             }
@@ -764,7 +756,12 @@ pub async fn install_latest(channel_or_version: &str) -> Result<Vec<SetupMessage
     });
 
     // Check PATH
-    let bin_dir = dirs.executable.parent().unwrap().to_string_lossy().to_string();
+    let bin_dir = dirs
+        .executable
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     let path_var = std::env::var("PATH").unwrap_or_default();
     if !path_var.split(':').any(|p| p == bin_dir) {
         messages.push(SetupMessage {
@@ -892,7 +889,7 @@ pub async fn remove_installed_symlink() -> Result<bool> {
 
 pub async fn cleanup_npm_installations() -> Result<()> {
     // Remove global npm installations of mossen
-    let output = Command::new("npm")
+    let _output = Command::new("npm")
         .args(["ls", "-g", "--depth=0", "--json"])
         .output()
         .await;
@@ -971,7 +968,7 @@ pub async fn _download_and_verify_binary_for_testing(
 
 /// 对应 TS `getLatestVersionFromArtifactory`：从内部 registry 抓取最新版本号。
 pub async fn get_latest_version_from_artifactory() -> Option<String> {
-    let url = format!("{}/@ant/mossen-code", ARTIFACTORY_REGISTRY_URL);
+    let url = format!("{}/@internal/cli", ARTIFACTORY_REGISTRY_URL);
     let body = reqwest::get(&url).await.ok()?.text().await.ok()?;
     let v: serde_json::Value = serde_json::from_str(&body).ok()?;
     v.get("dist-tags")
@@ -983,7 +980,7 @@ pub async fn get_latest_version_from_artifactory() -> Option<String> {
 /// 对应 TS `downloadVersionFromArtifactory`：下载指定版本的 tarball。
 pub async fn download_version_from_artifactory(version: &str) -> anyhow::Result<Vec<u8>> {
     let url = format!(
-        "{}/@ant/mossen-code/-/mossen-code-{}.tgz",
+        "{}/@internal/cli/-/cli-{}.tgz",
         ARTIFACTORY_REGISTRY_URL, version
     );
     let bytes = reqwest::get(&url).await?.bytes().await?;
@@ -997,7 +994,9 @@ pub async fn download_version_from_artifactory(version: &str) -> anyhow::Result<
 /// 返回 `true` 表示成功获取（文件已创建并记录当前 PID），`false` 表示锁已被其它活跃进程持有。
 /// Rust 端不需要显式 release：进程退出时调用方可自行 unlink 文件，或依赖
 /// [`cleanup_stale_locks`] 在下一次启动时清理。
-pub async fn acquire_process_lifetime_lock(lock_file_path: &std::path::Path) -> anyhow::Result<bool> {
+pub async fn acquire_process_lifetime_lock(
+    lock_file_path: &std::path::Path,
+) -> anyhow::Result<bool> {
     use tokio::io::AsyncWriteExt;
 
     if let Some(parent) = lock_file_path.parent() {

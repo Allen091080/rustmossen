@@ -239,7 +239,8 @@ pub fn did_mossen_stream_terminate_without_canonical_stop_reason(
     yielded_assistant_message_count: u32,
     canonical_stop_reason: Option<CanonicalStopReason>,
 ) -> bool {
-    !has_partial_message || (yielded_assistant_message_count == 0 && canonical_stop_reason.is_none())
+    !has_partial_message
+        || (yielded_assistant_message_count == 0 && canonical_stop_reason.is_none())
 }
 
 /// Convert a Mossen stop reason string to canonical.

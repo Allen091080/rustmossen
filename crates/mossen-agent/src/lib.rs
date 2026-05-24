@@ -23,32 +23,40 @@
 //! - [`token_estimation`] — Token 计数估算
 //! - [`diagnostics`] — IDE 诊断跟踪服务
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    non_upper_case_globals,
+    unused_assignments,
+    unused_imports,
+    unused_must_use,
+    unused_mut,
+    unused_variables
+)]
 
 pub mod api;
 pub mod api_client;
 pub mod commands;
 pub mod condenser;
-pub mod mcp;
 pub mod context;
+pub mod coordinator;
 pub mod cost_tracker;
 pub mod diagnostics;
 pub mod dialogue;
 pub mod engine;
 pub mod history;
 pub mod hooks;
+pub mod mcp;
+pub mod query;
 pub mod retry;
+pub mod services;
 pub mod stop_hooks;
 pub mod streaming;
 pub mod task;
 pub mod token_estimation;
 pub mod tool_registry;
+pub mod tools_index;
 pub mod transcript;
 pub mod types;
-pub mod services;
-pub mod query;
-pub mod coordinator;
-pub mod tools_index;
 
 // Re-export 核心类型
 pub use engine::{submit_prompt, SessionOrchestrator};

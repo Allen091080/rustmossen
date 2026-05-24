@@ -1,8 +1,7 @@
 // Translated from utils/mcp/dateTimeParser.ts and utils/mcp/elicitationValidation.ts
 
-use std::collections::HashMap;
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ============================================================================
 // dateTimeParser.ts
@@ -35,7 +34,10 @@ pub async fn parse_natural_language_date_time(
     let format_description = match format {
         DateTimeFormat::Date => "YYYY-MM-DD (date only, no time)".to_string(),
         DateTimeFormat::DateTime => {
-            format!("YYYY-MM-DDTHH:MM:SS{} (full date-time with timezone)", timezone)
+            format!(
+                "YYYY-MM-DDTHH:MM:SS{} (full date-time with timezone)",
+                timezone
+            )
         }
     };
 
@@ -50,7 +52,7 @@ pub async fn parse_natural_language_date_time(
         current_date_time, timezone, day_of_week, input, format_description
     );
 
-    // In a real implementation, this would call the Haiku LLM
+    // In a real implementation, this would call the Fast LLM
     // For now, attempt basic ISO parsing
     let trimmed = input.trim();
     if looks_like_iso8601(trimmed) {
@@ -144,9 +146,7 @@ pub enum PrimitiveSchema {
     #[serde(rename = "boolean")]
     Boolean {},
     #[serde(rename = "array")]
-    Array {
-        items: Option<Box<ArrayItems>>,
-    },
+    Array { items: Option<Box<ArrayItems>> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,16 +173,49 @@ struct StringFormatInfo {
 
 fn get_string_formats() -> HashMap<&'static str, StringFormatInfo> {
     let mut m = HashMap::new();
-    m.insert("email", StringFormatInfo { description: "email address", example: "user@example.com" });
-    m.insert("uri", StringFormatInfo { description: "URI", example: "https://example.com" });
-    m.insert("date", StringFormatInfo { description: "date", example: "2024-03-15" });
-    m.insert("date-time", StringFormatInfo { description: "date-time", example: "2024-03-15T14:30:00Z" });
+    m.insert(
+        "email",
+        StringFormatInfo {
+            description: "email address",
+            example: "user@example.com",
+        },
+    );
+    m.insert(
+        "uri",
+        StringFormatInfo {
+            description: "URI",
+            example: "https://example.com",
+        },
+    );
+    m.insert(
+        "date",
+        StringFormatInfo {
+            description: "date",
+            example: "2024-03-15",
+        },
+    );
+    m.insert(
+        "date-time",
+        StringFormatInfo {
+            description: "date-time",
+            example: "2024-03-15T14:30:00Z",
+        },
+    );
     m
 }
 
 /// Check if schema is a single-select enum.
 pub fn is_enum_schema(schema: &PrimitiveSchema) -> bool {
-    matches!(schema, PrimitiveSchema::String { enum_values: Some(_), .. } | PrimitiveSchema::String { one_of: Some(_), .. })
+    matches!(
+        schema,
+        PrimitiveSchema::String {
+            enum_values: Some(_),
+            ..
+        } | PrimitiveSchema::String {
+            one_of: Some(_),
+            ..
+        }
+    )
 }
 
 /// Check if schema is a multi-select enum (type: "array" with items.enum or items.anyOf).
@@ -224,7 +257,10 @@ pub fn get_multi_select_label(schema: &PrimitiveSchema, value: &str) -> String {
     let values = get_multi_select_values(schema);
     let labels = get_multi_select_labels(schema);
     if let Some(index) = values.iter().position(|v| v == value) {
-        labels.get(index).cloned().unwrap_or_else(|| value.to_string())
+        labels
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| value.to_string())
     } else {
         value.to_string()
     }
@@ -232,10 +268,18 @@ pub fn get_multi_select_label(schema: &PrimitiveSchema, value: &str) -> String {
 
 /// Get enum values from EnumSchema.
 pub fn get_enum_values(schema: &PrimitiveSchema) -> Vec<String> {
-    if let PrimitiveSchema::String { one_of: Some(one_of), .. } = schema {
+    if let PrimitiveSchema::String {
+        one_of: Some(one_of),
+        ..
+    } = schema
+    {
         return one_of.iter().map(|i| i.const_value.clone()).collect();
     }
-    if let PrimitiveSchema::String { enum_values: Some(values), .. } = schema {
+    if let PrimitiveSchema::String {
+        enum_values: Some(values),
+        ..
+    } = schema
+    {
         return values.clone();
     }
     Vec::new()
@@ -243,13 +287,21 @@ pub fn get_enum_values(schema: &PrimitiveSchema) -> Vec<String> {
 
 /// Get enum display labels.
 pub fn get_enum_labels(schema: &PrimitiveSchema) -> Vec<String> {
-    if let PrimitiveSchema::String { one_of: Some(one_of), .. } = schema {
+    if let PrimitiveSchema::String {
+        one_of: Some(one_of),
+        ..
+    } = schema
+    {
         return one_of
             .iter()
             .map(|i| i.title.clone().unwrap_or_else(|| i.const_value.clone()))
             .collect();
     }
-    if let PrimitiveSchema::String { enum_values: Some(values), .. } = schema {
+    if let PrimitiveSchema::String {
+        enum_values: Some(values),
+        ..
+    } = schema
+    {
         return values.clone();
     }
     Vec::new()
@@ -260,7 +312,10 @@ pub fn get_enum_label(schema: &PrimitiveSchema, value: &str) -> String {
     let values = get_enum_values(schema);
     let labels = get_enum_labels(schema);
     if let Some(index) = values.iter().position(|v| v == value) {
-        labels.get(index).cloned().unwrap_or_else(|| value.to_string())
+        labels
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| value.to_string())
     } else {
         value.to_string()
     }
@@ -272,7 +327,13 @@ pub fn validate_elicitation_input(
     schema: &PrimitiveSchema,
 ) -> ValidationResult {
     match schema {
-        PrimitiveSchema::String { format, min_length, max_length, enum_values, one_of } => {
+        PrimitiveSchema::String {
+            format,
+            min_length,
+            max_length,
+            enum_values,
+            one_of,
+        } => {
             // Check enum constraint
             if let Some(values) = enum_values {
                 if values.contains(&string_value.to_string()) {
@@ -290,7 +351,10 @@ pub fn validate_elicitation_input(
                 }
             }
             if let Some(one_of_items) = one_of {
-                let valid_values: Vec<&str> = one_of_items.iter().map(|i| i.const_value.as_str()).collect();
+                let valid_values: Vec<&str> = one_of_items
+                    .iter()
+                    .map(|i| i.const_value.as_str())
+                    .collect();
                 if valid_values.contains(&string_value) {
                     return ValidationResult {
                         value: Some(ValidationValue::String(string_value.to_string())),
@@ -332,16 +396,23 @@ pub fn validate_elicitation_input(
                             return ValidationResult {
                                 value: None,
                                 is_valid: false,
-                                error: Some("Must be a valid email address, e.g. user@example.com".to_string()),
+                                error: Some(
+                                    "Must be a valid email address, e.g. user@example.com"
+                                        .to_string(),
+                                ),
                             };
                         }
                     }
                     "uri" => {
-                        if !string_value.starts_with("http://") && !string_value.starts_with("https://") {
+                        if !string_value.starts_with("http://")
+                            && !string_value.starts_with("https://")
+                        {
                             return ValidationResult {
                                 value: None,
                                 is_valid: false,
-                                error: Some("Must be a valid URI, e.g. https://example.com".to_string()),
+                                error: Some(
+                                    "Must be a valid URI, e.g. https://example.com".to_string(),
+                                ),
                             };
                         }
                     }
@@ -359,7 +430,10 @@ pub fn validate_elicitation_input(
                             return ValidationResult {
                                 value: None,
                                 is_valid: false,
-                                error: Some("Must be a valid date-time, e.g. 2024-03-15T14:30:00Z".to_string()),
+                                error: Some(
+                                    "Must be a valid date-time, e.g. 2024-03-15T14:30:00Z"
+                                        .to_string(),
+                                ),
                             };
                         }
                     }
@@ -372,74 +446,70 @@ pub fn validate_elicitation_input(
                 error: None,
             }
         }
-        PrimitiveSchema::Number { minimum, maximum } => {
-            match string_value.parse::<f64>() {
-                Ok(num) => {
-                    if let Some(min) = minimum {
-                        if num < *min {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(format!("Must be a number >= {}", min)),
-                            };
-                        }
-                    }
-                    if let Some(max) = maximum {
-                        if num > *max {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(format!("Must be a number <= {}", max)),
-                            };
-                        }
-                    }
-                    ValidationResult {
-                        value: Some(ValidationValue::Number(num)),
-                        is_valid: true,
-                        error: None,
+        PrimitiveSchema::Number { minimum, maximum } => match string_value.parse::<f64>() {
+            Ok(num) => {
+                if let Some(min) = minimum {
+                    if num < *min {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(format!("Must be a number >= {}", min)),
+                        };
                     }
                 }
-                Err(_) => ValidationResult {
-                    value: None,
-                    is_valid: false,
-                    error: Some("Must be a number".to_string()),
-                },
-            }
-        }
-        PrimitiveSchema::Integer { minimum, maximum } => {
-            match string_value.parse::<i64>() {
-                Ok(num) => {
-                    if let Some(min) = minimum {
-                        if num < *min {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(format!("Must be an integer >= {}", min)),
-                            };
-                        }
-                    }
-                    if let Some(max) = maximum {
-                        if num > *max {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(format!("Must be an integer <= {}", max)),
-                            };
-                        }
-                    }
-                    ValidationResult {
-                        value: Some(ValidationValue::Number(num as f64)),
-                        is_valid: true,
-                        error: None,
+                if let Some(max) = maximum {
+                    if num > *max {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(format!("Must be a number <= {}", max)),
+                        };
                     }
                 }
-                Err(_) => ValidationResult {
-                    value: None,
-                    is_valid: false,
-                    error: Some("Must be an integer".to_string()),
-                },
+                ValidationResult {
+                    value: Some(ValidationValue::Number(num)),
+                    is_valid: true,
+                    error: None,
+                }
             }
-        }
+            Err(_) => ValidationResult {
+                value: None,
+                is_valid: false,
+                error: Some("Must be a number".to_string()),
+            },
+        },
+        PrimitiveSchema::Integer { minimum, maximum } => match string_value.parse::<i64>() {
+            Ok(num) => {
+                if let Some(min) = minimum {
+                    if num < *min {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(format!("Must be an integer >= {}", min)),
+                        };
+                    }
+                }
+                if let Some(max) = maximum {
+                    if num > *max {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(format!("Must be an integer <= {}", max)),
+                        };
+                    }
+                }
+                ValidationResult {
+                    value: Some(ValidationValue::Number(num as f64)),
+                    is_valid: true,
+                    error: None,
+                }
+            }
+            Err(_) => ValidationResult {
+                value: None,
+                is_valid: false,
+                error: Some("Must be an integer".to_string()),
+            },
+        },
         PrimitiveSchema::Boolean {} => {
             let val = match string_value.to_lowercase().as_str() {
                 "true" | "1" | "yes" => true,
@@ -472,7 +542,9 @@ pub fn validate_elicitation_input(
 /// Returns a helpful placeholder/hint for a given format.
 pub fn get_format_hint(schema: &PrimitiveSchema) -> Option<String> {
     match schema {
-        PrimitiveSchema::String { format: Some(fmt), .. } => {
+        PrimitiveSchema::String {
+            format: Some(fmt), ..
+        } => {
             let formats = get_string_formats();
             if let Some(info) = formats.get(fmt.as_str()) {
                 Some(format!("{}, e.g. {}", info.description, info.example))
@@ -480,22 +552,18 @@ pub fn get_format_hint(schema: &PrimitiveSchema) -> Option<String> {
                 None
             }
         }
-        PrimitiveSchema::Number { minimum, maximum } => {
-            match (minimum, maximum) {
-                (Some(min), Some(max)) => Some(format!("(number between {} and {})", min, max)),
-                (Some(min), None) => Some(format!("(number >= {})", min)),
-                (None, Some(max)) => Some(format!("(number <= {})", max)),
-                (None, None) => Some("(number, e.g. 3.14)".to_string()),
-            }
-        }
-        PrimitiveSchema::Integer { minimum, maximum } => {
-            match (minimum, maximum) {
-                (Some(min), Some(max)) => Some(format!("(integer between {} and {})", min, max)),
-                (Some(min), None) => Some(format!("(integer >= {})", min)),
-                (None, Some(max)) => Some(format!("(integer <= {})", max)),
-                (None, None) => Some("(integer, e.g. 42)".to_string()),
-            }
-        }
+        PrimitiveSchema::Number { minimum, maximum } => match (minimum, maximum) {
+            (Some(min), Some(max)) => Some(format!("(number between {} and {})", min, max)),
+            (Some(min), None) => Some(format!("(number >= {})", min)),
+            (None, Some(max)) => Some(format!("(number <= {})", max)),
+            (None, None) => Some("(number, e.g. 3.14)".to_string()),
+        },
+        PrimitiveSchema::Integer { minimum, maximum } => match (minimum, maximum) {
+            (Some(min), Some(max)) => Some(format!("(integer between {} and {})", min, max)),
+            (Some(min), None) => Some(format!("(integer >= {})", min)),
+            (None, Some(max)) => Some(format!("(integer <= {})", max)),
+            (None, None) => Some("(integer, e.g. 42)".to_string()),
+        },
         _ => None,
     }
 }
@@ -521,7 +589,9 @@ pub async fn validate_elicitation_input_async(
 
     if is_date_time_schema(schema) && !looks_like_iso8601(string_value) {
         let format = match schema {
-            PrimitiveSchema::String { format: Some(f), .. } if f == "date" => DateTimeFormat::Date,
+            PrimitiveSchema::String {
+                format: Some(f), ..
+            } if f == "date" => DateTimeFormat::Date,
             _ => DateTimeFormat::DateTime,
         };
         let parse_result = parse_natural_language_date_time(string_value, format, None).await;

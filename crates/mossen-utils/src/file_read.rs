@@ -9,6 +9,8 @@
 use std::path::Path;
 use tracing::debug;
 
+use crate::string_utils::safe_prefix_by_bytes;
+
 /// 行尾类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineEndingType {
@@ -99,7 +101,9 @@ pub struct FileReadMetadata {
 /// 而不必分别调用 detect_file_encoding / detect_line_endings，
 /// 后者会分别重做 safeResolvePath + readSync(4KB)。
 pub fn read_file_sync_with_metadata(file_path: &Path) -> anyhow::Result<FileReadMetadata> {
-    let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.to_path_buf());
+    let resolved_path = file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf());
 
     let is_symlink = file_path.is_symlink();
     if is_symlink {
@@ -130,8 +134,7 @@ pub fn read_file_sync_with_metadata(file_path: &Path) -> anyhow::Result<FileRead
     };
 
     // Detect line endings from the raw head before CRLF normalization
-    let sample_len = raw.len().min(4096);
-    let line_endings = detect_line_endings_for_string(&raw[..sample_len]);
+    let line_endings = detect_line_endings_for_string(safe_prefix_by_bytes(&raw, 4096));
 
     let content = raw.replace("\r\n", "\n");
 

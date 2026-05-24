@@ -61,14 +61,18 @@ impl DirectConnectState {
     pub fn add_permission_request(&mut self, request: RemotePermissionRequest) {
         // Check auto-approve list first
         if self.auto_approve_tools.contains(&request.tool_name) {
-            self.permission_history.push((request.id, RemotePermissionResponse::Allow));
+            self.permission_history
+                .push((request.id, RemotePermissionResponse::Allow));
             return;
         }
         self.pending_permissions.push_back(request);
     }
 
     /// Respond to the current permission request.
-    pub fn respond(&mut self, response: RemotePermissionResponse) -> Option<RemotePermissionRequest> {
+    pub fn respond(
+        &mut self,
+        response: RemotePermissionResponse,
+    ) -> Option<RemotePermissionRequest> {
         if let Some(request) = self.pending_permissions.pop_front() {
             if response == RemotePermissionResponse::AllowAlways {
                 self.auto_approve_tools.push(request.tool_name.clone());

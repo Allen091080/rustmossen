@@ -2,9 +2,9 @@
 //!
 //! Translated from `utils/plugins/managedPlugins.ts` (27 lines).
 
-use std::collections::{HashMap, HashSet};
-use parking_lot::RwLock;
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
+use std::collections::{HashMap, HashSet};
 
 /// In-memory store for policy-enabled plugins.
 static POLICY_PLUGINS: Lazy<RwLock<HashMap<String, serde_json::Value>>> =

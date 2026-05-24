@@ -35,7 +35,10 @@ pub fn parse_statements(p: &mut PState, terminator: Option<&str>) -> Vec<TsNode>
             }
         }
         if t.token_type == TokenType::Op
-            && matches!(t.value.as_str(), ")" | "}" | ";;" | ";&" | ";;&" | "))" | "]]" | "]")
+            && matches!(
+                t.value.as_str(),
+                ")" | "}" | ";;" | ";&" | ";;&" | "))" | "]]" | "]"
+            )
         {
             restore_lex(&mut p.l, save);
             break;
@@ -45,7 +48,10 @@ pub fn parse_statements(p: &mut PState, terminator: Option<&str>) -> Vec<TsNode>
             break;
         }
         if t.token_type == TokenType::Word
-            && matches!(t.value.as_str(), "then" | "elif" | "else" | "fi" | "do" | "done" | "esac")
+            && matches!(
+                t.value.as_str(),
+                "then" | "elif" | "else" | "fi" | "do" | "done" | "esac"
+            )
         {
             restore_lex(&mut p.l, save);
             break;
@@ -69,7 +75,10 @@ pub fn parse_statements(p: &mut PState, terminator: Option<&str>) -> Vec<TsNode>
                 || (after.token_type == TokenType::Op
                     && matches!(after.value.as_str(), ")" | "}" | ";;" | ";&" | ";;&"))
                 || (after.token_type == TokenType::Word
-                    && matches!(after.value.as_str(), "then" | "elif" | "else" | "fi" | "do" | "done" | "esac"))
+                    && matches!(
+                        after.value.as_str(),
+                        "then" | "elif" | "else" | "fi" | "do" | "done" | "esac"
+                    ))
             {
                 continue;
             }
@@ -138,7 +147,10 @@ fn parse_pipeline(p: &mut PState) -> Option<TsNode> {
                 break;
             }
             let next_cmd = next_cmd.unwrap();
-            if next_cmd.node_type == "redirected_statement" && next_cmd.children.len() >= 2 && !parts.is_empty() {
+            if next_cmd.node_type == "redirected_statement"
+                && next_cmd.children.len() >= 2
+                && !parts.is_empty()
+            {
                 let inner = next_cmd.children[0].clone();
                 let redirs: Vec<TsNode> = next_cmd.children[1..].to_vec();
                 let mut pipe_kids: Vec<TsNode> = parts.drain(..).collect();
@@ -149,7 +161,13 @@ fn parse_pipeline(p: &mut PState) -> Option<TsNode> {
                 let last_r = &redirs[redirs.len() - 1];
                 let mut wrapped_kids = vec![pipe_node];
                 wrapped_kids.extend(redirs.clone());
-                let wrapped = mk(p, "redirected_statement", pipe_start, last_r.end_index, wrapped_kids);
+                let wrapped = mk(
+                    p,
+                    "redirected_statement",
+                    pipe_start,
+                    last_r.end_index,
+                    wrapped_kids,
+                );
                 parts.push(wrapped);
                 continue;
             }
@@ -190,14 +208,32 @@ pub fn parse_command(p: &mut PState) -> Option<TsNode> {
         if inner.node_type == "redirected_statement" && inner.children.len() >= 2 {
             let cmd = inner.children[0].clone();
             let redirs: Vec<TsNode> = inner.children[1..].to_vec();
-            let neg = mk(p, "negated_command", bang.start_index, cmd.end_index, vec![bang, cmd]);
+            let neg = mk(
+                p,
+                "negated_command",
+                bang.start_index,
+                cmd.end_index,
+                vec![bang, cmd],
+            );
             let last_r = &redirs[redirs.len() - 1];
             let mut kids = vec![neg];
             kids.extend(redirs.clone());
-            return Some(mk(p, "redirected_statement", kids[0].start_index, last_r.end_index, kids));
+            return Some(mk(
+                p,
+                "redirected_statement",
+                kids[0].start_index,
+                last_r.end_index,
+                kids,
+            ));
         }
         let end = inner.end_index;
-        return Some(mk(p, "negated_command", bang.start_index, end, vec![bang, inner]));
+        return Some(mk(
+            p,
+            "negated_command",
+            bang.start_index,
+            end,
+            vec![bang, inner],
+        ));
     }
 
     // Subshell
@@ -296,10 +332,22 @@ pub fn parse_command(p: &mut PState) -> Option<TsNode> {
 
     if t.token_type == TokenType::Word {
         match t.value.as_str() {
-            "if" => { let node = parse_if(p, &t); return maybe_redirect_compound(p, node); }
-            "while" | "until" => { let node = parse_while(p, &t); return maybe_redirect_compound(p, node); }
-            "for" | "select" => { let node = parse_for(p, &t); return maybe_redirect_compound(p, node); }
-            "case" => { let node = parse_case(p, &t); return maybe_redirect_compound(p, node); }
+            "if" => {
+                let node = parse_if(p, &t);
+                return maybe_redirect_compound(p, node);
+            }
+            "while" | "until" => {
+                let node = parse_while(p, &t);
+                return maybe_redirect_compound(p, node);
+            }
+            "for" | "select" => {
+                let node = parse_for(p, &t);
+                return maybe_redirect_compound(p, node);
+            }
+            "case" => {
+                let node = parse_case(p, &t);
+                return maybe_redirect_compound(p, node);
+            }
             "function" => return Some(parse_function(p, &t)),
             kw if DECL_KEYWORDS.contains(kw) => {
                 let node = parse_declaration(p, &t);
@@ -478,7 +526,9 @@ fn parse_simple_command(p: &mut PState) -> Option<TsNode> {
         // Heredoc operators
         let sv = save_lex(&p.l);
         let tk = next_token(&mut p.l, LexCtx::Arg);
-        if tk.token_type == TokenType::Op && (tk.value == "<<" || tk.value == "<<-" || tk.value == "<<<") {
+        if tk.token_type == TokenType::Op
+            && (tk.value == "<<" || tk.value == "<<-" || tk.value == "<<<")
+        {
             if tk.value == "<<<" {
                 // Herestring
                 let op_node = leaf(p, "<<<", &tk);
@@ -488,9 +538,21 @@ fn parse_simple_command(p: &mut PState) -> Option<TsNode> {
                 if let Some(c_node) = content {
                     let end = c_node.end_index;
                     hkids.push(c_node);
-                    kids.push(mk(p, "herestring_redirect", op_node.start_index, end, hkids));
+                    kids.push(mk(
+                        p,
+                        "herestring_redirect",
+                        op_node.start_index,
+                        end,
+                        hkids,
+                    ));
                 } else {
-                    kids.push(mk(p, "herestring_redirect", op_node.start_index, op_node.end_index, hkids));
+                    kids.push(mk(
+                        p,
+                        "herestring_redirect",
+                        op_node.start_index,
+                        op_node.end_index,
+                        hkids,
+                    ));
                 }
             } else {
                 // Heredoc
@@ -511,7 +573,13 @@ fn parse_simple_command(p: &mut PState) -> Option<TsNode> {
                 });
                 let delim_node = mk(p, "heredoc_start", op_node.end_index, delim_start, vec![]);
                 let hkids = vec![op_node.clone(), delim_node.clone()];
-                kids.push(mk(p, "heredoc_redirect", op_node.start_index, delim_node.end_index, hkids));
+                kids.push(mk(
+                    p,
+                    "heredoc_redirect",
+                    op_node.start_index,
+                    delim_node.end_index,
+                    hkids,
+                ));
             }
             continue;
         }
@@ -535,7 +603,10 @@ fn parse_simple_command(p: &mut PState) -> Option<TsNode> {
     let mut cmd_kids = Vec::new();
     let mut trail_redirs = Vec::new();
     for k in kids {
-        if k.node_type == "file_redirect" || k.node_type == "heredoc_redirect" || k.node_type == "herestring_redirect" {
+        if k.node_type == "file_redirect"
+            || k.node_type == "heredoc_redirect"
+            || k.node_type == "herestring_redirect"
+        {
             trail_redirs.push(k);
         } else {
             cmd_kids.push(k);
@@ -562,7 +633,9 @@ fn parse_heredoc_delim(p: &mut PState) -> (String, bool) {
             delim.push(peek_char(&p.l));
             advance(&mut p.l);
         }
-        if p.l.i < p.l.len { advance(&mut p.l); }
+        if p.l.i < p.l.len {
+            advance(&mut p.l);
+        }
         return (delim, true);
     }
     if c == '"' {
@@ -572,7 +645,9 @@ fn parse_heredoc_delim(p: &mut PState) -> (String, bool) {
             delim.push(peek_char(&p.l));
             advance(&mut p.l);
         }
-        if p.l.i < p.l.len { advance(&mut p.l); }
+        if p.l.i < p.l.len {
+            advance(&mut p.l);
+        }
         return (delim, true);
     }
     // Unquoted
@@ -589,7 +664,9 @@ fn parse_heredoc_delim(p: &mut PState) -> (String, bool) {
             }
             continue;
         }
-        if !is_heredoc_delim_char(ch) { break; }
+        if !is_heredoc_delim_char(ch) {
+            break;
+        }
         delim.push(ch);
         advance(&mut p.l);
     }
@@ -620,7 +697,11 @@ fn parse_if(p: &mut PState, if_tok: &Token) -> TsNode {
         } else if t.token_type == TokenType::Word && t.value == "else" {
             let el_kw = leaf(p, "else", &t);
             let el_body = parse_statements(p, None);
-            let end = if el_body.is_empty() { el_kw.end_index } else { el_body.last().unwrap().end_index };
+            let end = if el_body.is_empty() {
+                el_kw.end_index
+            } else {
+                el_body.last().unwrap().end_index
+            };
             let mut el_kids = vec![el_kw.clone()];
             el_kids.extend(el_body);
             kids.push(mk(p, "else_clause", el_kw.start_index, end, el_kids));
@@ -652,7 +733,8 @@ fn parse_for(p: &mut PState, for_tok: &Token) -> TsNode {
     // C-style for (( ; ; ))
     if for_tok.value == "for" && peek_char(&p.l) == '(' && peek(&p.l, 1) == '(' {
         let o_start = p.l.b;
-        advance(&mut p.l); advance(&mut p.l);
+        advance(&mut p.l);
+        advance(&mut p.l);
         let open = mk(p, "((", o_start, p.l.b, vec![]);
         let mut kids: Vec<TsNode> = vec![for_kw.clone(), open];
         for k in 0..3 {
@@ -671,7 +753,8 @@ fn parse_for(p: &mut PState, for_tok: &Token) -> TsNode {
         skip_blanks(&mut p.l);
         if peek_char(&p.l) == ')' && peek(&p.l, 1) == ')' {
             let c_start = p.l.b;
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             kids.push(mk(p, "))", c_start, p.l.b, vec![]));
         }
         let save = save_lex(&p.l);
@@ -702,7 +785,13 @@ fn parse_for(p: &mut PState, for_tok: &Token) -> TsNode {
                 cs_kids.extend(body);
                 let end = b_close.end_index;
                 cs_kids.push(b_close);
-                kids.push(mk(p, "compound_statement", cs_kids[0].start_index, end, cs_kids));
+                kids.push(mk(
+                    p,
+                    "compound_statement",
+                    cs_kids[0].start_index,
+                    end,
+                    cs_kids,
+                ));
             }
         }
         let end = kids.last().unwrap().end_index;
@@ -721,7 +810,9 @@ fn parse_for(p: &mut PState, for_tok: &Token) -> TsNode {
         loop {
             skip_blanks(&mut p.l);
             let c = peek_char(&p.l);
-            if c == ';' || c == '\n' || c == '\0' { break; }
+            if c == ';' || c == '\n' || c == '\0' {
+                break;
+            }
             let w = parser_exprs::parse_word(p, "arg");
             if let Some(word) = w {
                 kids.push(word);
@@ -782,7 +873,9 @@ fn parse_case(p: &mut PState, case_tok: &Token) -> TsNode {
             kids.push(leaf(p, "esac", &t));
             break;
         }
-        if t.token_type == TokenType::Eof { break; }
+        if t.token_type == TokenType::Eof {
+            break;
+        }
         restore_lex(&mut p.l, save);
         if let Some(item) = parse_case_item(p) {
             kids.push(item);
@@ -807,14 +900,19 @@ fn parse_case_item(p: &mut PState) -> Option<TsNode> {
     loop {
         skip_blanks(&mut p.l);
         let c = peek_char(&p.l);
-        if c == ')' || c == '\0' { break; }
+        if c == ')' || c == '\0' {
+            break;
+        }
         let pat = parse_case_pattern(p);
-        if pat.is_empty() { break; }
+        if pat.is_empty() {
+            break;
+        }
         kids.extend(pat);
         skip_blanks(&mut p.l);
         // Line continuation
         if peek_char(&p.l) == '\\' && peek(&p.l, 1) == '\n' {
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             skip_blanks(&mut p.l);
         }
         if peek_char(&p.l) == '|' {
@@ -822,7 +920,8 @@ fn parse_case_item(p: &mut PState) -> Option<TsNode> {
             advance(&mut p.l);
             kids.push(mk(p, "|", s, p.l.b, vec![]));
             if peek_char(&p.l) == '\\' && peek(&p.l, 1) == '\n' {
-                advance(&mut p.l); advance(&mut p.l);
+                advance(&mut p.l);
+                advance(&mut p.l);
             }
         } else {
             break;
@@ -842,7 +941,9 @@ fn parse_case_item(p: &mut PState) -> Option<TsNode> {
     } else {
         restore_lex(&mut p.l, save);
     }
-    if kids.is_empty() { return None; }
+    if kids.is_empty() {
+        return None;
+    }
     let end = kids.last().unwrap().end_index;
     Some(mk(p, "case_item", start, end, kids))
 }
@@ -856,30 +957,49 @@ fn parse_case_pattern(p: &mut PState) -> Vec<TsNode> {
     while p.l.i < p.l.len {
         let c = peek_char(&p.l);
         if c == '\\' && p.l.i + 1 < p.l.len {
-            advance(&mut p.l); advance(&mut p.l);
+            advance(&mut p.l);
+            advance(&mut p.l);
             continue;
         }
         if c == '"' || c == '\'' {
             has_quote = true;
             advance(&mut p.l);
             while p.l.i < p.l.len && peek_char(&p.l) != c {
-                if peek_char(&p.l) == '\\' && p.l.i + 1 < p.l.len { advance(&mut p.l); }
+                if peek_char(&p.l) == '\\' && p.l.i + 1 < p.l.len {
+                    advance(&mut p.l);
+                }
                 advance(&mut p.l);
             }
-            if peek_char(&p.l) == c { advance(&mut p.l); }
+            if peek_char(&p.l) == c {
+                advance(&mut p.l);
+            }
             continue;
         }
-        if c == '(' { paren_depth += 1; advance(&mut p.l); continue; }
-        if paren_depth > 0 {
-            if c == ')' { paren_depth -= 1; advance(&mut p.l); continue; }
-            if c == '\n' { break; }
+        if c == '(' {
+            paren_depth += 1;
             advance(&mut p.l);
             continue;
         }
-        if matches!(c, ')' | '|' | ' ' | '\t' | '\n') { break; }
+        if paren_depth > 0 {
+            if c == ')' {
+                paren_depth -= 1;
+                advance(&mut p.l);
+                continue;
+            }
+            if c == '\n' {
+                break;
+            }
+            advance(&mut p.l);
+            continue;
+        }
+        if matches!(c, ')' | '|' | ' ' | '\t' | '\n') {
+            break;
+        }
         advance(&mut p.l);
     }
-    if p.l.b == start { return vec![]; }
+    if p.l.b == start {
+        return vec![];
+    }
     let text: String = p.l.src[start_i..p.l.i].iter().collect();
     let has_extglob = regex::Regex::new(r"[*?+@!]\(").unwrap().is_match(&text);
     if has_quote && !has_extglob {
@@ -929,7 +1049,9 @@ fn parse_declaration(p: &mut PState, kw_tok: &Token) -> TsNode {
     loop {
         skip_blanks(&mut p.l);
         let c = peek_char(&p.l);
-        if matches!(c, '\0' | '\n' | ';' | '&' | '|' | ')' | '<' | '>') { break; }
+        if matches!(c, '\0' | '\n' | ';' | '&' | '|' | ')' | '<' | '>') {
+            break;
+        }
         if let Some(a) = parser_exprs::try_parse_assignment(p) {
             kids.push(a);
             continue;
@@ -966,7 +1088,9 @@ fn parse_unset(p: &mut PState, kw_tok: &Token) -> TsNode {
     loop {
         skip_blanks(&mut p.l);
         let c = peek_char(&p.l);
-        if matches!(c, '\0' | '\n' | ';' | '&' | '|' | ')' | '<' | '>') { break; }
+        if matches!(c, '\0' | '\n' | ';' | '&' | '|' | ')' | '<' | '>') {
+            break;
+        }
         let arg = parser_exprs::parse_word(p, "arg");
         if let Some(a) = arg {
             if a.node_type == "word" {

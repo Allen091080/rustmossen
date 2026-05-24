@@ -70,16 +70,97 @@ pub fn normalize_full_width_space(input: &str) -> String {
     input.replace('\u{3000}', " ")
 }
 
+/// Return a prefix containing at most `max_chars` Unicode scalar values.
+pub fn prefix_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}
+
+/// Return a suffix containing at most `max_chars` Unicode scalar values.
+pub fn suffix_chars(s: &str, max_chars: usize) -> String {
+    let mut chars: Vec<char> = s.chars().rev().take(max_chars).collect();
+    chars.reverse();
+    chars.into_iter().collect()
+}
+
+/// Truncate text by characters, appending an ellipsis only when truncated.
+///
+/// Use this for user, model, and tool text. Slicing strings with byte ranges
+/// such as `&s[..200]` is only valid when the index is a UTF-8 boundary; this
+/// helper makes display truncation safe for Chinese, emoji, and other
+/// multi-byte text.
+pub fn truncate_chars(s: &str, max_chars: usize) -> String {
+    truncate_chars_with_suffix(s, max_chars, "…")
+}
+
+/// Truncate text by characters, appending `suffix` only when truncated.
+pub fn truncate_chars_with_suffix(s: &str, max_chars: usize, suffix: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in s.chars().enumerate() {
+        if idx >= max_chars {
+            out.push_str(suffix);
+            return out;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Return a string prefix that is no longer than `max_bytes` and always ends
+/// at a valid UTF-8 boundary.
+pub fn safe_prefix_by_bytes(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    if max_bytes == 0 {
+        return "";
+    }
+
+    let mut end = 0;
+    for (idx, ch) in s.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next > max_bytes {
+            break;
+        }
+        end = next;
+    }
+    &s[..end]
+}
+
+/// Return a string suffix that is no longer than `max_bytes` and always starts
+/// at a valid UTF-8 boundary.
+pub fn safe_suffix_by_bytes(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    if max_bytes == 0 {
+        return "";
+    }
+
+    let target = s.len().saturating_sub(max_bytes);
+    for (idx, _) in s.char_indices() {
+        if idx >= target {
+            return &s[idx..];
+        }
+    }
+    ""
+}
+
+/// Truncate by a byte budget while preserving UTF-8 boundaries.
+pub fn truncate_bytes_with_suffix(s: &str, max_bytes: usize, suffix: &str) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut out = safe_prefix_by_bytes(s, max_bytes).to_string();
+    out.push_str(suffix);
+    out
+}
+
 // 保持内存累积适度以避免 RSS 膨胀
 // 超过此限制由 ShellCommand 溢出到磁盘
 const MAX_STRING_LENGTH: usize = 2usize.pow(25);
 
 /// 安全地连接字符串数组，如果结果超过 max_size 则截断。
-pub fn safe_join_lines(
-    lines: &[String],
-    delimiter: &str,
-    max_size: usize,
-) -> String {
+pub fn safe_join_lines(lines: &[String], delimiter: &str, max_size: usize) -> String {
     let truncation_marker = "...[truncated]";
     let mut result = String::new();
 
@@ -97,7 +178,7 @@ pub fn safe_join_lines(
 
             if remaining_space > 0 {
                 result.push_str(delimiter_to_add);
-                result.push_str(&line[..remaining_space]);
+                result.push_str(safe_prefix_by_bytes(line, remaining_space));
                 result.push_str(truncation_marker);
             } else {
                 result.push_str(truncation_marker);
@@ -140,7 +221,8 @@ impl EndTruncatingAccumulator {
         if self.content.len() + data.len() > self.max_size {
             let remaining_space = self.max_size.saturating_sub(self.content.len());
             if remaining_space > 0 {
-                self.content.push_str(&data[..remaining_space]);
+                self.content
+                    .push_str(safe_prefix_by_bytes(data, remaining_space));
             }
             self.is_truncated = true;
         } else {
@@ -198,4 +280,41 @@ pub fn truncate_to_lines(text: &str, max_lines: usize) -> String {
         return text.to_string();
     }
     format!("{}\n…", lines[..max_lines].join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn char_truncation_is_utf8_safe() {
+        assert_eq!(truncate_chars("读代码分析", 3), "读代码…");
+        assert_eq!(truncate_chars("abc", 3), "abc");
+        assert_eq!(prefix_chars("先读代码", 2), "先读");
+        assert_eq!(suffix_chars("先读代码", 2), "代码");
+    }
+
+    #[test]
+    fn byte_prefix_never_splits_multibyte_chars() {
+        let text = "读代码";
+        assert_eq!(safe_prefix_by_bytes(text, 0), "");
+        assert_eq!(safe_prefix_by_bytes(text, 1), "");
+        assert_eq!(safe_prefix_by_bytes(text, 3), "读");
+        assert_eq!(safe_prefix_by_bytes(text, 4), "读");
+        assert_eq!(safe_suffix_by_bytes(text, 3), "码");
+        assert_eq!(safe_suffix_by_bytes(text, 4), "码");
+        assert_eq!(truncate_bytes_with_suffix(text, 4, "..."), "读...");
+    }
+
+    #[test]
+    fn accumulators_truncate_on_char_boundaries() {
+        let mut acc = EndTruncatingAccumulator::new(4);
+        acc.append("读代码");
+        assert!(acc.to_string().starts_with('读'));
+
+        let long = "读代码".repeat(10);
+        let joined = safe_join_lines(&[long], "", 20);
+        assert!(joined.starts_with('读'));
+        assert!(joined.contains("[truncated]"));
+    }
 }

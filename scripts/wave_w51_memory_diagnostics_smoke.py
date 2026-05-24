@@ -209,10 +209,10 @@ def check_auto_memory_still_enabled(failures: list[str]) -> None:
 
 
 def check_team_memory_default_disabled(failures: list[str]) -> None:
-    """Verify isTeamMemoryEnabled uses tengu_team_memory (not herring_clock)."""
+    """Verify isTeamMemoryEnabled uses mossen_team_memory (not herring_clock)."""
     src = TEAM_MEM_PATHS.read_text()
-    if "tengu_team_memory" not in src:
-        fail(failures, "teamMemPaths.ts 必须使用 tengu_team_memory")
+    if "mossen_team_memory" not in src:
+        fail(failures, "teamMemPaths.ts 必须使用 mossen_team_memory")
     func_start = src.find("export function isTeamMemoryEnabled()")
     if func_start < 0:
         fail(failures, "teamMemPaths.ts 缺 isTeamMemoryEnabled")
@@ -230,10 +230,10 @@ def check_team_memory_default_disabled(failures: list[str]) -> None:
                 func_end = i + 1
                 break
     func_body = src[func_start:func_end]
-    if "tengu_herring_clock" in func_body:
+    if "mossen_herring_clock" in func_body:
         fail(
             failures,
-            "isTeamMemoryEnabled 不得使用 tengu_herring_clock",
+            "isTeamMemoryEnabled 不得使用 mossen_herring_clock",
         )
 
 
@@ -272,7 +272,7 @@ def main() -> int:
         "PASS: W51 memory diagnostics ✓ "
         "(/memory has runtime section, no content/secrets, "
         "doctor has memory+compact checks, no network/spawn, "
-        "auto memory enabled, team memory uses tengu_team_memory)"
+        "auto memory enabled, team memory uses mossen_team_memory)"
     )
     return 0
 

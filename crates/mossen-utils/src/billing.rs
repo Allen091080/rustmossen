@@ -2,8 +2,8 @@
 //!
 //! 对应 TypeScript `utils/billing.ts`。
 
-use std::env;
 use parking_lot::Mutex;
+use std::env;
 
 /// 模拟计费访问覆盖（用于 /mock-limits 测试）
 static MOCK_BILLING_ACCESS_OVERRIDE: Mutex<Option<bool>> = Mutex::new(None);

@@ -5,9 +5,7 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^-?\d+(\.\d+)?$").unwrap()
-});
+static NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?\d+(\.\d+)?$").unwrap());
 
 /// 将值解析为语义数字。
 ///

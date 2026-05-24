@@ -150,7 +150,7 @@ pub fn get_session_memory_dir() -> PathBuf {
 
 /// Get session memory file path
 pub fn get_session_memory_path() -> PathBuf {
-    get_session_memory_dir().join("CLAUDE.md")
+    get_session_memory_dir().join("MOSSEN.md")
 }
 
 // ---------------------------------------------------------------------------

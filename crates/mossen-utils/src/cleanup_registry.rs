@@ -6,8 +6,15 @@
 use std::sync::Mutex;
 
 /// 清理函数全局注册表。
-static CLEANUP_FUNCTIONS: Mutex<Vec<Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>>> = 
-    Mutex::new(Vec::new());
+static CLEANUP_FUNCTIONS: Mutex<
+    Vec<
+        Box<
+            dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                + Send
+                + Sync,
+        >,
+    >,
+> = Mutex::new(Vec::new());
 
 /// 注册清理函数。
 /// 返回取消注册函数。
@@ -18,11 +25,12 @@ where
 {
     let mut fns = CLEANUP_FUNCTIONS.lock().unwrap();
     let idx = fns.len();
-    let boxed: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync> = 
-        Box::new(move || Box::pin(cleanup_fn()));
+    let boxed: Box<
+        dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync,
+    > = Box::new(move || Box::pin(cleanup_fn()));
     fns.push(boxed);
     drop(fns);
-    
+
     move || {
         let mut fns = CLEANUP_FUNCTIONS.lock().unwrap();
         if idx < fns.len() {

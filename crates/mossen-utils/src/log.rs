@@ -3,15 +3,15 @@
 //! Provides structured error logging with in-memory buffering, queued events
 //! before sink attachment, and file-based log loading/sorting.
 
-use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::fs;
-use once_cell::sync::Lazy;
+
+use crate::string_utils::truncate_chars;
 
 /// Maximum number of errors kept in memory.
 const MAX_IN_MEMORY_ERRORS: usize = 100;
@@ -66,9 +66,18 @@ const TICK_TAG: &str = "tick";
 /// Queued error event types.
 #[derive(Debug, Clone)]
 enum QueuedErrorEvent {
-    Error { error: String, stack: Option<String> },
-    McpError { server_name: String, error: String },
-    McpDebug { server_name: String, message: String },
+    Error {
+        error: String,
+        stack: Option<String>,
+    },
+    McpError {
+        server_name: String,
+        error: String,
+    },
+    McpDebug {
+        server_name: String,
+        message: String,
+    },
 }
 
 /// Error log sink trait.
@@ -95,26 +104,32 @@ static ERROR_LOG_STATE: Lazy<Mutex<ErrorLogState>> = Lazy::new(|| {
     })
 });
 
-static HARD_FAIL_MODE: Lazy<bool> = Lazy::new(|| {
-    std::env::args().any(|a| a == "--hard-fail")
-});
+static HARD_FAIL_MODE: Lazy<bool> = Lazy::new(|| std::env::args().any(|a| a == "--hard-fail"));
 
 /// Gets the display title for a log/session with fallback logic.
 pub fn get_log_display_title(log: &LogOption, default_title: Option<&str>) -> String {
-    let is_autonomous_prompt = log
-        .first_prompt
-        .starts_with(&format!("<{}>", TICK_TAG));
+    let is_autonomous_prompt = log.first_prompt.starts_with(&format!("<{}>", TICK_TAG));
 
     let stripped_first_prompt = strip_display_tags_allow_empty(&log.first_prompt);
     let use_first_prompt = !stripped_first_prompt.is_empty() && !is_autonomous_prompt;
 
-    let title = log.agent_name.as_deref()
+    let title = log
+        .agent_name
+        .as_deref()
         .filter(|s| !s.is_empty())
         .or(log.custom_title.as_deref().filter(|s| !s.is_empty()))
         .or(log.summary.as_deref().filter(|s| !s.is_empty()))
-        .or(if use_first_prompt { Some(stripped_first_prompt.as_str()) } else { None })
+        .or(if use_first_prompt {
+            Some(stripped_first_prompt.as_str())
+        } else {
+            None
+        })
         .or(default_title)
-        .or(if is_autonomous_prompt { Some("Autonomous session") } else { None })
+        .or(if is_autonomous_prompt {
+            Some("Autonomous session")
+        } else {
+            None
+        })
         .or(log.session_id.as_deref().map(|s| &s[..s.len().min(8)]))
         .unwrap_or("");
 
@@ -163,7 +178,10 @@ pub fn attach_error_log_sink(new_sink: Arc<dyn ErrorLogSink>) {
             QueuedErrorEvent::McpError { server_name, error } => {
                 new_sink.log_mcp_error(&server_name, &error);
             }
-            QueuedErrorEvent::McpDebug { server_name, message } => {
+            QueuedErrorEvent::McpDebug {
+                server_name,
+                message,
+            } => {
                 new_sink.log_mcp_debug(&server_name, &message);
             }
         }
@@ -304,7 +322,9 @@ async fn load_log_list(path: &Path) -> Vec<LogOption> {
             .and_then(|m| {
                 if m.msg_type.as_deref() == Some("user") {
                     m.message.as_ref().and_then(|msg| {
-                        msg.content.as_ref().and_then(|c| c.as_str().map(|s| s.to_string()))
+                        msg.content
+                            .as_ref()
+                            .and_then(|c| c.as_str().map(|s| s.to_string()))
                     })
                 } else {
                     None
@@ -318,7 +338,8 @@ async fn load_log_list(path: &Path) -> Vec<LogOption> {
         };
 
         let is_sidechain = full_path.to_string_lossy().contains("sidechain");
-        let mtime: DateTime<Utc> = file_stats.modified()
+        let mtime: DateTime<Utc> = file_stats
+            .modified()
             .map(|t| DateTime::from(t))
             .unwrap_or_else(|_| Utc::now());
         let date = date_to_filename(&mtime);
@@ -335,11 +356,7 @@ async fn load_log_list(path: &Path) -> Vec<LogOption> {
 
         let truncated_prompt = {
             let first_line = first_prompt.lines().next().unwrap_or(&first_prompt);
-            if first_line.len() > 50 {
-                format!("{}…", &first_line[..50])
-            } else {
-                first_line.to_string()
-            }
+            truncate_chars(first_line, 50)
         };
 
         log_data.push(LogOption {
@@ -424,10 +441,7 @@ pub fn log_mcp_debug(server_name: &str, message: &str) {
 }
 
 /// Capture API request for bug reports (stores params without messages).
-pub fn capture_api_request(
-    params: &serde_json::Value,
-    query_source: Option<&str>,
-) {
+pub fn capture_api_request(params: &serde_json::Value, query_source: Option<&str>) {
     if let Some(source) = query_source {
         if !source.starts_with("repl_main_thread") {
             return;

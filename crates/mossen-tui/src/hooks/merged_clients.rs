@@ -19,25 +19,45 @@ pub struct MergedClientsState {
 }
 
 impl MergedClientsState {
-    pub fn new() -> Self { Self { clients: HashMap::new(), merged_order: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            clients: HashMap::new(),
+            merged_order: Vec::new(),
+        }
+    }
     pub fn add_client(&mut self, client: McpClientEntry) {
         let id = client.id.clone();
         self.clients.insert(id.clone(), client);
-        if !self.merged_order.contains(&id) { self.merged_order.push(id); }
+        if !self.merged_order.contains(&id) {
+            self.merged_order.push(id);
+        }
     }
     pub fn remove_client(&mut self, id: &str) {
         self.clients.remove(id);
         self.merged_order.retain(|i| i != id);
     }
-    pub fn get_client(&self, id: &str) -> Option<&McpClientEntry> { self.clients.get(id) }
+    pub fn get_client(&self, id: &str) -> Option<&McpClientEntry> {
+        self.clients.get(id)
+    }
     pub fn connected_clients(&self) -> Vec<&McpClientEntry> {
-        self.merged_order.iter().filter_map(|id| self.clients.get(id)).filter(|c| c.connected).collect()
+        self.merged_order
+            .iter()
+            .filter_map(|id| self.clients.get(id))
+            .filter(|c| c.connected)
+            .collect()
     }
     pub fn all_clients(&self) -> Vec<&McpClientEntry> {
-        self.merged_order.iter().filter_map(|id| self.clients.get(id)).collect()
+        self.merged_order
+            .iter()
+            .filter_map(|id| self.clients.get(id))
+            .collect()
     }
 }
-impl Default for MergedClientsState { fn default() -> Self { Self::new() } }
+impl Default for MergedClientsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Merge two MCP-client lists, deduplicating by client name. The initial
 /// list comes first; entries from the second list with names already

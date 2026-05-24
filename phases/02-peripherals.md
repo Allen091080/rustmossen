@@ -11,7 +11,7 @@
 
 ### 1.1 Mossen 是什么
 
-**Mossen** 是 Rust 写的 coding agent CLI，对标 Claude Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。
+**Mossen** 是 Rust 写的 coding agent CLI，对标 Mossen Code。跑在本机，通过 `ds4-server`（localhost:8000）调用本地 DeepSeek V4 Flash 模型。
 
 ### 1.2 什么是 "外围 5 系统"
 

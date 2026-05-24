@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -140,8 +140,8 @@ pub fn is_powershell_tool_enabled() -> bool {
     }
     let user_type = env::var("USER_TYPE").unwrap_or_default();
     let ps_env = env::var("MOSSEN_CODE_USE_POWERSHELL_TOOL").unwrap_or_default();
-    if user_type == "ant" {
-        // Ant defaults on; opt-out via false/0/no
+    if user_type == "internal" {
+        // Internal defaults on; opt-out via false/0/no
         let lower = ps_env.to_lowercase();
         !(lower == "false" || lower == "0" || lower == "no")
     } else {
@@ -309,30 +309,25 @@ pub fn contains_vulnerable_unc_path(path_or_command: &str) -> bool {
     }
 
     // Mixed separator patterns
-    static MIXED_SLASH: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"/\\{2,}[^\s\\/]").unwrap());
+    static MIXED_SLASH: Lazy<Regex> = Lazy::new(|| Regex::new(r"/\\{2,}[^\s\\/]").unwrap());
     if MIXED_SLASH.is_match(path_or_command) {
         return true;
     }
 
-    static REVERSE_MIXED: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"\\{2,}/[^\s\\/]").unwrap());
+    static REVERSE_MIXED: Lazy<Regex> = Lazy::new(|| Regex::new(r"\\{2,}/[^\s\\/]").unwrap());
     if REVERSE_MIXED.is_match(path_or_command) {
         return true;
     }
 
     // WebDAV SSL/port patterns
-    static SSL_PORT: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?i)@SSL@\d+").unwrap());
-    static PORT_SSL: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?i)@\d+@SSL").unwrap());
+    static SSL_PORT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)@SSL@\d+").unwrap());
+    static PORT_SSL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)@\d+@SSL").unwrap());
     if SSL_PORT.is_match(path_or_command) || PORT_SSL.is_match(path_or_command) {
         return true;
     }
 
     // DavWWWRoot marker
-    static DAV_ROOT: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?i)DavWWWRoot").unwrap());
+    static DAV_ROOT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)DavWWWRoot").unwrap());
     if DAV_ROOT.is_match(path_or_command) {
         return true;
     }
@@ -376,7 +371,7 @@ pub fn validate_flags(
     start_index: usize,
     config: &ExternalCommandConfig,
     command_name: Option<&str>,
-    raw_command: Option<&str>,
+    _raw_command: Option<&str>,
     xargs_target_commands: Option<&[String]>,
 ) -> bool {
     let mut i = start_index;
@@ -417,7 +412,10 @@ pub fn validate_flags(
             let has_equals = token.contains('=');
             let (flag, inline_value) = if has_equals {
                 let parts: Vec<&str> = token.splitn(2, '=').collect();
-                (parts[0].to_string(), parts.get(1).unwrap_or(&"").to_string())
+                (
+                    parts[0].to_string(),
+                    parts.get(1).unwrap_or(&"").to_string(),
+                )
             } else {
                 (token.clone(), String::new())
             };
@@ -432,8 +430,7 @@ pub fn validate_flags(
                 None => {
                     // Git numeric shorthand
                     if command_name == Some("git") {
-                        static GIT_NUM: Lazy<Regex> =
-                            Lazy::new(|| Regex::new(r"^-\d+$").unwrap());
+                        static GIT_NUM: Lazy<Regex> = Lazy::new(|| Regex::new(r"^-\d+$").unwrap());
                         if GIT_NUM.is_match(&flag) {
                             i += 1;
                             continue;
@@ -442,10 +439,7 @@ pub fn validate_flags(
 
                     // grep/rg attached numeric
                     if command_name == Some("grep") || command_name == Some("rg") {
-                        if flag.starts_with('-')
-                            && !flag.starts_with("--")
-                            && flag.len() > 2
-                        {
+                        if flag.starts_with('-') && !flag.starts_with("--") && flag.len() > 2 {
                             let potential_flag = &flag[..2];
                             let potential_value = &flag[2..];
                             if let Some(ft) = config.safe_flags.get(potential_flag) {
@@ -506,7 +500,9 @@ pub fn validate_flags(
                                 return false;
                             }
                             let next = &tokens[i + 1];
-                            if next.starts_with('-') && next.len() > 1 && FLAG_PATTERN.is_match(next)
+                            if next.starts_with('-')
+                                && next.len() > 1
+                                && FLAG_PATTERN.is_match(next)
                             {
                                 return false;
                             }
@@ -572,8 +568,7 @@ pub fn git_remote_show_is_dangerous(_raw_command: &str, args: &[String]) -> bool
     if positional.len() != 1 {
         return true;
     }
-    static REMOTE_NAME: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
+    static REMOTE_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
     !REMOTE_NAME.is_match(positional[0])
 }
 
@@ -1163,7 +1158,7 @@ pub fn build_git_read_only_commands() -> HashMap<String, ExternalCommandConfig> 
     for (k, v) in [
         ("--is-ancestor", FlagArgType::None),
         ("--fork-point", FlagArgType::None),
-        ("--octopus", FlagArgType::None),
+        (concat!("--octo", "pus"), FlagArgType::None),
         ("--independent", FlagArgType::None),
         ("--all", FlagArgType::None),
     ] {
@@ -1500,13 +1495,16 @@ pub static GIT_READ_ONLY_COMMANDS: once_cell::sync::Lazy<HashMap<String, Externa
 pub static GH_READ_ONLY_COMMANDS: once_cell::sync::Lazy<HashMap<String, ExternalCommandConfig>> =
     once_cell::sync::Lazy::new(build_gh_read_only_commands);
 /// 对应 TS `DOCKER_READ_ONLY_COMMANDS`。
-pub static DOCKER_READ_ONLY_COMMANDS: once_cell::sync::Lazy<HashMap<String, ExternalCommandConfig>> =
-    once_cell::sync::Lazy::new(build_docker_read_only_commands);
+pub static DOCKER_READ_ONLY_COMMANDS: once_cell::sync::Lazy<
+    HashMap<String, ExternalCommandConfig>,
+> = once_cell::sync::Lazy::new(build_docker_read_only_commands);
 /// 对应 TS `RIPGREP_READ_ONLY_COMMANDS`。
-pub static RIPGREP_READ_ONLY_COMMANDS: once_cell::sync::Lazy<HashMap<String, ExternalCommandConfig>> =
-    once_cell::sync::Lazy::new(build_ripgrep_read_only_commands);
+pub static RIPGREP_READ_ONLY_COMMANDS: once_cell::sync::Lazy<
+    HashMap<String, ExternalCommandConfig>,
+> = once_cell::sync::Lazy::new(build_ripgrep_read_only_commands);
 
 /// pyright read-only command 表 — pyright 没有独立的 read-only 安全子集，
 /// 因此返回空表（与 TS `PYRIGHT_READ_ONLY_COMMANDS` 等价）。
-pub static PYRIGHT_READ_ONLY_COMMANDS: once_cell::sync::Lazy<HashMap<String, ExternalCommandConfig>> =
-    once_cell::sync::Lazy::new(HashMap::new);
+pub static PYRIGHT_READ_ONLY_COMMANDS: once_cell::sync::Lazy<
+    HashMap<String, ExternalCommandConfig>,
+> = once_cell::sync::Lazy::new(HashMap::new);

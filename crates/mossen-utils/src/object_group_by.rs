@@ -28,7 +28,7 @@ mod tests {
     fn test_object_group_by() {
         let items = vec![1, 2, 3, 4, 5, 6];
         let result = object_group_by(items, |&x, _| x % 2);
-        
+
         assert_eq!(result.get(&0).unwrap(), &vec![2, 4, 6]);
         assert_eq!(result.get(&1).unwrap(), &vec![1, 3, 5]);
     }

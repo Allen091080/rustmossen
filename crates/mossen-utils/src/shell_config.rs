@@ -34,10 +34,7 @@ pub fn get_shell_config_paths(options: Option<&ShellConfigOptions>) -> HashMap<S
     let mut configs = HashMap::new();
     configs.insert("zsh".to_string(), zsh_config_dir.join(".zshrc"));
     configs.insert("bash".to_string(), home.join(".bashrc"));
-    configs.insert(
-        "fish".to_string(),
-        home.join(".config/fish/config.fish"),
-    );
+    configs.insert("fish".to_string(), home.join(".config/fish/config.fish"));
     configs
 }
 
@@ -45,10 +42,8 @@ pub fn get_shell_config_paths(options: Option<&ShellConfigOptions>) -> HashMap<S
 /// Only removes aliases pointing to $HOME/.mossen/local/mossen.
 pub fn filter_mossen_aliases(lines: &[String], local_mossen_path: &str) -> (Vec<String>, bool) {
     let mut had_alias = false;
-    let alias_target_regex =
-        Regex::new(r#"alias\s+mossen\s*=\s*["']([^"']+)["']"#).unwrap();
-    let alias_target_noquote_regex =
-        Regex::new(r"alias\s+mossen\s*=\s*([^#\n]+)").unwrap();
+    let alias_target_regex = Regex::new(r#"alias\s+mossen\s*=\s*["']([^"']+)["']"#).unwrap();
+    let alias_target_noquote_regex = Regex::new(r"alias\s+mossen\s*=\s*([^#\n]+)").unwrap();
 
     let filtered: Vec<String> = lines
         .iter()

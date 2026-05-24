@@ -30,13 +30,13 @@ pub async fn configure_environment() -> Result<()> {
 
 /// 初始化日志系统 — 对应 TS 的 tracing 初始化。
 ///
-/// `interactive`: when true (TUI launch path), tracing logs go to a per-pid
-/// file under `~/.cache/mossen/logs/` instead of stderr. Writing to stderr
-/// while ratatui owns the alternate screen corrupts the display — the user
-/// sees `INFO mossen::setup: …` lines bleeding through the prompt input
-/// area. Non-interactive paths (--oneshot, subcommands, piped runs) keep
-/// the stderr destination so log lines are visible inline.
-pub fn initialize_logging(verbose: bool, interactive: bool) {
+/// `file_sink`: when true (TUI or terminal frontend launch path), tracing logs
+/// go to a per-pid file under `~/.cache/mossen/logs/` instead of stderr.
+/// Writing to stderr while ratatui owns the alternate screen corrupts the
+/// display, and writing diagnostics into `--emit terminal` pollutes the
+/// rendered UI. Other non-interactive paths keep the stderr destination so log
+/// lines remain visible inline.
+pub fn initialize_logging(verbose: bool, file_sink: bool, announce_file_sink: bool) {
     use tracing_subscriber::EnvFilter;
 
     let filter = if verbose {
@@ -45,7 +45,7 @@ pub fn initialize_logging(verbose: bool, interactive: bool) {
         EnvFilter::from_default_env().add_directive("mossen=info".parse().unwrap())
     };
 
-    if interactive {
+    if file_sink {
         // Per-pid log file so concurrent mossen processes don't clobber
         // each other. The directory is best-effort: if creation fails we
         // fall back to a stderr writer to preserve a debug trail.
@@ -71,7 +71,9 @@ pub fn initialize_logging(verbose: bool, interactive: bool) {
                     .with_ansi(false)
                     .with_writer(writer)
                     .init();
-                eprintln!("mossen: TUI logs → {}", log_path.display());
+                if announce_file_sink {
+                    eprintln!("mossen: TUI logs → {}", log_path.display());
+                }
                 info!("logging initialized (file sink: {})", log_path.display());
                 return;
             }
@@ -148,6 +150,27 @@ pub async fn run_setup(state: &SharedBootstrapState, bare_mode: bool) -> Result<
             .write()
             .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
         state.bare_mode = bare_mode;
+    }
+
+    mossen_utils::hooks_dir::capture_hooks_config_snapshot();
+    info!("setup: hooks config snapshot captured");
+
+    let is_non_interactive = state
+        .read()
+        .map(|state| !state.is_interactive)
+        .unwrap_or(false);
+    let setup_hook_messages = crate::session_hooks::run_setup_hooks(
+        state,
+        mossen_utils::session_start::SetupTrigger::Init,
+        is_non_interactive,
+    )
+    .await;
+    if !setup_hook_messages.is_empty() {
+        info!(
+            target: "mossen_agent::hooks",
+            count = setup_hook_messages.len(),
+            "Setup hook messages produced during setup"
+        );
     }
 
     // 后台预取（非 bare 模式）

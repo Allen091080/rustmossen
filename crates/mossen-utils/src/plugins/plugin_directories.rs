@@ -57,8 +57,7 @@ pub fn get_plugin_seed_dirs() -> Vec<PathBuf> {
 
 /// Sanitize a plugin ID for use in filesystem paths.
 fn sanitize_plugin_id(plugin_id: &str) -> String {
-    static SANITIZE_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"[^a-zA-Z0-9\-_]").unwrap());
+    static SANITIZE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^a-zA-Z0-9\-_]").unwrap());
     SANITIZE_RE.replace_all(plugin_id, "-").to_string()
 }
 
@@ -83,9 +82,7 @@ pub fn get_plugin_data_dir(plugin_id: &str) -> PathBuf {
 
 /// Size of the data dir for the uninstall confirmation prompt.
 /// Returns None when the dir is absent or empty.
-pub async fn get_plugin_data_dir_size(
-    plugin_id: &str,
-) -> Option<(u64, String)> {
+pub async fn get_plugin_data_dir_size(plugin_id: &str) -> Option<(u64, String)> {
     let dir = plugin_data_dir_path(plugin_id);
     let mut bytes: u64 = 0;
 
@@ -145,11 +142,7 @@ pub async fn delete_plugin_data_dir(plugin_id: &str) {
     let dir = plugin_data_dir_path(plugin_id);
     if let Err(e) = fs::remove_dir_all(&dir).await {
         if e.kind() != std::io::ErrorKind::NotFound {
-            debug!(
-                "Failed to delete plugin data dir {}: {}",
-                dir.display(),
-                e
-            );
+            debug!("Failed to delete plugin data dir {}: {}", dir.display(), e);
         }
     }
 }

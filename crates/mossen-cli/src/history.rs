@@ -79,8 +79,7 @@ struct LogEntry {
 
 /// 计算粘贴文本的换行数。
 pub fn get_pasted_text_ref_num_lines(text: &str) -> usize {
-    text.matches('\n').count() + text.matches('\r').count()
-        - text.matches("\r\n").count()
+    text.matches('\n').count() + text.matches('\r').count() - text.matches("\r\n").count()
 }
 
 /// 格式化粘贴文本引用标记。
@@ -125,7 +124,10 @@ pub fn parse_references(input: &str) -> Vec<ParsedReference> {
                 // 提取数字 ID
                 if let Some(hash_pos) = inner.find('#') {
                     let after_hash = &inner[hash_pos + 1..];
-                    let num_str: String = after_hash.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    let num_str: String = after_hash
+                        .chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect();
                     if let Ok(id) = num_str.parse::<u32>() {
                         if id > 0 {
                             results.push(ParsedReference {
@@ -316,7 +318,11 @@ impl HistoryManager {
         let mut other_session_entries = Vec::new();
         let mut yielded = 0usize;
 
-        let skipped = self.skipped_timestamps.lock().expect("lock poisoned").clone();
+        let skipped = self
+            .skipped_timestamps
+            .lock()
+            .expect("lock poisoned")
+            .clone();
 
         // 先收集 pending
         {
@@ -501,9 +507,7 @@ fn log_entry_to_history_entry(entry: &LogEntry) -> HistoryEntry {
     let pasted_contents: HashMap<u32, PastedContent> = entry
         .pasted_contents
         .iter()
-        .filter_map(|(&id, stored)| {
-            resolve_stored_pasted_content(stored).map(|c| (id, c))
-        })
+        .filter_map(|(&id, stored)| resolve_stored_pasted_content(stored).map(|c| (id, c)))
         .collect();
 
     HistoryEntry {

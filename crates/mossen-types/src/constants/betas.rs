@@ -32,8 +32,8 @@ pub const SUMMARIZE_CONNECTOR_TEXT_BETA_HEADER: &str = "summarize-connector-text
 /// Empty string when feature is disabled.
 pub const AFK_MODE_BETA_HEADER: &str = "afk-mode-2026-01-31";
 
-/// Ant-only: `process.env.USER_TYPE === 'ant'` in TS.
-/// Empty string when not ant.
+/// Internal-only: `process.env.USER_TYPE === 'internal'` in TS.
+/// Empty string when not internal.
 pub const CLI_INTERNAL_BETA_HEADER: &str = "cli-internal-2026-02-09";
 
 pub const ADVISOR_BETA_HEADER: &str = "advisor-tool-2026-03-01";

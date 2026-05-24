@@ -52,11 +52,7 @@ pub fn parse_debug_filter(filter_string: Option<&str>) -> Option<DebugFilter> {
         } else {
             clean_filters.clone()
         },
-        exclude: if has_exclusive {
-            clean_filters
-        } else {
-            vec![]
-        },
+        exclude: if has_exclusive { clean_filters } else { vec![] },
         is_exclusive: has_exclusive,
     })
 }
@@ -74,7 +70,7 @@ static SECONDARY_REGEX: Lazy<Regex> =
 /// - "category: message" -> ["category"]
 /// - "[CATEGORY] message" -> ["category"]
 /// - "MCP server \"name\": message" -> ["mcp", "name"]
-/// - "[ANT-ONLY] 1P event: tengu_timer" -> ["ant-only", "1p"]
+/// - "[INTERNAL-ONLY] 1P event: mossen_timer" -> ["internal-only", "1p"]
 pub fn extract_debug_categories(message: &str) -> Vec<String> {
     let mut categories: Vec<String> = Vec::new();
 

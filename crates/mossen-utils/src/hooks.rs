@@ -15,6 +15,8 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
+use crate::string_utils::truncate_chars;
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS: u64 = 10 * 60 * 1000;
@@ -508,10 +510,7 @@ pub fn get_session_end_hook_timeout_ms() -> u64 {
 ///
 /// ALL hooks require workspace trust because they execute arbitrary commands from
 /// .mossen/settings.json. This is a defense-in-depth security measure.
-pub fn should_skip_hook_due_to_trust(
-    is_non_interactive: bool,
-    has_trust: bool,
-) -> bool {
+pub fn should_skip_hook_due_to_trust(is_non_interactive: bool, has_trust: bool) -> bool {
     // In non-interactive mode (SDK), trust is implicit - always execute
     if is_non_interactive {
         return false;
@@ -624,11 +623,7 @@ fn parse_http_hook_output(body: &str) -> HttpParsedOutput {
     }
 
     if !trimmed.starts_with('{') {
-        let truncated = if trimmed.len() > 200 {
-            format!("{}…", &trimmed[..200])
-        } else {
-            trimmed.to_string()
-        };
+        let truncated = truncate_chars(trimmed, 200);
         let err = format!(
             "HTTP hook must return JSON, but got non-JSON response body: {}",
             truncated
@@ -674,8 +669,8 @@ pub fn is_sync_hook_json_output(json: &HookJsonOutput) -> bool {
 fn process_hook_json_output(
     json: &HookJsonOutput,
     command: &str,
-    hook_name: &str,
-    hook_event: &HookEvent,
+    _hook_name: &str,
+    _hook_event: &HookEvent,
     expected_hook_event: Option<&HookEvent>,
 ) -> HookResult {
     let mut result = HookResult {
@@ -762,8 +757,7 @@ fn process_hook_json_output(
                     _ => {}
                 }
             }
-            result.hook_permission_decision_reason =
-                specific.permission_decision_reason.clone();
+            result.hook_permission_decision_reason = specific.permission_decision_reason.clone();
             if let Some(ref ui) = specific.updated_input {
                 result.updated_input = Some(ui.clone());
             }
@@ -846,12 +840,9 @@ fn process_hook_json_output(
                     });
                     if action == "decline" {
                         result.blocking_error = Some(HookBlockingError {
-                            blocking_error: json
-                                .reason
-                                .clone()
-                                .unwrap_or_else(|| {
-                                    "Elicitation result blocked by hook".to_string()
-                                }),
+                            blocking_error: json.reason.clone().unwrap_or_else(|| {
+                                "Elicitation result blocked by hook".to_string()
+                            }),
                             command: command.to_string(),
                         });
                     }
@@ -907,7 +898,10 @@ pub fn get_pre_tool_hook_blocking_message(
     hook_name: &str,
     blocking_error: &HookBlockingError,
 ) -> String {
-    format!("{} hook error: {}", hook_name, blocking_error.blocking_error)
+    format!(
+        "{} hook error: {}",
+        hook_name, blocking_error.blocking_error
+    )
 }
 
 /// Format a blocking error from a Stop hook.
@@ -940,9 +934,7 @@ pub fn get_task_completed_hook_message(blocking_error: &HookBlockingError) -> St
 }
 
 /// Format a blocking error from a UserPromptSubmit hook.
-pub fn get_user_prompt_submit_hook_blocking_message(
-    blocking_error: &HookBlockingError,
-) -> String {
+pub fn get_user_prompt_submit_hook_blocking_message(blocking_error: &HookBlockingError) -> String {
     format!(
         "UserPromptSubmit operation blocked by hook:\n{}",
         blocking_error.blocking_error
@@ -957,7 +949,7 @@ pub fn has_blocking_result(results: &[HookOutsideReplResult]) -> bool {
 /// Execute a command-based hook using bash or PowerShell.
 pub async fn exec_command_hook(
     command: &str,
-    hook_event: &str,
+    _hook_event: &str,
     hook_name: &str,
     json_input: &str,
     cwd: &str,
@@ -1040,7 +1032,7 @@ pub async fn exec_command_hook(
     }
 
     // Wait for completion with timeout
-    let child_id = child.id();
+    let _child_id = child.id();
     let wait_future = child.wait_with_output();
     let result = tokio::select! {
         result = wait_future => {
@@ -1198,9 +1190,7 @@ pub async fn execute_hooks_outside_repl(
             let json_blocked = parsed
                 .json
                 .as_ref()
-                .map(|j| {
-                    is_sync_hook_json_output(j) && j.decision.as_deref() == Some("block")
-                })
+                .map(|j| is_sync_hook_json_output(j) && j.decision.as_deref() == Some("block"))
                 .unwrap_or(false);
             let blocked = result.status == 2 || json_blocked;
 
@@ -1216,10 +1206,7 @@ pub async fn execute_hooks_outside_repl(
                     .and_then(|s| s.watch_paths.clone())
             });
 
-            let system_message = parsed
-                .json
-                .as_ref()
-                .and_then(|j| j.system_message.clone());
+            let system_message = parsed.json.as_ref().and_then(|j| j.system_message.clone());
 
             results.push(HookOutsideReplResult {
                 command: command.to_string(),
@@ -1265,8 +1252,7 @@ pub async fn execute_hooks_outside_repl(
             results.push(HookOutsideReplResult {
                 command: "function".to_string(),
                 succeeded: false,
-                output: "Internal error: function hook executed outside REPL context"
-                    .to_string(),
+                output: "Internal error: function hook executed outside REPL context".to_string(),
                 blocked: false,
                 watch_paths: None,
                 system_message: None,
@@ -1293,11 +1279,9 @@ pub async fn execute_hooks_outside_repl(
                         results.push(HookOutsideReplResult {
                             command: url.to_string(),
                             succeeded: false,
-                            output: http_result
-                                .error
-                                .unwrap_or_else(|| {
-                                    format!("HTTP {} from {}", http_result.status_code, url)
-                                }),
+                            output: http_result.error.unwrap_or_else(|| {
+                                format!("HTTP {} from {}", http_result.status_code, url)
+                            }),
                             blocked: false,
                             watch_paths: None,
                             system_message: None,
@@ -1423,9 +1407,7 @@ pub fn get_matching_hooks(
         | HookEvent::PostToolUse
         | HookEvent::PostToolUseFailure
         | HookEvent::PermissionRequest
-        | HookEvent::PermissionDenied => {
-            hook_input.extra.get("tool_name").and_then(|v| v.as_str())
-        }
+        | HookEvent::PermissionDenied => hook_input.extra.get("tool_name").and_then(|v| v.as_str()),
         HookEvent::SessionStart => hook_input.extra.get("source").and_then(|v| v.as_str()),
         HookEvent::Setup | HookEvent::PreCompact | HookEvent::PostCompact => {
             hook_input.extra.get("trigger").and_then(|v| v.as_str())
@@ -1444,10 +1426,9 @@ pub fn get_matching_hooks(
             .get("mcp_server_name")
             .and_then(|v| v.as_str()),
         HookEvent::ConfigChange => hook_input.extra.get("source").and_then(|v| v.as_str()),
-        HookEvent::InstructionsLoaded => hook_input
-            .extra
-            .get("load_reason")
-            .and_then(|v| v.as_str()),
+        HookEvent::InstructionsLoaded => {
+            hook_input.extra.get("load_reason").and_then(|v| v.as_str())
+        }
         HookEvent::FileChanged => hook_input
             .extra
             .get("file_path")
@@ -1465,10 +1446,7 @@ pub fn get_matching_hooks(
         "Getting matching hook commands for {} with query: {:?}",
         hook_event, match_query
     );
-    debug!(
-        "Found {} hook matchers in settings",
-        hook_matchers.len()
-    );
+    debug!("Found {} hook matchers in settings", hook_matchers.len());
 
     // Filter matchers based on match query
     let filtered_matchers: Vec<&HookMatcher> = if let Some(query) = match_query {
@@ -1627,9 +1605,7 @@ pub fn get_matching_hooks(
         .collect();
 
     // HTTP hooks are not supported for SessionStart/Setup events
-    let final_hooks = if *hook_event == HookEvent::SessionStart
-        || *hook_event == HookEvent::Setup
-    {
+    let final_hooks = if *hook_event == HookEvent::SessionStart || *hook_event == HookEvent::Setup {
         filtered_hooks
             .into_iter()
             .filter(|h| {
@@ -1671,14 +1647,7 @@ pub async fn execute_notification_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> Vec<HookOutsideReplResult> {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "Notification".to_string();
     hook_input
         .extra
@@ -1716,14 +1685,7 @@ pub async fn execute_session_end_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> Vec<HookOutsideReplResult> {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "SessionEnd".to_string();
     hook_input
         .extra
@@ -1770,14 +1732,7 @@ pub async fn execute_config_change_hooks(
         .trim_matches('"')
         .to_string();
 
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "ConfigChange".to_string();
     hook_input
         .extra
@@ -1821,14 +1776,8 @@ pub async fn execute_cwd_changed_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> (Vec<HookOutsideReplResult>, Vec<String>, Vec<String>) {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        new_cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input =
+        create_base_hook_input(session_id, transcript_path, new_cwd, None, None, None);
     hook_input.hook_event_name = "CwdChanged".to_string();
     hook_input
         .extra
@@ -1872,18 +1821,12 @@ pub async fn execute_file_changed_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> (Vec<HookOutsideReplResult>, Vec<String>, Vec<String>) {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "FileChanged".to_string();
-    hook_input
-        .extra
-        .insert("file_path".to_string(), Value::String(file_path.to_string()));
+    hook_input.extra.insert(
+        "file_path".to_string(),
+        Value::String(file_path.to_string()),
+    );
     hook_input
         .extra
         .insert("event".to_string(), Value::String(event.to_string()));
@@ -1927,18 +1870,12 @@ pub async fn execute_instructions_loaded_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "InstructionsLoaded".to_string();
-    hook_input
-        .extra
-        .insert("file_path".to_string(), Value::String(file_path.to_string()));
+    hook_input.extra.insert(
+        "file_path".to_string(),
+        Value::String(file_path.to_string()),
+    );
     hook_input.extra.insert(
         "memory_type".to_string(),
         serde_json::to_value(memory_type).unwrap_or(Value::Null),
@@ -1966,15 +1903,11 @@ pub async fn execute_instructions_loaded_hooks(
         );
     }
 
-    let load_reason_str = serde_json::to_string(load_reason)
+    let _load_reason_str = serde_json::to_string(load_reason)
         .unwrap_or_default()
         .trim_matches('"')
         .to_string();
-    let matching = get_matching_hooks(
-        hook_matchers,
-        &HookEvent::InstructionsLoaded,
-        &hook_input,
-    );
+    let matching = get_matching_hooks(hook_matchers, &HookEvent::InstructionsLoaded, &hook_input);
     let _ = execute_hooks_outside_repl(
         &hook_input,
         &matching,
@@ -2116,8 +2049,7 @@ pub async fn execute_elicitation_result_hooks(
             .insert("elicitation_id".to_string(), Value::String(eid.to_string()));
     }
 
-    let matching =
-        get_matching_hooks(hook_matchers, &HookEvent::ElicitationResult, &hook_input);
+    let matching = get_matching_hooks(hook_matchers, &HookEvent::ElicitationResult, &hook_input);
     let results = execute_hooks_outside_repl(
         &hook_input,
         &matching,
@@ -2268,14 +2200,7 @@ pub async fn execute_worktree_create_hook(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> Result<String, String> {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "WorktreeCreate".to_string();
     hook_input
         .extra
@@ -2336,22 +2261,14 @@ pub async fn execute_worktree_remove_hook(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> bool {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "WorktreeRemove".to_string();
     hook_input.extra.insert(
         "worktree_path".to_string(),
         Value::String(worktree_path.to_string()),
     );
 
-    let matching =
-        get_matching_hooks(hook_matchers, &HookEvent::WorktreeRemove, &hook_input);
+    let matching = get_matching_hooks(hook_matchers, &HookEvent::WorktreeRemove, &hook_input);
     if matching.is_empty() {
         return false;
     }
@@ -2405,14 +2322,7 @@ pub async fn execute_pre_compact_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> (Option<String>, Option<String>) {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "PreCompact".to_string();
     hook_input
         .extra
@@ -2497,14 +2407,7 @@ pub async fn execute_post_compact_hooks(
     timeout_ms: u64,
     cancel_token: &CancellationToken,
 ) -> Option<String> {
-    let mut hook_input = create_base_hook_input(
-        session_id,
-        transcript_path,
-        cwd,
-        None,
-        None,
-        None,
-    );
+    let mut hook_input = create_base_hook_input(session_id, transcript_path, cwd, None, None, None);
     hook_input.hook_event_name = "PostCompact".to_string();
     hook_input
         .extra

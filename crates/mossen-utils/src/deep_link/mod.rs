@@ -1,8 +1,8 @@
 // Translated from utils/deepLink/*.ts (6 files)
 
-use std::collections::HashMap;
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ============================================================================
 // parseDeepLink.ts
@@ -34,11 +34,15 @@ pub fn parse_deep_link(uri: &str) -> Result<DeepLinkAction> {
     } else if uri.starts_with(&alt_prefix) {
         uri.replacen(&alt_prefix, &prefix, 1)
     } else {
-        bail!("Invalid deep link: expected {}:// scheme, got \"{}\"", DEEP_LINK_PROTOCOL, uri);
+        bail!(
+            "Invalid deep link: expected {}:// scheme, got \"{}\"",
+            DEEP_LINK_PROTOCOL,
+            uri
+        );
     };
 
-    let url = url::Url::parse(&normalized)
-        .map_err(|_| anyhow!("Invalid deep link URL: \"{}\"", uri))?;
+    let url =
+        url::Url::parse(&normalized).map_err(|_| anyhow!("Invalid deep link URL: \"{}\"", uri))?;
 
     let hostname = url.host_str().unwrap_or("");
     if hostname != "open" {
@@ -53,13 +57,20 @@ pub fn parse_deep_link(uri: &str) -> Result<DeepLinkAction> {
     // Validate cwd
     if let Some(ref cwd_val) = cwd {
         if !cwd_val.starts_with('/') && !cwd_val.chars().nth(1).map_or(false, |c| c == ':') {
-            bail!("Invalid cwd in deep link: must be an absolute path, got \"{}\"", cwd_val);
+            bail!(
+                "Invalid cwd in deep link: must be an absolute path, got \"{}\"",
+                cwd_val
+            );
         }
         if contains_control_chars(cwd_val) {
             bail!("Deep link cwd contains disallowed control characters");
         }
         if cwd_val.len() > MAX_CWD_LENGTH {
-            bail!("Deep link cwd exceeds {} characters (got {})", MAX_CWD_LENGTH, cwd_val.len());
+            bail!(
+                "Deep link cwd exceeds {} characters (got {})",
+                MAX_CWD_LENGTH,
+                cwd_val.len()
+            );
         }
     }
 
@@ -67,7 +78,10 @@ pub fn parse_deep_link(uri: &str) -> Result<DeepLinkAction> {
     if let Some(ref repo_val) = repo {
         let re = regex::Regex::new(r"^[\w.\-]+/[\w.\-]+$").unwrap();
         if !re.is_match(repo_val) {
-            bail!("Invalid repo in deep link: expected \"owner/repo\", got \"{}\"", repo_val);
+            bail!(
+                "Invalid repo in deep link: expected \"owner/repo\", got \"{}\"",
+                repo_val
+            );
         }
     }
 
@@ -85,7 +99,11 @@ pub fn parse_deep_link(uri: &str) -> Result<DeepLinkAction> {
             bail!("Deep link query contains disallowed control characters");
         }
         if q.len() > MAX_QUERY_LENGTH {
-            bail!("Deep link query exceeds {} characters (got {})", MAX_QUERY_LENGTH, q.len());
+            bail!(
+                "Deep link query exceeds {} characters (got {})",
+                MAX_QUERY_LENGTH,
+                q.len()
+            );
         }
     }
 
@@ -135,7 +153,7 @@ pub enum TerminalPreference {
 
 /// 对应 TS `MACOS_BUNDLE_ID`：deep link handler 在 macOS LaunchServices 注册时
 /// 使用的 bundle id。
-pub const MACOS_BUNDLE_ID: &str = "com.ant.mossen-code";
+pub const MACOS_BUNDLE_ID: &str = "com.mossen.cli";
 
 /// 对应 TS `isProtocolHandlerCurrent`：检查当前进程 binary 是否为系统默认的
 /// `mossen-cli://` 协议处理器。
@@ -173,14 +191,18 @@ pub struct DeepLinkBannerInfo {
 pub fn build_deep_link_banner(query: Option<&str>) -> DeepLinkBannerInfo {
     let banner_text = get_deep_link_banner(query);
     DeepLinkBannerInfo {
-        long_prefill: query.map(|q| q.len() > LONG_PREFILL_THRESHOLD).unwrap_or(false),
+        long_prefill: query
+            .map(|q| q.len() > LONG_PREFILL_THRESHOLD)
+            .unwrap_or(false),
         text: banner_text,
     }
 }
 
 /// 对应 TS `readLastFetchTime`：读取上次 fetch 时间戳（ms）。
 pub async fn read_last_fetch_time() -> Option<u64> {
-    let path = dirs::home_dir()?.join(".mossen").join("deep-link-last-fetch");
+    let path = dirs::home_dir()?
+        .join(".mossen")
+        .join("deep-link-last-fetch");
     let raw = tokio::fs::read_to_string(&path).await.ok()?;
     raw.trim().parse::<u64>().ok()
 }
@@ -209,7 +231,9 @@ pub fn update_deep_link_terminal_preference() {
     };
     if let Some(app) = mapped {
         // SAFETY: invoked during interactive startup, single-threaded init.
-        unsafe { std::env::set_var("MOSSEN_DEEP_LINK_TERMINAL", app); }
+        unsafe {
+            std::env::set_var("MOSSEN_DEEP_LINK_TERMINAL", app);
+        }
     }
 }
 
@@ -255,7 +279,7 @@ pub async fn handle_deep_link(action: &DeepLinkAction) -> Result<String> {
 }
 
 /// Resolve a GitHub repo slug to a local path.
-async fn resolve_repo_to_path(repo: &str) -> Result<Option<String>> {
+async fn resolve_repo_to_path(_repo: &str) -> Result<Option<String>> {
     // In a full implementation, this would check githubRepoPaths config
     // For now, return None (use current directory)
     Ok(None)
@@ -325,7 +349,11 @@ async fn register_linux_protocol() -> Result<()> {
 
     // Run xdg-mime to register
     let _ = tokio::process::Command::new("xdg-mime")
-        .args(["default", "mossen-cli-handler.desktop", &format!("x-scheme-handler/{}", DEEP_LINK_PROTOCOL)])
+        .args([
+            "default",
+            "mossen-cli-handler.desktop",
+            &format!("x-scheme-handler/{}", DEEP_LINK_PROTOCOL),
+        ])
         .output()
         .await;
 
@@ -339,7 +367,11 @@ pub async fn is_protocol_registered() -> bool {
         true
     } else if cfg!(target_os = "linux") {
         let output = tokio::process::Command::new("xdg-mime")
-            .args(["query", "default", &format!("x-scheme-handler/{}", DEEP_LINK_PROTOCOL)])
+            .args([
+                "query",
+                "default",
+                &format!("x-scheme-handler/{}", DEEP_LINK_PROTOCOL),
+            ])
             .output()
             .await;
         match output {
@@ -376,7 +408,11 @@ async fn launch_iterm2(command: &str, cwd: Option<&str>) -> Result<()> {
                 {} write text \"{}\"\n\
             end tell\n\
         end tell",
-        if let Some(c) = cwd { format!("write text \"cd {}\" \n", shell_escape(c)) } else { String::new() },
+        if let Some(c) = cwd {
+            format!("write text \"cd {}\" \n", shell_escape(c))
+        } else {
+            String::new()
+        },
         shell_escape(command)
     );
     tokio::process::Command::new("osascript")
@@ -406,7 +442,7 @@ async fn launch_macos_terminal(command: &str, cwd: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn launch_warp(command: &str, cwd: Option<&str>) -> Result<()> {
+async fn launch_warp(_command: &str, cwd: Option<&str>) -> Result<()> {
     let mut cmd = tokio::process::Command::new("open");
     cmd.args(["-a", "Warp"]);
     if let Some(c) = cwd {

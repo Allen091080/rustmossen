@@ -235,10 +235,7 @@ impl HookExecutor {
                     hook: hook_config.config.clone(),
                     outcome: res.outcome,
                     stdout: res.response_text.clone().unwrap_or_default(),
-                    stderr: res
-                        .blocking_error
-                        .clone()
-                        .unwrap_or_default(),
+                    stderr: res.blocking_error.clone().unwrap_or_default(),
                     exit_code: None,
                     blocking_error: res.blocking_error,
                     prevent_continuation: res.prevent_continuation,
@@ -260,8 +257,7 @@ impl HookExecutor {
                     model: model.clone(),
                     timeout_secs: *timeout,
                 };
-                let res =
-                    super::exec_agent::exec_agent_hook(&cfg, json_input, "agent_hook").await;
+                let res = super::exec_agent::exec_agent_hook(&cfg, json_input, "agent_hook").await;
                 let stop_reason = res
                     .structured_output
                     .as_ref()
@@ -272,11 +268,13 @@ impl HookExecutor {
                     stdout: res
                         .structured_output
                         .as_ref()
-                        .map(|s| serde_json::to_string(&serde_json::json!({
-                            "ok": s.ok,
-                            "reason": s.reason,
-                        }))
-                        .unwrap_or_default())
+                        .map(|s| {
+                            serde_json::to_string(&serde_json::json!({
+                                "ok": s.ok,
+                                "reason": s.reason,
+                            }))
+                            .unwrap_or_default()
+                        })
                         .unwrap_or_default(),
                     stderr: res.blocking_error.clone().unwrap_or_default(),
                     exit_code: None,
@@ -478,10 +476,7 @@ impl HookExecutor {
         }
 
         // env(VAR=value) / env(VAR) 形式。
-        if let Some(rest) = cond
-            .strip_prefix("env(")
-            .and_then(|s| s.strip_suffix(')'))
-        {
+        if let Some(rest) = cond.strip_prefix("env(").and_then(|s| s.strip_suffix(')')) {
             return match rest.split_once('=') {
                 Some((var, expected)) => std::env::var(var.trim())
                     .map(|v| v == expected.trim())
@@ -526,11 +521,7 @@ impl HookExecutor {
             .and_then(|v| v.get("command"))
             .and_then(|c| c.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                tool_input
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
-            });
+            .unwrap_or_else(|| tool_input.map(|v| v.to_string()).unwrap_or_default());
 
         glob_match(pattern, &target)
     }

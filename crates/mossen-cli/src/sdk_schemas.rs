@@ -207,7 +207,11 @@ pub struct McpToolInfo {
 pub struct McpServerStatus {
     pub name: String,
     pub status: String, // connected|failed|needs-auth|pending|disabled
-    #[serde(rename = "serverInfo", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "serverInfo",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub server_info: Option<McpServerStatusServerInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -251,7 +255,11 @@ pub enum PermissionBehavior {
 pub struct PermissionRuleValue {
     #[serde(rename = "toolName")]
     pub tool_name: String,
-    #[serde(rename = "ruleContent", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "ruleContent",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub rule_content: Option<String>,
 }
 
@@ -319,9 +327,7 @@ pub enum PermissionResult {
         interrupt: Option<bool>,
     },
     #[serde(rename = "ask")]
-    Ask {
-        message: String,
-    },
+    Ask { message: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -506,13 +512,8 @@ pub struct ElicitationResultHookInput {
     pub result: Value,
 }
 
-pub const CONFIG_CHANGE_SOURCES: &[&str] = &[
-    "user-action",
-    "plugin",
-    "api",
-    "external",
-    "filesystem",
-];
+pub const CONFIG_CHANGE_SOURCES: &[&str] =
+    &["user-action", "plugin", "api", "external", "filesystem"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -523,17 +524,9 @@ pub struct ConfigChangeHookInput {
     pub changes: Value,
 }
 
-pub const INSTRUCTIONS_LOAD_REASONS: &[&str] = &[
-    "session-start",
-    "cwd-changed",
-    "explicit-reload",
-];
+pub const INSTRUCTIONS_LOAD_REASONS: &[&str] = &["session-start", "cwd-changed", "explicit-reload"];
 
-pub const INSTRUCTIONS_MEMORY_TYPES: &[&str] = &[
-    "project",
-    "user",
-    "additional",
-];
+pub const INSTRUCTIONS_MEMORY_TYPES: &[&str] = &["project", "user", "additional"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -580,13 +573,7 @@ pub struct FileChangedHookInput {
     pub change_type: String,
 }
 
-pub const EXIT_REASONS: &[&str] = &[
-    "user-quit",
-    "session-end",
-    "crash",
-    "signal",
-    "timeout",
-];
+pub const EXIT_REASONS: &[&str] = &["user-quit", "session-end", "crash", "signal", "timeout"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -746,17 +733,33 @@ pub struct FileChangedHookSpecificOutput {
 pub struct SyncHookJSONOutput {
     #[serde(rename = "continue", default, skip_serializing_if = "Option::is_none")]
     pub keep_going: Option<bool>,
-    #[serde(rename = "stopReason", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "stopReason",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub stop_reason: Option<String>,
-    #[serde(rename = "suppressOutput", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "suppressOutput",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub suppress_output: Option<bool>,
-    #[serde(rename = "systemMessage", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "systemMessage",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub system_message: Option<String>,
     #[serde(rename = "decision", default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<String>,
     #[serde(rename = "reason", default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    #[serde(rename = "hookSpecificOutput", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "hookSpecificOutput",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub hook_specific_output: Option<Value>,
 }
 
@@ -1611,7 +1614,11 @@ pub struct McpSdkServerConfigWithInstance {
 // ============================================================================
 
 /// 构建 SDK MCP 工具定义 — 对应 TS `tool(name, ...)`。
-pub fn tool(name: impl Into<String>, description: Option<String>, input_schema: Value) -> SdkMcpToolDefinition {
+pub fn tool(
+    name: impl Into<String>,
+    description: Option<String>,
+    input_schema: Value,
+) -> SdkMcpToolDefinition {
     SdkMcpToolDefinition {
         name: name.into(),
         description,
@@ -1620,7 +1627,10 @@ pub fn tool(name: impl Into<String>, description: Option<String>, input_schema: 
 }
 
 /// 创建 SDK MCP server 实例 — 对应 TS `createSdkMcpServer(...)`。
-pub fn create_sdk_mcp_server(name: impl Into<String>, instance: Value) -> McpSdkServerConfigWithInstance {
+pub fn create_sdk_mcp_server(
+    name: impl Into<String>,
+    instance: Value,
+) -> McpSdkServerConfigWithInstance {
     McpSdkServerConfigWithInstance {
         name: name.into(),
         kind: "sdk".to_string(),
@@ -1671,11 +1681,14 @@ pub async fn query_async(prompt: &str, options: Value) -> Result<Value, String> 
         None
     }
 
-    let model = pick_str(&options, &["model"]).unwrap_or_else(|| "claude-sonnet-4-5".to_string());
+    let model = pick_str(&options, &["model"]).unwrap_or_else(|| "mossen-balanced-4-5".to_string());
     let system_prompt_text = pick_str(&options, &["systemPrompt", "system_prompt"]);
     let max_turns = pick_u32(&options, &["maxTurns", "max_turns"]);
     let api_base_url = pick_str(&options, &["apiBaseUrl", "api_base_url"]);
     let api_key = pick_str(&options, &["apiKey", "api_key"]);
+    let permission_mode = pick_str(&options, &["permissionMode", "permission_mode"])
+        .map(mossen_agent::types::PermissionMode::parse)
+        .unwrap_or_default();
 
     let system_prompt = match system_prompt_text {
         Some(text) => vec![SystemBlock {
@@ -1697,6 +1710,7 @@ pub async fn query_async(prompt: &str, options: Value) -> Result<Value, String> 
 
     let params = PromptParams {
         prompt: prompt.to_string(),
+        history_messages: Vec::new(),
         additional_blocks: Vec::new(),
         model,
         system_prompt,
@@ -1707,9 +1721,11 @@ pub async fn query_async(prompt: &str, options: Value) -> Result<Value, String> 
         api_base_url,
         api_key,
         extra_body: HashMap::new(),
+        permission_mode,
         // SDK callers run non-interactively; gate stays open by default.
         permission_gate: None,
         tool_registry: None,
+        cancel_token: None,
     };
 
     let mut receiver = mossen_agent::engine::submit_prompt(params).await;
@@ -2021,18 +2037,18 @@ pub struct SDKHookCallbackResponse {
 }
 
 // ============================================================================
-// SDK message-stream type aliases (real shapes for the Anthropic API surface)
+// SDK message-stream type aliases (real shapes for the Provider API surface)
 // ============================================================================
 //
 // These map the TS SDK "placeholder" identifiers to concrete Rust shapes from
 // `mossen_types` / `mossen_agent`. They are referenced by the scanner-required
 // names and also usable as real types for downstream callers.
 
-/// `APIUserMessage` — Anthropic API user message envelope.
+/// `APIUserMessage` — Provider API user message envelope.
 /// Wraps a `mossen_types::message::UserMessage` (which contains role + content blocks).
 pub type APIUserMessagePlaceholder = mossen_types::message::UserMessage;
 
-/// `APIAssistantMessage` — Anthropic API assistant message envelope.
+/// `APIAssistantMessage` — Provider API assistant message envelope.
 pub type APIAssistantMessagePlaceholder = mossen_types::message::AssistantMessage;
 
 /// `RawMessageStreamEvent` — SSE/streaming event payload as observed on the wire.

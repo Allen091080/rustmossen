@@ -9,12 +9,15 @@ pub static MOSSEN_BUILTIN_DEFAULTS: Lazy<HashMap<&'static str, Value>> = Lazy::n
     let mut m: HashMap<&'static str, Value> = HashMap::new();
 
     // G3-1: analytics event batch config
-    m.insert("mossen.analytics.eventBatchConfig", json!({
-        "scheduledDelayMillis": 60000,
-        "maxExportBatchSize": 512,
-        "maxQueueSize": 2048,
-        "skipAuth": false
-    }));
+    m.insert(
+        "mossen.analytics.eventBatchConfig",
+        json!({
+            "scheduledDelayMillis": 60000,
+            "maxExportBatchSize": 512,
+            "maxQueueSize": 2048,
+            "skipAuth": false
+        }),
+    );
     // G3-2: event sampling config
     m.insert("mossen.analytics.eventSamplingConfig", json!({}));
     // G3-3: sink killswitch
@@ -23,18 +26,24 @@ pub static MOSSEN_BUILTIN_DEFAULTS: Lazy<HashMap<&'static str, Value>> = Lazy::n
     m.insert("mossen.analytics.gbExperimentExposureLogging", json!(false));
 
     // G4-1: Compact domain
-    m.insert("mossen.compact.timeBasedMCConfig", json!({
-        "enabled": false,
-        "gapThresholdMinutes": 60,
-        "keepRecent": 5
-    }));
+    m.insert(
+        "mossen.compact.timeBasedMCConfig",
+        json!({
+            "enabled": false,
+            "gapThresholdMinutes": 60,
+            "keepRecent": 5
+        }),
+    );
     m.insert("mossen.compact.cachePrefixSharing", json!(true));
     m.insert("mossen.compact.streamingRetryEnabled", json!(false));
-    m.insert("mossen.compact.sessionMemoryConfig", json!({
-        "minTokens": 10000,
-        "minTextBlockMessages": 5,
-        "maxTokens": 40000
-    }));
+    m.insert(
+        "mossen.compact.sessionMemoryConfig",
+        json!({
+            "minTokens": 10000,
+            "minTextBlockMessages": 5,
+            "maxTokens": 40000
+        }),
+    );
     m.insert("mossen.compact.sessionMemoryEnabled", json!(false));
     m.insert("mossen.compact.sessionMemoryCompactEnabled", json!(false));
     m.insert("mossen.compact.reactiveAutoCompactKillswitch", json!(false));
@@ -59,8 +68,14 @@ pub static MOSSEN_BUILTIN_DEFAULTS: Lazy<HashMap<&'static str, Value>> = Lazy::n
     m.insert("mossen.tool.birchTrellisEnabled", json!(true));
 
     // G4-4: Permission setup / plan / default domain
-    m.insert("mossen.permission.destructiveCommandWarningEnabled", json!(false));
-    m.insert("mossen.permission.planModeInterviewPhaseEnabled", json!(false));
+    m.insert(
+        "mossen.permission.destructiveCommandWarningEnabled",
+        json!(false),
+    );
+    m.insert(
+        "mossen.permission.planModeInterviewPhaseEnabled",
+        json!(false),
+    );
     m.insert("mossen.permission.pewterLedgerVariant", Value::Null);
 
     // G4-5: Bypass / yolo classifier
@@ -68,13 +83,19 @@ pub static MOSSEN_BUILTIN_DEFAULTS: Lazy<HashMap<&'static str, Value>> = Lazy::n
 
     // G4-6: MCP / channel allowlist
     m.insert("mossen.permission.channelsEnabled", json!(false));
-    m.insert("mossen.permission.channelPermissionsAllowedEnabled", json!(false));
+    m.insert(
+        "mossen.permission.channelPermissionsAllowedEnabled",
+        json!(false),
+    );
     m.insert("mossen.permission.channelAllowlist", json!([]));
-    m.insert("mossen.ui.autoModeConfig", json!({
-        "enabled": "opt-in",
-        "interactionLimitPerQuery": 10,
-        "toolNameList": []
-    }));
+    m.insert(
+        "mossen.ui.autoModeConfig",
+        json!({
+            "enabled": "opt-in",
+            "interactionLimitPerQuery": 10,
+            "toolNameList": []
+        }),
+    );
     m.insert("mossen.mcp.vscodeReviewUpsellEnabled", json!(false));
     m.insert("mossen.mcp.vscodeOnboardingEnabled", json!(false));
     m.insert("mossen.mcp.quietFernEnabled", json!(false));
@@ -94,10 +115,13 @@ pub static MOSSEN_BUILTIN_DEFAULTS: Lazy<HashMap<&'static str, Value>> = Lazy::n
 
     // G5-3: Native installer / update / remote session
     m.insert("mossen.session.remoteBackendEnabled", json!(false));
-    m.insert("mossen.installer.desktopUpsellConfig", json!({
-        "enable_shortcut_tip": false,
-        "enable_startup_dialog": false
-    }));
+    m.insert(
+        "mossen.installer.desktopUpsellConfig",
+        json!({
+            "enable_shortcut_tip": false,
+            "enable_startup_dialog": false
+        }),
+    );
     m.insert("mossen.ui.terminalPanelEnabled", json!(false));
     m.insert("mossen.ui.terminalSidebarEnabled", json!(false));
     m.insert("mossen.ui.kairosBriefEnabled", json!(false));

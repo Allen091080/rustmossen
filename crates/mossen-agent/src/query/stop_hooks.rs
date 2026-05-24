@@ -5,7 +5,6 @@
 /// - Stop hooks (user-defined scripts that run after each turn)
 /// - TeammateIdle / TaskCompleted hooks (for teammate agents)
 /// - Background tasks: prompt suggestion, memory extraction, auto-dream
-
 use std::collections::HashSet;
 
 /// Result of running stop hooks
@@ -31,21 +30,12 @@ pub trait StopHooksContext: Send + Sync {
     fn is_aborted(&self) -> bool;
 
     fn get_task_list_id(&self) -> String;
-    async fn list_tasks(
-        &self,
-        list_id: &str,
-    ) -> Result<Vec<Task>, String>;
+    async fn list_tasks(&self, list_id: &str) -> Result<Vec<Task>, String>;
     fn prioritize_tasks_for_display(&self, tasks: Vec<Task>) -> Vec<Task>;
 
-    async fn execute_stop_hooks(
-        &self,
-        messages: &[serde_json::Value],
-    ) -> Vec<HookResult>;
+    async fn execute_stop_hooks(&self, messages: &[serde_json::Value]) -> Vec<HookResult>;
     async fn execute_teammate_idle_hooks(&self) -> Vec<HookResult>;
-    async fn execute_task_completed_hooks(
-        &self,
-        task: &Task,
-    ) -> Vec<HookResult>;
+    async fn execute_task_completed_hooks(&self, task: &Task) -> Vec<HookResult>;
 
     fn execute_prompt_suggestion(&self, context: &serde_json::Value);
     fn execute_extract_memories(&self, context: &serde_json::Value);
@@ -97,9 +87,16 @@ fn is_relevant_unfinished_task(
         return false;
     }
     if agent_id.is_some() {
-        return task.owner.as_ref().map_or(false, |o| owner_aliases.contains(o));
+        return task
+            .owner
+            .as_ref()
+            .map_or(false, |o| owner_aliases.contains(o));
     }
-    task.owner.is_none() || task.owner.as_ref().map_or(false, |o| owner_aliases.contains(o))
+    task.owner.is_none()
+        || task
+            .owner
+            .as_ref()
+            .map_or(false, |o| owner_aliases.contains(o))
 }
 
 fn create_unfinished_task_digest(tasks: &[Task]) -> String {
@@ -117,24 +114,16 @@ fn create_unfinished_task_digest(tasks: &[Task]) -> String {
         .join("|")
 }
 
-fn count_unfinished_task_guard_messages(
-    messages: &[serde_json::Value],
-    digest: &str,
-) -> usize {
+fn count_unfinished_task_guard_messages(messages: &[serde_json::Value], digest: &str) -> usize {
     let marker = format!("{}:{}", UNFINISHED_TASK_GUARD_MARKER, digest);
     messages
         .iter()
-        .filter(|m| {
-            get_message_content_text(m).contains(&marker)
-        })
+        .filter(|m| get_message_content_text(m).contains(&marker))
         .count()
 }
 
 fn get_message_content_text(message: &serde_json::Value) -> String {
-    if let Some(content) = message
-        .get("message")
-        .and_then(|m| m.get("content"))
-    {
+    if let Some(content) = message.get("message").and_then(|m| m.get("content")) {
         if let Some(s) = content.as_str() {
             return s.to_string();
         }
@@ -184,9 +173,13 @@ pub async fn handle_stop_hooks(
     }
 
     // Unfinished task guard
-    if let Some(blocking_msg) =
-        create_unfinished_task_blocking_message(ctx, messages_for_query, assistant_messages, query_source)
-            .await
+    if let Some(blocking_msg) = create_unfinished_task_blocking_message(
+        ctx,
+        messages_for_query,
+        assistant_messages,
+        query_source,
+    )
+    .await
     {
         return StopHookResult {
             blocking_errors: vec![blocking_msg],
@@ -340,9 +333,8 @@ async fn create_unfinished_task_blocking_message(
         return None;
     }
 
-    let digest = create_unfinished_task_digest(
-        &unresolved.iter().map(|t| (*t).clone()).collect::<Vec<_>>(),
-    );
+    let digest =
+        create_unfinished_task_digest(&unresolved.iter().map(|t| (*t).clone()).collect::<Vec<_>>());
 
     let all_messages: Vec<serde_json::Value> = messages_for_query
         .iter()

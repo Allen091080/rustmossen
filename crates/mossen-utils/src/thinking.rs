@@ -13,13 +13,12 @@ pub enum ThinkingConfig {
 /// Build-time gate + runtime gate.
 pub fn is_ultrathink_enabled() -> bool {
     // Runtime gate via environment variable
-    !std::env::var("TENGU_TURTLE_CARBON_DISABLED")
+    !std::env::var("MOSSEN_TURTLE_CARBON_DISABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false)
 }
 
-static ULTRATHINK_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)\bultrathink\b").unwrap());
+static ULTRATHINK_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\bultrathink\b").unwrap());
 
 /// Check if text contains the "ultrathink" keyword.
 pub fn has_ultrathink_keyword(text: &str) -> bool {
@@ -87,8 +86,8 @@ pub fn model_supports_thinking(model: &str, api_provider: &str) -> bool {
         return !canonical.contains("mossen-3-");
     }
 
-    // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
-    canonical.contains("sonnet-4") || canonical.contains("opus-4")
+    // 3P (Bedrock/Vertex): only Max 4+ and Balanced 4+
+    canonical.contains("balanced-4") || canonical.contains("max-4")
 }
 
 /// Check if a model supports adaptive thinking.
@@ -96,15 +95,12 @@ pub fn model_supports_adaptive_thinking(model: &str, api_provider: &str) -> bool
     let canonical = get_canonical_name(model);
 
     // Supported by a subset of Mossen 4 models
-    if canonical.contains("opus-4-6") || canonical.contains("sonnet-4-6") {
+    if canonical.contains("max-4-6") || canonical.contains("balanced-4-6") {
         return true;
     }
 
     // Exclude known legacy models
-    if canonical.contains("opus")
-        || canonical.contains("sonnet")
-        || canonical.contains("haiku")
-    {
+    if canonical.contains("max") || canonical.contains("balanced") || canonical.contains("fast") {
         return false;
     }
 

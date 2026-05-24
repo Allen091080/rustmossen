@@ -3,7 +3,6 @@
 //! Provides functions to read PDFs as base64, get page counts via pdfinfo,
 //! and extract pages as JPEG images via pdftoppm.
 
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
@@ -109,11 +108,7 @@ pub async fn read_pdf(file_path: &Path) -> PdfResult<PdfReadResult> {
 
 /// Get the number of pages in a PDF file using pdfinfo.
 pub async fn get_pdf_page_count(file_path: &Path) -> Option<u32> {
-    let output = Command::new("pdfinfo")
-        .arg(file_path)
-        .output()
-        .await
-        .ok()?;
+    let output = Command::new("pdfinfo").arg(file_path).output().await.ok()?;
 
     if !output.status.success() {
         return None;
@@ -152,10 +147,7 @@ pub async fn is_pdftoppm_available() -> bool {
         }
     }
 
-    let result = Command::new("pdftoppm")
-        .arg("-v")
-        .output()
-        .await;
+    let result = Command::new("pdftoppm").arg("-v").output().await;
 
     let available = match result {
         Ok(output) => output.status.success() || !output.stderr.is_empty(),
@@ -212,10 +204,12 @@ pub async fn extract_pdf_pages(
 
     let uuid = Uuid::new_v4();
     let output_dir = tool_results_dir.join(format!("pdf-{}", uuid));
-    fs::create_dir_all(&output_dir).await.map_err(|e| PdfError {
-        reason: PdfErrorReason::Unknown,
-        message: e.to_string(),
-    })?;
+    fs::create_dir_all(&output_dir)
+        .await
+        .map_err(|e| PdfError {
+            reason: PdfErrorReason::Unknown,
+            message: e.to_string(),
+        })?;
 
     let prefix = output_dir.join("page");
     let mut args = vec!["-jpeg".to_string(), "-r".to_string(), "100".to_string()];
@@ -247,13 +241,20 @@ pub async fn extract_pdf_pages(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if regex::Regex::new(r"(?i)password").unwrap().is_match(&stderr) {
+        if regex::Regex::new(r"(?i)password")
+            .unwrap()
+            .is_match(&stderr)
+        {
             return Err(PdfError {
                 reason: PdfErrorReason::PasswordProtected,
-                message: "PDF is password-protected. Please provide an unprotected version.".to_string(),
+                message: "PDF is password-protected. Please provide an unprotected version."
+                    .to_string(),
             });
         }
-        if regex::Regex::new(r"(?i)damaged|corrupt|invalid").unwrap().is_match(&stderr) {
+        if regex::Regex::new(r"(?i)damaged|corrupt|invalid")
+            .unwrap()
+            .is_match(&stderr)
+        {
             return Err(PdfError {
                 reason: PdfErrorReason::Corrupted,
                 message: "PDF file is corrupted or invalid.".to_string(),

@@ -23,10 +23,16 @@ pub mod tool;
 
 // Re-export 核心类型
 pub use api::*;
-pub use command::{CommandBase, CommandType, LocalCommandResult, ResumeEntrypoint, is_command_enabled};
+pub use build_macros::BuildMacros;
+pub use command::{
+    is_command_enabled, CommandBase, CommandType, LocalCommandResult, ResumeEntrypoint,
+};
 pub use config::{IdeType, ImageDimensions, PastedContent, ThemeName};
 pub use connector_text::*;
 pub use error::MossenError;
+pub use generated::{
+    GrowthbookExperimentEvent, MossenCodeInternalEvent, ProtoTimestamp, PublicApiAuth,
+};
 pub use ids::*;
 pub use message::*;
 pub use model::*;
@@ -36,7 +42,5 @@ pub use permissions::{
 };
 pub use plugin::{LoadedPlugin, PluginComponent, PluginError, PluginLoadResult, PluginManifest};
 pub use session::*;
-pub use text_input::{is_valid_image_paste, get_image_paste_ids};
+pub use text_input::{get_image_paste_ids, is_valid_image_paste};
 pub use tool::{ToolDefinition, ToolInputSchema, ToolUseContext};
-pub use build_macros::BuildMacros;
-pub use generated::{PublicApiAuth, MossenCodeInternalEvent, GrowthbookExperimentEvent, ProtoTimestamp};

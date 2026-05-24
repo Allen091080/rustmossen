@@ -15,7 +15,7 @@ use thiserror::Error;
 /// Timeout for individual OAuth requests (metadata discovery, token refresh).
 pub const AUTH_REQUEST_TIMEOUT_MS: u64 = 30_000;
 
-/// Failure reasons emitted to analytics for `tengu_mcp_oauth_refresh_failure`.
+/// Failure reasons emitted to analytics for `mossen_mcp_oauth_refresh_failure`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpRefreshFailureReason {
@@ -27,7 +27,7 @@ pub enum McpRefreshFailureReason {
     RequestFailed,
 }
 
-/// Failure reasons emitted for `tengu_mcp_oauth_flow_error`.
+/// Failure reasons emitted for `mossen_mcp_oauth_flow_error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpOAuthFlowErrorReason {
@@ -44,13 +44,8 @@ pub enum McpOAuthFlowErrorReason {
 pub const MAX_LOCK_RETRIES: u8 = 5;
 
 /// OAuth query parameters that must be redacted from logs.
-pub const SENSITIVE_OAUTH_PARAMS: &[&str] = &[
-    "state",
-    "nonce",
-    "code_challenge",
-    "code_verifier",
-    "code",
-];
+pub const SENSITIVE_OAUTH_PARAMS: &[&str] =
+    &["state", "nonce", "code_challenge", "code_verifier", "code"];
 
 /// Non-standard error codes some servers (notably Slack) return that we
 /// re-map to `invalid_grant` per RFC 6749.
@@ -184,9 +179,7 @@ pub fn normalize_oauth_error_body(status: u16, body: &str) -> (u16, String) {
                 .get("error_description")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| {
-                    format!("Server returned non-standard error code: {}", err)
-                }),
+                .unwrap_or_else(|| format!("Server returned non-standard error code: {}", err)),
         )
     } else {
         (
@@ -292,7 +285,9 @@ pub fn wrap_fetch_with_step_up_detection(status: u16, www_authenticate: Option<&
     let Some(header) = www_authenticate else {
         return false;
     };
-    header.to_lowercase().contains("insufficient_user_authentication")
+    header
+        .to_lowercase()
+        .contains("insufficient_user_authentication")
 }
 
 /// `auth.ts` `MossenAuthProvider` — value-shape mirror.
@@ -362,7 +357,9 @@ impl MossenAuthProvider {
     /// `MossenAuthProvider.clientInformation()`.
     pub fn client_information(&self) -> Option<Value> {
         let store = auth_store().lock().unwrap();
-        store.get(&self.server_key).and_then(|e| e.client_info.clone())
+        store
+            .get(&self.server_key)
+            .and_then(|e| e.client_info.clone())
     }
 
     /// `MossenAuthProvider.saveClientInformation(info)`.
@@ -401,13 +398,17 @@ pub async fn perform_mcp_oauth_flow(
     let state = state_bytes.iter().map(|b| format!("{:02x}", b)).collect();
     let mut verifier_bytes = [0u8; 32];
     rng.fill_bytes(&mut verifier_bytes);
-    let code_verifier =
-        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, verifier_bytes);
+    let code_verifier = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        verifier_bytes,
+    );
     let mut h = Sha256::new();
     h.update(code_verifier.as_bytes());
     let challenge_bytes = h.finalize();
-    let code_challenge =
-        base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, challenge_bytes);
+    let code_challenge = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        challenge_bytes,
+    );
     Ok(McpOAuthFlowPlan {
         server_name: server_name.to_string(),
         server_key: get_server_key(server_name, server_config),

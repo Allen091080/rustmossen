@@ -17,9 +17,7 @@ pub fn escape_xml(s: &str) -> String {
 /// 用于将不可信字符串插入到 `<tag attr="${here}">` 中。
 /// 除了 `& < >` 还会转义引号。
 pub fn escape_xml_attr(s: &str) -> String {
-    escape_xml(s)
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
+    escape_xml(s).replace('"', "&quot;").replace('\'', "&apos;")
 }
 
 #[cfg(test)]
@@ -34,6 +32,9 @@ mod tests {
 
     #[test]
     fn test_escape_xml_attr() {
-        assert_eq!(escape_xml_attr("it's \"cool\""), "it&apos;s &quot;cool&quot;");
+        assert_eq!(
+            escape_xml_attr("it's \"cool\""),
+            "it&apos;s &quot;cool&quot;"
+        );
     }
 }

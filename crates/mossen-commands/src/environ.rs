@@ -43,7 +43,11 @@ impl Directive for EnvironDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         // Handle help
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /context\n\n                 Shows how the model's context window is being used.\n                 Includes token counts by category, memory usage,\n                 MCP tools, and auto-compact status."
                     .to_string(),
@@ -57,7 +61,8 @@ impl Directive for EnvironDirective {
         // 4. Analyze context usage by category
         // 5. Format as markdown table
 
-        let model = ctx.env_vars
+        let model = ctx
+            .env_vars
             .get("MOSSEN_MODEL")
             .cloned()
             .unwrap_or_else(|| "default".to_string());

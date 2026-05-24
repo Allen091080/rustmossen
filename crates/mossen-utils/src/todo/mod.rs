@@ -41,8 +41,7 @@ pub type TodoList = Vec<TodoItem>;
 /// Validate a todo list (all items must be valid)
 pub fn validate_todo_list(list: &TodoList) -> Result<(), String> {
     for (i, item) in list.iter().enumerate() {
-        item.validate()
-            .map_err(|e| format!("Item {}: {}", i, e))?;
+        item.validate().map_err(|e| format!("Item {}: {}", i, e))?;
     }
     Ok(())
 }

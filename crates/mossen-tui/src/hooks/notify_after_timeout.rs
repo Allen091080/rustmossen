@@ -16,20 +16,34 @@ impl NotifyAfterTimeoutState {
     pub fn new(delay_ms: u64, key: &str, text: &str) -> Self {
         Self {
             delay: Duration::from_millis(delay_ms),
-            started_at: None, fired: false,
-            notification_key: key.to_string(), notification_text: text.to_string(),
+            started_at: None,
+            fired: false,
+            notification_key: key.to_string(),
+            notification_text: text.to_string(),
         }
     }
-    pub fn start(&mut self) { self.started_at = Some(Instant::now()); self.fired = false; }
+    pub fn start(&mut self) {
+        self.started_at = Some(Instant::now());
+        self.fired = false;
+    }
     pub fn should_fire(&self) -> bool {
         !self.fired && self.started_at.map_or(false, |t| t.elapsed() >= self.delay)
     }
     pub fn fire(&mut self) -> Option<(&str, &str)> {
-        if self.should_fire() { self.fired = true; Some((&self.notification_key, &self.notification_text)) }
-        else { None }
+        if self.should_fire() {
+            self.fired = true;
+            Some((&self.notification_key, &self.notification_text))
+        } else {
+            None
+        }
     }
-    pub fn reset(&mut self) { self.started_at = None; self.fired = false; }
-    pub fn cancel(&mut self) { self.started_at = None; }
+    pub fn reset(&mut self) {
+        self.started_at = None;
+        self.fired = false;
+    }
+    pub fn cancel(&mut self) {
+        self.started_at = None;
+    }
 }
 
 /// Threshold (ms) below which an interaction is considered recent enough

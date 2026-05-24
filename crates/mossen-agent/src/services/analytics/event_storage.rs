@@ -1,9 +1,9 @@
 //! Event storage — persistent storage for analytics events (disk-backed queue).
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
 
 /// Persistent event storage for retry-able analytics events.
 pub struct EventStorage {

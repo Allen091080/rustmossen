@@ -204,7 +204,7 @@ def case_invalid_entry_filtered_out() -> dict:
                 "model": "x",
             },
             "wrong_provider": {
-                "provider": "anthropic",
+                "provider": "provider",
                 "baseURL": "https://example.com",
                 "model": "x",
                 "apiKey": "k",

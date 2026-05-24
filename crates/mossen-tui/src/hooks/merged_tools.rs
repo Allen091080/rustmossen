@@ -13,7 +13,11 @@ pub struct ToolDef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolSource { Builtin, Mcp(String), Plugin(String) }
+pub enum ToolSource {
+    Builtin,
+    Mcp(String),
+    Plugin(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct MergedToolsState {
@@ -22,7 +26,12 @@ pub struct MergedToolsState {
 }
 
 impl MergedToolsState {
-    pub fn new() -> Self { Self { tools: HashMap::new(), override_order: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            tools: HashMap::new(),
+            override_order: Vec::new(),
+        }
+    }
     pub fn register(&mut self, tool: ToolDef) {
         self.override_order.push(tool.name.clone());
         self.tools.insert(tool.name.clone(), tool);
@@ -31,12 +40,24 @@ impl MergedToolsState {
         self.tools.remove(name);
         self.override_order.retain(|n| n != name);
     }
-    pub fn get_tool(&self, name: &str) -> Option<&ToolDef> { self.tools.get(name) }
+    pub fn get_tool(&self, name: &str) -> Option<&ToolDef> {
+        self.tools.get(name)
+    }
     pub fn all_tools(&self) -> Vec<&ToolDef> {
-        self.override_order.iter().filter_map(|n| self.tools.get(n)).collect()
+        self.override_order
+            .iter()
+            .filter_map(|n| self.tools.get(n))
+            .collect()
     }
     pub fn tools_requiring_approval(&self) -> Vec<&ToolDef> {
-        self.tools.values().filter(|t| t.requires_approval).collect()
+        self.tools
+            .values()
+            .filter(|t| t.requires_approval)
+            .collect()
     }
 }
-impl Default for MergedToolsState { fn default() -> Self { Self::new() } }
+impl Default for MergedToolsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

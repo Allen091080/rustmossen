@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use anyhow::Result;
-use chrono::{Datelike, Local, Utc};
+use chrono::{Local, Utc};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -129,9 +128,7 @@ fn migrate_stats_cache(parsed: &serde_json::Value) -> Option<PersistedStatsCache
         return None;
     }
     // Validate required arrays
-    if !parsed.get("dailyActivity")?.is_array()
-        || !parsed.get("dailyModelTokens")?.is_array()
-    {
+    if !parsed.get("dailyActivity")?.is_array() || !parsed.get("dailyModelTokens")?.is_array() {
         return None;
     }
     if parsed.get("totalSessions")?.as_u64().is_none()
@@ -161,10 +158,7 @@ pub async fn load_stats_cache(config_home: &Path) -> PersistedStatsCache {
         Err(_) => return get_empty_cache(),
     };
 
-    let version = parsed
-        .get("version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
+    let version = parsed.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
     if version != STATS_CACHE_VERSION {
         match migrate_stats_cache(&parsed) {
@@ -234,9 +228,7 @@ pub fn merge_cache_with_new_stats(
         daily_model_tokens_map.insert(day.date.clone(), day.tokens_by_model.clone());
     }
     for day in new_daily_model_tokens {
-        let entry = daily_model_tokens_map
-            .entry(day.date.clone())
-            .or_default();
+        let entry = daily_model_tokens_map.entry(day.date.clone()).or_default();
         for (model, tokens) in &day.tokens_by_model {
             *entry.entry(model.clone()).or_insert(0) += tokens;
         }
@@ -245,16 +237,18 @@ pub fn merge_cache_with_new_stats(
     // Merge model usage
     let mut model_usage = existing_cache.model_usage.clone();
     for (model, usage) in new_model_usage {
-        let entry = model_usage.entry(model.clone()).or_insert_with(|| ModelUsage {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_read_input_tokens: 0,
-            cache_creation_input_tokens: 0,
-            web_search_requests: 0,
-            cost_usd: 0.0,
-            context_window: 0,
-            max_output_tokens: 0,
-        });
+        let entry = model_usage
+            .entry(model.clone())
+            .or_insert_with(|| ModelUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                web_search_requests: 0,
+                cost_usd: 0.0,
+                context_window: 0,
+                max_output_tokens: 0,
+            });
         entry.input_tokens += usage.input_tokens;
         entry.output_tokens += usage.output_tokens;
         entry.cache_read_input_tokens += usage.cache_read_input_tokens;
@@ -274,7 +268,10 @@ pub fn merge_cache_with_new_stats(
     // Update session aggregates
     let total_sessions = existing_cache.total_sessions + new_session_stats.len() as u64;
     let total_messages = existing_cache.total_messages
-        + new_session_stats.iter().map(|s| s.message_count).sum::<u64>();
+        + new_session_stats
+            .iter()
+            .map(|s| s.message_count)
+            .sum::<u64>();
 
     // Find longest session
     let mut longest_session = existing_cache.longest_session.clone();
@@ -299,8 +296,7 @@ pub fn merge_cache_with_new_stats(
     }
 
     // Sort daily activity
-    let mut sorted_daily_activity: Vec<DailyActivity> =
-        daily_activity_map.into_values().collect();
+    let mut sorted_daily_activity: Vec<DailyActivity> = daily_activity_map.into_values().collect();
     sorted_daily_activity.sort_by(|a, b| a.date.cmp(&b.date));
 
     // Sort daily model tokens

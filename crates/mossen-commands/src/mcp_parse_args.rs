@@ -201,10 +201,18 @@ mod tests {
 
     #[test]
     fn test_parse_add_args_with_transport() {
-        let args = vec!["my-server", "https://example.com/mcp", "--transport", "http"];
+        let args = vec![
+            "my-server",
+            "https://example.com/mcp",
+            "--transport",
+            "http",
+        ];
         let result = parse_add_args(&args);
         assert_eq!(result.name, Some("my-server".to_string()));
-        assert_eq!(result.command_or_url, Some("https://example.com/mcp".to_string()));
+        assert_eq!(
+            result.command_or_url,
+            Some("https://example.com/mcp".to_string())
+        );
         assert_eq!(result.transport, Some("http".to_string()));
     }
 

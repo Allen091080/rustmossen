@@ -1,10 +1,10 @@
 //! Teleport utilities — translated from utils/teleport/
 //! Remote session API, environment management, git bundles
 
+use anyhow::{bail, Result};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
-use anyhow::{Result, bail};
-use serde::{Deserialize, Serialize};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -33,9 +33,7 @@ pub enum SessionContextSource {
         allow_unrestricted_git_push: Option<bool>,
     },
     #[serde(rename = "knowledge_base")]
-    KnowledgeBase {
-        knowledge_base_id: String,
-    },
+    KnowledgeBase { knowledge_base_id: String },
 }
 
 /// Standalone struct variant of [`SessionContextSource::Git`] — mirror of
@@ -179,7 +177,10 @@ pub fn is_transient_network_error(status: Option<u16>) -> bool {
 /// Create OAuth headers for API requests
 pub fn get_oauth_headers(access_token: &str) -> Vec<(String, String)> {
     vec![
-        ("Authorization".to_string(), format!("Bearer {}", access_token)),
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", access_token),
+        ),
         ("Content-Type".to_string(), "application/json".to_string()),
         ("mossen-version".to_string(), "2023-06-01".to_string()),
     ]
@@ -257,7 +258,11 @@ pub async fn fetch_session(
         bail!("Hosted bridge session expired. Refresh the token before retrying.");
     }
     if status != 200 {
-        bail!("Failed to fetch session: {} {}", status, response.status().canonical_reason().unwrap_or(""));
+        bail!(
+            "Failed to fetch session: {} {}",
+            status,
+            response.status().canonical_reason().unwrap_or("")
+        );
     }
 
     let session: SessionResource = response.json().await?;
@@ -266,7 +271,11 @@ pub async fn fetch_session(
 
 /// Get branch from a session's git repository outcomes
 pub fn get_branch_from_session(session: &SessionResource) -> Option<&str> {
-    session.session_context.outcomes.as_ref()?.iter()
+    session
+        .session_context
+        .outcomes
+        .as_ref()?
+        .iter()
         .find(|o| o.outcome_type == "git_repository")
         .and_then(|o| o.git_info.branches.first())
         .map(|s| s.as_str())
@@ -304,9 +313,13 @@ pub async fn send_event_to_remote_session(
         }]
     });
 
-    debug!("[sendEventToRemoteSession] Sending event to session {}", session_id);
+    debug!(
+        "[sendEventToRemoteSession] Sending event to session {}",
+        session_id
+    );
 
-    let mut request = client.post(&url)
+    let mut request = client
+        .post(&url)
         .timeout(Duration::from_secs(30))
         .json(&body);
     for (key, value) in &headers {
@@ -378,7 +391,10 @@ pub async fn fetch_environments(
     access_token: &str,
     org_uuid: &str,
 ) -> Result<Vec<RemoteEnvironment>> {
-    let url = format!("{}/api/oauth/organizations/{}/environments", base_url, org_uuid);
+    let url = format!(
+        "{}/api/oauth/organizations/{}/environments",
+        base_url, org_uuid
+    );
     let mut headers = get_oauth_headers(access_token);
     headers.push(("x-organization-uuid".to_string(), org_uuid.to_string()));
 
@@ -403,7 +419,12 @@ pub async fn create_git_bundle(cwd: &Path, ref_name: &str) -> Result<Vec<u8>> {
     let bundle_path = cwd.join(".git").join("mossen-bundle.bundle");
 
     let output = tokio::process::Command::new("git")
-        .args(["bundle", "create", bundle_path.to_str().unwrap_or("bundle"), ref_name])
+        .args([
+            "bundle",
+            "create",
+            bundle_path.to_str().unwrap_or("bundle"),
+            ref_name,
+        ])
         .current_dir(cwd)
         .output()
         .await?;

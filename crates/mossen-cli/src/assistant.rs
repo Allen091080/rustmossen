@@ -117,10 +117,7 @@ pub async fn create_history_auth_ctx(session_id: &str) -> anyhow::Result<History
             format!("Bearer {}", account.account_uuid),
         );
     }
-    headers.insert(
-        "mossen-beta".to_string(),
-        "ccr-byoc-2025-07-29".to_string(),
-    );
+    headers.insert("mossen-beta".to_string(), "ccr-byoc-2025-07-29".to_string());
     if let Some(ref account) = config.oauth_account {
         if let Some(ref org) = account.organization_uuid {
             headers.insert("x-organization-uuid".to_string(), org.clone());
@@ -140,7 +137,9 @@ async fn fetch_page(
     label: &str,
 ) -> Option<HistoryPage> {
     let client = reqwest::Client::new();
-    let mut req = client.get(&ctx.base_url).timeout(std::time::Duration::from_secs(15));
+    let mut req = client
+        .get(&ctx.base_url)
+        .timeout(std::time::Duration::from_secs(15));
 
     for (key, value) in &ctx.headers {
         req = req.header(key.as_str(), value.as_str());
@@ -181,10 +180,7 @@ async fn fetch_page(
 ///
 /// 使用 anchor_to_latest=true，获取最后 `limit` 条事件（按时间升序）。
 /// has_more=true 表示存在更早的事件。
-pub async fn fetch_latest_events(
-    ctx: &HistoryAuthCtx,
-    limit: usize,
-) -> Option<HistoryPage> {
+pub async fn fetch_latest_events(ctx: &HistoryAuthCtx, limit: usize) -> Option<HistoryPage> {
     fetch_page(
         ctx,
         &[

@@ -73,12 +73,14 @@ impl Directive for OutputStyleDirective {
         if !valid_styles.contains(&style.as_str()) {
             let styles = valid_styles.join(", ");
             return Ok(CommandResult::Error(format!(
-                "Unknown style: \"{}\". Available: {}", style, styles
+                "Unknown style: \"{}\". Available: {}",
+                style, styles
             )));
         }
 
         Ok(CommandResult::System(format!(
-            "Output style set to: {}", style
+            "Output style set to: {}",
+            style
         )))
     }
 }

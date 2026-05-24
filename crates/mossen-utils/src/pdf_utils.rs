@@ -74,10 +74,10 @@ pub fn parse_pdf_page_range(pages: &str) -> Option<PdfPageRange> {
 /// 检查当前模型是否支持 PDF 阅读。
 ///
 /// PDF 文档块适用于所有提供商（1P, Vertex, Bedrock, Foundry）。
-/// Haiku 3 是唯一不支持 PDF 的旧模型；使用该模型时回退到
+/// Fast 3 是唯一不支持 PDF 的旧模型；使用该模型时回退到
 /// 页面提取路径（poppler-utils）。子串匹配覆盖所有提供商 ID 格式。
 pub fn is_pdf_supported(model: &str) -> bool {
-    !get_canonical_name(model).contains("mossen-3-haiku")
+    !get_canonical_name(model).contains("mossen-3-fast")
 }
 
 /// 检查文件扩展名是否为 PDF 文档。

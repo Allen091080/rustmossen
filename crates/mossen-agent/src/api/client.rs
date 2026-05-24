@@ -64,7 +64,10 @@ pub fn detect_gateway(headers: Option<&HeaderMap>, base_url: Option<&str>) -> Op
     if let Some(headers) = headers {
         let header_names: Vec<String> = headers.keys().map(|k| k.as_str().to_lowercase()).collect();
         for (gw, prefixes) in GATEWAY_FINGERPRINTS {
-            if prefixes.iter().any(|p| header_names.iter().any(|h| h.starts_with(p))) {
+            if prefixes
+                .iter()
+                .any(|p| header_names.iter().any(|h| h.starts_with(p)))
+            {
                 return Some(match *gw {
                     "litellm" => KnownGateway::Litellm,
                     "helicone" => KnownGateway::Helicone,

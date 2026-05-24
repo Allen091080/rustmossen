@@ -111,7 +111,7 @@ pub fn get_tool_search_mode() -> ToolSearchMode {
 }
 
 /// Default patterns for models that do NOT support tool_reference.
-const DEFAULT_UNSUPPORTED_MODEL_PATTERNS: &[&str] = &["haiku"];
+const DEFAULT_UNSUPPORTED_MODEL_PATTERNS: &[&str] = &["fast"];
 
 /// Check if a model supports tool_reference blocks.
 pub fn model_supports_tool_reference(model: &str) -> bool {
@@ -243,7 +243,7 @@ impl DeferredToolsDeltaScanContext {
 /// Check if deferred tools delta feature is enabled.
 pub fn is_deferred_tools_delta_enabled() -> bool {
     std::env::var("USER_TYPE")
-        .map(|v| v == "ant")
+        .map(|v| v == "internal")
         .unwrap_or(false)
 }
 
@@ -348,14 +348,11 @@ fn is_env_defined_falsy(value: &str) -> bool {
 
 fn is_first_party_mossen_base_url(url: &str) -> bool {
     let lower = url.to_lowercase();
-    lower.contains("anthropic.com") || lower.contains("mossen.ai")
+    lower.contains("provider.com") || lower.contains("mossen.ai")
 }
 
 /// 对应 TS `isToolSearchEnabled`：异步版本，综合设置/灰度后判断 tool-search 是否开启。
-pub async fn is_tool_search_enabled(
-    settings_enabled: bool,
-    feature_gate_enabled: bool,
-) -> bool {
+pub async fn is_tool_search_enabled(settings_enabled: bool, feature_gate_enabled: bool) -> bool {
     if std::env::var("MOSSEN_DISABLE_TOOL_SEARCH")
         .map(|v| v == "1" || v == "true")
         .unwrap_or(false)

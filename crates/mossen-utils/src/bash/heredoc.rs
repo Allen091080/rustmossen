@@ -49,7 +49,10 @@ pub struct ExtractHeredocsOptions {
 }
 
 /// Extracts heredocs from a command string and replaces them with placeholders.
-pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>) -> HeredocExtractionResult {
+pub fn extract_heredocs(
+    command: &str,
+    options: Option<&ExtractHeredocsOptions>,
+) -> HeredocExtractionResult {
     let mut heredocs = HashMap::new();
     let quoted_only = options.map_or(false, |o| o.quoted_only);
 
@@ -92,9 +95,8 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
     }
 
     // Regex for heredoc start pattern
-    let heredoc_start_re = Regex::new(
-        r#"(?<![<])<<(?![<])(-)?[ \t]*(?:(['"])(\\?\w+)\2|\\?(\w+))"#
-    ).unwrap();
+    let heredoc_start_re =
+        Regex::new(r#"(?<![<])<<(?![<])(-)?[ \t]*(?:(['"])(\\?\w+)\2|\\?(\w+))"#).unwrap();
 
     let mut heredoc_matches: Vec<HeredocInfo> = Vec::new();
     let mut skipped_heredoc_ranges: Vec<(usize, usize)> = Vec::new();
@@ -121,7 +123,8 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
 
     // Convert byte offset to char index
     let byte_to_char_idx = |byte_offset: usize| -> usize {
-        char_to_byte.partition_point(|&b| b < byte_offset)
+        char_to_byte
+            .partition_point(|&b| b < byte_offset)
             .min(chars.len())
     };
 
@@ -246,7 +249,10 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
         // Check next char is a bash word terminator
         if operator_end_byte < total_bytes {
             let next_byte = command.as_bytes()[operator_end_byte];
-            if !matches!(next_byte, b' ' | b'\t' | b'\n' | b'|' | b'&' | b';' | b'(' | b')' | b'<' | b'>') {
+            if !matches!(
+                next_byte,
+                b' ' | b'\t' | b'\n' | b'|' | b'&' | b';' | b'(' | b')' | b'<' | b'>'
+            ) {
                 continue;
             }
         }
@@ -261,7 +267,9 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
             let mut byte_off = 0usize;
             for &ch in &after_chars {
                 if in_sq {
-                    if ch == '\'' { in_sq = false; }
+                    if ch == '\'' {
+                        in_sq = false;
+                    }
                     byte_off += ch.len_utf8();
                     continue;
                 }
@@ -272,7 +280,9 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
                         // Need to handle this properly
                         continue;
                     }
-                    if ch == '"' { in_dq = false; }
+                    if ch == '"' {
+                        in_dq = false;
+                    }
                     byte_off += ch.len_utf8();
                     continue;
                 }
@@ -280,8 +290,11 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
                     first_newline_offset = Some(byte_off);
                     break;
                 }
-                if ch == '\'' { in_sq = true; }
-                else if ch == '"' { in_dq = true; }
+                if ch == '\'' {
+                    in_sq = true;
+                } else if ch == '"' {
+                    in_dq = true;
+                }
                 byte_off += ch.len_utf8();
             }
         }
@@ -292,7 +305,8 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
         };
 
         // Check for backslash-newline continuation
-        let same_line_content = &command[operator_end_byte..operator_end_byte + first_newline_offset];
+        let same_line_content =
+            &command[operator_end_byte..operator_end_byte + first_newline_offset];
         let mut trailing_backslashes = 0;
         for ch in same_line_content.chars().rev() {
             if ch == '\\' {
@@ -324,10 +338,17 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
             }
 
             // Security: check for PST_EOFTOKEN-like early closure
-            let eof_check_line = if is_dash { line.trim_start_matches('\t') } else { line };
+            let eof_check_line = if is_dash {
+                line.trim_start_matches('\t')
+            } else {
+                line
+            };
             if eof_check_line.len() > delimiter.len() && eof_check_line.starts_with(&delimiter) {
                 let char_after = eof_check_line.as_bytes()[delimiter.len()];
-                if matches!(char_after, b')' | b'}' | b'`' | b'|' | b'&' | b';' | b'(' | b'<' | b'>') {
+                if matches!(
+                    char_after,
+                    b')' | b'}' | b'`' | b'|' | b'&' | b';' | b'(' | b'<' | b'>'
+                ) {
                     closing_line_index = None;
                     break;
                 }
@@ -431,7 +452,8 @@ pub fn extract_heredocs(command: &str, options: Option<&ExtractHeredocsOptions>)
     for (index, info) in sorted_heredocs.iter().enumerate() {
         let placeholder_index = sorted_heredocs.len() - 1 - index;
         let placeholder = format!(
-            "{}{}_{}{}", HEREDOC_PLACEHOLDER_PREFIX, placeholder_index, salt, HEREDOC_PLACEHOLDER_SUFFIX
+            "{}{}_{}{}",
+            HEREDOC_PLACEHOLDER_PREFIX, placeholder_index, salt, HEREDOC_PLACEHOLDER_SUFFIX
         );
 
         heredocs.insert(placeholder.clone(), info.clone());
@@ -465,7 +487,10 @@ pub fn restore_heredocs(parts: &[String], heredocs: &HashMap<String, HeredocInfo
     if heredocs.is_empty() {
         return parts.to_vec();
     }
-    parts.iter().map(|part| restore_heredocs_in_string(part, heredocs)).collect()
+    parts
+        .iter()
+        .map(|part| restore_heredocs_in_string(part, heredocs))
+        .collect()
 }
 
 /// Checks if a command contains heredoc syntax.

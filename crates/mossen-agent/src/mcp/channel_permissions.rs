@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use regex::Regex;
 
+use mossen_utils::string_utils::truncate_chars;
+
 /// GrowthBook runtime gate for channel permission relay.
 pub fn is_channel_permission_relay_enabled(feature_value: bool) -> bool {
     feature_value
@@ -96,9 +98,8 @@ const ID_ALPHABET: &[u8; 25] = b"abcdefghijkmnopqrstuvwxyz";
 
 /// Blocklist of substrings to avoid in generated IDs.
 const ID_AVOID_SUBSTRINGS: &[&str] = &[
-    "fuck", "shit", "cunt", "cock", "dick", "twat", "piss", "crap", "bitch", "whore", "ass",
-    "tit", "cum", "fag", "dyke", "nig", "kike", "rape", "nazi", "damn", "poo", "pee", "wank",
-    "anus",
+    "fuck", "shit", "cunt", "cock", "dick", "twat", "piss", "crap", "bitch", "whore", "ass", "tit",
+    "cum", "fag", "dyke", "nig", "kike", "rape", "nazi", "damn", "poo", "pee", "wank", "anus",
 ];
 
 /// FNV-1a hash to 5-char ID.
@@ -135,13 +136,7 @@ pub fn short_request_id(tool_use_id: &str) -> String {
 /// Truncate tool input to a phone-sized JSON preview (200 chars).
 pub fn truncate_for_preview(input: &serde_json::Value) -> String {
     match serde_json::to_string(input) {
-        Ok(s) => {
-            if s.len() > 200 {
-                format!("{}…", &s[..200])
-            } else {
-                s
-            }
-        }
+        Ok(s) => truncate_chars(&s, 200),
         Err(_) => "(unserializable)".to_string(),
     }
 }
@@ -160,7 +155,9 @@ where
         .filter(|c| {
             c.connection_type() == "connected"
                 && is_in_allowlist(c.name())
-                && c.has_experimental_capability(super::channel_notification::CHANNEL_CAPABILITY_KEY)
+                && c.has_experimental_capability(
+                    super::channel_notification::CHANNEL_CAPABILITY_KEY,
+                )
                 && c.has_experimental_capability(
                     super::channel_notification::CHANNEL_PERMISSION_CAPABILITY_KEY,
                 )

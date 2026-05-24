@@ -28,7 +28,9 @@ pub struct LspPluginError {
 /// Validate that a resolved path stays within the plugin directory.
 /// Prevents path traversal attacks via .. or absolute paths.
 fn validate_path_within_plugin(plugin_path: &Path, relative_path: &str) -> Option<PathBuf> {
-    let resolved_plugin = plugin_path.canonicalize().unwrap_or_else(|_| plugin_path.to_path_buf());
+    let resolved_plugin = plugin_path
+        .canonicalize()
+        .unwrap_or_else(|_| plugin_path.to_path_buf());
     let resolved_file = plugin_path.join(relative_path);
     let resolved_file = resolved_file
         .canonicalize()
@@ -144,11 +146,19 @@ async fn load_lsp_servers_from_manifest(
             // Process single file path
             process_lsp_declaration_item(&item, plugin_path, plugin_name, errors, &mut servers)
                 .await;
-            return if servers.is_empty() { None } else { Some(servers) };
+            return if servers.is_empty() {
+                None
+            } else {
+                Some(servers)
+            };
         }
         LspServersDeclaration::Inline(configs) => {
             servers.extend(configs.clone());
-            return if servers.is_empty() { None } else { Some(servers) };
+            return if servers.is_empty() {
+                None
+            } else {
+                Some(servers)
+            };
         }
         LspServersDeclaration::Array(items) => items.iter().collect(),
     };
@@ -247,7 +257,9 @@ pub fn resolve_plugin_lsp_environment(
         );
 
         if let Some(uc) = user_config {
-            if let Ok(r) = super::plugin_options_storage::substitute_user_config_variables(&resolved, uc) {
+            if let Ok(r) =
+                super::plugin_options_storage::substitute_user_config_variables(&resolved, uc)
+            {
                 resolved = r;
             }
         }
@@ -347,7 +359,11 @@ pub async fn get_plugin_lsp_servers(
         load_plugin_lsp_servers(plugin_path, plugin_name, manifest_lsp_servers, errors).await?
     };
 
-    let uc = if manifest_user_config { user_config } else { None };
+    let uc = if manifest_user_config {
+        user_config
+    } else {
+        None
+    };
 
     let mut resolved_servers: HashMap<String, LspServerConfig> = HashMap::new();
     for (name, config) in &servers {
@@ -362,7 +378,10 @@ pub async fn get_plugin_lsp_servers(
         resolved_servers.insert(name.clone(), resolved);
     }
 
-    Some(add_plugin_scope_to_lsp_servers(&resolved_servers, plugin_name))
+    Some(add_plugin_scope_to_lsp_servers(
+        &resolved_servers,
+        plugin_name,
+    ))
 }
 
 /// Extract all LSP servers from loaded plugins.
@@ -377,8 +396,7 @@ pub async fn extract_lsp_servers_from_plugins(
             continue;
         }
 
-        let servers =
-            load_plugin_lsp_servers(path, name, manifest_lsp.as_ref(), errors).await;
+        let servers = load_plugin_lsp_servers(path, name, manifest_lsp.as_ref(), errors).await;
         if let Some(servers) = servers {
             let scoped = add_plugin_scope_to_lsp_servers(&servers, name);
             all_servers.extend(scoped);

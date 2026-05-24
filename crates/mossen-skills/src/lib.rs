@@ -48,8 +48,8 @@ pub use dynamic::{
 // Re-export 核心类型
 pub use config::{FrontmatterData, FrontmatterShell, ParsedSkillFields};
 pub use executor::{
-    execute_craft, find_craft_by_name, CraftExecutionContext, ParsedPluginCommand,
-    ParsedSkillsCommand,
+    execute_craft, find_craft_by_name, format_invoked_skill_prompt, CraftExecutionContext,
+    ParsedPluginCommand, ParsedSkillsCommand,
 };
 pub use loader::{load_plugins_from_dirs, load_skills_from_dir};
 pub use manifest::{load_manifest, ParsedManifest};

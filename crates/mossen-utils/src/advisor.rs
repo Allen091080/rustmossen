@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Advisor server tool use block
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,10 +73,7 @@ pub fn is_advisor_enabled(
 }
 
 /// Check if user can configure advisor
-pub fn can_user_configure_advisor(
-    advisor_enabled: bool,
-    config: &AdvisorConfig,
-) -> bool {
+pub fn can_user_configure_advisor(advisor_enabled: bool, config: &AdvisorConfig) -> bool {
     advisor_enabled && config.can_user_configure.unwrap_or(false)
 }
 
@@ -97,17 +94,13 @@ pub fn get_experiment_advisor_models(
 /// Check whether the main loop model supports calling the advisor tool
 pub fn model_supports_advisor(model: &str, user_type: Option<&str>) -> bool {
     let m = model.to_lowercase();
-    m.contains("opus-4-6")
-        || m.contains("sonnet-4-6")
-        || user_type == Some("ant")
+    m.contains("max-4-6") || m.contains("balanced-4-6") || user_type == Some("internal")
 }
 
 /// Check if a model is valid as an advisor model
 pub fn is_valid_advisor_model(model: &str, user_type: Option<&str>) -> bool {
     let m = model.to_lowercase();
-    m.contains("opus-4-6")
-        || m.contains("sonnet-4-6")
-        || user_type == Some("ant")
+    m.contains("max-4-6") || m.contains("balanced-4-6") || user_type == Some("internal")
 }
 
 /// Get advisor usage from API usage response

@@ -230,13 +230,18 @@ pub fn get_simple_prompt(config: &PromptConfig) -> String {
     }
 
     prompt.push_str("- When issuing multiple commands:\n");
-    prompt.push_str(&format!("  - If independent: make multiple {} tool calls in parallel.\n", BASH_TOOL_NAME));
+    prompt.push_str(&format!(
+        "  - If independent: make multiple {} tool calls in parallel.\n",
+        BASH_TOOL_NAME
+    ));
     prompt.push_str("  - If dependent: use '&&' to chain them together.\n");
     prompt.push_str("  - Use ';' only when you need sequential execution but don't care about earlier failures.\n");
     prompt.push_str("  - DO NOT use newlines to separate commands.\n");
     prompt.push_str("- For git commands:\n");
     prompt.push_str("  - Prefer to create a new commit rather than amending an existing commit.\n");
-    prompt.push_str("  - Never skip hooks (--no-verify) or bypass signing unless explicitly asked.\n");
+    prompt.push_str(
+        "  - Never skip hooks (--no-verify) or bypass signing unless explicitly asked.\n",
+    );
     prompt.push_str("- Avoid unnecessary `sleep` commands.\n");
 
     if !sandbox_section.is_empty() {

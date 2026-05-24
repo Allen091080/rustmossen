@@ -1,26 +1,26 @@
 # Conditional Skill Activation 审计 / Phase 2-3
 
-## 审计结果
+## 现有实现
 
-### 现有实现
-- `mossen-skills/src/dynamic.rs:225` — `conditional_skills: HashMap<String, CraftCommand>` 数据结构存在
-- `mossen-skills/src/dynamic.rs:227` — `activated_conditional_names: HashSet<String>` 去重集存在
-- `mossen-skills/src/dynamic.rs:442` — `activate_conditional_skills_for_paths` **已实现**（根据 paths frontmatter 匹配激活）
-- `mossen-skills/src/dynamic.rs:542` — `s.conditional_skills.insert` 添加条件技能
+- `crates/mossen-skills/src/dynamic.rs:225` — `conditional_skills: HashMap<String, CraftCommand>` 保存待激活 skill。
+- `crates/mossen-skills/src/dynamic.rs:227` — `activated_conditional_names: HashSet<String>` 避免重复激活。
+- `crates/mossen-skills/src/dynamic.rs:442` — `activate_conditional_skills_for_paths` 已实现。
+- `crates/mossen-skills/src/dynamic.rs:480` — 匹配后从 conditional map 移入 active skill map。
+- `crates/mossen-skills/src/dynamic.rs:484` — 激活后 emit `skills_loaded`。
 
-### 调用覆盖
-| 调用点 | 调用了吗 | 证据 |
+## 调用覆盖
+
+| 调用点 | 状态 | 证据 |
 |---|---|---|
-| tool dispatcher / cwd 变化时 | ❌ 未调用 | 无任何调用点命中 |
-| 启动时 | ❌ 未调用 | main.rs/repl.rs 无调用 |
-| 文件修改时 | ❌ 未调用 | file_watcher 未接 |
+| non-interactive CLI 启动 | 已调用 | `crates/mossen-cli/src/main.rs:245` |
+| interactive REPL 启动 | 已调用 | `crates/mossen-cli/src/repl.rs:123` |
+| cwd 变化时 | 未调用 | slash `/cd` 路径尚未接 `activate_conditional_skills_for_paths` |
+| 文件修改/工具结果时 | 未调用 | agent 工具执行层无法直接依赖 `mossen-skills` |
 
-### 缺口
-- `activate_conditional_skills_for_paths` 存在但从未被调用
-- 条件技能根据路径匹配的激活机制未接通
-- 没有 cwd 变化或文件路径变化触发条件技能重新评估
+## 判定
 
-### 接线建议
-1. 在 CLI 启动路径中调用一次（初始激活）
-2. 在文件 watcher 检测到文件变化时调用（动态激活）
-3. 或在 dialogue.rs 工具执行完成后调用（每次工具执行后评估）
+当前已接通启动时条件 skill 激活，保证进入会话时 cwd 匹配的 `paths` frontmatter 可以生效。运行时按新文件路径激活还缺一个跨 crate 事件通道。
+
+## 后续建议
+
+把“工具产出路径”和“cwd changed”作为 CLI 层事件处理，比在 agent crate 里直接依赖 `mossen-skills` 更稳；这能保持当前 crate 依赖方向，同时补齐运行时激活。

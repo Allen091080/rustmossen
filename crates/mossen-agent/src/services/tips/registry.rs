@@ -80,7 +80,9 @@ fn get_all_tips(ctx: &TipContext) -> Vec<Tip> {
     if ctx.worktree_count > 1 {
         tips.push(Tip {
             id: "worktrees",
-            message: "Multiple git worktrees detected. Each session works in its own worktree context.".to_string(),
+            message:
+                "Multiple git worktrees detected. Each session works in its own worktree context."
+                    .to_string(),
             category: TipCategory::Workflow,
             priority: 4,
             min_sessions_between: 15,
@@ -90,7 +92,8 @@ fn get_all_tips(ctx: &TipContext) -> Vec<Tip> {
     if !ctx.has_plugins && !ctx.is_custom_backend {
         tips.push(Tip {
             id: "plugins",
-            message: "Extend capabilities with plugins. Run /plugins to browse available plugins.".to_string(),
+            message: "Extend capabilities with plugins. Run /plugins to browse available plugins."
+                .to_string(),
             category: TipCategory::Plugin,
             priority: 6,
             min_sessions_between: 30,
@@ -100,7 +103,8 @@ fn get_all_tips(ctx: &TipContext) -> Vec<Tip> {
     if ctx.is_hosted_subscriber {
         tips.push(Tip {
             id: "model_selection",
-            message: "You can switch models mid-conversation with /model for different tasks.".to_string(),
+            message: "You can switch models mid-conversation with /model for different tasks."
+                .to_string(),
             category: TipCategory::Model,
             priority: 4,
             min_sessions_between: 25,
@@ -109,7 +113,8 @@ fn get_all_tips(ctx: &TipContext) -> Vec<Tip> {
 
     tips.push(Tip {
         id: "keyboard_shortcuts",
-        message: "Press Escape to interrupt, Ctrl+C to cancel. Use up/down arrows for history.".to_string(),
+        message: "Press Escape to interrupt, Ctrl+C to cancel. Use up/down arrows for history."
+            .to_string(),
         category: TipCategory::Shortcut,
         priority: 2,
         min_sessions_between: 50,

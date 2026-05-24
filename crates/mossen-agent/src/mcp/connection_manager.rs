@@ -33,7 +33,9 @@ impl McpConnectionManager {
     }
 
     /// Get dynamic config reference.
-    pub fn dynamic_config(&self) -> Option<&std::collections::HashMap<String, ScopedMcpServerConfig>> {
+    pub fn dynamic_config(
+        &self,
+    ) -> Option<&std::collections::HashMap<String, ScopedMcpServerConfig>> {
         self.dynamic_config.as_ref()
     }
 
@@ -48,11 +50,10 @@ impl McpConnectionManager {
 /// Function type returned by `use_mcp_reconnect` — invoke with a server name
 /// to reconnect that MCP server, returning the reconnect result.
 pub type McpReconnectFn = std::sync::Arc<
-    dyn Fn(&str) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = anyhow::Result<ReconnectResult>>
-                    + Send,
-            >,
+    dyn Fn(
+            &str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<ReconnectResult>> + Send>,
         > + Send
         + Sync,
 >;

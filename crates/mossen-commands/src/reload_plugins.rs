@@ -68,24 +68,19 @@ async fn refresh_active_plugins(ctx: &CommandContext) -> RefreshResult {
                             {
                                 enabled_count += 1;
                                 if let Some(cmds) = manifest.get("commands") {
-                                    command_count +=
-                                        cmds.as_array().map(|a| a.len()).unwrap_or(0);
+                                    command_count += cmds.as_array().map(|a| a.len()).unwrap_or(0);
                                 }
                                 if let Some(agents) = manifest.get("agents") {
-                                    agent_count +=
-                                        agents.as_array().map(|a| a.len()).unwrap_or(0);
+                                    agent_count += agents.as_array().map(|a| a.len()).unwrap_or(0);
                                 }
                                 if let Some(hooks) = manifest.get("hooks") {
-                                    hook_count +=
-                                        hooks.as_array().map(|a| a.len()).unwrap_or(0);
+                                    hook_count += hooks.as_array().map(|a| a.len()).unwrap_or(0);
                                 }
                                 if let Some(mcp) = manifest.get("mcpServers") {
-                                    mcp_count +=
-                                        mcp.as_array().map(|a| a.len()).unwrap_or(0);
+                                    mcp_count += mcp.as_array().map(|a| a.len()).unwrap_or(0);
                                 }
                                 if let Some(lsp) = manifest.get("lspServers") {
-                                    lsp_count +=
-                                        lsp.as_array().map(|a| a.len()).unwrap_or(0);
+                                    lsp_count += lsp.as_array().map(|a| a.len()).unwrap_or(0);
                                 }
                             } else {
                                 error_count += 1;

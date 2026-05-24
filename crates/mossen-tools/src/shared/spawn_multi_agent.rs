@@ -112,16 +112,15 @@ pub struct TeamContext {
 // ── Color assignment ────────────────────────────────────────────────────────
 
 static TEAMMATE_COLORS: &[&str] = &[
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-    "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
-    "#F8C471", "#82E0AA", "#F1948A", "#AED6F1", "#D7BDE2",
+    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
+    "#BB8FCE", "#85C1E9", "#F8C471", "#82E0AA", "#F1948A", "#AED6F1", "#D7BDE2",
 ];
 
 /// Assign a unique color to a teammate based on their ID hash.
 pub fn assign_teammate_color(teammate_id: &str) -> String {
-    let hash: u64 = teammate_id.bytes().fold(0u64, |acc, b| {
-        acc.wrapping_mul(31).wrapping_add(b as u64)
-    });
+    let hash: u64 = teammate_id
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
     let idx = (hash as usize) % TEAMMATE_COLORS.len();
     TEAMMATE_COLORS[idx].to_string()
 }
@@ -131,7 +130,13 @@ pub fn assign_teammate_color(teammate_id: &str) -> String {
 /// Sanitize a name for use in tmux window names.
 pub fn sanitize_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -147,10 +152,7 @@ pub fn format_agent_id(name: &str, team_name: &str) -> String {
 
 /// Generate a unique teammate name by checking existing team members.
 /// If the name already exists, appends a numeric suffix (e.g., tester-2, tester-3).
-pub async fn generate_unique_teammate_name(
-    base_name: &str,
-    team_name: Option<&str>,
-) -> String {
+pub async fn generate_unique_teammate_name(base_name: &str, team_name: Option<&str>) -> String {
     let Some(t_name) = team_name else {
         return base_name.to_string();
     };
@@ -182,7 +184,7 @@ pub async fn generate_unique_teammate_name(
 
 // ── Model resolution ────────────────────────────────────────────────────────
 
-const HARDCODED_TEAMMATE_MODEL_FALLBACK: &str = "sonnet";
+const HARDCODED_TEAMMATE_MODEL_FALLBACK: &str = "balanced";
 
 /// Get the default teammate model.
 fn get_default_teammate_model(leader_model: Option<&str>) -> String {
@@ -203,10 +205,7 @@ fn get_default_teammate_model(leader_model: Option<&str>) -> String {
 
 /// Resolve a teammate model value. Handles the 'inherit' alias by substituting
 /// the leader's model. If leader model is None, falls through to the default.
-pub fn resolve_teammate_model(
-    input_model: Option<&str>,
-    leader_model: Option<&str>,
-) -> String {
+pub fn resolve_teammate_model(input_model: Option<&str>, leader_model: Option<&str>) -> String {
     match input_model {
         Some("inherit") => leader_model
             .map(|m| m.to_string())
@@ -281,7 +280,9 @@ fn shell_quote(s: &str) -> String {
     if s.is_empty() {
         return "''".to_string();
     }
-    if s.chars().all(|c| c.is_alphanumeric() || "-_./=:@".contains(c)) {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || "-_./=:@".contains(c))
+    {
         return s.to_string();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -356,12 +357,7 @@ pub fn build_inherited_env_vars() -> String {
     }
 
     // API provider vars
-    for key in &[
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "MOSSEN_API_KEY",
-        "MOSSEN_API_BASE_URL",
-    ] {
+    for key in &["OPENAI_API_KEY", "MOSSEN_API_KEY", "MOSSEN_API_BASE_URL"] {
         if let Ok(val) = std::env::var(key) {
             env_parts.push(format!("{}={}", key, shell_quote(&val)));
         }
@@ -374,24 +370,22 @@ pub fn build_inherited_env_vars() -> String {
 
 /// Get the path for a team file.
 fn get_team_file_path(team_name: &str) -> std::path::PathBuf {
-    let base = std::env::var("MOSSEN_TEAMS_DIR")
-        .unwrap_or_else(|_| {
-            let data_dir = if cfg!(target_os = "macos") {
+    let base = std::env::var("MOSSEN_TEAMS_DIR").unwrap_or_else(|_| {
+        let data_dir = if cfg!(target_os = "macos") {
+            std::env::var("HOME")
+                .map(|h| format!("{}/Library/Application Support", h))
+                .unwrap_or_else(|_| ".".to_string())
+        } else if cfg!(target_os = "windows") {
+            std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string())
+        } else {
+            std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
                 std::env::var("HOME")
-                    .map(|h| format!("{}/Library/Application Support", h))
+                    .map(|h| format!("{}/.local/share", h))
                     .unwrap_or_else(|_| ".".to_string())
-            } else if cfg!(target_os = "windows") {
-                std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string())
-            } else {
-                std::env::var("XDG_DATA_HOME")
-                    .unwrap_or_else(|_| {
-                        std::env::var("HOME")
-                            .map(|h| format!("{}/.local/share", h))
-                            .unwrap_or_else(|_| ".".to_string())
-                    })
-            };
-            format!("{}/mossen/teams", data_dir)
-        });
+            })
+        };
+        format!("{}/mossen/teams", data_dir)
+    });
     std::path::PathBuf::from(base).join(format!("{}.json", sanitize_name(team_name)))
 }
 
@@ -408,14 +402,36 @@ pub async fn read_team_file_async(team_name: &str) -> Option<TeamFile> {
             Some(TeamMember {
                 agent_id: m.get("agentId")?.as_str()?.to_string(),
                 name: m.get("name")?.as_str()?.to_string(),
-                agent_type: m.get("agentType").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                model: m.get("model").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                prompt: m.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                color: m.get("color").and_then(|v| v.as_str()).unwrap_or("#FFFFFF").to_string(),
+                agent_type: m
+                    .get("agentType")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                model: m
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                prompt: m
+                    .get("prompt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                color: m
+                    .get("color")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("#FFFFFF")
+                    .to_string(),
                 plan_mode_required: m.get("planModeRequired").and_then(|v| v.as_bool()),
                 joined_at: m.get("joinedAt").and_then(|v| v.as_u64()).unwrap_or(0),
-                tmux_pane_id: m.get("tmuxPaneId").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                cwd: m.get("cwd").and_then(|v| v.as_str()).unwrap_or(".").to_string(),
+                tmux_pane_id: m
+                    .get("tmuxPaneId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                cwd: m
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(".")
+                    .to_string(),
                 subscriptions: m
                     .get("subscriptions")
                     .and_then(|v| v.as_array())
@@ -505,12 +521,11 @@ pub async fn write_to_mailbox(
         } else if cfg!(target_os = "windows") {
             std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string())
         } else {
-            std::env::var("XDG_DATA_HOME")
-                .unwrap_or_else(|_| {
-                    std::env::var("HOME")
-                        .map(|h| format!("{}/.local/share", h))
-                        .unwrap_or_else(|_| ".".to_string())
-                })
+            std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+                std::env::var("HOME")
+                    .map(|h| format!("{}/.local/share", h))
+                    .unwrap_or_else(|_| ".".to_string())
+            })
         };
         format!("{}/mossen/teams", data_dir)
     });
@@ -665,10 +680,12 @@ async fn handle_spawn_split_pane(
     let unique_name = generate_unique_teammate_name(&input.name, Some(team_name)).await;
     let sanitized_name = sanitize_agent_name(&unique_name);
     let teammate_id = format_agent_id(&sanitized_name, team_name);
-    let working_dir = input
-        .cwd
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().to_string_lossy().to_string());
+    let working_dir = input.cwd.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    });
 
     let inside_tmux = is_inside_tmux().await;
     let teammate_color = assign_teammate_color(&teammate_id);
@@ -815,10 +832,12 @@ async fn handle_spawn_separate_window(
     let sanitized_name = sanitize_agent_name(&unique_name);
     let teammate_id = format_agent_id(&sanitized_name, team_name);
     let window_name = format!("teammate-{}", sanitize_name(&sanitized_name));
-    let working_dir = input
-        .cwd
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().to_string_lossy().to_string());
+    let working_dir = input.cwd.clone().unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    });
 
     ensure_session(SWARM_SESSION_NAME).await?;
     let teammate_color = assign_teammate_color(&teammate_id);

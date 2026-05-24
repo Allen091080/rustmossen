@@ -3,7 +3,6 @@
 //! Detects whether file paths belong to session memory, transcripts,
 //! auto-memory (memdir), agent memory, or team memory directories.
 
-use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 
 /// Whether the current platform is Windows.
@@ -22,6 +21,30 @@ fn to_comparable(p: &str) -> String {
     } else {
         posix
     }
+}
+
+fn normalize_comparable_dir(dir: &str) -> String {
+    let trimmed = dir.trim_end_matches('/');
+    if trimmed.is_empty() && dir.starts_with('/') {
+        "/".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn path_starts_with_dir(path: &str, dir: &str) -> bool {
+    let dir = normalize_comparable_dir(dir);
+    if dir.is_empty() {
+        return false;
+    }
+    if dir == "/" {
+        return path.starts_with('/');
+    }
+    path == dir
+        || path
+            .strip_prefix(&dir)
+            .map(|rest| rest.starts_with('/'))
+            .unwrap_or(false)
 }
 
 /// Session file types.
@@ -53,7 +76,7 @@ pub fn detect_session_file_type(file_path: &str, config_dir: &str) -> Option<Ses
     let normalized = to_comparable(file_path);
     let config_dir_cmp = to_comparable(config_dir);
 
-    if !normalized.starts_with(&config_dir_cmp) {
+    if !path_starts_with_dir(&normalized, &config_dir_cmp) {
         return None;
     }
 
@@ -90,13 +113,16 @@ pub fn is_auto_mem_file(file_path: &str, config: &MemoryDetectionConfig) -> bool
     if let Some(ref auto_mem) = config.auto_mem_path {
         let normalized = to_comparable(file_path);
         let auto_mem_cmp = to_comparable(&auto_mem.to_string_lossy());
-        return normalized.starts_with(&auto_mem_cmp);
+        return path_starts_with_dir(&normalized, &auto_mem_cmp);
     }
     false
 }
 
 /// Determine which memory store a path belongs to.
-pub fn memory_scope_for_path(file_path: &str, config: &MemoryDetectionConfig) -> Option<MemoryScope> {
+pub fn memory_scope_for_path(
+    file_path: &str,
+    config: &MemoryDetectionConfig,
+) -> Option<MemoryScope> {
     if config.team_memory_enabled {
         if is_team_mem_file(file_path, config) {
             return Some(MemoryScope::Team);
@@ -113,7 +139,7 @@ fn is_team_mem_file(file_path: &str, config: &MemoryDetectionConfig) -> bool {
     if let Some(ref team_path) = config.team_mem_path {
         let normalized = to_comparable(file_path);
         let team_cmp = to_comparable(&team_path.to_string_lossy());
-        return normalized.starts_with(&team_cmp);
+        return path_starts_with_dir(&normalized, &team_cmp);
     }
     false
 }
@@ -162,7 +188,7 @@ pub fn is_memory_directory(dir_path: &str, config: &MemoryDetectionConfig) -> bo
     if config.team_memory_enabled {
         if let Some(ref team_path) = config.team_mem_path {
             let team_cmp = to_comparable(&team_path.to_string_lossy());
-            if normalized_cmp.starts_with(&team_cmp) {
+            if path_starts_with_dir(&normalized_cmp, &team_cmp) {
                 return true;
             }
         }
@@ -172,9 +198,8 @@ pub fn is_memory_directory(dir_path: &str, config: &MemoryDetectionConfig) -> bo
     if config.auto_memory_enabled {
         if let Some(ref auto_mem) = config.auto_mem_path {
             let auto_mem_str = auto_mem.to_string_lossy();
-            let auto_mem_dir_cmp = to_comparable(auto_mem_str.trim_end_matches(|c| c == '/' || c == '\\'));
             let auto_mem_path_cmp = to_comparable(&auto_mem_str);
-            if normalized_cmp == auto_mem_dir_cmp || normalized_cmp.starts_with(&auto_mem_path_cmp) {
+            if path_starts_with_dir(&normalized_cmp, &auto_mem_path_cmp) {
                 return true;
             }
         }
@@ -182,8 +207,8 @@ pub fn is_memory_directory(dir_path: &str, config: &MemoryDetectionConfig) -> bo
 
     let config_dir_cmp = to_comparable(&config.config_dir.to_string_lossy());
     let memory_base_cmp = to_comparable(&config.memory_base_dir.to_string_lossy());
-    let under_config = normalized_cmp.starts_with(&config_dir_cmp);
-    let under_memory_base = normalized_cmp.starts_with(&memory_base_cmp);
+    let under_config = path_starts_with_dir(&normalized_cmp, &config_dir_cmp);
+    let under_memory_base = path_starts_with_dir(&normalized_cmp, &memory_base_cmp);
 
     if !under_config && !under_memory_base {
         return false;
@@ -207,14 +232,22 @@ pub fn is_shell_command_targeting_memory(command: &str, config: &MemoryDetection
     let auto_mem_dir = config
         .auto_mem_path
         .as_ref()
-        .map(|p| p.to_string_lossy().trim_end_matches(|c| c == '/' || c == '\\').to_string())
+        .map(|p| {
+            p.to_string_lossy()
+                .trim_end_matches(|c| c == '/' || c == '\\')
+                .to_string()
+        })
         .unwrap_or_default();
 
     let command_cmp = to_comparable(command);
-    let dirs: Vec<&str> = [config_dir.as_ref(), memory_base.as_ref(), auto_mem_dir.as_str()]
-        .into_iter()
-        .filter(|d| !d.is_empty())
-        .collect();
+    let dirs: Vec<&str> = [
+        config_dir.as_ref(),
+        memory_base.as_ref(),
+        auto_mem_dir.as_str(),
+    ]
+    .into_iter()
+    .filter(|d| !d.is_empty())
+    .collect();
 
     let matches_any_dir = dirs.iter().any(|d| {
         if command_cmp.contains(&to_comparable(d)) {
@@ -291,5 +324,72 @@ fn posix_path_to_windows(path: &str) -> String {
         format!("{}:{}", drive, rest)
     } else {
         path.replace('/', sep.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn detection_config() -> MemoryDetectionConfig {
+        MemoryDetectionConfig {
+            config_dir: PathBuf::from("/tmp/mossen"),
+            memory_base_dir: PathBuf::from("/tmp/memory-base"),
+            auto_mem_path: Some(PathBuf::from("/tmp/mossen/projects/_repo/memory")),
+            auto_memory_enabled: true,
+            team_memory_enabled: true,
+            team_mem_path: Some(PathBuf::from("/tmp/mossen/projects/_repo/memory/team")),
+        }
+    }
+
+    #[test]
+    fn memory_path_detection_uses_component_boundaries() {
+        let config = detection_config();
+
+        assert!(is_auto_mem_file(
+            "/tmp/mossen/projects/_repo/memory/notes.md",
+            &config
+        ));
+        assert!(!is_auto_mem_file(
+            "/tmp/mossen/projects/_repo/memory-other/notes.md",
+            &config
+        ));
+        assert_eq!(
+            memory_scope_for_path("/tmp/mossen/projects/_repo/memory/team/MEMORY.md", &config),
+            Some(MemoryScope::Team)
+        );
+        assert_eq!(
+            memory_scope_for_path(
+                "/tmp/mossen/projects/_repo/memory/team-other/MEMORY.md",
+                &config
+            ),
+            Some(MemoryScope::Personal)
+        );
+    }
+
+    #[test]
+    fn session_config_dir_detection_uses_component_boundaries() {
+        assert_eq!(
+            detect_session_file_type("/tmp/mossen/session-memory/current.md", "/tmp/mossen"),
+            Some(SessionFileType::SessionMemory)
+        );
+        assert_eq!(
+            detect_session_file_type("/tmp/mossen-other/session-memory/current.md", "/tmp/mossen"),
+            None
+        );
+    }
+
+    #[test]
+    fn memory_directory_detection_uses_component_boundaries() {
+        let config = detection_config();
+
+        assert!(is_memory_directory(
+            "/tmp/mossen/projects/_repo/memory/team",
+            &config
+        ));
+        assert!(!is_memory_directory(
+            "/tmp/memory-base-other/projects",
+            &config
+        ));
     }
 }

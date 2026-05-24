@@ -66,11 +66,28 @@ struct McpClientInfo {
 // ── Argument Parsers ──────────────────────────────────────────────────
 
 const VALUE_FLAGS: &[&str] = &[
-    "--scope", "-s", "--transport", "-t", "--env", "-e", "--header", "-H", "--confirm",
+    "--scope",
+    "-s",
+    "--transport",
+    "-t",
+    "--env",
+    "-e",
+    "--header",
+    "-H",
+    "--confirm",
 ];
 
 const SUPPORTED_FLAGS: &[&str] = &[
-    "--scope", "-s", "--transport", "-t", "--env", "-e", "--header", "-H", "--confirm", "--dry-run",
+    "--scope",
+    "-s",
+    "--transport",
+    "-t",
+    "--env",
+    "-e",
+    "--header",
+    "-H",
+    "--confirm",
+    "--dry-run",
 ];
 
 fn read_flag_value(parts: &[&str], long_flag: &str, short_flag: Option<&str>) -> Option<String> {
@@ -119,9 +136,9 @@ fn parse_mcp_add_args(parts: &[&str]) -> ParsedMcpAddArgs {
     };
 
     // Check for unsupported flags
-    let unsupported = before_command.iter().find(|part| {
-        part.starts_with('-') && !SUPPORTED_FLAGS.contains(part)
-    });
+    let unsupported = before_command
+        .iter()
+        .find(|part| part.starts_with('-') && !SUPPORTED_FLAGS.contains(part));
     if let Some(flag) = unsupported {
         return ParsedMcpAddArgs {
             unsupported_flag: Some(flag.to_string()),
@@ -170,7 +187,11 @@ fn parse_mcp_add_args(parts: &[&str]) -> ParsedMcpAddArgs {
             Vec::new()
         },
         env: if env.is_empty() { Vec::new() } else { env },
-        headers: if headers.is_empty() { Vec::new() } else { headers },
+        headers: if headers.is_empty() {
+            Vec::new()
+        } else {
+            headers
+        },
         confirm_token: None,
         unsupported_flag: None,
     }
@@ -298,7 +319,12 @@ fn format_mcp_status(clients: &[McpClientInfo]) -> String {
     lines.push(String::new());
     lines.push(format!(
         "Servers: {} total, {} connected, {} disabled, {} connecting, {} needs auth, {} failed",
-        clients.len(), counts.0, counts.1, counts.2, counts.3, counts.4
+        clients.len(),
+        counts.0,
+        counts.1,
+        counts.2,
+        counts.3,
+        counts.4
     ));
     lines.push(format!(
         "Capabilities: {} tools, {} prompts/skills, {} resources",
@@ -376,7 +402,11 @@ fn format_mcp_add_plan(args: &ParsedMcpAddArgs) -> String {
     lines.push(format!("Server name: {}", server_name));
     lines.push(format!("Scope: {}", scope));
     lines.push(format!("Transport: {}", transport));
-    lines.push(format!("Config: {} {}", config, args.args.join(" ")).trim().to_string());
+    lines.push(
+        format!("Config: {} {}", config, args.args.join(" "))
+            .trim()
+            .to_string(),
+    );
     lines.push(String::new());
     lines.push(
         "No files were modified. Confirming will write this MCP server through the existing addMcpConfig() path; it will not auto-connect the server."
@@ -546,15 +576,10 @@ fn format_mcp_add_template_error(args: &ParsedMcpAddTemplateArgs) -> Option<Stri
 fn format_mcp_add_template_plan(args: &ParsedMcpAddTemplateArgs) -> String {
     let ttl_min = MCP_TEMPLATE_PLAN_TOKEN_TTL_MS / 60_000;
     let template_name = args.template_name.as_deref().unwrap_or("(unknown)");
-    let server_name = args
-        .server_name
-        .as_deref()
-        .unwrap_or(template_name);
+    let server_name = args.server_name.as_deref().unwrap_or(template_name);
     let scope = args.scope.as_deref().unwrap_or("local");
 
-    let template = BUILTIN_TEMPLATES
-        .iter()
-        .find(|t| t.name == template_name);
+    let template = BUILTIN_TEMPLATES.iter().find(|t| t.name == template_name);
 
     let mut lines = Vec::new();
     lines.push("ℹ MCP add-template dry-run".to_string());
@@ -695,9 +720,7 @@ impl Directive for BridgesDirective {
                 )))
             }
 
-            "templates" | "template" => {
-                Ok(CommandResult::Text(format_templates_list()))
-            }
+            "templates" | "template" => Ok(CommandResult::Text(format_templates_list())),
 
             "status" | "stat" => {
                 // In a real implementation, this reads live MCP state.
@@ -798,8 +821,7 @@ impl Directive for BridgesDirective {
             }
 
             "help" | "-h" | "--help" => {
-                let mut help =
-                    String::from("Usage: /mcp [subcommand]\n\nSubcommands:\n");
+                let mut help = String::from("Usage: /mcp [subcommand]\n\nSubcommands:\n");
                 for (cmd, desc) in MCP_SUBCOMMANDS {
                     help.push_str(&format!("  {:16} {}\n", cmd, desc));
                 }

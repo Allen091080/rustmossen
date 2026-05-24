@@ -4,7 +4,8 @@
 
 use super::constants::TOOL_SEARCH_TOOL_NAME;
 
-const PROMPT_HEAD: &str = "Fetches full schema definitions for deferred tools so they can be called.\n\n";
+const PROMPT_HEAD: &str =
+    "Fetches full schema definitions for deferred tools so they can be called.\n\n";
 
 const PROMPT_TAIL: &str = r#" Until fetched, only the name is known — there is no parameter schema, so the tool cannot be invoked. This tool takes a query, matches it against the deferred tool list, and returns the matched tools' complete JSONSchema definitions inside a <functions> block. Once a tool's schema appears in that result, it is callable exactly like any tool defined at the top of the prompt.
 

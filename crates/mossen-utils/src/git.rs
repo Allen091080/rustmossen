@@ -4,12 +4,11 @@
 //! normalization, file status tracking, and git state preservation for
 //! issue submission.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 // --------------------------------------------------------------------------
@@ -93,9 +92,7 @@ pub fn find_git_root(start_path: &str) -> Option<String> {
 fn find_git_root_impl(start_path: &str) -> Option<String> {
     let mut current = PathBuf::from(start_path);
     if !current.is_absolute() {
-        current = std::env::current_dir()
-            .unwrap_or_default()
-            .join(&current);
+        current = std::env::current_dir().unwrap_or_default().join(&current);
     }
     current = current.canonicalize().unwrap_or(current);
 
@@ -124,7 +121,9 @@ pub fn find_canonical_git_root(start_path: &str) -> Option<String> {
     let root = find_git_root(start_path)?;
 
     {
-        let cache = CANONICAL_ROOT_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let cache = CANONICAL_ROOT_CACHE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(cached) = cache.get(&root) {
             return Some(cached.clone());
         }
@@ -133,7 +132,9 @@ pub fn find_canonical_git_root(start_path: &str) -> Option<String> {
     let resolved = resolve_canonical_root(&root);
 
     {
-        let mut cache = CANONICAL_ROOT_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = CANONICAL_ROOT_CACHE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         cache.insert(root.clone(), resolved.clone());
     }
 
@@ -389,8 +390,7 @@ pub async fn get_is_clean(ignore_untracked: bool) -> bool {
 
 /// Get changed files from git status.
 pub async fn get_changed_files() -> Vec<String> {
-    let (stdout, _) =
-        exec_git_no_throw(&["--no-optional-locks", "status", "--porcelain"]).await;
+    let (stdout, _) = exec_git_no_throw(&["--no-optional-locks", "status", "--porcelain"]).await;
     stdout
         .trim()
         .lines()
@@ -408,8 +408,7 @@ pub async fn get_changed_files() -> Vec<String> {
 
 /// Get file status (tracked vs untracked).
 pub async fn get_file_status() -> GitFileStatus {
-    let (stdout, _) =
-        exec_git_no_throw(&["--no-optional-locks", "status", "--porcelain"]).await;
+    let (stdout, _) = exec_git_no_throw(&["--no-optional-locks", "status", "--porcelain"]).await;
 
     let mut result = GitFileStatus::default();
 
@@ -434,12 +433,7 @@ pub async fn get_file_status() -> GitFileStatus {
 pub async fn stash_to_clean_state(message: Option<&str>) -> bool {
     let stash_message = message
         .map(|m| m.to_string())
-        .unwrap_or_else(|| {
-            format!(
-                "Mossen auto-stash - {}",
-                chrono::Utc::now().to_rfc3339()
-            )
-        });
+        .unwrap_or_else(|| format!("Mossen auto-stash - {}", chrono::Utc::now().to_rfc3339()));
 
     // First, check for untracked files
     let status = get_file_status().await;
@@ -454,8 +448,7 @@ pub async fn stash_to_clean_state(message: Option<&str>) -> bool {
         }
     }
 
-    let (_, code) =
-        exec_git_no_throw(&["stash", "push", "--message", &stash_message]).await;
+    let (_, code) = exec_git_no_throw(&["stash", "push", "--message", &stash_message]).await;
     code == 0
 }
 
@@ -496,13 +489,8 @@ pub async fn get_git_state() -> Option<GitRepoState> {
 /// Find the best remote branch to use as a base.
 pub async fn find_remote_base() -> Option<String> {
     // First try: tracking branch
-    let (stdout, code) = exec_git_no_throw(&[
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        "@{u}",
-    ])
-    .await;
+    let (stdout, code) =
+        exec_git_no_throw(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).await;
     if code == 0 && !stdout.trim().is_empty() {
         return Some(stdout.trim().to_string());
     }
@@ -555,8 +543,7 @@ const MAX_FILE_COUNT: usize = 20000;
 
 /// Capture untracked files (git diff doesn't include them).
 pub async fn capture_untracked_files() -> Vec<UntrackedFile> {
-    let (stdout, code) =
-        exec_git_no_throw(&["ls-files", "--others", "--exclude-standard"]).await;
+    let (stdout, code) = exec_git_no_throw(&["ls-files", "--others", "--exclude-standard"]).await;
     if code != 0 || stdout.trim().is_empty() {
         return Vec::new();
     }
@@ -619,13 +606,11 @@ pub async fn capture_untracked_files() -> Vec<UntrackedFile> {
 /// Check if a file has a known binary extension.
 fn has_binary_extension(path: &str) -> bool {
     const BINARY_EXTS: &[&str] = &[
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg",
-        ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flac",
-        ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
-        ".exe", ".dll", ".so", ".dylib", ".bin", ".obj", ".o", ".a",
-        ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-        ".pyc", ".pyo", ".class", ".jar",
+        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".mp3", ".mp4", ".wav",
+        ".avi", ".mov", ".mkv", ".flac", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar",
+        ".exe", ".dll", ".so", ".dylib", ".bin", ".obj", ".o", ".a", ".woff", ".woff2", ".ttf",
+        ".otf", ".eot", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pyc", ".pyo",
+        ".class", ".jar",
     ];
 
     let lower = path.to_lowercase();
@@ -739,14 +724,13 @@ pub async fn preserve_git_state_for_issue(cwd: &str) -> Option<PreservedGitState
     let head_sha_fut = exec_git_no_throw(&["rev-parse", "HEAD"]);
     let branch_name_fut = exec_git_no_throw(&["rev-parse", "--abbrev-ref", "HEAD"]);
 
-    let (patch_result, untracked_files, format_patch_result, head_sha_result, branch_result) =
-        tokio::join!(
-            patch_fut,
-            untracked_fut,
-            format_patch_fut,
-            head_sha_fut,
-            branch_name_fut
-        );
+    let (patch_result, untracked_files, format_patch_result, head_sha_result, branch_result) = tokio::join!(
+        patch_fut,
+        untracked_fut,
+        format_patch_fut,
+        head_sha_fut,
+        branch_name_fut
+    );
 
     let format_patch = if format_patch_result.1 == 0 && !format_patch_result.0.trim().is_empty() {
         Some(format_patch_result.0)
@@ -811,12 +795,20 @@ pub async fn get_github_repo() -> Option<String> {
 
 /// 获取当前 HEAD 的 SHA（对应 TS `getHead`）。
 pub async fn get_head() -> String {
-    exec_git_no_throw(&["rev-parse", "HEAD"]).await.0.trim().to_string()
+    exec_git_no_throw(&["rev-parse", "HEAD"])
+        .await
+        .0
+        .trim()
+        .to_string()
 }
 
 /// 获取当前分支名（对应 TS `getBranch`）。
 pub async fn get_branch() -> String {
-    exec_git_no_throw(&["rev-parse", "--abbrev-ref", "HEAD"]).await.0.trim().to_string()
+    exec_git_no_throw(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .await
+        .0
+        .trim()
+        .to_string()
 }
 
 /// 获取 worktree 数量（对应 TS `getWorktreeCount`）。

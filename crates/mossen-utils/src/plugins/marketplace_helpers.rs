@@ -1,21 +1,20 @@
-use std::collections::HashMap;
-
 use regex::Regex;
 use tracing::debug;
 
 use super::schemas::MarketplaceSource;
 
 /// Format plugin failure details for user display.
-pub fn format_failure_details(
-    failures: &[FailureInfo],
-    include_reasons: bool,
-) -> String {
+pub fn format_failure_details(failures: &[FailureInfo], include_reasons: bool) -> String {
     let max_show = 2;
     let details: Vec<String> = failures
         .iter()
         .take(max_show)
         .map(|f| {
-            let reason = f.reason.as_deref().or(f.error.as_deref()).unwrap_or("unknown error");
+            let reason = f
+                .reason
+                .as_deref()
+                .or(f.error.as_deref())
+                .unwrap_or("unknown error");
             if include_reasons {
                 format!("{} ({})", f.name, reason)
             } else {
@@ -96,7 +95,11 @@ pub fn format_marketplace_loading_errors(
             format!(
                 "Warning: Failed to load {} marketplaces: {}",
                 failures.len(),
-                failures.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(", ")
+                failures
+                    .iter()
+                    .map(|f| f.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         };
         Some(("warning".to_string(), message))
@@ -121,12 +124,16 @@ pub trait PolicySettingsProvider: Send + Sync {
 }
 
 /// Get the strict marketplace source allowlist from policy settings.
-pub fn get_strict_known_marketplaces(provider: &dyn PolicySettingsProvider) -> Option<Vec<MarketplaceSource>> {
+pub fn get_strict_known_marketplaces(
+    provider: &dyn PolicySettingsProvider,
+) -> Option<Vec<MarketplaceSource>> {
     provider.get_strict_known_marketplaces()
 }
 
 /// Get the marketplace source blocklist from policy settings.
-pub fn get_blocked_marketplaces(provider: &dyn PolicySettingsProvider) -> Option<Vec<MarketplaceSource>> {
+pub fn get_blocked_marketplaces(
+    provider: &dyn PolicySettingsProvider,
+) -> Option<Vec<MarketplaceSource>> {
     provider.get_blocked_marketplaces()
 }
 
@@ -142,20 +149,51 @@ fn are_sources_equal(a: &MarketplaceSource, b: &MarketplaceSource) -> bool {
             a_url == b_url
         }
         (
-            MarketplaceSource::GitHub { repo: a_repo, git_ref: a_ref, path: a_path, .. },
-            MarketplaceSource::GitHub { repo: b_repo, git_ref: b_ref, path: b_path, .. },
+            MarketplaceSource::GitHub {
+                repo: a_repo,
+                git_ref: a_ref,
+                path: a_path,
+                ..
+            },
+            MarketplaceSource::GitHub {
+                repo: b_repo,
+                git_ref: b_ref,
+                path: b_path,
+                ..
+            },
         ) => a_repo == b_repo && a_ref == b_ref && a_path == b_path,
         (
-            MarketplaceSource::Git { url: a_url, git_ref: a_ref, path: a_path, .. },
-            MarketplaceSource::Git { url: b_url, git_ref: b_ref, path: b_path, .. },
+            MarketplaceSource::Git {
+                url: a_url,
+                git_ref: a_ref,
+                path: a_path,
+                ..
+            },
+            MarketplaceSource::Git {
+                url: b_url,
+                git_ref: b_ref,
+                path: b_path,
+                ..
+            },
         ) => a_url == b_url && a_ref == b_ref && a_path == b_path,
-        (MarketplaceSource::File { path: a_p }, MarketplaceSource::File { path: b_p }) => a_p == b_p,
-        (MarketplaceSource::Directory { path: a_p }, MarketplaceSource::Directory { path: b_p }) => {
+        (MarketplaceSource::File { path: a_p }, MarketplaceSource::File { path: b_p }) => {
             a_p == b_p
         }
         (
-            MarketplaceSource::Settings { name: a_name, plugins: a_plugins, .. },
-            MarketplaceSource::Settings { name: b_name, plugins: b_plugins, .. },
+            MarketplaceSource::Directory { path: a_p },
+            MarketplaceSource::Directory { path: b_p },
+        ) => a_p == b_p,
+        (
+            MarketplaceSource::Settings {
+                name: a_name,
+                plugins: a_plugins,
+                ..
+            },
+            MarketplaceSource::Settings {
+                name: b_name,
+                plugins: b_plugins,
+                ..
+            },
         ) => a_name == b_name && a_plugins == b_plugins,
         _ => false,
     }
@@ -172,11 +210,13 @@ pub fn extract_host_from_source(source: &MarketplaceSource) -> Option<String> {
                 return Some(caps[1].to_string());
             }
             // HTTPS format
-            url::Url::parse(url).ok().and_then(|u| u.host_str().map(|s| s.to_string()))
+            url::Url::parse(url)
+                .ok()
+                .and_then(|u| u.host_str().map(|s| s.to_string()))
         }
-        MarketplaceSource::Url { url, .. } => {
-            url::Url::parse(url).ok().and_then(|u| u.host_str().map(|s| s.to_string()))
-        }
+        MarketplaceSource::Url { url, .. } => url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string())),
         _ => None,
     }
 }
@@ -230,30 +270,42 @@ pub fn get_host_patterns_from_allowlist(provider: &dyn PolicySettingsProvider) -
 }
 
 /// Check if a marketplace source is explicitly in the blocklist.
-pub fn is_source_in_blocklist(source: &MarketplaceSource, provider: &dyn PolicySettingsProvider) -> bool {
+pub fn is_source_in_blocklist(
+    source: &MarketplaceSource,
+    provider: &dyn PolicySettingsProvider,
+) -> bool {
     let blocklist = match provider.get_blocked_marketplaces() {
         Some(b) => b,
         None => return false,
     };
-    blocklist.iter().any(|blocked| are_sources_equivalent_for_blocklist(source, blocked))
+    blocklist
+        .iter()
+        .any(|blocked| are_sources_equivalent_for_blocklist(source, blocked))
 }
 
 /// Check if two sources are equivalent for blocklist purposes.
-fn are_sources_equivalent_for_blocklist(source: &MarketplaceSource, blocked: &MarketplaceSource) -> bool {
+fn are_sources_equivalent_for_blocklist(
+    source: &MarketplaceSource,
+    blocked: &MarketplaceSource,
+) -> bool {
     // Same type comparison
     if std::mem::discriminant(source) == std::mem::discriminant(blocked) {
         return are_sources_equal(source, blocked);
     }
 
     // Cross-type: git source matches github blocklist
-    if let (MarketplaceSource::Git { url, .. }, MarketplaceSource::GitHub { repo, .. }) = (source, blocked) {
+    if let (MarketplaceSource::Git { url, .. }, MarketplaceSource::GitHub { repo, .. }) =
+        (source, blocked)
+    {
         if let Some(extracted) = extract_github_repo_from_git_url(url) {
             return &extracted == repo;
         }
     }
 
     // Cross-type: github source matches git blocklist
-    if let (MarketplaceSource::GitHub { repo, .. }, MarketplaceSource::Git { url, .. }) = (source, blocked) {
+    if let (MarketplaceSource::GitHub { repo, .. }, MarketplaceSource::Git { url, .. }) =
+        (source, blocked)
+    {
         if let Some(extracted) = extract_github_repo_from_git_url(url) {
             return repo == &extracted;
         }
@@ -277,7 +329,10 @@ fn extract_github_repo_from_git_url(url: &str) -> Option<String> {
 }
 
 /// Check if a marketplace source is allowed by enterprise policy.
-pub fn is_source_allowed_by_policy(source: &MarketplaceSource, provider: &dyn PolicySettingsProvider) -> bool {
+pub fn is_source_allowed_by_policy(
+    source: &MarketplaceSource,
+    provider: &dyn PolicySettingsProvider,
+) -> bool {
     // Check blocklist first
     if is_source_in_blocklist(source, provider) {
         return false;
@@ -304,12 +359,18 @@ pub fn is_source_allowed_by_policy(source: &MarketplaceSource, provider: &dyn Po
 pub fn format_source_for_display(source: &MarketplaceSource) -> String {
     match source {
         MarketplaceSource::GitHub { repo, git_ref, .. } => {
-            let ref_str = git_ref.as_ref().map(|r| format!("@{}", r)).unwrap_or_default();
+            let ref_str = git_ref
+                .as_ref()
+                .map(|r| format!("@{}", r))
+                .unwrap_or_default();
             format!("github:{}{}", repo, ref_str)
         }
         MarketplaceSource::Url { url, .. } => url.clone(),
         MarketplaceSource::Git { url, git_ref, .. } => {
-            let ref_str = git_ref.as_ref().map(|r| format!("@{}", r)).unwrap_or_default();
+            let ref_str = git_ref
+                .as_ref()
+                .map(|r| format!("@{}", r))
+                .unwrap_or_default();
             format!("git:{}{}", url, ref_str)
         }
         MarketplaceSource::File { path } => format!("file:{}", path),

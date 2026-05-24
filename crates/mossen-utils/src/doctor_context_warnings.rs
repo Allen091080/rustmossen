@@ -2,8 +2,6 @@
 //! MCP tools context, and unreachable permission rules.
 
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 
 /// Warning severity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +177,10 @@ pub fn check_agent_descriptions(
         .filter(|a| a.source != "built-in")
         .map(|agent| {
             let description = format!("{}: {}", agent.agent_type, agent.when_to_use);
-            (agent.agent_type.clone(), rough_token_count_estimation(&description))
+            (
+                agent.agent_type.clone(),
+                rough_token_count_estimation(&description),
+            )
         })
         .collect();
 
@@ -250,7 +251,12 @@ pub fn check_mcp_tools(
             .iter()
             .take(5)
             .map(|(name, (count, tokens))| {
-                format!("{}: {} tools (~{} tokens)", name, count, format_number(*tokens))
+                format!(
+                    "{}: {} tools (~{} tokens)",
+                    name,
+                    count,
+                    format_number(*tokens)
+                )
             })
             .collect();
 

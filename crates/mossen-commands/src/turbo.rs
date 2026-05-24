@@ -47,14 +47,19 @@ impl Directive for TurboDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.first().map(|a| matches!(*a, "help" | "-h" | "--help")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
             return Ok(CommandResult::Text(
                 "Usage: /fast [on|off]\n\n                 Toggle fast/turbo mode for quicker responses.\n\n                 When enabled:\n                 - Uses a faster model variant\n                 - Reduces reasoning depth\n                 - Limits response length\n                 - Optimizes for speed over thoroughness\n\n                 Without arguments, toggles the current state."
                     .to_string(),
             ));
         }
 
-        let current = ctx.env_vars
+        let current = ctx
+            .env_vars
             .get("MOSSEN_FAST_MODE")
             .map(|v| matches!(v.as_str(), "1" | "true" | "on"))
             .unwrap_or(false);

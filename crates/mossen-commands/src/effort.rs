@@ -24,7 +24,7 @@ fn get_effort_value_description(value: &str) -> &'static str {
         "low" => "Quick, straightforward implementation",
         "medium" => "Balanced approach with standard testing",
         "high" => "Comprehensive implementation with extensive testing",
-        "max" => "Maximum capability with deepest reasoning (Opus 4.6 only)",
+        "max" => "Maximum capability with deepest reasoning (Max 4.6 only)",
         _ => "Unknown effort level",
     }
 }
@@ -53,7 +53,11 @@ fn set_effort_value(effort_value: &str) -> EffortCommandResult {
 
     let description = get_effort_value_description(effort_value);
     let is_persistable = is_effort_level(effort_value);
-    let suffix = if is_persistable { "" } else { " (this session only)" };
+    let suffix = if is_persistable {
+        ""
+    } else {
+        " (this session only)"
+    };
 
     EffortCommandResult {
         message: format!(
@@ -163,7 +167,7 @@ impl Directive for EffortDirective {
                  - low: Quick, straightforward implementation\n\
                  - medium: Balanced approach with standard testing\n\
                  - high: Comprehensive implementation with extensive testing\n\
-                 - max: Maximum capability with deepest reasoning (Opus 4.6 only)\n\
+                 - max: Maximum capability with deepest reasoning (Max 4.6 only)\n\
                  - auto: Use the default effort level for your model"
                     .to_string(),
             ));

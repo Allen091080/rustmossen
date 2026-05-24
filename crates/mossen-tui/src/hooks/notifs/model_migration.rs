@@ -59,9 +59,9 @@ impl Default for ModelMigrationNotificationState {
 /// milliseconds since epoch.
 #[derive(Debug, Clone, Default)]
 pub struct ModelMigrationConfigSnapshot {
-    pub sonnet_45_to_46_migration_timestamp: Option<u64>,
-    pub legacy_opus_migration_timestamp: Option<u64>,
-    pub opus_pro_migration_timestamp: Option<u64>,
+    pub balanced_45_to_46_migration_timestamp: Option<u64>,
+    pub legacy_max_migration_timestamp: Option<u64>,
+    pub max_pro_migration_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,26 +92,29 @@ pub fn use_model_migration_notifications(
 ) -> Vec<ModelMigrationNotificationEvent> {
     let mut out = Vec::new();
 
-    if recent(config.sonnet_45_to_46_migration_timestamp, now_ms) {
+    if recent(config.balanced_45_to_46_migration_timestamp, now_ms) {
         out.push(ModelMigrationNotificationEvent {
-            key: "sonnet-46-update".to_string(),
-            text: "Model updated to Sonnet 4.6".to_string(),
+            key: "balanced-46-update".to_string(),
+            text: "Model updated to Balanced 4.6".to_string(),
             color: "suggestion".to_string(),
             priority: "high".to_string(),
             timeout_ms: 3000,
         });
     }
 
-    let is_legacy_remap = config.legacy_opus_migration_timestamp.is_some();
-    let opus_ts = config.legacy_opus_migration_timestamp.or(config.opus_pro_migration_timestamp);
-    if recent(opus_ts, now_ms) {
+    let is_legacy_remap = config.legacy_max_migration_timestamp.is_some();
+    let max_ts = config
+        .legacy_max_migration_timestamp
+        .or(config.max_pro_migration_timestamp);
+    if recent(max_ts, now_ms) {
         let text = if is_legacy_remap {
-            "Model updated to Opus 4.6 · Set MOSSEN_CODE_DISABLE_LEGACY_MODEL_REMAP=1 to opt out".to_string()
+            "Model updated to Max 4.6 · Set MOSSEN_CODE_DISABLE_LEGACY_MODEL_REMAP=1 to opt out"
+                .to_string()
         } else {
-            "Model updated to Opus 4.6".to_string()
+            "Model updated to Max 4.6".to_string()
         };
         out.push(ModelMigrationNotificationEvent {
-            key: "opus-pro-update".to_string(),
+            key: "max-pro-update".to_string(),
             text,
             color: "suggestion".to_string(),
             priority: "high".to_string(),

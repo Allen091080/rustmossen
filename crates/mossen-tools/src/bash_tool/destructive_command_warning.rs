@@ -23,7 +23,7 @@ fn destructive_patterns() -> Vec<DestructivePattern> {
             warning: "Note: may overwrite remote history",
         },
         DestructivePattern {
-            pattern: Regex::new(r"\bgit\s+clean\b(?![^;&|\n]*(?:-[a-zA-Z]*n|--dry-run))[^;&|\n]*-[a-zA-Z]*f").unwrap(),
+            pattern: Regex::new(r"$^").unwrap(),
             warning: "Note: may permanently delete untracked files",
         },
         DestructivePattern {
@@ -88,6 +88,10 @@ fn destructive_patterns() -> Vec<DestructivePattern> {
 /// Checks if a bash command matches known destructive patterns.
 /// Returns a human-readable warning string, or `None` if no destructive pattern is detected.
 pub fn get_destructive_command_warning(command: &str) -> Option<&'static str> {
+    if git_clean_force_without_dry_run(command) {
+        return Some("Note: may permanently delete untracked files");
+    }
+
     let patterns = destructive_patterns();
     for dp in &patterns {
         if dp.pattern.is_match(command) {
@@ -95,6 +99,27 @@ pub fn get_destructive_command_warning(command: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+fn git_clean_force_without_dry_run(command: &str) -> bool {
+    for segment in command.split([';', '&', '|', '\n']) {
+        let tokens: Vec<&str> = segment.split_whitespace().collect();
+        if tokens.len() < 3 || tokens.first() != Some(&"git") || tokens.get(1) != Some(&"clean") {
+            continue;
+        }
+        let dry_run = tokens
+            .iter()
+            .skip(2)
+            .any(|t| *t == "--dry-run" || (*t).starts_with('-') && t.contains('n'));
+        let force = tokens
+            .iter()
+            .skip(2)
+            .any(|t| (*t).starts_with('-') && t.contains('f'));
+        if force && !dry_run {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

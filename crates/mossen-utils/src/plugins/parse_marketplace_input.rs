@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -104,9 +104,7 @@ pub async fn parse_marketplace_input(input: &str) -> Result<Option<MarketplaceSo
             Ok(meta) => {
                 if meta.is_file() {
                     if resolved_str.ends_with(".json") {
-                        return Ok(Some(MarketplaceSource::File {
-                            path: resolved_str,
-                        }));
+                        return Ok(Some(MarketplaceSource::File { path: resolved_str }));
                     } else {
                         return Err(format!(
                             "File path must point to a .json file (marketplace.json), but got: {}",
@@ -114,9 +112,7 @@ pub async fn parse_marketplace_input(input: &str) -> Result<Option<MarketplaceSo
                         ));
                     }
                 } else if meta.is_dir() {
-                    return Ok(Some(MarketplaceSource::Directory {
-                        path: resolved_str,
-                    }));
+                    return Ok(Some(MarketplaceSource::Directory { path: resolved_str }));
                 } else {
                     return Err(format!(
                         "Path is neither a file nor a directory: {}",

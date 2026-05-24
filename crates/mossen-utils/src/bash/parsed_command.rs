@@ -2,7 +2,9 @@
 //!
 //! Translated from `ParsedCommand.ts` (319 lines).
 
-use crate::bash::commands::{extract_output_redirections, split_command_with_operators, OutputRedirection};
+use crate::bash::commands::{
+    extract_output_redirections, split_command_with_operators, OutputRedirection,
+};
 use crate::bash::tree_sitter_analysis::{analyze_command, TreeSitterAnalysis};
 use crate::bash::types::TsNode;
 
@@ -122,7 +124,10 @@ fn extract_redirection_nodes(root_node: &TsNode) -> Vec<RedirectionNode> {
     let mut redirections: Vec<RedirectionNode> = Vec::new();
     visit_nodes(root_node, &mut |node| {
         if node.node_type == "file_redirect" {
-            let op = node.children.iter().find(|c| c.node_type == ">" || c.node_type == ">>");
+            let op = node
+                .children
+                .iter()
+                .find(|c| c.node_type == ">" || c.node_type == ">>");
             let target = node.children.iter().find(|c| c.node_type == "word");
             if let (Some(op_node), Some(target_node)) = (op, target) {
                 redirections.push(RedirectionNode {
@@ -247,12 +252,15 @@ pub fn build_parsed_command_from_root(command: &str, root: &TsNode) -> Box<dyn I
     Box::new(TreeSitterParsedCommand::new(
         command.to_string(),
         pipe_positions,
-        redirection_nodes.iter().map(|r| RedirectionNode {
-            start_index: r.start_index,
-            end_index: r.end_index,
-            target: r.target.clone(),
-            operator: r.operator.clone(),
-        }).collect(),
+        redirection_nodes
+            .iter()
+            .map(|r| RedirectionNode {
+                start_index: r.start_index,
+                end_index: r.end_index,
+                target: r.target.clone(),
+                operator: r.operator.clone(),
+            })
+            .collect(),
         analysis,
     ))
 }
@@ -297,8 +305,8 @@ pub struct ParsedCommand;
 impl ParsedCommand {
     /// 对应 TS `ParsedCommand.parse`。
     pub fn parse(command: &str) -> Option<Box<dyn IParsedCommand>> {
-        use std::sync::Mutex;
         use once_cell::sync::Lazy;
+        use std::sync::Mutex;
 
         static LAST: Lazy<Mutex<Option<(String,)>>> = Lazy::new(|| Mutex::new(None));
         // 简化版：TS 端缓存的是 Promise，Rust 端缓存命中只能短路相同命令的解析路径选择。

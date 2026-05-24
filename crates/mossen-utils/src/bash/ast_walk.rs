@@ -2,12 +2,9 @@
 //!
 //! Translated from `ast.ts` (2679 lines) — the walker and semantic checks.
 
-use std::collections::HashSet;
-use regex::Regex;
-
 use crate::bash::ast::{
-    CommandArg, Redirect, SimpleCommand, WalkResult, WalkScope,
-    EVAL_LIKE_BUILTINS, ZSH_DANGEROUS_BUILTINS, BARE_VAR_UNSAFE_RE, NEWLINE_HASH_RE,
+    CommandArg, Redirect, SimpleCommand, WalkResult, WalkScope, BARE_VAR_UNSAFE_RE,
+    EVAL_LIKE_BUILTINS, NEWLINE_HASH_RE, ZSH_DANGEROUS_BUILTINS,
 };
 use crate::bash::types::TsNode;
 
@@ -139,7 +136,9 @@ fn walk_command(node: &TsNode, scope: &mut WalkScope, source: &str) -> Option<Si
                     let var_name = &text[..eq_pos];
                     let var_value = &text[eq_pos + 1..];
                     env_vars.push((var_name.to_string(), var_value.to_string()));
-                    scope.vars.insert(var_name.to_string(), var_value.to_string());
+                    scope
+                        .vars
+                        .insert(var_name.to_string(), var_value.to_string());
                 }
             }
             "command_name" => {
@@ -198,7 +197,11 @@ fn walk_command(node: &TsNode, scope: &mut WalkScope, source: &str) -> Option<Si
 }
 
 /// Walk a declaration command node (export, declare, etc.).
-fn walk_declaration_command(node: &TsNode, scope: &mut WalkScope, source: &str) -> Option<SimpleCommand> {
+fn walk_declaration_command(
+    node: &TsNode,
+    scope: &mut WalkScope,
+    source: &str,
+) -> Option<SimpleCommand> {
     let mut name = String::new();
     let mut args: Vec<CommandArg> = Vec::new();
 
@@ -234,10 +237,13 @@ fn walk_declaration_command(node: &TsNode, scope: &mut WalkScope, source: &str) 
 }
 
 /// Walk an unset command.
-fn walk_unset_command(node: &TsNode, source: &str) -> Option<SimpleCommand> {
+fn walk_unset_command(node: &TsNode, _source: &str) -> Option<SimpleCommand> {
     let mut args: Vec<CommandArg> = Vec::new();
     for child in &node.children {
-        if child.node_type == "word" || child.node_type == "string" || child.node_type == "raw_string" {
+        if child.node_type == "word"
+            || child.node_type == "string"
+            || child.node_type == "raw_string"
+        {
             args.push(CommandArg::Static(child.text.clone()));
         }
     }
@@ -339,7 +345,7 @@ fn walk_argument(node: &TsNode, scope: &mut WalkScope, source: &str) -> CommandA
 }
 
 /// Walk a double-quoted string node.
-fn walk_string(node: &TsNode, scope: &mut WalkScope, source: &str) -> CommandArg {
+fn walk_string(node: &TsNode, scope: &mut WalkScope, _source: &str) -> CommandArg {
     let mut result = String::new();
     let mut is_all_static = true;
 
@@ -401,7 +407,7 @@ fn resolve_simple_expansion(node: &TsNode, scope: &WalkScope) -> CommandArg {
 }
 
 /// Resolve a node's text value, considering scope.
-fn resolve_node_text(node: &TsNode, scope: &WalkScope, source: &str) -> String {
+fn resolve_node_text(node: &TsNode, scope: &WalkScope, _source: &str) -> String {
     match node.node_type.as_str() {
         "command_name" => {
             // Command name may itself be a word or have children
@@ -436,7 +442,7 @@ fn resolve_node_text(node: &TsNode, scope: &WalkScope, source: &str) -> String {
 
 /// Perform semantic security checks on collected commands.
 /// Returns None if safe, Some(reason) if rejected.
-pub fn check_semantics(commands: &[SimpleCommand], source: &str) -> Option<String> {
+pub fn check_semantics(commands: &[SimpleCommand], _source: &str) -> Option<String> {
     for cmd in commands {
         let cmd_name = cmd.name.as_str();
 

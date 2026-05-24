@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use tokio::fs;
@@ -7,7 +7,7 @@ use tracing::debug;
 
 /// CDN-fronted domain for the public GCS bucket.
 const GCS_BASE: &str =
-    "https://downloads.mossen.invalid/mossen-code-releases/plugins/mossen-plugins-official";
+    "https://downloads.mossen.invalid/cli-releases/plugins/mossen-plugins-official";
 
 /// Zip arc paths are seed-dir-relative; strip this prefix when extracting.
 const ARC_PREFIX: &str = "marketplaces/mossen-plugins-official/";
@@ -16,8 +16,16 @@ const ARC_PREFIX: &str = "marketplaces/mossen-plugins-official/";
 static KNOWN_FS_CODES: once_cell::sync::Lazy<HashSet<&'static str>> =
     once_cell::sync::Lazy::new(|| {
         [
-            "ENOSPC", "EACCES", "EPERM", "EXDEV", "EBUSY", "ENOENT", "ENOTDIR", "EROFS",
-            "EMFILE", "ENAMETOOLONG",
+            "ENOSPC",
+            "EACCES",
+            "EPERM",
+            "EXDEV",
+            "EBUSY",
+            "ENOENT",
+            "ENOTDIR",
+            "EROFS",
+            "EMFILE",
+            "ENAMETOOLONG",
         ]
         .into_iter()
         .collect()
@@ -76,7 +84,9 @@ pub async fn fetch_official_marketplace_from_gcs(
     analytics: Option<&dyn AnalyticsLogger>,
 ) -> Option<String> {
     // Defense in depth: refuse any path outside the marketplaces cache dir.
-    let cache_dir = marketplaces_cache_dir.canonicalize().unwrap_or_else(|_| marketplaces_cache_dir.to_path_buf());
+    let cache_dir = marketplaces_cache_dir
+        .canonicalize()
+        .unwrap_or_else(|_| marketplaces_cache_dir.to_path_buf());
     let resolved_loc = install_location
         .canonicalize()
         .unwrap_or_else(|_| install_location.to_path_buf());
@@ -118,7 +128,7 @@ pub async fn fetch_official_marketplace_from_gcs(
 
     if let Some(logger) = analytics {
         logger.log_event(
-            "tengu_plugin_remote_fetch",
+            "mossen_plugin_remote_fetch",
             GcsFetchTelemetry {
                 source: "marketplace_gcs".to_string(),
                 host: "downloads.mossen.invalid".to_string(),
@@ -165,7 +175,10 @@ async fn fetch_inner(
 
     // 2. Sentinel check
     let sentinel_path = install_location.join(".gcs-sha");
-    let current_sha = fs::read_to_string(&sentinel_path).await.ok().map(|s| s.trim().to_string());
+    let current_sha = fs::read_to_string(&sentinel_path)
+        .await
+        .ok()
+        .map(|s| s.trim().to_string());
     if current_sha.as_deref() == Some(&fetched_sha) {
         return Ok(FetchOutcome::Noop);
     }
@@ -204,7 +217,8 @@ async fn fetch_inner(
         if let Some(&mode) = modes.get(arc_path.as_str()) {
             if mode & 0o111 != 0 {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&dest, std::fs::Permissions::from_mode(mode & 0o777)).await;
+                let _ =
+                    fs::set_permissions(&dest, std::fs::Permissions::from_mode(mode & 0o777)).await;
             }
         }
     }

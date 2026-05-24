@@ -103,38 +103,134 @@ struct McpPattern {
 
 static MCP_SERVER_PATTERNS: Lazy<Vec<McpPattern>> = Lazy::new(|| {
     vec![
-        McpPattern { pattern: Regex::new(r"(?i)^sourcegraph$").unwrap(), tool: CodeIndexingTool::Sourcegraph },
-        McpPattern { pattern: Regex::new(r"(?i)^cody$").unwrap(), tool: CodeIndexingTool::Cody },
-        McpPattern { pattern: Regex::new(r"(?i)^openctx$").unwrap(), tool: CodeIndexingTool::Openctx },
-        McpPattern { pattern: Regex::new(r"(?i)^aider$").unwrap(), tool: CodeIndexingTool::Aider },
-        McpPattern { pattern: Regex::new(r"(?i)^continue$").unwrap(), tool: CodeIndexingTool::Continue },
-        McpPattern { pattern: Regex::new(r"(?i)^github[-_]?copilot$").unwrap(), tool: CodeIndexingTool::GithubCopilot },
-        McpPattern { pattern: Regex::new(r"(?i)^copilot$").unwrap(), tool: CodeIndexingTool::GithubCopilot },
-        McpPattern { pattern: Regex::new(r"(?i)^cursor$").unwrap(), tool: CodeIndexingTool::Cursor },
-        McpPattern { pattern: Regex::new(r"(?i)^tabby$").unwrap(), tool: CodeIndexingTool::Tabby },
-        McpPattern { pattern: Regex::new(r"(?i)^codeium$").unwrap(), tool: CodeIndexingTool::Codeium },
-        McpPattern { pattern: Regex::new(r"(?i)^tabnine$").unwrap(), tool: CodeIndexingTool::Tabnine },
-        McpPattern { pattern: Regex::new(r"(?i)^augment[-_]?code$").unwrap(), tool: CodeIndexingTool::Augment },
-        McpPattern { pattern: Regex::new(r"(?i)^augment$").unwrap(), tool: CodeIndexingTool::Augment },
-        McpPattern { pattern: Regex::new(r"(?i)^windsurf$").unwrap(), tool: CodeIndexingTool::Windsurf },
-        McpPattern { pattern: Regex::new(r"(?i)^aide$").unwrap(), tool: CodeIndexingTool::Aide },
-        McpPattern { pattern: Regex::new(r"(?i)^codestory$").unwrap(), tool: CodeIndexingTool::Aide },
-        McpPattern { pattern: Regex::new(r"(?i)^pieces$").unwrap(), tool: CodeIndexingTool::Pieces },
-        McpPattern { pattern: Regex::new(r"(?i)^qodo$").unwrap(), tool: CodeIndexingTool::Qodo },
-        McpPattern { pattern: Regex::new(r"(?i)^amazon[-_]?q$").unwrap(), tool: CodeIndexingTool::AmazonQ },
-        McpPattern { pattern: Regex::new(r"(?i)^gemini[-_]?code[-_]?assist$").unwrap(), tool: CodeIndexingTool::Gemini },
-        McpPattern { pattern: Regex::new(r"(?i)^gemini$").unwrap(), tool: CodeIndexingTool::Gemini },
-        McpPattern { pattern: Regex::new(r"(?i)^hound$").unwrap(), tool: CodeIndexingTool::Hound },
-        McpPattern { pattern: Regex::new(r"(?i)^seagoat$").unwrap(), tool: CodeIndexingTool::Seagoat },
-        McpPattern { pattern: Regex::new(r"(?i)^bloop$").unwrap(), tool: CodeIndexingTool::Bloop },
-        McpPattern { pattern: Regex::new(r"(?i)^gitloop$").unwrap(), tool: CodeIndexingTool::Gitloop },
-        McpPattern { pattern: Regex::new(r"(?i)^mossen[-_]?context$").unwrap(), tool: CodeIndexingTool::MossenContext },
-        McpPattern { pattern: Regex::new(r"(?i)^code[-_]?index[-_]?mcp$").unwrap(), tool: CodeIndexingTool::CodeIndexMcp },
-        McpPattern { pattern: Regex::new(r"(?i)^code[-_]?index$").unwrap(), tool: CodeIndexingTool::CodeIndexMcp },
-        McpPattern { pattern: Regex::new(r"(?i)^local[-_]?code[-_]?search$").unwrap(), tool: CodeIndexingTool::LocalCodeSearch },
-        McpPattern { pattern: Regex::new(r"(?i)^codebase$").unwrap(), tool: CodeIndexingTool::AutodevCodebase },
-        McpPattern { pattern: Regex::new(r"(?i)^autodev[-_]?codebase$").unwrap(), tool: CodeIndexingTool::AutodevCodebase },
-        McpPattern { pattern: Regex::new(r"(?i)^code[-_]?context$").unwrap(), tool: CodeIndexingTool::MossenContext },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^sourcegraph$").unwrap(),
+            tool: CodeIndexingTool::Sourcegraph,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^cody$").unwrap(),
+            tool: CodeIndexingTool::Cody,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^openctx$").unwrap(),
+            tool: CodeIndexingTool::Openctx,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^aider$").unwrap(),
+            tool: CodeIndexingTool::Aider,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^continue$").unwrap(),
+            tool: CodeIndexingTool::Continue,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^github[-_]?copilot$").unwrap(),
+            tool: CodeIndexingTool::GithubCopilot,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^copilot$").unwrap(),
+            tool: CodeIndexingTool::GithubCopilot,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^cursor$").unwrap(),
+            tool: CodeIndexingTool::Cursor,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^tabby$").unwrap(),
+            tool: CodeIndexingTool::Tabby,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^codeium$").unwrap(),
+            tool: CodeIndexingTool::Codeium,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^tabnine$").unwrap(),
+            tool: CodeIndexingTool::Tabnine,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^augment[-_]?code$").unwrap(),
+            tool: CodeIndexingTool::Augment,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^augment$").unwrap(),
+            tool: CodeIndexingTool::Augment,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^windsurf$").unwrap(),
+            tool: CodeIndexingTool::Windsurf,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^aide$").unwrap(),
+            tool: CodeIndexingTool::Aide,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^codestory$").unwrap(),
+            tool: CodeIndexingTool::Aide,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^pieces$").unwrap(),
+            tool: CodeIndexingTool::Pieces,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^qodo$").unwrap(),
+            tool: CodeIndexingTool::Qodo,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^amazon[-_]?q$").unwrap(),
+            tool: CodeIndexingTool::AmazonQ,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^gemini[-_]?code[-_]?assist$").unwrap(),
+            tool: CodeIndexingTool::Gemini,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^gemini$").unwrap(),
+            tool: CodeIndexingTool::Gemini,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^hound$").unwrap(),
+            tool: CodeIndexingTool::Hound,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^seagoat$").unwrap(),
+            tool: CodeIndexingTool::Seagoat,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^bloop$").unwrap(),
+            tool: CodeIndexingTool::Bloop,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^gitloop$").unwrap(),
+            tool: CodeIndexingTool::Gitloop,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^mossen[-_]?context$").unwrap(),
+            tool: CodeIndexingTool::MossenContext,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^code[-_]?index[-_]?mcp$").unwrap(),
+            tool: CodeIndexingTool::CodeIndexMcp,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^code[-_]?index$").unwrap(),
+            tool: CodeIndexingTool::CodeIndexMcp,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^local[-_]?code[-_]?search$").unwrap(),
+            tool: CodeIndexingTool::LocalCodeSearch,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^codebase$").unwrap(),
+            tool: CodeIndexingTool::AutodevCodebase,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^autodev[-_]?codebase$").unwrap(),
+            tool: CodeIndexingTool::AutodevCodebase,
+        },
+        McpPattern {
+            pattern: Regex::new(r"(?i)^code[-_]?context$").unwrap(),
+            tool: CodeIndexingTool::MossenContext,
+        },
     ]
 });
 
@@ -192,9 +288,7 @@ pub fn detect_code_indexing_from_mcp_tool(tool_name: &str) -> Option<CodeIndexin
 }
 
 /// Detects if an MCP server name corresponds to a code indexing tool.
-pub fn detect_code_indexing_from_mcp_server_name(
-    server_name: &str,
-) -> Option<CodeIndexingTool> {
+pub fn detect_code_indexing_from_mcp_server_name(server_name: &str) -> Option<CodeIndexingTool> {
     for pattern in MCP_SERVER_PATTERNS.iter() {
         if pattern.pattern.is_match(server_name) {
             return Some(pattern.tool);

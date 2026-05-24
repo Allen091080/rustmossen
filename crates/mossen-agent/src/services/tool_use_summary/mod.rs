@@ -3,6 +3,8 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use mossen_utils::string_utils::truncate_chars_with_suffix;
+
 /// Information about a tool execution.
 #[derive(Debug, Clone)]
 pub struct ToolInfo {
@@ -32,12 +34,12 @@ Examples:
 /// Truncate a JSON value to a maximum string length.
 fn truncate_json(value: &Value, max_length: usize) -> String {
     let s = serde_json::to_string(value).unwrap_or_else(|_| "[unable to serialize]".to_string());
-    if s.len() <= max_length {
+    if max_length > 3 {
+        truncate_chars_with_suffix(&s, max_length - 3, "...")
+    } else if s.chars().count() <= max_length {
         s
-    } else if max_length > 3 {
-        format!("{}...", &s[..max_length - 3])
     } else {
-        s[..max_length].to_string()
+        s.chars().take(max_length).collect()
     }
 }
 
@@ -49,7 +51,7 @@ pub struct ToolUseSummaryResult {
 
 /// Generate a human-readable summary of completed tools.
 ///
-/// In the full implementation, this calls the fast-tier model (queryHaiku).
+/// In the full implementation, this calls the fast-tier model (queryFast).
 /// Here we build the prompt and simulate the API call structure.
 pub async fn generate_tool_use_summary(
     params: GenerateToolUseSummaryParams,
@@ -65,13 +67,16 @@ pub async fn generate_tool_use_summary(
         .map(|tool| {
             let input_str = truncate_json(&tool.input, 300);
             let output_str = truncate_json(&tool.output, 300);
-            format!("Tool: {}\nInput: {}\nOutput: {}", tool.name, input_str, output_str)
+            format!(
+                "Tool: {}\nInput: {}\nOutput: {}",
+                tool.name, input_str, output_str
+            )
         })
         .collect();
 
     let context_prefix = match &params.last_assistant_text {
         Some(text) => {
-            let truncated = if text.len() > 200 { &text[..200] } else { text };
+            let truncated = truncate_chars_with_suffix(text, 200, "...");
             format!(
                 "User's intent (from assistant's last message): {}\n\n",
                 truncated
@@ -87,7 +92,7 @@ pub async fn generate_tool_use_summary(
     );
 
     match api_caller
-        .call_haiku(TOOL_USE_SUMMARY_SYSTEM_PROMPT, &user_prompt)
+        .call_fast(TOOL_USE_SUMMARY_SYSTEM_PROMPT, &user_prompt)
         .await
     {
         Ok(summary) => {
@@ -105,10 +110,10 @@ pub async fn generate_tool_use_summary(
     }
 }
 
-/// Trait for calling the haiku model (allows mocking in tests).
+/// Trait for calling the fast model (allows mocking in tests).
 #[async_trait::async_trait]
 pub trait AsyncToolSummaryCaller: Send + Sync {
-    async fn call_haiku(
+    async fn call_fast(
         &self,
         system_prompt: &str,
         user_prompt: &str,

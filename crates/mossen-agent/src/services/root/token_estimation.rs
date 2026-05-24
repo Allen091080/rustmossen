@@ -85,8 +85,10 @@ pub fn has_thinking_blocks(messages: &[MessageForTokenCount]) -> bool {
         if msg.role == "assistant" {
             if let MessageContent::Blocks(blocks) = &msg.content {
                 for block in blocks {
-                    if matches!(block, ContentBlock::Thinking(_) | ContentBlock::RedactedThinking(_))
-                    {
+                    if matches!(
+                        block,
+                        ContentBlock::Thinking(_) | ContentBlock::RedactedThinking(_)
+                    ) {
                         return true;
                     }
                 }

@@ -65,10 +65,10 @@ pub struct ModelInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelTier {
-    /// Opus（最强）。
-    Opus,
-    /// Sonnet（均衡）。
-    Sonnet,
-    /// Haiku（快速）。
-    Haiku,
+    /// Max（最强）。
+    Max,
+    /// Balanced（均衡）。
+    Balanced,
+    /// Fast（快速）。
+    Fast,
 }

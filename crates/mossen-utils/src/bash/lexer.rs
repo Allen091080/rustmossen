@@ -2,7 +2,7 @@
 //!
 //! Translated from `bashParser.ts` lines 48–591 (Tokenizer section).
 
-use crate::bash::types::{HeredocPending, LexSave, Token, TokenType, SPECIAL_VARS};
+use crate::bash::types::{HeredocPending, LexSave, Token, TokenType};
 
 /// Lexer state. Tracks both string char index and UTF-8 byte offset.
 #[derive(Debug, Clone)]
@@ -156,7 +156,11 @@ pub fn skip_blanks(l: &mut Lexer) {
         if c == ' ' || c == '\t' || c == '\r' {
             advance(l);
         } else if c == '\\' {
-            let nx = if l.i + 1 < l.len { l.src[l.i + 1] } else { '\0' };
+            let nx = if l.i + 1 < l.len {
+                l.src[l.i + 1]
+            } else {
+                '\0'
+            };
             if nx == '\n' || (nx == '\r' && l.i + 2 < l.len && l.src[l.i + 2] == '\n') {
                 advance(l);
                 advance(l);
@@ -210,87 +214,114 @@ pub fn next_token(l: &mut Lexer, ctx: LexCtx) -> Token {
 
     // Multi-char operators (longest match first)
     if c == '&' && c1 == '&' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "&&", start, l.b);
     }
     if c == '|' && c1 == '|' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "||", start, l.b);
     }
     if c == '|' && c1 == '&' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "|&", start, l.b);
     }
     if c == ';' && c1 == ';' && c2 == '&' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ";;&", start, l.b);
     }
     if c == ';' && c1 == ';' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ";;", start, l.b);
     }
     if c == ';' && c1 == '&' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ";&", start, l.b);
     }
     if c == '>' && c1 == '>' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ">>", start, l.b);
     }
     if c == '>' && c1 == '&' && c2 == '-' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ">&-", start, l.b);
     }
     if c == '>' && c1 == '&' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ">&", start, l.b);
     }
     if c == '>' && c1 == '|' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, ">|", start, l.b);
     }
     if c == '&' && c1 == '>' && c2 == '>' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "&>>", start, l.b);
     }
     if c == '&' && c1 == '>' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "&>", start, l.b);
     }
     if c == '<' && c1 == '<' && c2 == '<' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "<<<", start, l.b);
     }
     if c == '<' && c1 == '<' && c2 == '-' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "<<-", start, l.b);
     }
     if c == '<' && c1 == '<' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "<<", start, l.b);
     }
     if c == '<' && c1 == '&' && c2 == '-' {
-        advance(l); advance(l); advance(l);
+        advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "<&-", start, l.b);
     }
     if c == '<' && c1 == '&' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "<&", start, l.b);
     }
     if c == '<' && c1 == '(' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::LtParen, "<(", start, l.b);
     }
     if c == '>' && c1 == '(' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::GtParen, ">(", start, l.b);
     }
     if c == '(' && c1 == '(' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "((", start, l.b);
     }
     if c == ')' && c1 == ')' {
-        advance(l); advance(l);
+        advance(l);
+        advance(l);
         return Token::new(TokenType::Op, "))", start, l.b);
     }
 
@@ -306,7 +337,8 @@ pub fn next_token(l: &mut Lexer, ctx: LexCtx) -> Token {
     // In cmd position, [ [[ { start test/group
     if ctx == LexCtx::Cmd {
         if c == '[' && c1 == '[' {
-            advance(l); advance(l);
+            advance(l);
+            advance(l);
             return Token::new(TokenType::Op, "[[", start, l.b);
         }
         if c == '[' {
@@ -346,20 +378,25 @@ pub fn next_token(l: &mut Lexer, ctx: LexCtx) -> Token {
 
     if c == '$' {
         if c1 == '(' && c2 == '(' {
-            advance(l); advance(l); advance(l);
+            advance(l);
+            advance(l);
+            advance(l);
             return Token::new(TokenType::DollarDParen, "$((", start, l.b);
         }
         if c1 == '(' {
-            advance(l); advance(l);
+            advance(l);
+            advance(l);
             return Token::new(TokenType::DollarParen, "$(", start, l.b);
         }
         if c1 == '{' {
-            advance(l); advance(l);
+            advance(l);
+            advance(l);
             return Token::new(TokenType::DollarBrace, "${", start, l.b);
         }
         if c1 == '\'' {
             let si = l.i;
-            advance(l); advance(l);
+            advance(l);
+            advance(l);
             while l.i < l.len && l.src[l.i] != '\'' {
                 if l.src[l.i] == '\\' && l.i + 1 < l.len {
                     advance(l);

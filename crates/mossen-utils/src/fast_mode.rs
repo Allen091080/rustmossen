@@ -90,7 +90,10 @@ pub fn get_fast_mode_unavailable_reason(
     }
 
     if let FastModeOrgStatus::Disabled { reason } = org_status {
-        if matches!(reason, FastModeDisabledReason::NetworkError | FastModeDisabledReason::Unknown) {
+        if matches!(
+            reason,
+            FastModeDisabledReason::NetworkError | FastModeDisabledReason::Unknown
+        ) {
             if std::env::var("MOSSEN_CODE_SKIP_FAST_MODE_NETWORK_ERRORS")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false)
@@ -106,14 +109,14 @@ pub fn get_fast_mode_unavailable_reason(
 }
 
 /// Fast mode model display name.
-pub const FAST_MODE_MODEL_DISPLAY: &str = "Opus 4.6";
+pub const FAST_MODE_MODEL_DISPLAY: &str = "Max 4.6";
 
 /// Get the fast mode model identifier.
-pub fn get_fast_mode_model(opus_1m_merge_enabled: bool) -> String {
-    if opus_1m_merge_enabled {
-        "opus[1m]".to_string()
+pub fn get_fast_mode_model(max_1m_merge_enabled: bool) -> String {
+    if max_1m_merge_enabled {
+        "max[1m]".to_string()
     } else {
-        "opus".to_string()
+        "max".to_string()
     }
 }
 
@@ -146,14 +149,17 @@ pub fn is_fast_mode_supported_by_model(model: &str, custom_backend_enabled: bool
     if !is_fast_mode_enabled(custom_backend_enabled) {
         return false;
     }
-    model.to_lowercase().contains("opus-4-6")
+    model.to_lowercase().contains("max-4-6")
 }
 
 /// Fast mode runtime state.
 #[derive(Debug, Clone)]
 pub enum FastModeRuntimeState {
     Active,
-    Cooldown { reset_at: u64, reason: CooldownReason },
+    Cooldown {
+        reset_at: u64,
+        reason: CooldownReason,
+    },
 }
 
 /// Cooldown reason.
@@ -219,7 +225,8 @@ impl FastModeState {
             reset_at: reset_timestamp,
             reason,
         };
-        self.has_logged_cooldown_expiry.store(false, Ordering::SeqCst);
+        self.has_logged_cooldown_expiry
+            .store(false, Ordering::SeqCst);
     }
 
     /// Clear fast mode cooldown.
@@ -230,7 +237,10 @@ impl FastModeState {
 
     /// Check if currently in cooldown.
     pub fn is_cooldown(&self) -> bool {
-        matches!(self.get_runtime_state(), FastModeRuntimeState::Cooldown { .. })
+        matches!(
+            self.get_runtime_state(),
+            FastModeRuntimeState::Cooldown { .. }
+        )
     }
 
     /// Get org status.
@@ -313,9 +323,7 @@ pub fn get_fast_mode_state(
 
 fn get_overage_disabled_message(reason: Option<&str>) -> String {
     match reason {
-        Some("out_of_credits") => {
-            "Fast mode disabled · extra usage credits exhausted".to_string()
-        }
+        Some("out_of_credits") => "Fast mode disabled · extra usage credits exhausted".to_string(),
         Some("org_level_disabled") | Some("org_service_level_disabled") => {
             "Fast mode disabled · extra usage disabled by your organization".to_string()
         }
@@ -325,7 +333,9 @@ fn get_overage_disabled_message(reason: Option<&str>) -> String {
         Some("member_level_disabled") => {
             "Fast mode disabled · extra usage disabled for your account".to_string()
         }
-        Some("seat_tier_level_disabled") | Some("seat_tier_zero_credit_limit") | Some("member_zero_credit_limit") => {
+        Some("seat_tier_level_disabled")
+        | Some("seat_tier_zero_credit_limit")
+        | Some("member_zero_credit_limit") => {
             "Fast mode disabled · extra usage not available for your plan".to_string()
         }
         Some("overage_not_provisioned") | Some("no_limits_configured") => {
@@ -336,7 +346,10 @@ fn get_overage_disabled_message(reason: Option<&str>) -> String {
 }
 
 fn is_out_of_credits_reason(reason: Option<&str>) -> bool {
-    matches!(reason, Some("org_level_disabled_until") | Some("out_of_credits"))
+    matches!(
+        reason,
+        Some("org_level_disabled_until") | Some("out_of_credits")
+    )
 }
 
 // =============================================================================
@@ -441,7 +454,10 @@ pub fn handle_fast_mode_overage_rejection(reason: Option<&str>) {
 
 /// 当前是否处于冷却（对应 TS `isFastModeCooldown`）。
 pub fn is_fast_mode_cooldown() -> bool {
-    matches!(get_fast_mode_runtime_state(), FastModeRuntimeState::Cooldown { .. })
+    matches!(
+        get_fast_mode_runtime_state(),
+        FastModeRuntimeState::Cooldown { .. }
+    )
 }
 
 /// 同步从缓存解析组织级 fast-mode 状态（对应 TS `resolveFastModeStatusFromCache`）。

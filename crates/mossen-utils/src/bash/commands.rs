@@ -7,7 +7,7 @@ use regex::Regex;
 use std::collections::HashSet;
 
 use crate::bash::heredoc::{extract_heredocs, restore_heredocs};
-use crate::bash::shell_quote::{quote, try_parse_shell_command};
+use crate::bash::shell_quote::try_parse_shell_command;
 
 // ─── Placeholders ───
 
@@ -188,9 +188,17 @@ pub fn split_command_deprecated(command: &str) -> Vec<String> {
         };
 
         if part == ">&" || part == ">" || part == ">>" {
-            let prev_part = if i > 0 { parts[i - 1].as_ref().map(|s| s.trim().to_string()) } else { None };
-            let next_part = parts.get(i + 1).and_then(|p| p.as_ref().map(|s| s.trim().to_string()));
-            let after_next_part = parts.get(i + 2).and_then(|p| p.as_ref().map(|s| s.trim().to_string()));
+            let prev_part = if i > 0 {
+                parts[i - 1].as_ref().map(|s| s.trim().to_string())
+            } else {
+                None
+            };
+            let next_part = parts
+                .get(i + 1)
+                .and_then(|p| p.as_ref().map(|s| s.trim().to_string()));
+            let after_next_part = parts
+                .get(i + 2)
+                .and_then(|p| p.as_ref().map(|s| s.trim().to_string()));
 
             let next_part_str = match &next_part {
                 Some(s) => s.as_str(),
@@ -229,7 +237,8 @@ pub fn split_command_deprecated(command: &str) -> Vec<String> {
                 && ALLOWED_FILE_DESCRIPTORS.contains(&next_part_str[1..])
             {
                 should_strip = true;
-            } else if (part == ">" || part == ">>") && is_static_redirect_target(&effective_next_part)
+            } else if (part == ">" || part == ">>")
+                && is_static_redirect_target(&effective_next_part)
             {
                 should_strip = true;
             }
@@ -422,7 +431,10 @@ pub fn extract_output_redirections(cmd: &str) -> ExtractRedirectionsResult {
     let restored = restore_heredocs(&[reconstructed], &extraction.heredocs);
 
     ExtractRedirectionsResult {
-        command_without_redirections: restored.into_iter().next().unwrap_or_else(|| cmd.to_string()),
+        command_without_redirections: restored
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| cmd.to_string()),
         redirections,
         has_dangerous_redirection,
     }

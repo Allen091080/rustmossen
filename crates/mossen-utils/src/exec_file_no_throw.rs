@@ -50,11 +50,7 @@ pub struct ExecResult {
 }
 
 /// 获取错误消息的优先级：shortMessage > signal > exit code
-fn get_error_message(
-    short_message: Option<&str>,
-    signal: Option<&str>,
-    error_code: i32,
-) -> String {
+fn get_error_message(short_message: Option<&str>, signal: Option<&str>, error_code: i32) -> String {
     if let Some(msg) = short_message {
         return msg.to_string();
     }
@@ -65,11 +61,7 @@ fn get_error_message(
 }
 
 /// 执行文件，始终返回结果不 panic
-pub async fn exec_file_no_throw(
-    file: &str,
-    args: &[&str],
-    options: ExecFileOptions,
-) -> ExecResult {
+pub async fn exec_file_no_throw(file: &str, args: &[&str], options: ExecFileOptions) -> ExecResult {
     exec_file_no_throw_with_cwd(file, args, options).await
 }
 
@@ -124,11 +116,7 @@ pub async fn exec_file_no_throw_with_cwd(
 
             if !output.status.success() {
                 if options.preserve_output_on_error {
-                    let error_msg = get_error_message(
-                        None,
-                        None,
-                        code,
-                    );
+                    let error_msg = get_error_message(None, None, code);
                     ExecResult {
                         stdout,
                         stderr,

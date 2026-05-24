@@ -46,16 +46,15 @@ const GHA_SUBPROCESS_SCRUB: &[&str] = &[
 ];
 
 /// 上游代理环境函数（懒注册）
-static UPSTREAM_PROXY_ENV_FN: Lazy<Mutex<Option<Box<dyn Fn() -> HashMap<String, String> + Send + Sync>>>> =
-    Lazy::new(|| Mutex::new(None));
+static UPSTREAM_PROXY_ENV_FN: Lazy<
+    Mutex<Option<Box<dyn Fn() -> HashMap<String, String> + Send + Sync>>>,
+> = Lazy::new(|| Mutex::new(None));
 
 /// 注册上游代理环境函数。
 ///
 /// 由 init.ts 在 upstreamproxy 模块被懒加载后调用。
 /// 必须在任何子进程被生成之前调用。
-pub fn register_upstream_proxy_env_fn(
-    f: Box<dyn Fn() -> HashMap<String, String> + Send + Sync>,
-) {
+pub fn register_upstream_proxy_env_fn(f: Box<dyn Fn() -> HashMap<String, String> + Send + Sync>) {
     let mut guard = UPSTREAM_PROXY_ENV_FN.lock();
     *guard = Some(f);
 }

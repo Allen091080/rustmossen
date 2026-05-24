@@ -194,9 +194,14 @@ pub async fn fetch_and_store_grove_config(
     is_essential_traffic_only: bool,
     now_ms: u64,
 ) {
-    let result =
-        get_grove_notice_config(client, base_api_url, auth_headers, user_agent, is_essential_traffic_only)
-            .await;
+    let result = get_grove_notice_config(
+        client,
+        base_api_url,
+        auth_headers,
+        user_agent,
+        is_essential_traffic_only,
+    )
+    .await;
 
     if let ApiResult::Success(config) = result {
         let grove_enabled = config.grove_enabled;
@@ -295,7 +300,8 @@ pub fn calculate_should_show_grove(
 
     // Check if we need to remind the user
     let reminder_frequency = config.notice_reminder_frequency;
-    if let (Some(frequency), Some(ref viewed_at)) = (reminder_frequency, &settings.grove_notice_viewed_at)
+    if let (Some(frequency), Some(ref viewed_at)) =
+        (reminder_frequency, &settings.grove_notice_viewed_at)
     {
         if let Ok(viewed_time) = chrono::DateTime::parse_from_rfc3339(viewed_at) {
             let days_since_viewed =

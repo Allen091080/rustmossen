@@ -12,7 +12,9 @@ use std::sync::Arc;
 use super::alias_map::resolve_aliased_key;
 use super::defaults::MOSSEN_BUILTIN_DEFAULTS;
 use super::providers::env_override::EnvOverrideProvider;
-use super::providers::local::{LocalDefaultProvider, ProjectSettingsProvider, UserSettingsProvider};
+use super::providers::local::{
+    LocalDefaultProvider, ProjectSettingsProvider, UserSettingsProvider,
+};
 use super::types::{ConfigOverrideScope, ConfigValueSource, MossenConfigProvider, ProviderResult};
 
 /// Process-internal runtime override provider (highest priority).

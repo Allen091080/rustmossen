@@ -19,7 +19,8 @@ pub fn get_localized_command_description(
     translate: impl Fn(&str, &HashMap<String, String>) -> Option<String>,
     language: &str,
 ) -> String {
-    let should_use_builtin = cmd_type != "prompt" || source == Some("builtin") || source == Some("bundled");
+    let should_use_builtin =
+        cmd_type != "prompt" || source == Some("builtin") || source == Some("bundled");
 
     if should_use_builtin {
         let i18n_key = format!("cmd.{}.description", name);
@@ -35,7 +36,12 @@ pub fn get_localized_command_description(
 
     if language == "zh" && should_use_builtin {
         if let Some(zh) = get_chinese_builtin_command_description(
-            name, product_name, assistant_name, current_model, sandbox_description, terminal_setup_description,
+            name,
+            product_name,
+            assistant_name,
+            current_model,
+            sandbox_description,
+            terminal_setup_description,
         ) {
             return zh;
         }
@@ -95,7 +101,10 @@ fn get_chinese_builtin_command_description(
         "compact" => "清空对话历史，但保留上下文摘要。可选：/compact [摘要说明]".to_string(),
         "config" => "打开配置面板".to_string(),
         "context" => "显示当前上下文使用情况".to_string(),
-        "copy" => format!("复制 {} 的最新回复到剪贴板（或用 /copy N 复制倒数第 N 条）", assistant),
+        "copy" => format!(
+            "复制 {} 的最新回复到剪贴板（或用 /copy N 复制倒数第 N 条）",
+            assistant
+        ),
         "cost" => "显示当前会话的总成本和耗时".to_string(),
         "debug" => "为当前会话启用调试日志，并协助诊断问题".to_string(),
         "desktop" => "在桌面配套应用中继续当前会话".to_string(),
@@ -121,7 +130,10 @@ fn get_chinese_builtin_command_description(
         "mcp" => "管理 MCP 服务器".to_string(),
         "memory" => format!("编辑 {} 记忆文件", product),
         "mobile" => format!("显示下载 {} 手机应用的二维码", product),
-        "model" => format!("设置 {} 使用的 AI 模型（当前 {}）", assistant, current_model),
+        "model" => format!(
+            "设置 {} 使用的 AI 模型（当前 {}）",
+            assistant, current_model
+        ),
         "output-style" => "已弃用：使用 /config 更改输出样式".to_string(),
         "permissions" => "管理工具权限的允许和拒绝规则".to_string(),
         "plan" => "开启计划模式或查看当前会话计划".to_string(),
@@ -144,7 +156,10 @@ fn get_chinese_builtin_command_description(
         "session" => "显示远程会话链接和二维码".to_string(),
         "skills" => "列出可用技能".to_string(),
         "stats" => format!("显示 {} 使用统计和活动", product),
-        "status" => format!("显示 {} 状态，包括版本、模型、后端、API 连接和工具状态", assistant),
+        "status" => format!(
+            "显示 {} 状态，包括版本、模型、后端、API 连接和工具状态",
+            assistant
+        ),
         "stickers" => format!("订购 {} 贴纸", product),
         "tag" => "为当前会话切换可搜索标签".to_string(),
         "tasks" => "列出并管理后台任务".to_string(),

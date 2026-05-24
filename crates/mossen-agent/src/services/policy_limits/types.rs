@@ -28,7 +28,10 @@ pub struct PolicyLimitsFetchResult {
 }
 
 impl PolicyLimitsFetchResult {
-    pub fn success(restrictions: Option<HashMap<String, PolicyRestriction>>, etag: Option<String>) -> Self {
+    pub fn success(
+        restrictions: Option<HashMap<String, PolicyRestriction>>,
+        etag: Option<String>,
+    ) -> Self {
         Self {
             success: true,
             restrictions,

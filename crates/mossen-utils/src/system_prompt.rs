@@ -70,8 +70,8 @@ pub fn build_effective_system_prompt(
     }
 
     // 2. Agent system prompt
-    let agent_system_prompt = main_thread_agent_definition
-        .and_then(|def| def.system_prompt.clone());
+    let agent_system_prompt =
+        main_thread_agent_definition.and_then(|def| def.system_prompt.clone());
 
     // In proactive mode, agent instructions are appended to the default prompt
     if let Some(ref agent_prompt) = agent_system_prompt {

@@ -56,8 +56,14 @@ pub enum BundleUploadResult {
 /// Result of the bundle-creation step alone (before upload).
 #[derive(Debug, Clone)]
 pub enum BundleCreateResult {
-    Ok { size: u64, scope: BundleScope },
-    Err { error: String, fail_reason: BundleFailReason },
+    Ok {
+        size: u64,
+        scope: BundleScope,
+    },
+    Err {
+        error: String,
+        fail_reason: BundleFailReason,
+    },
 }
 
 /// Successful upload report.
@@ -79,9 +85,7 @@ pub type UploadFuture<'a> = Pin<Box<dyn Future<Output = UploadResult> + Send + '
 
 /// Signature for the upload callback. Receives the path to the bundle file
 /// and the desired remote relative path.
-pub type UploadFn = Box<
-    dyn for<'a> Fn(&'a Path, &'a str) -> UploadFuture<'a> + Send + Sync,
->;
+pub type UploadFn = Box<dyn for<'a> Fn(&'a Path, &'a str) -> UploadFuture<'a> + Send + Sync>;
 
 /// Returns the user-facing "bundle too large" error message.
 pub fn bundle_too_large_error(custom_backend_url: Option<&str>) -> String {
@@ -125,8 +129,12 @@ async fn bundle_with_fallback(
     let extra: Vec<&str> = if has_stash { vec![stash_ref] } else { vec![] };
 
     let mk_bundle = |base: &str| {
-        let mut args: Vec<String> =
-            vec!["bundle".into(), "create".into(), bundle_path_str.clone(), base.into()];
+        let mut args: Vec<String> = vec![
+            "bundle".into(),
+            "create".into(),
+            bundle_path_str.clone(),
+            base.into(),
+        ];
         for e in &extra {
             args.push((*e).to_string());
         }
@@ -213,7 +221,9 @@ async fn bundle_with_fallback(
             fail_reason: BundleFailReason::GitError,
         };
     }
-    let squashed_sha = String::from_utf8_lossy(&commit_tree.stdout).trim().to_string();
+    let squashed_sha = String::from_utf8_lossy(&commit_tree.stdout)
+        .trim()
+        .to_string();
     let _ = run_git(git_root, &["update-ref", "refs/seed/root", &squashed_sha]).await;
 
     let squash_result = run_git(
@@ -255,11 +265,7 @@ async fn bundle_with_fallback(
 }
 
 fn truncate_str(s: &str, max: usize) -> &str {
-    let end = s
-        .char_indices()
-        .nth(max)
-        .map(|(i, _)| i)
-        .unwrap_or(s.len());
+    let end = s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(s.len());
     &s[..end]
 }
 
@@ -317,9 +323,7 @@ pub async fn create_and_upload_git_bundle(
 
     // Empty-repo check
     let ref_check = run_git(&git_root, &["for-each-ref", "--count=1", "refs/"]).await;
-    if ref_check.status.success()
-        && String::from_utf8_lossy(&ref_check.stdout).trim().is_empty()
-    {
+    if ref_check.status.success() && String::from_utf8_lossy(&ref_check.stdout).trim().is_empty() {
         return BundleUploadResult::Failure {
             error: "Repository has no commits yet".to_string(),
             fail_reason: Some(BundleFailReason::EmptyRepo),
@@ -329,7 +333,9 @@ pub async fn create_and_upload_git_bundle(
     // WIP via stash create
     let stash_result = run_git(&git_root, &["stash", "create"]).await;
     let wip_sha = if stash_result.status.success() {
-        String::from_utf8_lossy(&stash_result.stdout).trim().to_string()
+        String::from_utf8_lossy(&stash_result.stdout)
+            .trim()
+            .to_string()
     } else {
         String::new()
     };
@@ -345,8 +351,8 @@ pub async fn create_and_upload_git_bundle(
     let max_bytes = options.max_bytes.unwrap_or(DEFAULT_BUNDLE_MAX_BYTES);
 
     let outcome = async {
-        let bundle = bundle_with_fallback(&git_root, &bundle_path, max_bytes, has_wip, &too_large_msg)
-            .await;
+        let bundle =
+            bundle_with_fallback(&git_root, &bundle_path, max_bytes, has_wip, &too_large_msg).await;
 
         let (size, scope) = match bundle {
             BundleCreateResult::Ok { size, scope } => (size, scope),

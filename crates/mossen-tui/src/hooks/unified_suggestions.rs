@@ -8,19 +8,38 @@ pub struct UnifiedSuggestionsState {
 }
 
 impl UnifiedSuggestionsState {
-    pub fn new() -> Self { Self { active: false, initialized: false } }
-    pub fn initialize(&mut self) { self.initialized = true; }
-    pub fn activate(&mut self) { self.active = true; }
-    pub fn deactivate(&mut self) { self.active = false; }
-    pub fn is_active(&self) -> bool { self.active }
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            initialized: false,
+        }
+    }
+    pub fn initialize(&mut self) {
+        self.initialized = true;
+    }
+    pub fn activate(&mut self) {
+        self.active = true;
+    }
+    pub fn deactivate(&mut self) {
+        self.active = false;
+    }
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
 }
-impl Default for UnifiedSuggestionsState { fn default() -> Self { Self::new() } }
+impl Default for UnifiedSuggestionsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // ============================================================================
 // generateUnifiedSuggestions — translated from hooks/unifiedSuggestions.ts
 // ============================================================================
 
-use super::file_suggestions::{FileSuggesterState, FileSuggestionItem, PathProvider, generate_file_suggestions};
+use super::file_suggestions::{
+    generate_file_suggestions, FileSuggesterState, FileSuggestionItem, PathProvider,
+};
 
 /// Maximum unified suggestions returned. Mirrors `MAX_UNIFIED_SUGGESTIONS`
 /// in TS.
@@ -97,19 +116,35 @@ fn truncate_description(s: &str) -> String {
 
 fn create_suggestion_from_source(source: UnifiedSuggestionSource) -> UnifiedSuggestion {
     match source {
-        UnifiedSuggestionSource::File { display_text, description, path, .. } => UnifiedSuggestion {
+        UnifiedSuggestionSource::File {
+            display_text,
+            description,
+            path,
+            ..
+        } => UnifiedSuggestion {
             id: format!("file-{}", path),
             display_text,
             description,
             color: None,
         },
-        UnifiedSuggestionSource::McpResource { display_text, description, server, uri, .. } => UnifiedSuggestion {
+        UnifiedSuggestionSource::McpResource {
+            display_text,
+            description,
+            server,
+            uri,
+            ..
+        } => UnifiedSuggestion {
             id: format!("mcp-resource-{}__{}", server, uri),
             display_text,
             description: Some(description),
             color: None,
         },
-        UnifiedSuggestionSource::Agent { display_text, description, agent_type, color } => UnifiedSuggestion {
+        UnifiedSuggestionSource::Agent {
+            display_text,
+            description,
+            agent_type,
+            color,
+        } => UnifiedSuggestion {
             id: format!("agent-{}", agent_type),
             display_text,
             description: Some(description),
@@ -142,10 +177,11 @@ fn generate_agent_suggestions(
     sources
         .into_iter()
         .filter(|s| match s {
-            UnifiedSuggestionSource::Agent { display_text, agent_type, .. } => {
-                agent_type.to_lowercase().contains(&q)
-                    || display_text.to_lowercase().contains(&q)
-            }
+            UnifiedSuggestionSource::Agent {
+                display_text,
+                agent_type,
+                ..
+            } => agent_type.to_lowercase().contains(&q) || display_text.to_lowercase().contains(&q),
             _ => false,
         })
         .collect()
@@ -199,7 +235,11 @@ pub async fn generate_unified_suggestions<P: PathProvider>(
             }),
             server: r.server.clone(),
             uri: r.uri.clone(),
-            name: if !r.name.is_empty() { r.name.clone() } else { r.uri.clone() },
+            name: if !r.name.is_empty() {
+                r.name.clone()
+            } else {
+                r.uri.clone()
+            },
         })
         .collect();
 
@@ -228,10 +268,21 @@ pub async fn generate_unified_suggestions<P: PathProvider>(
     }
     for source in mcp_sources.into_iter().chain(agent_sources.into_iter()) {
         let text = match &source {
-            UnifiedSuggestionSource::McpResource { display_text, name, server, description, .. } => {
+            UnifiedSuggestionSource::McpResource {
+                display_text,
+                name,
+                server,
+                description,
+                ..
+            } => {
                 format!("{} {} {} {}", display_text, name, server, description)
             }
-            UnifiedSuggestionSource::Agent { display_text, agent_type, description, .. } => {
+            UnifiedSuggestionSource::Agent {
+                display_text,
+                agent_type,
+                description,
+                ..
+            } => {
                 format!("{} {} {}", display_text, agent_type, description)
             }
             _ => String::new(),

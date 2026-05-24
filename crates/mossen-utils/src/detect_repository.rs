@@ -99,10 +99,8 @@ pub fn parse_git_remote(input: &str) -> Option<ParsedRepository> {
 
     // URL format
     static URL_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(
-            r"^(https?|ssh|git)://(?:[^@]+@)?([^/:]+(?::\d+)?)/([^/]+)/([^/]+?)(?:\.git)?$",
-        )
-        .unwrap()
+        Regex::new(r"^(https?|ssh|git)://(?:[^@]+@)?([^/:]+(?::\d+)?)/([^/]+)/([^/]+?)(?:\.git)?$")
+            .unwrap()
     });
     if let Some(caps) = URL_RE.captures(trimmed) {
         let protocol = caps.get(1)?.as_str();

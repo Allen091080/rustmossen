@@ -216,11 +216,11 @@ pub fn get_default_bindings() -> Vec<KeyBinding> {
 /// 保留的快捷键（不可被用户覆盖）。
 pub fn get_reserved_shortcuts() -> Vec<&'static str> {
     vec![
-        "ctrl+c",    // 中断
-        "ctrl+z",    // 挂起进程
-        "ctrl+\\",   // SIGQUIT
-        "ctrl+s",    // XOFF
-        "ctrl+q",    // XON
+        "ctrl+c",  // 中断
+        "ctrl+z",  // 挂起进程
+        "ctrl+\\", // SIGQUIT
+        "ctrl+s",  // XOFF
+        "ctrl+q",  // XON
     ]
 }
 
@@ -267,16 +267,12 @@ pub fn validate_bindings(
         if is_reserved_shortcut(&binding.key) {
             errors.push(ValidationError {
                 binding_index: i,
-                message: format!(
-                    "Key '{}' is reserved and cannot be rebound",
-                    binding.key
-                ),
+                message: format!("Key '{}' is reserved and cannot be rebound", binding.key),
             });
         }
 
         // 检查命令有效性
-        if !available_commands.is_empty()
-            && !available_commands.contains(&binding.command.as_str())
+        if !available_commands.is_empty() && !available_commands.contains(&binding.command.as_str())
         {
             errors.push(ValidationError {
                 binding_index: i,
@@ -625,25 +621,21 @@ pub fn keystroke_to_display_string(ks: &ParsedKeystroke, platform: DisplayPlatfo
         parts.push("ctrl".into());
     }
     if ks.alt || ks.meta {
-        parts.push(
-            if matches!(platform, DisplayPlatform::Macos) {
-                "opt".into()
-            } else {
-                "alt".into()
-            },
-        );
+        parts.push(if matches!(platform, DisplayPlatform::Macos) {
+            "opt".into()
+        } else {
+            "alt".into()
+        });
     }
     if ks.shift {
         parts.push("shift".into());
     }
     if ks.super_key {
-        parts.push(
-            if matches!(platform, DisplayPlatform::Macos) {
-                "cmd".into()
-            } else {
-                "super".into()
-            },
-        );
+        parts.push(if matches!(platform, DisplayPlatform::Macos) {
+            "cmd".into()
+        } else {
+            "super".into()
+        });
     }
     parts.push(key_to_display_name(&ks.key));
     parts.join("+")
@@ -766,12 +758,7 @@ fn validate_keystroke_str(keystroke: &str) -> Option<KeybindingWarning> {
         }
     }
     let parsed = parse_keystroke(keystroke);
-    if parsed.key.is_empty()
-        && !parsed.ctrl
-        && !parsed.alt
-        && !parsed.shift
-        && !parsed.meta
-    {
+    if parsed.key.is_empty() && !parsed.ctrl && !parsed.alt && !parsed.shift && !parsed.meta {
         return Some(KeybindingWarning {
             kind: KeybindingWarningType::ParseError,
             severity: KeybindingSeverity::Error,
@@ -923,7 +910,8 @@ fn validate_block(block: &serde_json::Value, block_index: usize) -> Vec<Keybindi
 pub fn check_duplicate_keys_in_json(json_string: &str) -> Vec<KeybindingWarning> {
     let mut warnings = Vec::new();
     // 匹配 "bindings" : { ... }
-    let block_re = match regex::Regex::new(r#""bindings"\s*:\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"#) {
+    let block_re = match regex::Regex::new(r#""bindings"\s*:\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"#)
+    {
         Ok(r) => r,
         Err(_) => return warnings,
     };
@@ -1001,9 +989,7 @@ pub fn check_duplicates(blocks: &[KeybindingBlock]) -> Vec<KeybindingWarning> {
     let mut seen_by_context: HashMap<String, HashMap<String, String>> = HashMap::new();
 
     for block in blocks {
-        let ctx_map = seen_by_context
-            .entry(block.context.clone())
-            .or_default();
+        let ctx_map = seen_by_context.entry(block.context.clone()).or_default();
         for (key, action) in &block.bindings {
             let normalized = key.to_lowercase();
             if let Some(existing) = ctx_map.get(&normalized) {
@@ -1087,10 +1073,7 @@ pub fn validate_bindings_full(
     // 去重
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     warnings.retain(|w| {
-        let k = format!(
-            "{:?}:{:?}:{:?}",
-            w.kind, w.key, w.context
-        );
+        let k = format!("{:?}:{:?}:{:?}", w.kind, w.key, w.context);
         seen.insert(k)
     });
     warnings
@@ -1337,9 +1320,8 @@ pub fn get_cached_keybinding_warnings() -> Vec<KeybindingWarning> {
         .unwrap_or_default()
 }
 
-static KEYBINDING_WARNINGS: once_cell::sync::Lazy<
-    std::sync::RwLock<Vec<KeybindingWarning>>,
-> = once_cell::sync::Lazy::new(|| std::sync::RwLock::new(Vec::new()));
+static KEYBINDING_WARNINGS: once_cell::sync::Lazy<std::sync::RwLock<Vec<KeybindingWarning>>> =
+    once_cell::sync::Lazy::new(|| std::sync::RwLock::new(Vec::new()));
 
 /// 内部：更新缓存的 warnings（由 `load_user_bindings` 调用）。
 pub fn set_cached_keybinding_warnings(warnings: Vec<KeybindingWarning>) {
@@ -1377,7 +1359,10 @@ pub const KEYBINDING_CONTEXT_DESCRIPTIONS: &[(&str, &str)] = &[
     ("Global", "Active everywhere, regardless of focus"),
     ("Chat", "When the chat input is focused"),
     ("Autocomplete", "When autocomplete menu is visible"),
-    ("Confirmation", "When a confirmation/permission dialog is shown"),
+    (
+        "Confirmation",
+        "When a confirmation/permission dialog is shown",
+    ),
     ("Help", "When the help overlay is open"),
     ("Transcript", "When viewing the transcript"),
     ("HistorySearch", "When searching command history (ctrl+r)"),
@@ -1385,9 +1370,15 @@ pub const KEYBINDING_CONTEXT_DESCRIPTIONS: &[(&str, &str)] = &[
     ("ThemePicker", "When the theme picker is open"),
     ("Settings", "When the settings menu is open"),
     ("Tabs", "When tab navigation is active"),
-    ("Attachments", "When navigating image attachments in a select dialog"),
+    (
+        "Attachments",
+        "When navigating image attachments in a select dialog",
+    ),
     ("Footer", "When footer indicators are focused"),
-    ("MessageSelector", "When the message selector (rewind) is open"),
+    (
+        "MessageSelector",
+        "When the message selector (rewind) is open",
+    ),
     ("DiffDialog", "When the diff dialog is open"),
     ("ModelPicker", "When the model picker is open"),
     ("Select", "When a select/list component is focused"),
