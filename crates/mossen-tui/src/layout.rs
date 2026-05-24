@@ -277,6 +277,13 @@ impl VirtualScroll {
         self.offset = self.max_scroll_offset();
     }
 
+    /// Scroll to the first row. Sticky stays enabled only when there is no overflow.
+    pub fn scroll_to_top(&mut self) {
+        let max_offset = self.max_scroll_offset();
+        self.offset = 0;
+        self.sticky = max_offset == 0;
+    }
+
     /// Scroll up by n items, disabling sticky.
     pub fn scroll_up(&mut self, n: usize) {
         let max_offset = self.max_scroll_offset();

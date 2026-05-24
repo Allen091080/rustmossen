@@ -6388,10 +6388,19 @@ impl App {
                         InputAction::from_key_event(&key),
                         Some(InputAction::PageUp | InputAction::PageDown)
                     );
+                let transcript_arrow_key = !self.active_modal.is_open()
+                    && self.prompt.input.value.is_empty()
+                    && !self.prompt.show_suggestions
+                    && key.modifiers.is_empty()
+                    && matches!(
+                        key.code,
+                        crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Down
+                    );
                 let transcript_focus_key = !self.active_modal.is_open()
                     && self.prompt.input.value.is_empty()
                     && !self.prompt.show_suggestions
                     && !self.state.is_streaming
+                    && key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
                     && matches!(
                         key.code,
                         crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Down
@@ -6402,7 +6411,7 @@ impl App {
                     self.scroll.sticky,
                 );
                 self.handle_key(key);
-                if !(transcript_page_key || transcript_focus_key)
+                if !(transcript_page_key || transcript_arrow_key || transcript_focus_key)
                     || before_transcript_key_state
                         != (
                             self.focused_message_idx,
@@ -6639,18 +6648,26 @@ impl App {
             return;
         }
 
-        // ── Message focus / expand-collapse interactions ─────────────
-        // Only active when the prompt is empty and no stream is in
-        // progress — otherwise the keys belong to the prompt input.
+        // ── Transcript scroll / message focus interactions ───────────
+        // With an empty prompt, unmodified arrow keys belong to the transcript.
+        // Message focus remains available via Alt+Up/Alt+Down when idle.
         let prompt_empty = self.prompt.input.value.is_empty();
         let idle = !self.state.is_streaming;
-        if prompt_empty && idle {
+        if prompt_empty && !self.prompt.show_suggestions {
             match key.code {
-                KeyCode::Up => {
+                KeyCode::Up if key.modifiers.is_empty() => {
+                    self.scroll.scroll_up(1);
+                    return;
+                }
+                KeyCode::Down if key.modifiers.is_empty() => {
+                    self.scroll.scroll_down(1);
+                    return;
+                }
+                KeyCode::Up if idle && key.modifiers.contains(KeyModifiers::ALT) => {
                     self.move_focus(-1);
                     return;
                 }
-                KeyCode::Down => {
+                KeyCode::Down if idle && key.modifiers.contains(KeyModifiers::ALT) => {
                     self.move_focus(1);
                     return;
                 }
@@ -6797,12 +6814,20 @@ impl App {
                     self.update_suggestions();
                 }
                 InputAction::Home => {
-                    self.prompt.input.move_home();
-                    self.update_suggestions();
+                    if self.prompt.input.value.is_empty() && !self.prompt.show_suggestions {
+                        self.scroll.scroll_to_top();
+                    } else {
+                        self.prompt.input.move_home();
+                        self.update_suggestions();
+                    }
                 }
                 InputAction::End => {
-                    self.prompt.input.move_end();
-                    self.update_suggestions();
+                    if self.prompt.input.value.is_empty() && !self.prompt.show_suggestions {
+                        self.scroll.scroll_to_bottom();
+                    } else {
+                        self.prompt.input.move_end();
+                        self.update_suggestions();
+                    }
                 }
                 InputAction::Up => {
                     if self.prompt.show_suggestions {
@@ -14419,7 +14444,94 @@ mod engine_stream_tests {
     }
 
     #[test]
-    fn no_op_transcript_focus_keys_do_not_dirty_frame() {
+    fn transcript_arrow_keys_scroll_by_rendered_rows_and_restore_tail_while_streaming() {
+        let mut app = App::new();
+        app.state.is_streaming = true;
+        app.scroll.set_viewport_height(17);
+        app.scroll.set_total_items(100);
+        app.message_content_area = Some(ratatui::layout::Rect::new(0, 0, 80, 17));
+        assert!(app.scroll.sticky);
+        assert_eq!(app.scroll.offset, 83);
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(
+            KeyCode::Up,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(
+            app.scroll.offset, 82,
+            "plain Up should scroll the transcript by one rendered row"
+        );
+        assert!(!app.scroll.sticky);
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(
+            app.scroll.offset, 83,
+            "plain Down should reach the live tail one rendered row at a time"
+        );
+        assert!(
+            app.scroll.sticky,
+            "returning to the max offset must re-enable live-tail sticky scroll"
+        );
+    }
+
+    #[test]
+    fn transcript_home_end_keys_jump_top_and_bottom_when_prompt_empty() {
+        let mut app = App::new();
+        app.scroll.set_viewport_height(10);
+        app.scroll.set_total_items(50);
+        app.message_content_area = Some(ratatui::layout::Rect::new(0, 0, 80, 10));
+        assert!(app.scroll.sticky);
+        assert_eq!(app.scroll.offset, 40);
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(
+            KeyCode::Home,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.scroll.offset, 0);
+        assert!(
+            !app.scroll.sticky,
+            "jumping to the top of a long transcript should leave live-tail mode"
+        );
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(
+            KeyCode::End,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.scroll.offset, 40);
+        assert!(
+            app.scroll.sticky,
+            "End should provide a direct keyboard path back to the live tail"
+        );
+    }
+
+    #[test]
+    fn alt_arrow_keys_preserve_message_focus_navigation() {
+        let mut app = App::new();
+        app.push_system_message("first", false);
+        app.push_system_message("second", false);
+        app.message_content_area = Some(ratatui::layout::Rect::new(0, 0, 80, 10));
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)));
+
+        assert_eq!(app.focused_message_idx, Some(0));
+
+        app.handle_event(AppEvent::Key(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::ALT,
+        )));
+
+        assert_eq!(app.focused_message_idx, Some(1));
+    }
+
+    #[test]
+    fn no_op_transcript_arrow_keys_do_not_dirty_frame() {
         let mut empty_app = App::new();
         empty_app.note_render_frame_drawn();
         assert!(!empty_app.render_frame_scheduler_stats().dirty);
@@ -14432,7 +14544,7 @@ mod engine_stream_tests {
         assert_eq!(empty_app.focused_message_idx, None);
         assert!(
             !empty_app.render_frame_scheduler_stats().dirty,
-            "focus Up on an empty transcript should not schedule a redraw"
+            "row Up on an empty transcript should not schedule a redraw"
         );
 
         let mut single_app = App::new();
@@ -14465,7 +14577,7 @@ mod engine_stream_tests {
         assert!(single_app.scroll.sticky);
         assert!(
             !single_app.render_frame_scheduler_stats().dirty,
-            "focus Down that keeps the same visible transcript state should not schedule a redraw"
+            "row Down that keeps the same visible transcript state should not schedule a redraw"
         );
     }
 
