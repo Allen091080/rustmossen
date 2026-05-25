@@ -56,6 +56,10 @@ impl Directive for TagDirective {
         DirectiveType::Local
     }
 
+    fn is_hidden(&self) -> bool {
+        true
+    }
+
     fn argument_hint(&self) -> &str {
         "<name>"
     }

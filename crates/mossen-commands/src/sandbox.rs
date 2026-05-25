@@ -67,7 +67,7 @@ impl Directive for SandboxDirective {
 
         let trimmed_args = args.join(" ").trim().to_string();
 
-        if trimmed_args.is_empty() {
+        if trimmed_args.is_empty() || matches!(trimmed_args.as_str(), "help" | "-h" | "--help") {
             // Show interactive sandbox settings menu
             let mut output = String::from("Sandbox Settings\n\n");
             output.push_str(&format!("Platform: {}\n", platform));

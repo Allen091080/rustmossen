@@ -188,7 +188,7 @@ impl Directive for IdeDirective {
     }
 
     fn argument_hint(&self) -> &str {
-        "[open]"
+        "[open|status]"
     }
 
     fn is_immediate(&self) -> bool {
@@ -227,18 +227,19 @@ impl Directive for IdeDirective {
             }
 
             Some("help" | "-h" | "--help") => Ok(CommandResult::Text(
-                "Usage: /ide [open]\n\n\
+                "Usage: /ide [open|status]\n\n\
                  Manage IDE integration.\n\n\
                  Subcommands:\n\
                    (no args)   Select an IDE to connect to for integrated development features\n\
-                   open        Open the current project in a connected IDE\n\n\
+                   open        Open the current project in a connected IDE\n\
+                   status      Show IDE connection status\n\n\
                  Supported IDEs: VS Code, Cursor, Windsurf, JetBrains IDEs, Zed\n\n\
                  Note: Only one instance can be connected to VS Code at a time.\n\
                  Tip: You can enable auto-connect to IDE in /config or with the --ide flag."
                     .to_string(),
             )),
 
-            None => {
+            None | Some("status") => {
                 // Default: show IDE selection / connection status
                 let terminal = ctx.env_vars.get("TERM_PROGRAM").map(|s| s.as_str());
                 let product_name = &ctx.product_name;

@@ -42,6 +42,10 @@ impl Directive for ShareDirective {
         DirectiveType::Local
     }
 
+    fn is_hidden(&self) -> bool {
+        true
+    }
+
     fn is_immediate(&self) -> bool {
         true
     }

@@ -320,6 +320,19 @@ mod tests {
         }
     }
 
+    fn internal_test_context() -> CommandContext {
+        let mut ctx = test_context();
+        ctx.user_type = Some("internal".to_string());
+        ctx
+    }
+
+    fn help_contexts() -> [(&'static str, CommandContext); 2] {
+        [
+            ("standard", test_context()),
+            ("internal", internal_test_context()),
+        ]
+    }
+
     #[test]
     fn help_for_specific_command_uses_registered_metadata() {
         let ctx = test_context();
@@ -362,5 +375,144 @@ mod tests {
                 "/{name} index directive returned Empty"
             );
         }
+    }
+
+    #[test]
+    fn help_resolves_every_visible_command_and_alias() {
+        for (ctx_name, ctx) in help_contexts() {
+            let directives = all_directives();
+            let visible = visible_directives(&directives, &ctx);
+            assert!(
+                visible.len() > 50,
+                "{ctx_name}: expected a populated help registry"
+            );
+
+            for directive in visible {
+                let names =
+                    std::iter::once(directive.name()).chain(directive.aliases().iter().copied());
+                for name in names {
+                    let result = tokio_test::block_on(guide::GuideDirective.execute(&[name], &ctx))
+                        .unwrap_or_else(|error| panic!("{ctx_name}: /help {name} failed: {error}"));
+                    let CommandResult::Text(text) = result else {
+                        panic!("{ctx_name}: /help {name} returned a non-text result");
+                    };
+                    assert!(
+                        text.contains(&format!("Help for /{}", directive.name())),
+                        "{ctx_name}: /help {name} did not render registered metadata for /{}",
+                        directive.name()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn help_visible_directives_have_usable_safe_entrypoints() {
+        let mut failures = Vec::new();
+        for (ctx_name, ctx) in help_contexts() {
+            let directives = all_directives();
+            let visible = visible_directives(&directives, &ctx);
+            assert!(
+                visible.len() > 50,
+                "{ctx_name}: expected a populated help registry"
+            );
+
+            for directive in visible {
+                let name = directive.name();
+                let args = smoke_args(name);
+                let result =
+                    tokio_test::block_on(directive.execute(args, &ctx)).unwrap_or_else(|error| {
+                        panic!("{ctx_name}: /{name} failed to execute: {error}")
+                    });
+
+                match result {
+                    CommandResult::Text(text) | CommandResult::System(text) => {
+                        validate_smoke_output(ctx_name, name, &text, &mut failures);
+                    }
+                    CommandResult::Error(text) => {
+                        failures.push(format!(
+                            "{ctx_name}: /{name} returned Error for safe args {:?}: {}",
+                            args,
+                            first_line(&text)
+                        ));
+                    }
+                    CommandResult::Empty => {
+                        failures.push(format!(
+                            "{ctx_name}: /{name} returned Empty for safe args {:?}",
+                            args
+                        ));
+                    }
+                    CommandResult::Widget { .. } => {
+                        failures.push(format!(
+                            "{ctx_name}: /{name} returned Widget for safe args {:?}",
+                            args
+                        ));
+                    }
+                    CommandResult::Exit(message) => {
+                        if let Some(message) = message {
+                            validate_smoke_output(ctx_name, name, &message, &mut failures);
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "visible /help commands must have usable safe entrypoints:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    fn smoke_args(name: &str) -> &'static [&'static str] {
+        match name {
+            "access" | "bridges" | "crafts" | "delegates" | "metrics" | "passes" | "plugin"
+            | "privacy" | "rate_limit" | "sandbox" | "usage" => &["help"],
+            "changes" => &["summary"],
+            "config" => &["list"],
+            "deauth" => &["status"],
+            "heapdump" => &["help"],
+            "ide" => &["status"],
+            "install" => &["status"],
+            "output_style" => &["list"],
+            "pr_comments" => &["help"],
+            "project" => &["info"],
+            "remote_env" => &["help"],
+            "remote_setup" => &["status"],
+            "stickers" => &["help"],
+            "turbo" => &["status"],
+            "vim" => &["status"],
+            _ => &[],
+        }
+    }
+
+    fn validate_smoke_output(ctx_name: &str, name: &str, text: &str, failures: &mut Vec<String>) {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            failures.push(format!("{ctx_name}: /{name} returned empty output"));
+            return;
+        }
+
+        let lowered = trimmed.to_ascii_lowercase();
+        let forbidden_terms = [
+            "placeholder",
+            "stub",
+            "not implemented",
+            "unimplemented",
+            "phase 5 tui",
+            "phase 5 implementation",
+        ];
+        for term in forbidden_terms {
+            if lowered.contains(term) {
+                failures.push(format!(
+                    "{ctx_name}: /{name} surfaced unfinished text `{term}`: {}",
+                    first_line(trimmed)
+                ));
+            }
+        }
+    }
+
+    fn first_line(text: &str) -> &str {
+        text.lines().next().unwrap_or("").trim()
     }
 }

@@ -39,6 +39,10 @@ impl Directive for ColorDirective {
         DirectiveType::Local
     }
 
+    fn is_hidden(&self) -> bool {
+        true
+    }
+
     fn argument_hint(&self) -> &str {
         "<color|default>"
     }

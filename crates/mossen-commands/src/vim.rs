@@ -35,9 +35,18 @@ impl Directive for VimDirective {
         "Toggle between Vim and Normal editing modes"
     }
 
-    async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
+    async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let raw_mode = get_current_editor_mode(ctx);
         let current_mode = normalize_mode(&raw_mode);
+        if args
+            .first()
+            .map(|arg| matches!(*arg, "status" | "show" | "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
+            return Ok(CommandResult::Text(format!(
+                "Current editor mode: {current_mode}\nUsage: /vim to toggle between normal and vim modes."
+            )));
+        }
 
         let new_mode = if current_mode == "normal" {
             "vim"
@@ -45,9 +54,11 @@ impl Directive for VimDirective {
             "normal"
         };
 
-        // In the full implementation, this would save to global config:
-        // saveGlobalConfig(current => ({ ...current, editorMode: newMode }))
-        // and log an analytics event.
+        mossen_utils::config::save_global_config(|current| {
+            let mut next = current.clone();
+            next.editor_mode = Some(new_mode.to_string());
+            next
+        });
 
         let message = if new_mode == "vim" {
             format!(

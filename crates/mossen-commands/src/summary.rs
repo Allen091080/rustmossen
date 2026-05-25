@@ -29,7 +29,7 @@ impl Directive for SummaryDirective {
     }
 
     fn directive_type(&self) -> DirectiveType {
-        DirectiveType::Local
+        DirectiveType::Prompt
     }
 
     fn is_immediate(&self) -> bool {
@@ -60,12 +60,8 @@ impl Directive for SummaryDirective {
             _ => "standard",
         };
 
-        // In full implementation: analyze conversation messages to extract
-        // key decisions, file operations, and outcomes
         Ok(CommandResult::Text(format!(
-            "Session Summary ({})\n{}\n\n             No significant activity recorded yet in this session.",
-            summary_type,
-            "=".repeat(20 + summary_type.len())
+            "Summarize the current session in {summary_type} form. Include key decisions, files changed, commands or tests run, open questions, and next steps. If there is not enough session context, say that explicitly."
         )))
     }
 }

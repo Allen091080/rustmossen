@@ -87,26 +87,32 @@ impl Directive for LangDirective {
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         let args_str = args.join(" ");
         let command = resolve_language_command(&args_str);
+        let current = mossen_utils::config::get_global_config()
+            .interactive_language_preference
+            .unwrap_or_else(|| "en".to_string());
 
         match command {
-            None => {
-                // Show usage message
-                let current = "en"; // Would read from config in real implementation
-                Ok(CommandResult::System(build_usage_message(current)))
-            }
+            None => Ok(CommandResult::System(build_usage_message(&current))),
 
             Some(None) => {
-                // Clear preference
+                mossen_utils::config::save_global_config(|config| {
+                    let mut next = config.clone();
+                    next.interactive_language_preference = None;
+                    next
+                });
                 Ok(CommandResult::System(
                     "Language preference cleared. Using system default.".to_string(),
                 ))
             }
 
             Some(Some("toggle")) => {
-                // Toggle between en and zh
-                let current = "en"; // Would read from config
                 let next = if current == "zh" { "English" } else { "中文" };
                 let target_lang = if current == "zh" { "en" } else { "zh" };
+                mossen_utils::config::save_global_config(|config| {
+                    let mut next = config.clone();
+                    next.interactive_language_preference = Some(target_lang.to_string());
+                    next
+                });
                 let msg = if target_lang == "zh" {
                     format!("已切换语言为{}", next)
                 } else {
@@ -116,6 +122,11 @@ impl Directive for LangDirective {
             }
 
             Some(Some(lang)) => {
+                mossen_utils::config::save_global_config(|config| {
+                    let mut next = config.clone();
+                    next.interactive_language_preference = Some(lang.to_string());
+                    next
+                });
                 let display = SUPPORTED_LANGUAGES
                     .iter()
                     .find(|(tag, _)| *tag == lang)

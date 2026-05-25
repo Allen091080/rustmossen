@@ -55,8 +55,8 @@ impl Directive for AddDirDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         if args.is_empty() {
-            return Ok(CommandResult::Error(
-                "Usage: /add-dir <path>\nAdd a directory to the session's working directories."
+            return Ok(CommandResult::Text(
+                "Usage: /add-dir <path>\n\nAdd a directory to the session's working directories."
                     .to_string(),
             ));
         }

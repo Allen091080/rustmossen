@@ -1789,6 +1789,9 @@ pub struct App {
     /// These are mirrored into `command_context.env_vars` so the command
     /// registry can render the same state the agent permission gate uses.
     permission_rules: SessionPermissionRules,
+    /// Additional working directories admitted with `/add-dir` for the current
+    /// session. Forwarded to every tool-use context on subsequent turns.
+    additional_working_directories: Vec<String>,
 
     /// Executable tool registry, shared with the agent. The CLI builds this
     /// from `mossen_tools::all_tools()` and injects via
@@ -1955,6 +1958,7 @@ impl App {
             permission_rx: None,
             active_permission_responder: None,
             permission_rules,
+            additional_working_directories: Vec::new(),
             tool_registry: None,
             extra_tool_definitions: Vec::new(),
             show_all_thinking: false,
@@ -7777,7 +7781,11 @@ impl App {
             tools,
             tool_use_context: ToolUseContext {
                 cwd: cfg.cwd.clone(),
-                additional_working_directories: None,
+                additional_working_directories: if self.additional_working_directories.is_empty() {
+                    None
+                } else {
+                    Some(self.additional_working_directories.clone())
+                },
                 extra: Default::default(),
             },
             origin_tag: cfg.origin_tag.clone(),
@@ -7804,6 +7812,17 @@ impl App {
         self.state.is_waiting_for_response = true;
         self.state.ui_stage = UiStage::Thinking;
         self.spinner.reset();
+    }
+
+    fn submit_prompt_directive(&mut self, command_name: &str, args_raw: &str, prompt: String) {
+        let args = args_raw.trim();
+        let display = if args.is_empty() {
+            format!("/{command_name}")
+        } else {
+            format!("/{command_name} {args}")
+        };
+        self.push_user_message(display);
+        self.submit_prompt_to_engine(prompt, Vec::new());
     }
 
     fn record_engine_assistant_text(&mut self, text: &str) {
@@ -8209,6 +8228,120 @@ impl App {
         };
 
         self.apply_permission_mode_code(code);
+    }
+
+    fn handle_add_dir_command(&mut self, args_raw: &str) {
+        let path = args_raw.trim();
+        if path.is_empty() {
+            self.push_command_output(
+                "add-dir",
+                "Usage: /add-dir <path>\nAdd a directory to this session's working directories.",
+                true,
+            );
+            return;
+        }
+
+        let cwd = PathBuf::from(&self.engine_config.cwd);
+        let validation = mossen_commands::add_dir_validation::validate_add_dir(path, &cwd);
+        if !validation.is_valid {
+            self.push_command_output(
+                "add-dir",
+                validation
+                    .reason
+                    .unwrap_or_else(|| "Directory cannot be added.".to_string()),
+                true,
+            );
+            return;
+        }
+        let Some(resolved) = validation.resolved_path else {
+            self.push_command_output("add-dir", "Directory path could not be resolved.", true);
+            return;
+        };
+
+        let mut current_dirs = Vec::new();
+        current_dirs.push(cwd.canonicalize().unwrap_or(cwd));
+        current_dirs.extend(
+            self.additional_working_directories
+                .iter()
+                .map(PathBuf::from)
+                .map(|path| path.canonicalize().unwrap_or(path)),
+        );
+        if let Some(existing) = current_dirs
+            .iter()
+            .find(|working_dir| resolved.starts_with(working_dir))
+        {
+            self.push_command_output(
+                "add-dir",
+                format!(
+                    "{} is already accessible within the existing working directory {}.",
+                    resolved.display(),
+                    existing.display()
+                ),
+                false,
+            );
+            return;
+        }
+
+        let absolute_path = resolved.to_string_lossy().to_string();
+        if !self
+            .additional_working_directories
+            .iter()
+            .any(|existing| existing == &absolute_path)
+        {
+            self.additional_working_directories
+                .push(absolute_path.clone());
+        }
+        self.push_command_output(
+            "add-dir",
+            format!(
+                "Added {} as a working directory for future tool calls.",
+                absolute_path
+            ),
+            false,
+        );
+    }
+
+    fn handle_copy_command(&mut self, args_raw: &str) {
+        let age = match copy_response_index(args_raw) {
+            Ok(age) => age,
+            Err(message) => {
+                self.push_command_output("copy", message, true);
+                return;
+            }
+        };
+        let Some(message) = self
+            .messages
+            .iter()
+            .rev()
+            .filter(|message| {
+                message.message_type == MessageType::Assistant && !message.content.trim().is_empty()
+            })
+            .nth(age)
+        else {
+            self.push_command_output("copy", "No assistant message to copy.", true);
+            return;
+        };
+        let text = message
+            .full_content
+            .as_deref()
+            .unwrap_or(message.content.as_str());
+        match write_clipboard_text(text) {
+            Ok(()) => {
+                let label = if age == 0 {
+                    "latest assistant response".to_string()
+                } else {
+                    format!("assistant response #{}", age + 1)
+                };
+                self.push_command_output("copy", format!("Copied {label} to clipboard."), false);
+            }
+            Err(error) => {
+                self.push_command_output(
+                    "copy",
+                    format!("Failed to copy to clipboard: {error}"),
+                    true,
+                );
+            }
+        }
     }
 
     fn open_widget_command(&mut self, command: &str, args_raw: &str) -> bool {
@@ -9255,6 +9388,20 @@ impl App {
                 }
                 return;
             }
+            "add-dir" => {
+                self.handle_add_dir_command(args_raw);
+                return;
+            }
+            "copy" => {
+                self.handle_copy_command(args_raw);
+                return;
+            }
+            "rewind" | "undo" | "checkpoint" => {
+                let mut svc = std::mem::take(&mut self.services);
+                crate::app_services::open_message_selector(self, &mut svc, true);
+                self.services = svc;
+                return;
+            }
             "statusline" | "status-line" => {
                 match args.first().copied() {
                     Some("path" | "default-path") => {
@@ -9372,7 +9519,7 @@ impl App {
                 }
                 return;
             }
-            "title" | "session-title" => {
+            "title" | "session-title" | "rename" => {
                 let mut state = self.build_title_config_state();
                 let title_arg = args_raw.trim();
                 if title_arg.eq_ignore_ascii_case("reset")
@@ -9525,6 +9672,51 @@ impl App {
                 let result =
                     block_on_current_runtime(async { directive.execute(&args, &ctx).await });
 
+                if matches!(dtype, mossen_commands::DirectiveType::Prompt) {
+                    match result {
+                        Ok(CommandResult::Text(prompt)) | Ok(CommandResult::System(prompt)) => {
+                            if prompt.trim().is_empty() {
+                                self.push_command_output(
+                                    &name,
+                                    format!("/{name} produced an empty prompt"),
+                                    true,
+                                );
+                            } else {
+                                self.submit_prompt_directive(command, args_raw, prompt);
+                            }
+                        }
+                        Ok(CommandResult::Error(e)) => {
+                            self.push_command_output(&name, e, true);
+                        }
+                        Ok(CommandResult::Empty) => {
+                            self.push_command_output(
+                                &name,
+                                format!("/{name} produced no prompt"),
+                                true,
+                            );
+                        }
+                        Ok(CommandResult::Widget) => {
+                            self.push_command_output(
+                                &name,
+                                format!("/{name} produced a widget instead of a model prompt"),
+                                true,
+                            );
+                        }
+                        Ok(CommandResult::Exit(text)) => {
+                            self.should_quit = true;
+                            self.push_command_output(
+                                &name,
+                                text.unwrap_or_else(|| "Exiting...".to_string()),
+                                false,
+                            );
+                        }
+                        Err(e) => {
+                            self.push_command_output(&name, format!("/{name} failed: {e}"), true);
+                        }
+                    }
+                    return;
+                }
+
                 let mut opened_widget = false;
                 let (msg, is_error) = match result {
                     Ok(CommandResult::Text(t)) => (t, false),
@@ -9573,11 +9765,6 @@ impl App {
                 }
 
                 self.push_command_output(&name, msg, is_error);
-
-                // Prompt-type directives produce a model-bound payload —
-                // future work can forward `CommandResult::Text` back into
-                // a follow-up `submit_prompt` call.
-                let _ = dtype;
                 return;
             }
         }
@@ -12280,6 +12467,70 @@ fn tui_top_status_enabled() -> bool {
     env_flag_enabled("MOSSEN_TUI_TOP_STATUS")
 }
 
+fn copy_response_index(args_raw: &str) -> Result<usize, String> {
+    let trimmed = args_raw.trim();
+    if trimmed.is_empty() {
+        return Ok(0);
+    }
+    match trimmed.parse::<usize>() {
+        Ok(value) if value >= 1 => Ok(value - 1),
+        _ => Err(format!(
+            "Usage: /copy [N] where N is 1 for the latest assistant response. Got: {trimmed}"
+        )),
+    }
+}
+
+fn write_clipboard_text(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "pbcopy stdin unavailable".to_string())?
+            .write_all(text.as_bytes())
+            .map_err(|error| error.to_string())?;
+        let status = child.wait().map_err(|error| error.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("pbcopy exited with status {status}"))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        for command in ["wl-copy", "xclip"] {
+            let mut process = std::process::Command::new(command);
+            if command == "xclip" {
+                process.args(["-selection", "clipboard"]);
+            }
+            let mut child = match process.stdin(std::process::Stdio::piped()).spawn() {
+                Ok(child) => child,
+                Err(_) => continue,
+            };
+            if let Some(stdin) = child.stdin.as_mut() {
+                if stdin.write_all(text.as_bytes()).is_err() {
+                    continue;
+                }
+            }
+            if child.wait().map(|status| status.success()).unwrap_or(false) {
+                return Ok(());
+            }
+        }
+        Err("install wl-copy or xclip to enable clipboard writes".to_string())
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = text;
+        Err("clipboard writes are not supported on this platform".to_string())
+    }
+}
+
 /// Truncate `s` to at most `max` chars (byte-safe over UTF-8 codepoints).
 /// Read an image off the OS clipboard. Platform-specific helpers:
 ///   * macOS — `osascript` extracts PNG from `«class PNGf»` and writes
@@ -13512,9 +13763,10 @@ pub fn split_thinking_and_content(buf: &str) -> (Option<String>, String) {
 #[cfg(test)]
 mod engine_stream_tests {
     use super::{
-        block_on_current_runtime, ActiveModal, App, FooterConfigPersistenceStatus, HelpDialogState,
-        RenderSessionSnapshot, RenderSnapshotStartupRestoreStatus, SessionPermissionGate,
-        SessionPermissionRules, RENDER_SESSION_SNAPSHOT_DIR, RENDER_STATUSLINE_CONFIG_PATH,
+        block_on_current_runtime, copy_response_index, ActiveModal, App,
+        FooterConfigPersistenceStatus, HelpDialogState, RenderSessionSnapshot,
+        RenderSnapshotStartupRestoreStatus, SessionPermissionGate, SessionPermissionRules,
+        RENDER_SESSION_SNAPSHOT_DIR, RENDER_STATUSLINE_CONFIG_PATH,
     };
     use crate::approval_state::{PermissionKind, PermissionPromptState, ToolUseConfirm};
     use crate::event::{AppEvent, EventBus};
@@ -13543,6 +13795,7 @@ mod engine_stream_tests {
     };
     use std::collections::HashMap;
     use std::io;
+    use std::sync::Arc;
     use std::time::Duration;
 
     fn buffer_text(buf: &Buffer) -> String {
@@ -14853,6 +15106,150 @@ mod engine_stream_tests {
 
         assert_eq!(app.engine_config.model, "mossen-max-4-6");
         assert_eq!(app.state.current_model.as_deref(), Some("mossen-max-4-6"));
+    }
+
+    #[test]
+    fn prompt_directive_slash_command_submits_to_engine() {
+        let mut app = App::new();
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+        app.refresh_slash_catalog();
+
+        app.handle_command("review 123");
+
+        let params = app
+            .pending_submit
+            .as_ref()
+            .expect("prompt slash command should queue an engine submit");
+        assert!(params.prompt.contains("PR number: 123"));
+        assert!(app.state.is_streaming);
+        assert!(app.state.is_waiting_for_response);
+        let message = app
+            .messages
+            .last()
+            .expect("command invocation should be visible");
+        assert_eq!(message.message_type, MessageType::User);
+        assert_eq!(message.content, "/review 123");
+        assert!(!app.messages.iter().any(|message| {
+            message.message_type == MessageType::CommandOutput
+                && message.content.contains("PR number: 123")
+        }));
+    }
+
+    #[test]
+    fn help_visible_directives_are_wired_through_tui_slash_router() {
+        for (ctx_name, user_type) in [("standard", None), ("internal", Some("internal"))] {
+            let mut ctx_app = App::new();
+            ctx_app.command_context.user_type = user_type.map(str::to_string);
+            let ctx = ctx_app.command_context.clone();
+            let visible_directives = mossen_commands::all_directives();
+            let visible = mossen_commands::visible_directives(&visible_directives, &ctx);
+            assert!(
+                visible.len() > 50,
+                "{ctx_name}: expected populated help commands"
+            );
+
+            for directive in visible {
+                let name = directive.name();
+                let args = tui_smoke_args(name);
+                let command_line = if args.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name} {}", args.join(" "))
+                };
+                let mut app = App::new();
+                app.command_context = ctx.clone();
+                app.directives = Some(Arc::new(mossen_commands::all_directives()));
+                app.refresh_slash_catalog();
+
+                app.handle_command(&command_line);
+
+                let transcript = app
+                    .messages
+                    .iter()
+                    .map(|message| message.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                assert!(
+                    slash_router_handled(&app),
+                    "{ctx_name}: /{command_line} produced no TUI state change"
+                );
+                assert!(
+                    !transcript.contains("Unknown command"),
+                    "{ctx_name}: /{command_line} fell through to unknown command"
+                );
+                assert!(
+                    !transcript.contains("no dedicated TUI panel is registered yet"),
+                    "{ctx_name}: /{command_line} hit the widget placeholder"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn slash_add_dir_updates_future_tool_context() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let cwd = dir.path().join("cwd");
+        let extra = dir.path().join("extra");
+        std::fs::create_dir_all(&cwd).expect("cwd should be created");
+        std::fs::create_dir_all(&extra).expect("extra dir should be created");
+        let extra_abs = extra
+            .canonicalize()
+            .expect("extra dir should canonicalize")
+            .to_string_lossy()
+            .to_string();
+
+        let mut app = App::new();
+        app.engine_config.cwd = cwd.to_string_lossy().to_string();
+        app.handle_command(&format!("add-dir {}", extra.display()));
+
+        assert_eq!(app.additional_working_directories, vec![extra_abs.clone()]);
+        app.handle_submit("use the extra working directory".to_string());
+        let params = app.pending_submit.expect("submit should be queued");
+        assert_eq!(
+            params.tool_use_context.additional_working_directories,
+            Some(vec![extra_abs])
+        );
+    }
+
+    #[test]
+    fn copy_response_index_parses_latest_and_nth_response() {
+        assert_eq!(copy_response_index("").unwrap(), 0);
+        assert_eq!(copy_response_index("1").unwrap(), 0);
+        assert_eq!(copy_response_index("3").unwrap(), 2);
+        assert!(copy_response_index("latest").is_err());
+        assert!(copy_response_index("0").is_err());
+    }
+
+    fn tui_smoke_args(name: &str) -> &'static [&'static str] {
+        match name {
+            "access" | "bridges" | "crafts" | "delegates" | "metrics" | "passes" | "plugin"
+            | "privacy" | "rate_limit" | "sandbox" | "usage" => &["help"],
+            "changes" => &["summary"],
+            "config" => &["list"],
+            "deauth" => &["status"],
+            "heapdump" => &["help"],
+            "ide" => &["status"],
+            "install" => &["status"],
+            "output-style" => &["list"],
+            "pr-comments" => &["help"],
+            "project" => &["info"],
+            "remote-env" => &["help"],
+            "remote-setup" => &["status"],
+            "stickers" => &["help"],
+            "turbo" => &["status"],
+            "vim" => &["status"],
+            _ => &[],
+        }
+    }
+
+    fn slash_router_handled(app: &App) -> bool {
+        app.pending_submit.is_some()
+            || app.state.is_streaming
+            || !matches!(app.active_modal, ActiveModal::None)
+            || app.should_quit
+            || !app.messages.is_empty()
+            || app.state.compact_in_progress
+            || app.state.compact_progress.is_some()
     }
 
     #[test]
