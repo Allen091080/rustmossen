@@ -259,9 +259,8 @@ fn write_lock_file(lock_file_path: &Path, content: &VersionLockContent) -> Resul
     );
     let json = serde_json::to_string_pretty(content)?;
     std::fs::write(&temp_path, &json)?;
-    std::fs::rename(&temp_path, lock_file_path).map_err(|e| {
+    std::fs::rename(&temp_path, lock_file_path).inspect_err(|e| {
         let _ = std::fs::remove_file(&temp_path);
-        e
     })?;
     Ok(())
 }
@@ -793,10 +792,11 @@ async fn atomic_move_to_install_path(staged_binary: &Path, install_path: &Path) 
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755)).await?;
     }
-    fs::rename(&temp_path, install_path).await.map_err(|e| {
-        let _ = std::fs::remove_file(&temp_path);
-        e
-    })?;
+    fs::rename(&temp_path, install_path)
+        .await
+        .inspect_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+        })?;
     eprintln!("Atomically installed binary to {:?}", install_path);
     Ok(())
 }

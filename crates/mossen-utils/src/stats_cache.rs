@@ -124,7 +124,7 @@ fn get_empty_cache() -> PersistedStatsCache {
 /// Migrate an older cache to the current schema.
 fn migrate_stats_cache(parsed: &serde_json::Value) -> Option<PersistedStatsCache> {
     let version = parsed.get("version")?.as_u64()? as u32;
-    if version < MIN_MIGRATABLE_VERSION || version > STATS_CACHE_VERSION {
+    if !(MIN_MIGRATABLE_VERSION..=STATS_CACHE_VERSION).contains(&version) {
         return None;
     }
     // Validate required arrays

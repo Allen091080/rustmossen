@@ -300,10 +300,8 @@ async fn open_tunnel(
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Binary(data)) => {
                     if let Some(payload) = decode_chunk(&data) {
-                        if !payload.is_empty() {
-                            if tcp_write.write_all(&payload).await.is_err() {
-                                break;
-                            }
+                        if !payload.is_empty() && tcp_write.write_all(&payload).await.is_err() {
+                            break;
                         }
                     }
                 }
@@ -350,21 +348,11 @@ const SYSTEM_CA_BUNDLE: &str = "/etc/ssl/certs/ca-certificates.crt";
 
 const NO_PROXY_LIST: &str = "localhost,127.0.0.1,::1,169.254.0.0/16,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,mossen.invalid,.mossen.invalid,*.mossen.invalid,github.com,api.github.com,*.github.com,*.githubusercontent.com,registry.npmjs.org,pypi.org,files.pythonhosted.org,index.crates.io,proxy.golang.org";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UpstreamProxyState {
     pub enabled: bool,
     pub port: Option<u16>,
     pub ca_bundle_path: Option<String>,
-}
-
-impl Default for UpstreamProxyState {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port: None,
-            ca_bundle_path: None,
-        }
-    }
 }
 
 pub async fn init_upstream_proxy(

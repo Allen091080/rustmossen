@@ -20,7 +20,7 @@ pub enum Platform {
 pub const SUPPORTED_PLATFORMS: &[Platform] = &[Platform::Macos, Platform::Wsl];
 
 /// 检测当前平台（缓存结果）
-static PLATFORM: Lazy<Platform> = Lazy::new(|| detect_platform_impl());
+static PLATFORM: Lazy<Platform> = Lazy::new(detect_platform_impl);
 
 fn detect_platform_impl() -> Platform {
     if cfg!(target_os = "macos") {
@@ -50,7 +50,7 @@ pub fn get_platform() -> Platform {
 }
 
 /// 获取 WSL 版本
-static WSL_VERSION: Lazy<Option<String>> = Lazy::new(|| detect_wsl_version_impl());
+static WSL_VERSION: Lazy<Option<String>> = Lazy::new(detect_wsl_version_impl);
 
 fn detect_wsl_version_impl() -> Option<String> {
     if !cfg!(target_os = "linux") {

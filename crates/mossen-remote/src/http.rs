@@ -441,7 +441,7 @@ fn coalesce_patches(base: serde_json::Value, overlay: serde_json::Value) -> serd
         (Value::Object(mut base_map), Value::Object(overlay_map)) => {
             for (key, value) in overlay_map {
                 if (key == "external_metadata" || key == "internal_metadata")
-                    && base_map.get(&key).map_or(false, |v| v.is_object())
+                    && base_map.get(&key).is_some_and(|v| v.is_object())
                     && value.is_object()
                 {
                     if let Some(Value::Object(ref mut bm)) = base_map.get_mut(&key) {

@@ -25,25 +25,13 @@ pub struct DailyModelTokens {
 }
 
 /// Streak information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StreakInfo {
     pub current_streak: u32,
     pub longest_streak: u32,
     pub current_streak_start: Option<String>,
     pub longest_streak_start: Option<String>,
     pub longest_streak_end: Option<String>,
-}
-
-impl Default for StreakInfo {
-    fn default() -> Self {
-        Self {
-            current_streak: 0,
-            longest_streak: 0,
-            current_streak_start: None,
-            longest_streak_start: None,
-            longest_streak_end: None,
-        }
-    }
 }
 
 /// Session statistics.

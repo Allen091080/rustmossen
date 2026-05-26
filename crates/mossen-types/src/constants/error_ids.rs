@@ -10,6 +10,7 @@
 //! ADDING A NEW ERROR TYPE:
 //! 1. Add a const based on Next ID.
 //! 2. Increment Next ID.
+//!
 //! Next ID: 346
 
 pub const E_TOOL_USE_SUMMARY_GENERATION_FAILED: u32 = 344;

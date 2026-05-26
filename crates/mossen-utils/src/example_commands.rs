@@ -100,7 +100,7 @@ pub fn get_example_command_from_cache() -> String {
         })
         .unwrap_or_else(|| "<filepath>".to_string());
 
-    let commands = vec![
+    let commands = [
         "fix lint errors".to_string(),
         "fix typecheck errors".to_string(),
         format!("how does {} work?", frequent_file),
@@ -167,7 +167,7 @@ pub async fn get_frequently_modified_files(
 
     if let Some(email) = user_email {
         let output = Command::new(git_exe)
-            .args(&base_args)
+            .args(base_args)
             .arg(format!("--author={}", email))
             .current_dir(cwd)
             .output()
@@ -184,7 +184,7 @@ pub async fn get_frequently_modified_files(
     // Fall back to all authors if the user's own history is thin
     if counts.len() < 10 {
         let output = Command::new(git_exe)
-            .args(&base_args)
+            .args(base_args)
             .current_dir(cwd)
             .output()
             .await;

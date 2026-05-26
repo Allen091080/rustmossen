@@ -89,7 +89,7 @@ pub fn compute_level(chunk: &[u8]) -> f32 {
         let hi = chunk[i + 1] as i32;
         let raw = (lo | (hi << 8)) & 0xFFFF;
         // Sign-extend 16 → 32.
-        let sample = ((raw << 16) >> 16) as i32;
+        let sample = (raw << 16) >> 16;
         sum_sq += (sample * sample) as f64;
         i += 2;
     }

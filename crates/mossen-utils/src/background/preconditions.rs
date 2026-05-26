@@ -208,7 +208,7 @@ pub async fn check_github_token_synced(
                     return synced;
                 }
             }
-            if status_code >= 400 && status_code < 500 {
+            if (400..500).contains(&status_code) {
                 debug!(
                     "checkGithubTokenSynced: Got {}, token not synced",
                     status_code

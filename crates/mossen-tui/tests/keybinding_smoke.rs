@@ -680,15 +680,16 @@ fn ctrl_c_cancels_waiting_turn_even_when_modal_is_open() {
 fn arrows_move_focus_between_messages_when_prompt_empty() {
     let mut app = App::new();
     let (tu, tr) = seed_tool_use_pair(&mut app);
-    // Prompt is empty + not streaming → arrows move focus.
-    app.dispatch_key_for_test(key(KeyCode::Up));
+    // Prompt is empty + not streaming: plain arrows own transcript row scroll,
+    // while Alt+arrows move message focus.
+    app.dispatch_key_for_test(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT));
     assert!(app.focused_message_idx.is_some());
     // After auto-collapsing ToolUse, ToolResult is hidden — focus should
     // skip it on subsequent navigation. Force the collapse first so the
     // skip path is exercised.
     app.collapsed_tool_groups.insert(tu);
     app.focused_message_idx = Some(tu);
-    app.dispatch_key_for_test(key(KeyCode::Down));
+    app.dispatch_key_for_test(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
     // ToolResult at `tr` is hidden, so focus should NOT land there.
     assert_ne!(app.focused_message_idx, Some(tr));
 }
@@ -1294,10 +1295,20 @@ fn transcript_scrollbar_tracks_mouse_click_and_drag() {
         "top rail click should leave the transcript tail\n{top_click}"
     );
 
+    let top_click_rail_rows = scrollbar_rail_rows(&top_click, 80);
+    let prompt_row = top_click
+        .lines()
+        .position(|line| line.contains("Ask anything"))
+        .unwrap_or(usize::MAX);
+    let rail_bottom_before_prompt = top_click_rail_rows
+        .into_iter()
+        .rfind(|row| *row < prompt_row)
+        .unwrap_or(bottom_row);
+
     app.dispatch_mouse_for_test(mouse_at(
         MouseEventKind::Drag(MouseButton::Left),
         79,
-        bottom_row as u16,
+        rail_bottom_before_prompt as u16,
     ));
     assert!(
         app.scroll.sticky,

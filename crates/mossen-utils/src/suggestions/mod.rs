@@ -213,7 +213,7 @@ pub fn generate_command_suggestions(
     if query.is_empty() {
         let visible: Vec<&CommandMetadata> = commands.iter().filter(|c| !c.is_hidden).collect();
         let mut sorted = visible;
-        sorted.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        sorted.sort_by_key(|a| a.name.to_lowercase());
         return sorted
             .iter()
             .map(|cmd| create_command_suggestion_item(cmd, None))
@@ -234,7 +234,7 @@ pub fn generate_command_suggestions(
 
         let score = if name_lower == query {
             100 // exact match
-        } else if aliases_lower.iter().any(|a| *a == query) {
+        } else if aliases_lower.contains(&query) {
             90 // exact alias
         } else if name_lower.starts_with(&query) {
             80 - name_lower.len() as i32 // prefix, shorter is better

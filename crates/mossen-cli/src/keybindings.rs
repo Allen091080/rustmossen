@@ -535,11 +535,7 @@ pub fn parse_chord(input: &str) -> Chord {
     if input == " " {
         return vec![parse_keystroke("space")];
     }
-    input
-        .trim()
-        .split_whitespace()
-        .map(parse_keystroke)
-        .collect()
+    input.split_whitespace().map(parse_keystroke).collect()
 }
 
 pub fn parseChord(input: &str) -> Chord {

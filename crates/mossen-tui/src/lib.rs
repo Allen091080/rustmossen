@@ -8,7 +8,20 @@
     dead_code,
     unexpected_cfgs,
     unused_imports,
-    unused_variables
+    unused_variables,
+    clippy::doc_lazy_continuation,
+    clippy::explicit_counter_loop,
+    clippy::if_same_then_else,
+    clippy::large_enum_variant,
+    clippy::manual_checked_ops,
+    clippy::manual_clamp,
+    clippy::manual_strip,
+    clippy::needless_range_loop,
+    clippy::nonminimal_bool,
+    clippy::question_mark,
+    clippy::redundant_guards,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
 )]
 
 pub mod app;

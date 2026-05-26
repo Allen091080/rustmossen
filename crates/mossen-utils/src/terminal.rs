@@ -60,11 +60,7 @@ fn wrap_text(text: &str, wrap_width: usize) -> WrapResult {
     }
 
     let total = wrapped_lines.len();
-    let remaining_lines = if total > MAX_LINES_TO_SHOW {
-        total - MAX_LINES_TO_SHOW
-    } else {
-        0
-    };
+    let remaining_lines = total.saturating_sub(MAX_LINES_TO_SHOW);
 
     // If there's only 1 line after the fold, show it directly
     if remaining_lines == 1 {
@@ -126,11 +122,7 @@ pub fn render_truncated_content(
 
     let estimated_remaining = if pre_truncated {
         let estimated = trimmed_content.len() / wrap_width.max(1);
-        let past_fold = if estimated > MAX_LINES_TO_SHOW {
-            estimated - MAX_LINES_TO_SHOW
-        } else {
-            0
-        };
+        let past_fold = estimated.saturating_sub(MAX_LINES_TO_SHOW);
         remaining_lines.max(past_fold)
     } else {
         remaining_lines

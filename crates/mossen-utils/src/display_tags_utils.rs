@@ -7,11 +7,14 @@ use std::sync::LazyLock;
 
 /// 匹配 XML 风格的 `<tag>…</tag>` 块。
 static XML_TAG_BLOCK_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<([a-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?</\1>\n?").unwrap());
+    LazyLock::new(|| Regex::new(r"<[a-z][\w-]*(?:\s[^>]*)?>[\s\S]*?</[a-z][\w-]*>\n?").unwrap());
 
 /// 仅匹配 IDE 注入的上下文标签。
 static IDE_CONTEXT_TAGS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<(ide_opened_file|ide_selection)(?:\s[^>]*)?>[\s\S]*?</\1>\n?").unwrap()
+    Regex::new(
+        r"<(?:ide_opened_file|ide_selection)(?:\s[^>]*)?>[\s\S]*?</(?:ide_opened_file|ide_selection)>\n?",
+    )
+    .unwrap()
 });
 
 /// 从文本中剥离 XML 风格标签块，用于 UI 标题。

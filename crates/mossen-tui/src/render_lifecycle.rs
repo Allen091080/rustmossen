@@ -489,9 +489,8 @@ impl RenderSessionSnapshot {
             file.write_all(b"\n")?;
             file.sync_all()?;
         }
-        fs::rename(&tmp_path, path).map_err(|error| {
+        fs::rename(&tmp_path, path).inspect_err(|error| {
             let _ = fs::remove_file(&tmp_path);
-            error
         })
     }
 

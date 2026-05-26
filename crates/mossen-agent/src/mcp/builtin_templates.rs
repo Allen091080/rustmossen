@@ -296,3 +296,60 @@ pub fn instantiate_builtin_mcp_template(
         missing: vec![],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_template_inventory_contains_current_rendered_set() {
+        let templates = get_builtin_mcp_templates();
+        let names = templates
+            .iter()
+            .map(|template| template.name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec![
+                "filesystem-readonly",
+                "git-readonly",
+                "local-docs",
+                "playwright-local",
+                "sqlite-readonly",
+            ]
+        );
+        assert!(templates.iter().any(|template| !template.read_only));
+    }
+
+    #[test]
+    fn builtin_template_localization_is_render_time_overlay() {
+        let template = get_builtin_mcp_template("filesystem-readonly").expect("template");
+        assert_eq!(template.title, "Filesystem readonly");
+        let localized = get_localized_builtin_mcp_template_text("filesystem-readonly");
+        assert_eq!(localized.title, Some("文件系统只读"));
+        assert!(localized
+            .description
+            .expect("description")
+            .contains("只读根目录"));
+    }
+
+    #[test]
+    fn builtin_template_instantiation_replaces_absolute_parameters() {
+        let template = get_builtin_mcp_template("sqlite-readonly").expect("template");
+        let result = instantiate_builtin_mcp_template(
+            &template,
+            &TemplateParams {
+                root: None,
+                db: Some("/tmp/mossen-test.sqlite".to_string()),
+            },
+        );
+        assert!(result.missing.is_empty());
+        match result.config.expect("config") {
+            McpServerConfig::Stdio { command, args, .. } => {
+                assert_eq!(command, "mcp-server-sqlite");
+                assert_eq!(args, vec!["--readonly", "/tmp/mossen-test.sqlite"]);
+            }
+            other => panic!("expected stdio template, got {other:?}"),
+        }
+    }
+}

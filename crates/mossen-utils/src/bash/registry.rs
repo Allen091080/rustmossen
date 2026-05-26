@@ -15,7 +15,7 @@ pub struct CommandSpec {
 }
 
 /// An argument in a command spec.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Argument {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -37,38 +37,12 @@ pub type BashCommandSpecOption = SpecOption;
 pub type Option_ = SpecOption;
 
 /// An option in a command spec.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SpecOption {
     pub names: Vec<String>,
     pub description: Option<String>,
     pub args: Vec<Argument>,
     pub is_required: bool,
-}
-
-impl Default for Argument {
-    fn default() -> Self {
-        Self {
-            name: None,
-            description: None,
-            is_dangerous: false,
-            is_variadic: false,
-            is_optional: false,
-            is_command: false,
-            is_module: None,
-            is_script: false,
-        }
-    }
-}
-
-impl Default for SpecOption {
-    fn default() -> Self {
-        Self {
-            names: Vec::new(),
-            description: None,
-            args: Vec::new(),
-            is_required: false,
-        }
-    }
 }
 
 /// Load a fig spec for a given command. Returns None if not found.

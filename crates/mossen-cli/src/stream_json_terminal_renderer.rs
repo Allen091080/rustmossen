@@ -1043,19 +1043,15 @@ impl StreamJsonTerminalDrawExecutor {
                     report.synchronized_update = true;
                     report.executed_terminal_op_count += 1;
                 }
-                "end_batch" => {
-                    if synchronized_update_open {
-                        terminal_draw_queue_or_fail_closed(
-                            writer,
-                            &mut synchronized_update_open,
-                            &mut saved_cursor_open,
-                            |writer| queue!(writer, terminal::EndSynchronizedUpdate),
-                        )?;
-                        synchronized_update_open = false;
-                        report.executed_terminal_op_count += 1;
-                    } else {
-                        report.invalid_terminal_op_count += 1;
-                    }
+                "end_batch" if synchronized_update_open => {
+                    terminal_draw_queue_or_fail_closed(
+                        writer,
+                        &mut synchronized_update_open,
+                        &mut saved_cursor_open,
+                        |writer| queue!(writer, terminal::EndSynchronizedUpdate),
+                    )?;
+                    synchronized_update_open = false;
+                    report.executed_terminal_op_count += 1;
                 }
                 "move_to_row" => {
                     let row = operation
@@ -1108,7 +1104,7 @@ impl StreamJsonTerminalDrawExecutor {
                             .and_then(Value::as_str)
                             .unwrap_or_default();
                         let (text, variant_selected, variant_fallback) =
-                            terminal_draw_text_for_viewport(&operation, self.viewport, text);
+                            terminal_draw_text_for_viewport(operation, self.viewport, text);
                         if variant_selected {
                             report.viewport_variant_line_count =
                                 report.viewport_variant_line_count.saturating_add(1);
@@ -2674,12 +2670,10 @@ fn terminal_semantic_style_for_line(role: &str, update_mode: &str, text: &str) -
             }
         }
         "activity" => "info",
-        "transcript" => {
-            if normalized == "assistant transcript" || normalized.starts_with("... ") {
-                "muted"
-            } else {
-                "plain"
-            }
+        "transcript"
+            if (normalized == "assistant transcript" || normalized.starts_with("... ")) =>
+        {
+            "muted"
         }
         _ => "plain",
     }
@@ -3731,7 +3725,8 @@ fn terminal_take_soft_wrap_current_line(current_parts: &mut Vec<String>) -> Stri
 
 fn terminal_pop_last_grapheme_from_materialized_lines(lines: &mut Vec<String>) {
     while let Some(line) = lines.last_mut() {
-        let Some((index, _)) = UnicodeSegmentation::grapheme_indices(line.as_str(), true).last()
+        let Some((index, _)) =
+            UnicodeSegmentation::grapheme_indices(line.as_str(), true).next_back()
         else {
             let _ = lines.pop();
             continue;
@@ -3815,15 +3810,14 @@ fn terminal_consume_string_control_sequence_graphemes<'a, I>(
     while let Some(grapheme) = graphemes.next() {
         match terminal_single_char_grapheme(grapheme) {
             Some('\u{7}') if stop_on_bel => break,
-            Some('\u{1b}') => {
+            Some('\u{1b}')
                 if graphemes
                     .peek()
                     .and_then(|next| terminal_single_char_grapheme(next))
-                    .is_some_and(|next| next == '\\')
-                {
-                    let _ = graphemes.next();
-                    break;
-                }
+                    .is_some_and(|next| next == '\\') =>
+            {
+                let _ = graphemes.next();
+                break;
             }
             Some('\u{9c}') => break,
             _ => {}
@@ -4065,10 +4059,7 @@ mod tests {
                 .any(|window| window == b"\x1b[?2026h");
             if sync_started && !self.failed_once {
                 self.failed_once = true;
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "forced terminal write failure",
-                ));
+                return Err(io::Error::other("forced terminal write failure"));
             }
             self.bytes.extend_from_slice(buf);
             Ok(buf.len())
@@ -4094,10 +4085,7 @@ mod tests {
             let style_started = ansi_started && self.bytes.contains(&b'm');
             if style_started && !self.failed_once {
                 self.failed_once = true;
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "forced styled terminal write failure",
-                ));
+                return Err(io::Error::other("forced styled terminal write failure"));
             }
             self.bytes.extend_from_slice(buf);
             Ok(buf.len())
@@ -5170,9 +5158,9 @@ mod tests {
             .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
-        assert_eq!(report.synchronized_update, true);
-        assert_eq!(report.restored_cursor, true);
+        assert!(!report.skipped);
+        assert!(report.synchronized_update);
+        assert!(report.restored_cursor);
         assert!(report.written_line_count >= 2);
         assert!(ansi.contains("\u{1b}[?2026h"));
         assert!(ansi.contains("\u{1b}[?2026l"));
@@ -5246,7 +5234,7 @@ mod tests {
             .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert!(report.styled_line_count >= 1);
         assert_eq!(report.style_reset_count, report.styled_line_count);
         assert!(ansi.contains("fatal failure"));
@@ -5304,7 +5292,7 @@ mod tests {
             .expect("plain draw plan");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.styled_line_count, 0);
         assert_eq!(report.style_reset_count, 0);
         assert!(ansi.contains("fatal failure"));
@@ -5821,7 +5809,7 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert!(report.bounded_line_count >= 1);
         assert!(ansi.contains("12345..."));
         assert!(!ansi.contains("ABCDEFGHIJ"));
@@ -6088,9 +6076,9 @@ mod tests {
                 .expect("draw plan bytes");
 
         assert!(bytes.is_empty());
-        assert_eq!(report.skipped, true);
+        assert!(report.skipped);
         assert_eq!(report.skip_reason.as_deref(), Some("frame_hash_unchanged"));
-        assert_eq!(report.flushed, false);
+        assert!(!report.flushed);
     }
 
     #[test]
@@ -6185,14 +6173,14 @@ mod tests {
         assert_eq!(patch["scroll"]["manualScrollBypass"], false);
         assert_eq!(patch["scroll"]["commitToScrollback"], true);
         assert_eq!(draw_plan["draw"]["commitsScrollback"], true);
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), true);
-        assert_eq!(draw_plan_requires_manual_scroll_bypass(&draw_plan), false);
+        assert!(draw_plan_preserves_manual_scroll(&draw_plan));
+        assert!(!draw_plan_requires_manual_scroll_bypass(&draw_plan));
 
         runtime.set_manual_scroll_active(true);
         let held = runtime
             .submit_draw_plan_at(&draw_plan, 100, &mut bytes)
             .expect("manual scroll holds transcript commit");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert!(bytes.is_empty());
 
@@ -6200,7 +6188,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released transcript commit");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("held final answer while reading history"));
     }
@@ -6256,14 +6244,14 @@ mod tests {
             "hold_noncritical_completion_update"
         );
         assert_eq!(patch["scroll"]["manualScrollBypass"], false);
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), true);
-        assert_eq!(draw_plan_requires_manual_scroll_bypass(&draw_plan), false);
+        assert!(draw_plan_preserves_manual_scroll(&draw_plan));
+        assert!(!draw_plan_requires_manual_scroll_bypass(&draw_plan));
 
         runtime.set_manual_scroll_active(true);
         let held = runtime
             .submit_draw_plan_at(&draw_plan, 100, &mut bytes)
             .expect("manual scroll holds final summary");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert!(bytes.is_empty());
 
@@ -6271,7 +6259,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released final summary");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("completion should wait for scroll end"));
     }
@@ -6301,7 +6289,7 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.scrollback_append_count, 1);
         assert_eq!(report.scrollback_line_count, 2);
         assert_eq!(report.scrollback_wrapped_line_count, 2);
@@ -6349,13 +6337,13 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.scrollback_append_count, 1);
         assert_eq!(report.scrollback_line_count, 2);
         assert_eq!(report.written_line_count, 3);
-        assert_eq!(report.scrollback_physical_line_budgeted, true);
+        assert!(report.scrollback_physical_line_budgeted);
         assert_eq!(report.scrollback_physical_line_budget_max, 3);
-        assert_eq!(report.scrollback_physical_line_budget_exceeded, true);
+        assert!(report.scrollback_physical_line_budget_exceeded);
         assert_eq!(
             report.scrollback_physical_line_budget_omitted_source_line_count,
             1
@@ -6399,13 +6387,13 @@ mod tests {
             render_draw_plan_to_terminal_bytes(&draw_plan, StreamJsonTerminalViewport::new(12, 1))
                 .expect("draw plan bytes");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.scrollback_append_count, 1);
         assert_eq!(report.scrollback_line_count, 1);
         assert_eq!(report.written_line_count, 3);
-        assert_eq!(report.scrollback_physical_line_budgeted, true);
+        assert!(report.scrollback_physical_line_budgeted);
         assert_eq!(report.scrollback_physical_line_budget_max, 3);
-        assert_eq!(report.scrollback_physical_line_budget_exceeded, true);
+        assert!(report.scrollback_physical_line_budget_exceeded);
         assert_eq!(
             report.scrollback_physical_line_budget_omitted_source_line_count,
             0
@@ -6447,14 +6435,14 @@ mod tests {
             render_draw_plan_to_terminal_bytes(&draw_plan, StreamJsonTerminalViewport::new(40, 12))
                 .expect("draw plan bytes");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.scrollback_append_count, 1);
-        assert_eq!(report.scrollback_clear_visible_rows_budgeted, true);
+        assert!(report.scrollback_clear_visible_rows_budgeted);
         assert_eq!(
             report.scrollback_clear_visible_rows_budget_max,
             STREAM_JSON_RENDER_DRAW_MAX_SCROLLBACK_CLEAR_VISIBLE_ROWS
         );
-        assert_eq!(report.scrollback_clear_visible_rows_budget_exceeded, true);
+        assert!(report.scrollback_clear_visible_rows_budget_exceeded);
         assert_eq!(report.scrollback_clear_visible_rows_budget_omitted_count, 5);
         assert_eq!(
             report.cleared_line_count,
@@ -6503,19 +6491,19 @@ mod tests {
         )
         .expect("draw plan bytes");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.scrollback_append_count, 1);
         assert_eq!(
             report.scrollback_clear_visible_rows_budget_max,
             STREAM_JSON_RENDER_DRAW_MAX_SCROLLBACK_CLEAR_VISIBLE_ROWS
         );
-        assert_eq!(report.scrollback_clear_visible_rows_budget_exceeded, true);
+        assert!(report.scrollback_clear_visible_rows_budget_exceeded);
         assert_eq!(report.scrollback_clear_visible_rows_budget_omitted_count, 5);
         assert_eq!(
             report.scrollback_physical_line_budget_max,
             STREAM_JSON_RENDER_DRAW_MAX_SCROLLBACK_PHYSICAL_LINES
         );
-        assert_eq!(report.scrollback_physical_line_budget_exceeded, true);
+        assert!(report.scrollback_physical_line_budget_exceeded);
         assert_eq!(
             report.scrollback_physical_line_budget_omitted_source_line_count,
             5
@@ -6562,11 +6550,11 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
-        assert_eq!(report.terminal_text_byte_budgeted, true);
+        assert!(!report.skipped);
+        assert!(report.terminal_text_byte_budgeted);
         assert_eq!(report.terminal_text_byte_budget_max, 5);
         assert_eq!(report.terminal_text_byte_budget_written_bytes, 5);
-        assert_eq!(report.terminal_text_byte_budget_exceeded, true);
+        assert!(report.terminal_text_byte_budget_exceeded);
         assert_eq!(report.terminal_text_byte_budget_truncated_write_count, 1);
         assert_eq!(report.terminal_text_byte_budget_omitted_write_count, 1);
         assert_eq!(report.written_line_count, 1);
@@ -6612,8 +6600,8 @@ mod tests {
         )
         .expect("draw plan bytes");
 
-        assert_eq!(report.skipped, false);
-        assert_eq!(report.terminal_text_byte_budgeted, true);
+        assert!(!report.skipped);
+        assert!(report.terminal_text_byte_budgeted);
         assert_eq!(
             report.terminal_text_byte_budget_max,
             STREAM_JSON_RENDER_DRAW_MAX_TEXT_BYTES
@@ -6622,7 +6610,7 @@ mod tests {
             report.terminal_text_byte_budget_written_bytes,
             STREAM_JSON_RENDER_DRAW_MAX_TEXT_BYTES
         );
-        assert_eq!(report.terminal_text_byte_budget_exceeded, true);
+        assert!(report.terminal_text_byte_budget_exceeded);
         assert_eq!(report.terminal_text_byte_budget_truncated_write_count, 1);
     }
 
@@ -6669,18 +6657,18 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(report.terminal_op_count, 5);
-        assert_eq!(report.terminal_op_budgeted, true);
+        assert!(report.terminal_op_budgeted);
         assert_eq!(report.terminal_op_budget_max, 3);
-        assert_eq!(report.terminal_op_budget_exceeded, true);
+        assert!(report.terminal_op_budget_exceeded);
         assert_eq!(report.terminal_op_budget_omitted_count, 2);
         assert_eq!(report.executed_terminal_op_count, 4);
         assert_eq!(report.written_line_count, 1);
         assert!(ansi.contains("visible"));
         assert!(!ansi.contains("hidden"));
-        assert_eq!(report.saved_cursor, true);
-        assert_eq!(report.restored_cursor, true);
+        assert!(report.saved_cursor);
+        assert!(report.restored_cursor);
         assert_eq!(report.cursor_restore_fail_safe_count, 1);
     }
 
@@ -6710,7 +6698,7 @@ mod tests {
             render_draw_plan_to_terminal_bytes(&draw_plan, StreamJsonTerminalViewport::new(12, 20))
                 .expect("draw plan bytes");
 
-        assert_eq!(report.skipped, false);
+        assert!(!report.skipped);
         assert_eq!(
             report.terminal_op_count,
             STREAM_JSON_RENDER_DRAW_MAX_TERMINAL_OPS + 5
@@ -6719,7 +6707,7 @@ mod tests {
             report.terminal_op_budget_max,
             STREAM_JSON_RENDER_DRAW_MAX_TERMINAL_OPS
         );
-        assert_eq!(report.terminal_op_budget_exceeded, true);
+        assert!(report.terminal_op_budget_exceeded);
         assert_eq!(report.terminal_op_budget_omitted_count, 5);
         assert_eq!(
             report.invalid_terminal_op_count,
@@ -6761,10 +6749,10 @@ mod tests {
             render_draw_plan_to_terminal_bytes(&draw_plan, StreamJsonTerminalViewport::new(12, 20))
                 .expect("draw plan bytes");
 
-        assert_eq!(report.terminal_op_budget_exceeded, true);
+        assert!(report.terminal_op_budget_exceeded);
         assert_eq!(report.terminal_op_budget_omitted_count, 1);
-        assert_eq!(report.saved_cursor, true);
-        assert_eq!(report.restored_cursor, true);
+        assert!(report.saved_cursor);
+        assert!(report.restored_cursor);
         assert_eq!(report.cursor_restore_fail_safe_count, 1);
         assert_eq!(report.executed_terminal_op_count, 3);
     }
@@ -6804,9 +6792,9 @@ mod tests {
                 .expect("draw plan bytes");
         let ansi = String::from_utf8(bytes).expect("ansi");
 
-        assert_eq!(report.terminal_op_budget_exceeded, true);
+        assert!(report.terminal_op_budget_exceeded);
         assert_eq!(report.terminal_op_budget_omitted_count, 1);
-        assert_eq!(report.synchronized_update, true);
+        assert!(report.synchronized_update);
         assert_eq!(report.synchronized_update_fail_safe_count, 1);
         assert_eq!(report.executed_terminal_op_count, 3);
         assert!(ansi.contains("\u{1b}[?2026h"));
@@ -6831,8 +6819,8 @@ mod tests {
             .apply_draw_plan(&plan, &mut bytes)
             .expect("second draw");
 
-        assert_eq!(first.skipped, false);
-        assert_eq!(second.skipped, true);
+        assert!(!first.skipped);
+        assert!(second.skipped);
         assert_eq!(second.skip_reason.as_deref(), Some("superseded_sequence"));
         assert_eq!(bytes.len(), len_after_first);
     }
@@ -6849,7 +6837,7 @@ mod tests {
         let first = runtime
             .submit_draw_plan_at(&first_plan, 0, &mut bytes)
             .expect("first draw");
-        assert_eq!(first.applied, true);
+        assert!(first.applied);
         let len_after_first = bytes.len();
 
         let mut older_frame = frame("frame-b", vec!["active"]);
@@ -6862,7 +6850,7 @@ mod tests {
         let older = runtime
             .submit_draw_plan_at(&older_plan, 20, &mut bytes)
             .expect("older queued");
-        assert_eq!(older.queued, true);
+        assert!(older.queued);
         assert_eq!(
             older.skip_reason.as_deref(),
             Some("coalesced_until_throttle_deadline")
@@ -6879,13 +6867,13 @@ mod tests {
         let latest = runtime
             .submit_draw_plan_at(&latest_plan, 40, &mut bytes)
             .expect("latest queued");
-        assert_eq!(latest.queued, true);
+        assert!(latest.queued);
         assert_eq!(latest.dropped_pending_count, 1);
 
         let early = runtime
             .flush_pending_at(99, &mut bytes)
             .expect("early flush");
-        assert_eq!(early.queued, true);
+        assert!(early.queued);
         assert_eq!(
             early.skip_reason.as_deref(),
             Some("throttle_deadline_not_reached")
@@ -6895,7 +6883,7 @@ mod tests {
         let due = runtime
             .flush_pending_at(100, &mut bytes)
             .expect("due flush");
-        assert_eq!(due.applied, true);
+        assert!(due.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("latest active"));
         assert!(!ansi.contains("queued older active"));
@@ -6913,14 +6901,11 @@ mod tests {
         let first = runtime
             .submit_draw_plan_at(&first_plan, 0, &mut bytes)
             .expect("first draw");
-        assert_eq!(first.applied, true);
+        assert!(first.applied);
         let first_snapshot = runtime.runtime_snapshot();
         assert_eq!(first_snapshot.runtime_report_count, 1);
         assert_eq!(first_snapshot.runtime_applied_report_count, 1);
-        assert_eq!(
-            runtime.last_runtime_report().expect("last report").applied,
-            true
-        );
+        assert!(runtime.last_runtime_report().expect("last report").applied);
 
         let mut queued_frame = frame("frame-b", vec!["active"]);
         queued_frame["sequence"] = json!(8);
@@ -6932,11 +6917,11 @@ mod tests {
         let queued = runtime
             .submit_draw_plan_at(&queued_plan, 20, &mut bytes)
             .expect("queued draw");
-        assert_eq!(queued.queued, true);
+        assert!(queued.queued);
         let queued_snapshot = runtime.runtime_snapshot();
         assert_eq!(queued_snapshot.runtime_report_count, 2);
         assert_eq!(queued_snapshot.runtime_queued_report_count, 1);
-        assert_eq!(queued_snapshot.has_pending_draw, true);
+        assert!(queued_snapshot.has_pending_draw);
         assert_eq!(
             queued_snapshot
                 .last_runtime_report
@@ -6955,19 +6940,19 @@ mod tests {
         let latest = runtime
             .submit_draw_plan_at(&latest_plan, 40, &mut bytes)
             .expect("latest queued draw");
-        assert_eq!(latest.queued, true);
+        assert!(latest.queued);
         assert_eq!(latest.dropped_pending_count, 1);
         assert_eq!(runtime.runtime_snapshot().runtime_dropped_pending_count, 1);
 
         let flushed = runtime
             .flush_pending_at(100, &mut bytes)
             .expect("flushed latest draw");
-        assert_eq!(flushed.applied, true);
+        assert!(flushed.applied);
         let flushed_snapshot = runtime.runtime_snapshot();
         assert_eq!(flushed_snapshot.runtime_report_count, 4);
         assert_eq!(flushed_snapshot.runtime_applied_report_count, 2);
         assert_eq!(flushed_snapshot.runtime_queued_report_count, 2);
-        assert_eq!(flushed_snapshot.has_pending_draw, false);
+        assert!(!flushed_snapshot.has_pending_draw);
         assert_eq!(
             flushed_snapshot
                 .last_runtime_report
@@ -7028,12 +7013,11 @@ mod tests {
             flushed["lastReport"]["execution"]["viewportWidthProfile"],
             "compact"
         );
-        assert_eq!(
+        assert!(
             flushed["lastReport"]["execution"]["executedTerminalOpCount"]
                 .as_u64()
                 .unwrap()
-                > 0,
-            true
+                > 0
         );
     }
 
@@ -7063,18 +7047,15 @@ mod tests {
             let report = runtime
                 .submit_draw_plan_at(&plan, 10 + index as u64, &mut bytes)
                 .expect("manual-scroll held draw");
-            assert_eq!(report.queued, true);
+            assert!(report.queued);
         }
 
         let held = runtime.runtime_diagnostics_value();
         assert_eq!(held["hasPendingDraw"], true);
         assert_eq!(held["manualScrollActive"], true);
-        assert_eq!(held["queuedReportCount"].as_u64().unwrap() >= 80, true);
-        assert_eq!(
-            held["manualScrollPreservedReportCount"].as_u64().unwrap() >= 80,
-            true
-        );
-        assert_eq!(held["droppedPendingCount"].as_u64().unwrap() >= 79, true);
+        assert!(held["queuedReportCount"].as_u64().unwrap() >= 80);
+        assert!(held["manualScrollPreservedReportCount"].as_u64().unwrap() >= 80);
+        assert!(held["droppedPendingCount"].as_u64().unwrap() >= 79);
         assert_eq!(held["lastReport"]["skipReason"], "manual_scroll_preserved");
 
         runtime.set_viewport(StreamJsonTerminalViewport::new(12, 24));
@@ -7082,7 +7063,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(200, &mut bytes)
             .expect("release held pending draw");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let released_diag = runtime.runtime_diagnostics_value();
         assert_eq!(released_diag["hasPendingDraw"], false);
         assert_eq!(released_diag["manualScrollActive"], false);
@@ -7090,12 +7071,11 @@ mod tests {
             released_diag["lastReport"]["execution"]["viewportColumns"],
             24
         );
-        assert_eq!(
+        assert!(
             released_diag["lastReport"]["execution"]["boundedLineCount"]
                 .as_u64()
                 .unwrap()
-                > 0,
-            true
+                > 0
         );
 
         for index in 0..160usize {
@@ -7129,20 +7109,16 @@ mod tests {
         let final_diag = runtime.runtime_diagnostics_value();
         assert_eq!(final_diag["hasPendingDraw"], false);
         assert_eq!(final_diag["manualScrollActive"], false);
-        assert_eq!(final_diag["reportCount"].as_u64().unwrap() > 200, true);
-        assert_eq!(final_diag["appliedReportCount"].as_u64().unwrap() > 2, true);
-        assert_eq!(final_diag["queuedReportCount"].as_u64().unwrap() > 80, true);
-        assert_eq!(
+        assert!(final_diag["reportCount"].as_u64().unwrap() > 200);
+        assert!(final_diag["appliedReportCount"].as_u64().unwrap() > 2);
+        assert!(final_diag["queuedReportCount"].as_u64().unwrap() > 80);
+        assert!(
             final_diag["manualScrollPreservedReportCount"]
                 .as_u64()
                 .unwrap()
-                >= 80,
-            true
+                >= 80
         );
-        assert_eq!(
-            final_diag["droppedPendingCount"].as_u64().unwrap() > 100,
-            true
-        );
+        assert!(final_diag["droppedPendingCount"].as_u64().unwrap() > 100);
         assert_eq!(final_diag["lastReport"]["applied"], true);
         assert_eq!(final_diag["lastReport"]["execution"]["flushed"], true);
         assert_eq!(
@@ -7167,7 +7143,7 @@ mod tests {
         let first = runtime
             .submit_draw_plan_value_at(first_plan, 0, &mut bytes)
             .expect("first owned draw");
-        assert_eq!(first.applied, true);
+        assert!(first.applied);
         let len_after_first = bytes.len();
 
         let mut pending_frame = frame("frame-b", vec!["active"]);
@@ -7181,16 +7157,16 @@ mod tests {
             .submit_draw_plan_value_at(pending_plan, 20, &mut bytes)
             .expect("owned queued");
 
-        assert_eq!(queued.queued, true);
-        assert_eq!(queued.queued_owned_draw_plan, true);
-        assert_eq!(queued.queued_cloned_draw_plan, false);
+        assert!(queued.queued);
+        assert!(queued.queued_owned_draw_plan);
+        assert!(!queued.queued_cloned_draw_plan);
         assert_eq!(queued.pending_sequence, Some(8));
         assert_eq!(bytes.len(), len_after_first);
 
         let flushed = runtime
             .flush_pending_at(100, &mut bytes)
             .expect("owned pending flush");
-        assert_eq!(flushed.applied, true);
+        assert!(flushed.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("owned queued active"));
     }
@@ -7207,7 +7183,7 @@ mod tests {
         let first = runtime
             .submit_draw_plan_at(&first_plan, 0, &mut bytes)
             .expect("first borrowed draw");
-        assert_eq!(first.applied, true);
+        assert!(first.applied);
         let len_after_first = bytes.len();
 
         let mut pending_frame = frame("frame-b", vec!["active"]);
@@ -7221,9 +7197,9 @@ mod tests {
             .submit_draw_plan_at(&pending_plan, 20, &mut bytes)
             .expect("borrowed queued");
 
-        assert_eq!(queued.queued, true);
-        assert_eq!(queued.queued_owned_draw_plan, false);
-        assert_eq!(queued.queued_cloned_draw_plan, true);
+        assert!(queued.queued);
+        assert!(!queued.queued_owned_draw_plan);
+        assert!(queued.queued_cloned_draw_plan);
         assert_eq!(queued.pending_sequence, Some(8));
         assert_eq!(bytes.len(), len_after_first);
     }
@@ -7253,13 +7229,13 @@ mod tests {
         let queued = runtime
             .submit_draw_plan_at(&pending_plan, 20, &mut bytes)
             .expect("pending queued");
-        assert_eq!(queued.queued, true);
+        assert!(queued.queued);
 
         runtime.set_viewport(StreamJsonTerminalViewport::new(12, 8));
         let due = runtime
             .flush_pending_at(100, &mut bytes)
             .expect("due flush");
-        assert_eq!(due.applied, true);
+        assert!(due.applied);
         assert_eq!(
             due.execution
                 .as_ref()
@@ -7297,14 +7273,14 @@ mod tests {
         let held = runtime
             .submit_draw_plan_at(&pending_plan, 500, &mut bytes)
             .expect("manual scroll held");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert_eq!(bytes.len(), len_after_first);
 
         let still_held = runtime
             .flush_pending_at(600, &mut bytes)
             .expect("still held");
-        assert_eq!(still_held.queued, true);
+        assert!(still_held.queued);
         assert_eq!(
             still_held.skip_reason.as_deref(),
             Some("manual_scroll_preserved")
@@ -7315,7 +7291,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(600, &mut bytes)
             .expect("released flush");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("held while scrolling"));
     }
@@ -7345,12 +7321,12 @@ mod tests {
         let held = runtime
             .submit_draw_plan_at(&pending_plan, 500, &mut bytes)
             .expect("manual scroll held");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert_eq!(bytes.len(), len_after_first);
 
         let released_hold = runtime.release_manual_scroll_for_terminal_teardown();
-        assert_eq!(released_hold, true);
+        assert!(released_hold);
         assert_eq!(
             runtime
                 .runtime_snapshot()
@@ -7360,7 +7336,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(600, &mut bytes)
             .expect("teardown release flush");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("teardown-visible final update"));
         let diagnostics = runtime.runtime_diagnostics_value();
@@ -7391,14 +7367,14 @@ mod tests {
         let queued = runtime
             .submit_draw_plan_at(&pending_plan, 20, &mut bytes)
             .expect("pending queued");
-        assert_eq!(queued.queued, true);
+        assert!(queued.queued);
         assert_eq!(queued.next_flush_due_ms, Some(100));
 
         runtime.set_manual_scroll_active(true);
         let held_at_deadline = runtime
             .flush_pending_at(100, &mut bytes)
             .expect("held at stale deadline");
-        assert_eq!(held_at_deadline.queued, true);
+        assert!(held_at_deadline.queued);
         assert_eq!(
             held_at_deadline.skip_reason.as_deref(),
             Some("manual_scroll_preserved")
@@ -7411,7 +7387,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released flush");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("held past stale deadline"));
     }
@@ -7464,14 +7440,14 @@ mod tests {
         let approval_plan =
             scheduler.render_patch_value(&patch_renderer.render_frame_value(&approval_frame));
         assert_eq!(approval_plan["draw"]["hasBlockingRegion"], true);
-        assert_eq!(draw_plan_preserves_manual_scroll(&approval_plan), false);
+        assert!(!draw_plan_preserves_manual_scroll(&approval_plan));
 
         let report = runtime
             .submit_draw_plan_at(&approval_plan, 100, &mut bytes)
             .expect("approval draw");
-        assert_eq!(report.applied, true);
-        assert_eq!(report.queued, false);
-        assert_eq!(runtime.has_pending_draw(), false);
+        assert!(report.applied);
+        assert!(!report.queued);
+        assert!(!runtime.has_pending_draw());
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("approval required"));
     }
@@ -7523,13 +7499,13 @@ mod tests {
         let draw_plan = scheduler.render_patch_value(&patch);
 
         assert_eq!(draw_plan["draw"]["hasBlockingRegion"], false);
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), true);
+        assert!(draw_plan_preserves_manual_scroll(&draw_plan));
 
         runtime.set_manual_scroll_active(true);
         let held = runtime
             .submit_draw_plan_at(&draw_plan, 100, &mut bytes)
             .expect("manual-scroll top region hold");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert!(bytes.is_empty());
 
@@ -7537,7 +7513,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released top region patch");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("slash result while scrolled"));
     }
@@ -7581,8 +7557,8 @@ mod tests {
         });
         let draw_plan = scheduler.render_patch_value(&patch);
 
-        assert_eq!(draw_plan_requires_manual_scroll_bypass(&draw_plan), true);
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), false);
+        assert!(draw_plan_requires_manual_scroll_bypass(&draw_plan));
+        assert!(!draw_plan_preserves_manual_scroll(&draw_plan));
     }
 
     #[test]
@@ -7661,13 +7637,13 @@ mod tests {
             patch["scroll"]["manualScrollPendingPolicy"],
             "replace_pending_with_latest"
         );
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), true);
+        assert!(draw_plan_preserves_manual_scroll(&draw_plan));
 
         runtime.set_manual_scroll_active(true);
         let held = runtime
             .submit_draw_plan_at(&draw_plan, 100, &mut bytes)
             .expect("manual-scroll widget hold");
-        assert_eq!(held.queued, true);
+        assert!(held.queued);
         assert_eq!(held.skip_reason.as_deref(), Some("manual_scroll_preserved"));
         assert!(bytes.is_empty());
 
@@ -7675,7 +7651,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released widget patch");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("cmd: cargo test"));
     }
@@ -7756,16 +7732,16 @@ mod tests {
             patch["scroll"]["manualScrollPendingPolicy"],
             "bypass_pending_hold"
         );
-        assert_eq!(draw_plan_requires_manual_scroll_bypass(&draw_plan), true);
-        assert_eq!(draw_plan_preserves_manual_scroll(&draw_plan), false);
+        assert!(draw_plan_requires_manual_scroll_bypass(&draw_plan));
+        assert!(!draw_plan_preserves_manual_scroll(&draw_plan));
 
         runtime.set_manual_scroll_active(true);
         let applied = runtime
             .submit_draw_plan_at(&draw_plan, 100, &mut bytes)
             .expect("critical error bypass");
-        assert_eq!(applied.applied, true);
-        assert_eq!(applied.queued, false);
-        assert_eq!(runtime.has_pending_draw(), false);
+        assert!(applied.applied);
+        assert!(!applied.queued);
+        assert!(!runtime.has_pending_draw());
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("error: render failed"));
     }
@@ -7825,7 +7801,7 @@ mod tests {
         let older = runtime
             .submit_draw_plan_at(&older_plan, 100, &mut bytes)
             .expect("older widget hold");
-        assert_eq!(older.queued, true);
+        assert!(older.queued);
         assert_eq!(older.pending_sequence, Some(41));
         assert_eq!(older.dropped_pending_count, 0);
 
@@ -7833,7 +7809,7 @@ mod tests {
         let latest = runtime
             .submit_draw_plan_at(&latest_plan, 110, &mut bytes)
             .expect("latest widget hold");
-        assert_eq!(latest.queued, true);
+        assert!(latest.queued);
         assert_eq!(latest.pending_sequence, Some(42));
         assert_eq!(latest.dropped_pending_count, 1);
         assert!(bytes.is_empty());
@@ -7842,7 +7818,7 @@ mod tests {
         let released = runtime
             .flush_pending_at(150, &mut bytes)
             .expect("released latest widget patch");
-        assert_eq!(released.applied, true);
+        assert!(released.applied);
         let ansi = String::from_utf8(bytes).expect("ansi");
         assert!(ansi.contains("latest widget patch"));
         assert!(!ansi.contains("older widget patch"));

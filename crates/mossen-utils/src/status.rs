@@ -577,7 +577,7 @@ pub fn build_api_provider_properties(input: &ApiProviderInput) -> Vec<Property> 
                 format!(
                     "{} tokens",
                     snap.context_window_tokens
-                        .map(|n| format_number(n))
+                        .map(format_number)
                         .unwrap_or_default()
                 ),
             ));
@@ -682,6 +682,25 @@ fn format_number(n: u64) -> String {
     out.chars().rev().collect()
 }
 
+/// 对应 TS `getCustomBackendObservabilitySnapshot`：返回 custom-backend observability 快照。
+pub fn get_custom_backend_observability_snapshot() -> serde_json::Value {
+    serde_json::json!({
+        "lastError": null,
+        "requestCount": 0,
+        "errorCount": 0,
+    })
+}
+
+/// 对应 TS `buildInstallationDiagnostics`：构建安装诊断信息。
+pub async fn build_installation_diagnostics() -> serde_json::Value {
+    serde_json::json!({
+        "binPath": std::env::current_exe().ok().map(|p| p.display().to_string()),
+        "version": env!("CARGO_PKG_VERSION"),
+        "platform": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,23 +777,4 @@ mod tests {
         assert_eq!(format_number(0), "0");
         assert_eq!(format_number(999), "999");
     }
-}
-
-/// 对应 TS `getCustomBackendObservabilitySnapshot`：返回 custom-backend observability 快照。
-pub fn get_custom_backend_observability_snapshot() -> serde_json::Value {
-    serde_json::json!({
-        "lastError": null,
-        "requestCount": 0,
-        "errorCount": 0,
-    })
-}
-
-/// 对应 TS `buildInstallationDiagnostics`：构建安装诊断信息。
-pub async fn build_installation_diagnostics() -> serde_json::Value {
-    serde_json::json!({
-        "binPath": std::env::current_exe().ok().map(|p| p.display().to_string()),
-        "version": env!("CARGO_PKG_VERSION"),
-        "platform": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-    })
 }

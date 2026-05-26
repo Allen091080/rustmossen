@@ -261,9 +261,9 @@ pub fn log_error_str(message: &str) {
 
 /// Check if error reporting is disabled.
 fn is_error_reporting_disabled() -> bool {
-    std::env::var("MOSSEN_CODE_USE_BEDROCK").map_or(false, |v| is_env_truthy(&v))
-        || std::env::var("MOSSEN_CODE_USE_VERTEX").map_or(false, |v| is_env_truthy(&v))
-        || std::env::var("MOSSEN_CODE_USE_FOUNDRY").map_or(false, |v| is_env_truthy(&v))
+    std::env::var("MOSSEN_CODE_USE_BEDROCK").is_ok_and(|v| is_env_truthy(&v))
+        || std::env::var("MOSSEN_CODE_USE_VERTEX").is_ok_and(|v| is_env_truthy(&v))
+        || std::env::var("MOSSEN_CODE_USE_FOUNDRY").is_ok_and(|v| is_env_truthy(&v))
         || std::env::var("DISABLE_ERROR_REPORTING").is_ok()
 }
 
@@ -340,18 +340,18 @@ async fn load_log_list(path: &Path) -> Vec<LogOption> {
         let is_sidechain = full_path.to_string_lossy().contains("sidechain");
         let mtime: DateTime<Utc> = file_stats
             .modified()
-            .map(|t| DateTime::from(t))
+            .map(DateTime::from)
             .unwrap_or_else(|_| Utc::now());
         let date = date_to_filename(&mtime);
 
         let created = first_message
             .and_then(|m| m.timestamp.as_deref())
-            .and_then(|s| parse_iso_string(s))
+            .and_then(parse_iso_string)
             .unwrap_or(mtime);
 
         let modified = last_message
             .and_then(|m| m.timestamp.as_deref())
-            .and_then(|s| parse_iso_string(s))
+            .and_then(parse_iso_string)
             .unwrap_or(mtime);
 
         let truncated_prompt = {

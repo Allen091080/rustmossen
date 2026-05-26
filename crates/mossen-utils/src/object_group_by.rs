@@ -15,7 +15,7 @@ pub fn object_group_by<T, K: std::hash::Hash + Eq>(
     let mut result: HashMap<K, Vec<T>> = HashMap::new();
     for (index, item) in items.into_iter().enumerate() {
         let key = key_selector(&item, index);
-        result.entry(key).or_insert_with(Vec::new).push(item);
+        result.entry(key).or_default().push(item);
     }
     result
 }

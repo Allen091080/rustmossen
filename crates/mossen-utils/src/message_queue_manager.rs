@@ -2,9 +2,10 @@ use serde::Serialize;
 use std::collections::HashSet;
 
 /// Priority levels for queued commands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum QueuePriority {
     Now,
+    #[default]
     Next,
     Later,
 }
@@ -16,12 +17,6 @@ impl QueuePriority {
             QueuePriority::Next => 1,
             QueuePriority::Later => 2,
         }
-    }
-}
-
-impl Default for QueuePriority {
-    fn default() -> Self {
-        QueuePriority::Next
     }
 }
 

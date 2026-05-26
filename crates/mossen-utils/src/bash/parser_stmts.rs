@@ -153,7 +153,7 @@ fn parse_pipeline(p: &mut PState) -> Option<TsNode> {
             {
                 let inner = next_cmd.children[0].clone();
                 let redirs: Vec<TsNode> = next_cmd.children[1..].to_vec();
-                let mut pipe_kids: Vec<TsNode> = parts.drain(..).collect();
+                let mut pipe_kids: Vec<TsNode> = std::mem::take(&mut parts);
                 pipe_kids.push(op);
                 pipe_kids.push(inner.clone());
                 let pipe_start = pipe_kids[0].start_index;
@@ -742,12 +742,10 @@ fn parse_for(p: &mut PState, for_tok: &Token) -> TsNode {
             let stop = if k < 2 { ";" } else { "))" };
             let es = parser_exprs::parse_arith_comma_list(p, stop, parser_exprs::ArithMode::Assign);
             kids.extend(es);
-            if k < 2 {
-                if peek_char(&p.l) == ';' {
-                    let s = p.l.b;
-                    advance(&mut p.l);
-                    kids.push(mk(p, ";", s, p.l.b, vec![]));
-                }
+            if k < 2 && peek_char(&p.l) == ';' {
+                let s = p.l.b;
+                advance(&mut p.l);
+                kids.push(mk(p, ";", s, p.l.b, vec![]));
             }
         }
         skip_blanks(&mut p.l);

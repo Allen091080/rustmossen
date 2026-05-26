@@ -264,6 +264,12 @@ pub struct Project {
     existing_session_files: HashMap<String, PathBuf>,
 }
 
+impl Default for Project {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Project {
     pub fn new() -> Self {
         Self {
@@ -369,7 +375,7 @@ impl Project {
                     continue;
                 }
                 let batch: Vec<(Value, Option<tokio::sync::oneshot::Sender<()>>)> =
-                    queue.drain(..).collect();
+                    std::mem::take(queue);
 
                 let mut content = String::new();
                 let mut resolvers: Vec<Option<tokio::sync::oneshot::Sender<()>>> = Vec::new();
@@ -382,10 +388,8 @@ impl Project {
 
                     if content.len() + line.len() >= self.max_chunk_bytes {
                         let _ = Self::append_to_file(&file_path, &content).await;
-                        for r in resolvers.drain(..) {
-                            if let Some(r) = r {
-                                let _ = r.send(());
-                            }
+                        for r in resolvers.drain(..).flatten() {
+                            let _ = r.send(());
                         }
                         content.clear();
                     }
@@ -396,10 +400,8 @@ impl Project {
 
                 if !content.is_empty() {
                     let _ = Self::append_to_file(&file_path, &content).await;
-                    for r in resolvers {
-                        if let Some(r) = r {
-                            let _ = r.send(());
-                        }
+                    for r in resolvers.into_iter().flatten() {
+                        let _ = r.send(());
                     }
                 }
             }
@@ -1133,11 +1135,7 @@ fn read_file_tail_sync(full_path: &Path) -> String {
         Err(_) => return String::new(),
     };
     let size = metadata.len();
-    let tail_offset = if size > LITE_READ_BUF_SIZE as u64 {
-        size - LITE_READ_BUF_SIZE as u64
-    } else {
-        0
-    };
+    let tail_offset = size.saturating_sub(LITE_READ_BUF_SIZE as u64);
     let buf_size = std::cmp::min(LITE_READ_BUF_SIZE as u64, size - tail_offset) as usize;
     let mut buf = vec![0u8; buf_size];
     use std::io::Seek;
@@ -2032,7 +2030,7 @@ fn transform_messages_for_external_transcript(
                         b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
                             && b.get("tool_use_id")
                                 .and_then(|v| v.as_str())
-                                .map_or(false, |id| repl_ids.contains(id))
+                                .is_some_and(|id| repl_ids.contains(id))
                     });
                     let filtered: Vec<&Value> = if has_repl {
                         content
@@ -2041,7 +2039,7 @@ fn transform_messages_for_external_transcript(
                                 !(b.get("type").and_then(|v| v.as_str()) == Some("tool_result")
                                     && b.get("tool_use_id")
                                         .and_then(|v| v.as_str())
-                                        .map_or(false, |id| repl_ids.contains(id)))
+                                        .is_some_and(|id| repl_ids.contains(id)))
                             })
                             .collect()
                     } else {
@@ -2965,7 +2963,7 @@ fn has_visible_assistant_content(message: &Value) -> bool {
             && block
                 .get("text")
                 .and_then(|v| v.as_str())
-                .map_or(false, |t| !t.trim().is_empty())
+                .is_some_and(|t| !t.trim().is_empty())
     })
 }
 
@@ -2975,15 +2973,11 @@ fn count_visible_messages(transcript: &[Value]) -> usize {
     for message in transcript {
         let msg_type = message.get("type").and_then(|v| v.as_str()).unwrap_or("");
         match msg_type {
-            "user" => {
-                if has_visible_user_content(message) {
-                    count += 1;
-                }
+            "user" if has_visible_user_content(message) => {
+                count += 1;
             }
-            "assistant" => {
-                if has_visible_assistant_content(message) {
-                    count += 1;
-                }
+            "assistant" if has_visible_assistant_content(message) => {
+                count += 1;
             }
             _ => {}
         }
@@ -3759,11 +3753,7 @@ async fn read_head_and_tail(file_path: &Path, file_size: u64) -> Result<(String,
     let head = String::from_utf8_lossy(&data[..head_bytes as usize]).to_string();
 
     // Read tail
-    let tail_start = if file_size > buf_size {
-        file_size - buf_size
-    } else {
-        0
-    };
+    let tail_start = file_size.saturating_sub(buf_size);
     let tail = String::from_utf8_lossy(&data[tail_start as usize..]).to_string();
 
     Ok((head, tail))
@@ -4770,7 +4760,7 @@ async fn write_file_secure(path: &Path, data: &[u8]) -> Result<()> {
             .open(path)
             .await?;
         file.write_all(data).await?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(unix))]
     {

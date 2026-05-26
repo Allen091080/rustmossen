@@ -285,10 +285,7 @@ pub async fn copy_plan_for_resume(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // Try recovery from message history
             if let Some(recovered) = recover_plan_from_messages(log) {
-                match tokio::fs::write(&plan_path, &recovered).await {
-                    Ok(_) => true,
-                    Err(_) => false,
-                }
+                tokio::fs::write(&plan_path, &recovered).await.is_ok()
             } else {
                 false
             }

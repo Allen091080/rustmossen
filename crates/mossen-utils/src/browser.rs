@@ -40,7 +40,7 @@ pub async fn open_path(path: &str) -> bool {
 /// 使用系统默认浏览器打开 URL。
 /// 支持 BROWSER 环境变量覆盖。
 pub async fn open_browser(url: &str) -> bool {
-    if let Err(_) = validate_url(url) {
+    if validate_url(url).is_err() {
         return false;
     }
 

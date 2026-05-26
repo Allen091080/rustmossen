@@ -235,7 +235,7 @@ async fn slice_context(
         ctx_end += 1;
         if fwd_buf[i] == NL {
             nl_seen += 1;
-            if nl_seen >= context_lines + 1 {
+            if nl_seen > context_lines {
                 break;
             }
         }

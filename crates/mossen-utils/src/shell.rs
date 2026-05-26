@@ -67,7 +67,7 @@ pub async fn find_suitable_shell() -> Result<String, anyhow::Error> {
         .as_ref()
         .map(|s| s.contains("bash") || s.contains("zsh"))
         .unwrap_or(false);
-    let prefer_bash = env_shell.as_ref().map_or(false, |s| s.contains("bash"));
+    let prefer_bash = env_shell.as_ref().is_some_and(|s| s.contains("bash"));
 
     // Try to locate shells
     let zsh_path = which("zsh").await;
@@ -136,7 +136,7 @@ pub async fn exec(
     let output = tokio::time::timeout(
         std::time::Duration::from_millis(timeout_ms),
         Command::new(shell_path)
-            .args(&["-c", command])
+            .args(["-c", command])
             .current_dir(cwd)
             .env("GIT_EDITOR", "true")
             .env("MOSSENCODE", "1")

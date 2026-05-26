@@ -50,8 +50,7 @@ pub fn satisfies(version: &str, range: &str) -> bool {
     let range_str = range;
 
     // Handle common range patterns
-    if range_str.starts_with("^") {
-        let min_str = &range_str[1..];
+    if let Some(min_str) = range_str.strip_prefix("^") {
         let min = parse_version(min_str);
         // ^1.0.0 means >=1.0.0 and <2.0.0
         if min.is_empty() {
@@ -60,8 +59,7 @@ pub fn satisfies(version: &str, range: &str) -> bool {
         let major = min[0];
         return version_parts[0] == major && compare_versions(&version_parts, &min) >= 0;
     }
-    if range_str.starts_with('~') {
-        let min_str = &range_str[1..];
+    if let Some(min_str) = range_str.strip_prefix('~') {
         let min = parse_version(min_str);
         // ~1.0.0 means >=1.0.0 and <1.1.0 (tilde-patch — npm standard).
         // Version must have same major + minor, and be >= min.
@@ -73,8 +71,7 @@ pub fn satisfies(version: &str, range: &str) -> bool {
             && version_parts[1] == minor
             && compare_versions(&version_parts, &min) >= 0;
     }
-    if range_str.starts_with(">=") {
-        let min_str = &range_str[2..];
+    if let Some(min_str) = range_str.strip_prefix(">=") {
         let min = parse_version(min_str);
         return compare_versions(&version_parts, &min) >= 0;
     }
@@ -83,8 +80,7 @@ pub fn satisfies(version: &str, range: &str) -> bool {
         let min = parse_version(min_str);
         return compare_versions(&version_parts, &min) > 0;
     }
-    if range_str.starts_with("<=") {
-        let max_str = &range_str[2..];
+    if let Some(max_str) = range_str.strip_prefix("<=") {
         let max = parse_version(max_str);
         return compare_versions(&version_parts, &max) <= 0;
     }

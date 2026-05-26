@@ -125,10 +125,7 @@ pub fn parse_agent_tools_from_frontmatter(
 pub fn parse_slash_command_tools_from_frontmatter(
     tools_value: Option<&serde_json::Value>,
 ) -> Vec<String> {
-    match parse_tool_list_string(tools_value) {
-        None => Vec::new(),
-        Some(parsed) => parsed,
-    }
+    parse_tool_list_string(tools_value).unwrap_or_default()
 }
 
 /// Get a unique identifier for a file based on device ID and inode.
@@ -336,16 +333,15 @@ async fn find_markdown_files(dir: &Path) -> Vec<String> {
                 if let Ok(metadata) = tokio::fs::metadata(&path).await {
                     if metadata.is_dir() {
                         Box::pin(walk(&path, files, visited)).await;
-                    } else if metadata.is_file() {
-                        if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                            files.push(path.to_string_lossy().to_string());
-                        }
+                    } else if metadata.is_file()
+                        && path.extension().and_then(|e| e.to_str()) == Some("md")
+                    {
+                        files.push(path.to_string_lossy().to_string());
                     }
                 }
-            } else if file_type.is_file() {
-                if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                    files.push(path.to_string_lossy().to_string());
-                }
+            } else if file_type.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md")
+            {
+                files.push(path.to_string_lossy().to_string());
             }
         }
     }

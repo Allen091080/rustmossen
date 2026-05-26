@@ -136,6 +136,34 @@ pub fn get_context_window_for_model(
     MODEL_CONTEXT_WINDOW_DEFAULT
 }
 
+/// Context-window value shown by terminal status surfaces.
+///
+/// This intentionally mirrors the user-visible terminal/status precedence:
+/// explicit global override first, then custom-backend max input only when the
+/// custom backend is active for the model, then the model capability/default.
+pub fn terminal_context_window_tokens(model: &str) -> Option<u64> {
+    if let Ok(raw) = std::env::var("MOSSEN_CODE_MAX_CONTEXT_TOKENS") {
+        if let Ok(tokens) = raw.parse::<u64>() {
+            if tokens > 0 {
+                return Some(tokens);
+            }
+        }
+    }
+
+    if crate::custom_backend::is_custom_backend_enabled()
+        && crate::custom_backend::custom_backend_capability_applies_to_model(model)
+    {
+        if let Some(tokens) = crate::custom_backend::get_custom_backend_max_input_tokens() {
+            if tokens > 0 {
+                return Some(tokens);
+            }
+        }
+    }
+
+    let tokens = crate::model_utils::get_context_window_for_model(model);
+    (tokens > 0).then_some(tokens)
+}
+
 /// Check if balanced 1M experiment treatment is enabled for a model.
 pub fn get_balanced_1m_exp_treatment_enabled(
     model: &str,
@@ -186,7 +214,7 @@ pub fn calculate_context_percentages(
 
             let used_percentage =
                 ((total_input_tokens as f64 / context_window_size as f64) * 100.0).round() as u32;
-            let clamped_used = used_percentage.min(100).max(0);
+            let clamped_used = used_percentage.min(100);
 
             ContextPercentages {
                 used: Some(clamped_used),
@@ -258,4 +286,90 @@ pub fn get_max_thinking_tokens_for_model(
 /// Helper: check if an env var value is truthy.
 fn is_env_truthy(val: &str) -> bool {
     matches!(val, "1" | "true" | "yes" | "on")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    const ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_MAX_CONTEXT_TOKENS",
+        "MOSSEN_CODE_CUSTOM_MAX_INPUT_TOKENS",
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_CODE_DISABLE_1M_CONTEXT",
+    ];
+
+    struct EnvRestore(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("context env lock")
+    }
+
+    fn clear_context_env() -> EnvRestore {
+        let restore = EnvRestore(
+            ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        for key in ENV_KEYS {
+            std::env::remove_var(key);
+        }
+        restore
+    }
+
+    #[test]
+    fn terminal_context_window_tokens_uses_one_status_source() {
+        let _lock = env_lock();
+        let _restore = clear_context_env();
+
+        assert_eq!(
+            terminal_context_window_tokens("mossen-balanced-4"),
+            Some(MODEL_CONTEXT_WINDOW_DEFAULT)
+        );
+
+        std::env::set_var("MOSSEN_CODE_CUSTOM_MAX_INPUT_TOKENS", "131000");
+        assert_eq!(
+            terminal_context_window_tokens("mossen-balanced-4"),
+            Some(MODEL_CONTEXT_WINDOW_DEFAULT),
+            "custom max input alone must not change first-party status context"
+        );
+
+        std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+        assert_eq!(
+            terminal_context_window_tokens("mossen-balanced-4"),
+            Some(131_000)
+        );
+
+        std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", "other-model");
+        assert_eq!(
+            terminal_context_window_tokens("mossen-balanced-4"),
+            Some(MODEL_CONTEXT_WINDOW_DEFAULT),
+            "model-scoped custom capability must not leak into other models"
+        );
+
+        std::env::set_var("MOSSEN_CODE_MAX_CONTEXT_TOKENS", "222000");
+        assert_eq!(
+            terminal_context_window_tokens("mossen-balanced-4"),
+            Some(222_000),
+            "global override wins for all terminal status surfaces"
+        );
+    }
 }

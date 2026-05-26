@@ -133,20 +133,20 @@ pub fn normalize_side_question_branding(
         let escaped = regex::escape(&term);
 
         // Replace quoted variants
-        let quoted_re = Regex::new(&format!(r#"[`"""]{}[`"""]"#, escaped))
-            .unwrap_or_else(|_| Regex::new(r"(?!x)x").unwrap());
+        let quoted_re = Regex::new(&format!(r#"[`"]{}[`"]"#, escaped))
+            .expect("escaped legacy term regex should compile");
         normalized = quoted_re.replace_all(&normalized, runtime_name).to_string();
 
         // Replace environment references (Chinese)
         let env_zh_re = Regex::new(&format!(r"{}\s*环境", escaped))
-            .unwrap_or_else(|_| Regex::new(r"(?!x)x").unwrap());
+            .expect("escaped legacy term regex should compile");
         normalized = env_zh_re
             .replace_all(&normalized, chinese_runtime.as_str())
             .to_string();
 
         // Replace environment references (English)
         let env_en_re = Regex::new(&format!(r"{}\s*environment", escaped))
-            .unwrap_or_else(|_| Regex::new(r"(?!x)x").unwrap());
+            .expect("escaped legacy term regex should compile");
         normalized = env_en_re
             .replace_all(&normalized, english_runtime.as_str())
             .to_string();

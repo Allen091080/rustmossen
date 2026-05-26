@@ -115,13 +115,11 @@ pub struct ToolResultBlockParam {
 
 fn is_large_outputs(outputs: &[Option<NotebookCellSourceOutput>]) -> bool {
     let mut size = 0usize;
-    for o in outputs {
-        if let Some(output) = o {
-            size += output.text.as_ref().map_or(0, |t| t.len());
-            size += output.image.as_ref().map_or(0, |img| img.image_data.len());
-            if size > LARGE_OUTPUT_THRESHOLD {
-                return true;
-            }
+    for output in outputs.iter().flatten() {
+        size += output.text.as_ref().map_or(0, |t| t.len());
+        size += output.image.as_ref().map_or(0, |img| img.image_data.len());
+        if size > LARGE_OUTPUT_THRESHOLD {
+            return true;
         }
     }
     false
@@ -162,7 +160,7 @@ fn process_output(output: &NotebookCellOutput) -> Option<NotebookCellSourceOutpu
             let text = output
                 .text
                 .as_ref()
-                .map(|t| process_output_text(t))
+                .map(process_output_text)
                 .unwrap_or_default();
             Some(NotebookCellSourceOutput {
                 output_type: output.output_type.clone(),
@@ -174,8 +172,8 @@ fn process_output(output: &NotebookCellOutput) -> Option<NotebookCellSourceOutpu
             let text = output
                 .data
                 .as_ref()
-                .and_then(|d| d.get("text/plain").map(|v| process_output_text(v)));
-            let image = output.data.as_ref().and_then(|d| extract_image(d));
+                .and_then(|d| d.get("text/plain").map(process_output_text));
+            let image = output.data.as_ref().and_then(extract_image);
             Some(NotebookCellSourceOutput {
                 output_type: output.output_type.clone(),
                 text,
@@ -244,7 +242,7 @@ fn process_cell(
         if let Some(ref outputs) = cell.outputs {
             if !outputs.is_empty() {
                 let processed: Vec<Option<NotebookCellSourceOutput>> =
-                    outputs.iter().map(|o| process_output(o)).collect();
+                    outputs.iter().map(process_output).collect();
 
                 if !include_large_outputs && is_large_outputs(&processed) {
                     cell_data.outputs = Some(vec![NotebookCellSourceOutput {
@@ -365,10 +363,8 @@ pub fn map_notebook_cells_to_tool_result(
     data: &[NotebookCellSource],
     tool_use_id: &str,
 ) -> ToolResultBlockParam {
-    let all_results: Vec<ToolResultBlock> = data
-        .iter()
-        .flat_map(|c| get_tool_result_from_cell(c))
-        .collect();
+    let all_results: Vec<ToolResultBlock> =
+        data.iter().flat_map(get_tool_result_from_cell).collect();
 
     // Merge adjacent text blocks
     let merged = all_results

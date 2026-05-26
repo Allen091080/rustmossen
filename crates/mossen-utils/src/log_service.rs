@@ -157,7 +157,7 @@ pub fn get_log_display_title(
             }
         })
         .or(default_title)
-        .or_else(|| {
+        .or({
             if is_autonomous_prompt {
                 Some("Autonomous session")
             } else {

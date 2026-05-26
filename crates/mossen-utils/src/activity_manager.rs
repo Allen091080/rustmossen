@@ -16,15 +16,10 @@ pub struct ActivityStates {
 }
 
 /// 活动管理器选项
+#[derive(Default)]
 pub struct ActivityManagerOptions {
     /// 自定义时间获取函数（用于测试）
     pub get_now: Option<Box<dyn Fn() -> f64 + Send + Sync>>,
-}
-
-impl Default for ActivityManagerOptions {
-    fn default() -> Self {
-        Self { get_now: None }
-    }
 }
 
 /// ActivityManager 处理通用活动追踪。

@@ -538,8 +538,7 @@ fn is_mossen_md_excluded(
 fn simple_glob_match_path(pattern: &str, path: &str) -> bool {
     let pattern = pattern.replace('\\', "/");
     if pattern.contains('*') {
-        if pattern.starts_with("**/") {
-            let suffix = &pattern[3..];
+        if let Some(suffix) = pattern.strip_prefix("**/") {
             return path.ends_with(suffix) || path.contains(&format!("/{}", suffix));
         }
         // Simple wildcard

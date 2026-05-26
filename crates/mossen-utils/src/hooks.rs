@@ -96,15 +96,11 @@ impl std::fmt::Display for HookEvent {
 /// Shell type for hook execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ShellType {
+    #[default]
     Bash,
     Powershell,
-}
-
-impl Default for ShellType {
-    fn default() -> Self {
-        Self::Bash
-    }
 }
 
 /// A command-based hook definition.
@@ -612,15 +608,12 @@ fn parse_http_hook_output(body: &str) -> HttpParsedOutput {
 
     if trimmed.is_empty() {
         // Empty body treated as empty JSON object
-        match serde_json::from_str::<HookJsonOutput>("{}") {
-            Ok(json) => {
-                debug!("HTTP hook returned empty body, treating as empty JSON object");
-                return HttpParsedOutput {
-                    json: Some(json),
-                    validation_error: None,
-                };
-            }
-            Err(_) => {}
+        if let Ok(json) = serde_json::from_str::<HookJsonOutput>("{}") {
+            debug!("HTTP hook returned empty body, treating as empty JSON object");
+            return HttpParsedOutput {
+                json: Some(json),
+                validation_error: None,
+            };
         }
     }
 
@@ -968,18 +961,18 @@ pub async fn exec_command_hook(
     // Build the command based on shell type
     let mut cmd = if *shell_type == ShellType::Powershell {
         let mut c = Command::new("pwsh");
-        c.args(&["-NoProfile", "-NonInteractive", "-Command", command]);
+        c.args(["-NoProfile", "-NonInteractive", "-Command", command]);
         c
     } else if is_windows {
         // On Windows, use Git Bash
         let bash_path = env::var("GIT_BASH_PATH")
             .unwrap_or_else(|_| "C:\\Program Files\\Git\\bin\\bash.exe".to_string());
         let mut c = Command::new(&bash_path);
-        c.args(&["-c", command]);
+        c.args(["-c", command]);
         c
     } else {
         let mut c = Command::new("/bin/sh");
-        c.args(&["-c", command]);
+        c.args(["-c", command]);
         c
     };
 
@@ -1312,7 +1305,7 @@ pub async fn execute_hooks_outside_repl(
                     results.push(HookOutsideReplResult {
                         command: url.to_string(),
                         succeeded: false,
-                        output: format!("{}", e),
+                        output: e.to_string(),
                         blocked: false,
                         watch_paths: None,
                         system_message: None,

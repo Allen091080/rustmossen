@@ -39,7 +39,7 @@ impl Default for UpdateNotificationState {
 /// TS source: `getSemverPart(version)`.
 pub fn get_semver_part(version: &str) -> String {
     // Strip prerelease/build segments.
-    let core = version.split(|c| c == '-' || c == '+').next().unwrap_or("");
+    let core = version.split(['-', '+']).next().unwrap_or("");
     let parts: Vec<&str> = core.split('.').collect();
     let pick = |idx: usize| -> u64 {
         parts

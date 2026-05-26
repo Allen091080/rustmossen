@@ -388,8 +388,7 @@ impl Transport for SSETransport {
                             let line = buffer[..newline_pos].trim_end().to_string();
                             buffer = buffer[newline_pos + 1..].to_string();
 
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
+                            if let Some(data) = line.strip_prefix("data: ") {
                                 // Try to parse as JSON event
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
                                     let cb = on_event.read().await;

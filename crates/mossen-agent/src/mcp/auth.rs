@@ -419,3 +419,74 @@ pub async fn perform_mcp_oauth_flow(
         code_challenge,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn http_config(url: &str) -> McpAuthServerConfig {
+        McpAuthServerConfig {
+            config_type: "http".to_string(),
+            url: url.to_string(),
+            headers: HashMap::new(),
+            oauth_xaa: false,
+        }
+    }
+
+    #[test]
+    fn discovery_without_token_round_trip_respects_xaa_exception() {
+        let server_name = "oauth-test-server";
+        let config = http_config("https://mcp.example.test");
+        let key = get_server_key(server_name, &config);
+
+        write_auth_entry(key, McpOAuthEntry::default());
+
+        assert!(has_mcp_discovery_but_no_token(server_name, &config));
+
+        let mut xaa_config = config.clone();
+        xaa_config.oauth_xaa = true;
+        assert!(!has_mcp_discovery_but_no_token(server_name, &xaa_config));
+    }
+
+    #[test]
+    fn oauth_error_body_and_urls_are_redacted_and_normalized() {
+        let (status, body) = normalize_oauth_error_body(
+            200,
+            r#"{"error":"expired_refresh_token","error_description":"expired"}"#,
+        );
+        assert_eq!(status, 400);
+        assert!(body.contains("invalid_grant"));
+
+        let redacted = redact_sensitive_url_params(
+            "https://auth.example.test/callback?code=abc&state=xyz&scope=read",
+        );
+        assert!(redacted.contains("code=%5BREDACTED%5D"));
+        assert!(redacted.contains("state=%5BREDACTED%5D"));
+        assert!(redacted.contains("scope=read"));
+    }
+
+    #[tokio::test]
+    async fn oauth_flow_plan_generates_pkce_state_and_server_key() {
+        let config = http_config("https://mcp.example.test");
+
+        let plan = perform_mcp_oauth_flow(
+            "oauth-plan-server",
+            &config,
+            "https://auth.example.test/authorize".to_string(),
+            "http://127.0.0.1:12345/callback".to_string(),
+        )
+        .await
+        .expect("oauth flow plan");
+
+        assert_eq!(plan.server_name, "oauth-plan-server");
+        assert!(plan.server_key.starts_with("oauth-plan-server|"));
+        assert_eq!(
+            plan.authorization_url,
+            "https://auth.example.test/authorize"
+        );
+        assert_eq!(plan.redirect_uri, "http://127.0.0.1:12345/callback");
+        assert_eq!(plan.state.len(), 32);
+        assert!(!plan.code_verifier.is_empty());
+        assert!(!plan.code_challenge.is_empty());
+    }
+}

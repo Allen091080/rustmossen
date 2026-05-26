@@ -220,12 +220,12 @@ pub fn extract_section_name(content: &str) -> String {
 /// Rough token count estimation based on character count (4 chars ≈ 1 token).
 pub fn rough_token_count_estimation(text: &str) -> usize {
     // Approximation: ~4 bytes per token for English text
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// Compute grid layout parameters based on context window size and terminal width.
 pub fn compute_grid_params(context_window: usize, terminal_width: Option<usize>) -> (usize, usize) {
-    let is_narrow_screen = terminal_width.map_or(false, |w| w < 80);
+    let is_narrow_screen = terminal_width.is_some_and(|w| w < 80);
     let grid_width = if context_window >= 1_000_000 {
         if is_narrow_screen {
             5

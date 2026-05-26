@@ -128,7 +128,7 @@ fn detect_from_color_fg_bg() -> Option<SystemTheme> {
         return None;
     }
     let bg_num: i32 = bg.parse().ok()?;
-    if bg_num < 0 || bg_num > 15 {
+    if !(0..=15).contains(&bg_num) {
         return None;
     }
     // 0-6 and 8 are dark ANSI colors; 7 (white) and 9-15 (bright) are light.

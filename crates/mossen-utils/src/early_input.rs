@@ -140,7 +140,7 @@ fn key_event_to_chunk(key: &KeyEvent) -> Option<String> {
         KeyCode::Char(c) if ctrl => {
             // Map Ctrl+<letter> to the corresponding control byte (Ctrl+A=1, …).
             let lower = c.to_ascii_lowercase();
-            if ('a'..='z').contains(&lower) {
+            if lower.is_ascii_lowercase() {
                 Some(((lower as u8 - b'a' + 1) as char).to_string())
             } else {
                 None

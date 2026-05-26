@@ -1545,8 +1545,6 @@ impl RetryableError {
 pub const PLATFORM_CAPABILITY_MANIFEST: &[(&str, &str)] = &[
     ("provider", "Provider configuration"),
     ("local-git", "Local Git tooling"),
-    ("direct-connect", "Direct connect feature"),
-    ("ssh-remote", "SSH remote sessions"),
     ("system-prompt", "System prompt assembly"),
     ("memory", "Mossen memory store"),
     ("compression", "Conversation compression"),
@@ -1554,14 +1552,10 @@ pub const PLATFORM_CAPABILITY_MANIFEST: &[(&str, &str)] = &[
     ("security", "Permission/sandbox"),
     ("plugins", "Plugin manager"),
     ("mcp", "MCP servers"),
-    ("remote", "Remote control"),
-    ("assistant", "Assistant daemon"),
-    ("chrome", "Chrome integration"),
     ("voice", "Voice mode"),
-    ("team-memory", "Team memory"),
+    ("assistant", "Assistant runtime"),
     ("agents", "Agent registry"),
     ("sessions", "Session manager"),
-    ("swarm", "Swarm/teammates"),
 ];
 
 /// 启动 MCP server。

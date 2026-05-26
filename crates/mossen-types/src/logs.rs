@@ -418,6 +418,7 @@ pub struct ContextCollapseSnapshotEntry {
 /// 日志条目联合类型（19 个变体）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum Entry {
     /// 会话记录消息。
     #[serde(rename = "transcript")]

@@ -157,8 +157,15 @@ pub fn model_supports_auto_mode(model: &str, provider: &str, user_type: Option<&
         if m.contains("mossen-3-") {
             return false;
         }
-        let re = regex::Regex::new(r"mossen-(max|balanced|fast)-4(?!-[6-9])").unwrap();
-        if re.is_match(&m) {
+        let unsupported_four = ["mossen-max-4", "mossen-balanced-4", "mossen-fast-4"]
+            .iter()
+            .any(|prefix| {
+                m.find(prefix).is_some_and(|idx| {
+                    let tail = &m[idx + prefix.len()..];
+                    !matches!(tail.as_bytes(), [b'-', b'6'..=b'9', ..])
+                })
+            });
+        if unsupported_four {
             return false;
         }
         return true;

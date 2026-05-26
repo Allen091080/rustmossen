@@ -331,7 +331,7 @@ impl MeasuredText {
         let mut lo: usize = 0;
         let mut hi = boundaries.len() - 1;
         while lo < hi {
-            let mid = (lo + hi + 1) / 2;
+            let mid = (lo + hi).div_ceil(2);
             if boundaries[mid] <= offset {
                 lo = mid;
             } else {

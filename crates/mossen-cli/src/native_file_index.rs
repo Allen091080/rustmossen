@@ -92,7 +92,7 @@ impl FileIndex {
         let mut needle_bitmap: i32 = 0;
         for &ch in &needle_chars {
             let cc = ch as u32;
-            if cc >= 97 && cc <= 122 {
+            if (97..=122).contains(&cc) {
                 needle_bitmap |= 1 << (cc - 97);
             }
         }
@@ -233,7 +233,7 @@ impl FileIndex {
         self.path_lens[i] = len;
         let mut bits: i32 = 0;
         for c in lp.bytes() {
-            if c >= b'a' && c <= b'z' {
+            if c.is_ascii_lowercase() {
                 bits |= 1 << (c - b'a');
             }
         }
@@ -278,7 +278,7 @@ fn compute_top_level_entries(paths: &[String], limit: usize) -> Option<Vec<Searc
     let mut top_level = HashSet::new();
 
     for p in paths {
-        let end = p.find(|c: char| c == '/' || c == '\\').unwrap_or(p.len());
+        let end = p.find(['/', '\\']).unwrap_or(p.len());
         let segment = &p[..end];
         if !segment.is_empty() {
             top_level.insert(segment.to_string());

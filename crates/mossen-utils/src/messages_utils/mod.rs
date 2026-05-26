@@ -242,17 +242,16 @@ pub fn to_sdk_messages(messages: &[Message], session_id: &str) -> Vec<SdkMessage
                             extra: serde_json::Map::new(),
                         });
                     }
-                } else if msg.subtype.as_deref() == Some("local_command") {
-                    if msg.content.contains("<local-command-stdout>")
-                        || msg.content.contains("<local-command-stderr>")
-                    {
-                        let sdk_msg = local_command_output_to_sdk_assistant_message(
-                            &msg.content,
-                            &msg.uuid,
-                            session_id,
-                        );
-                        result.push(sdk_msg);
-                    }
+                } else if msg.subtype.as_deref() == Some("local_command")
+                    && (msg.content.contains("<local-command-stdout>")
+                        || msg.content.contains("<local-command-stderr>"))
+                {
+                    let sdk_msg = local_command_output_to_sdk_assistant_message(
+                        &msg.content,
+                        &msg.uuid,
+                        session_id,
+                    );
+                    result.push(sdk_msg);
                 }
             }
         }

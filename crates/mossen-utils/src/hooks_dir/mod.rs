@@ -1012,10 +1012,7 @@ pub fn add_session_hook(
             hooks: HashMap::new(),
         });
 
-    let event_matchers = store
-        .hooks
-        .entry(event.to_string())
-        .or_insert_with(Vec::new);
+    let event_matchers = store.hooks.entry(event.to_string()).or_default();
 
     let existing = event_matchers
         .iter_mut()

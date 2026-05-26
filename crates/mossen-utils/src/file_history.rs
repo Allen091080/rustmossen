@@ -207,14 +207,8 @@ pub async fn check_origin_file_changed(
 ) -> bool {
     let backup_path = resolve_backup_path(backup_file_name, config_dir, session_id);
 
-    let original_meta = match fs::metadata(original_file).await {
-        Ok(m) => Some(m),
-        Err(_) => None,
-    };
-    let backup_meta = match fs::metadata(&backup_path).await {
-        Ok(m) => Some(m),
-        Err(_) => None,
-    };
+    let original_meta = fs::metadata(original_file).await.ok();
+    let backup_meta = fs::metadata(&backup_path).await.ok();
 
     // One exists, one missing -> changed
     match (&original_meta, &backup_meta) {

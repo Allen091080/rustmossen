@@ -123,7 +123,7 @@ fn expand_field(field: &str, range: &FieldRange) -> Option<Vec<u32>> {
 /// Parse a 5-field cron expression into expanded number arrays.
 /// Returns None if invalid or unsupported syntax.
 pub fn parse_cron_expression(expr: &str) -> Option<CronFields> {
-    let parts: Vec<&str> = expr.trim().split_whitespace().collect();
+    let parts: Vec<&str> = expr.split_whitespace().collect();
     if parts.len() != 5 {
         return None;
     }
@@ -165,7 +165,7 @@ pub fn compute_next_cron_run(
         .unwrap_or(t)
         .with_nanosecond(0)
         .unwrap_or(t);
-    t = t + chrono::Duration::minutes(1);
+    t += chrono::Duration::minutes(1);
 
     let max_iter = 366 * 24 * 60;
     for _ in 0..max_iter {
@@ -207,13 +207,13 @@ pub fn compute_next_cron_run(
         }
 
         if !hour_set.contains(&t.hour()) {
-            t = t + chrono::Duration::hours(1);
+            t += chrono::Duration::hours(1);
             t = t.with_minute(0).unwrap_or(t).with_second(0).unwrap_or(t);
             continue;
         }
 
         if !minute_set.contains(&t.minute()) {
-            t = t + chrono::Duration::minutes(1);
+            t += chrono::Duration::minutes(1);
             continue;
         }
 
@@ -275,7 +275,7 @@ fn format_utc_time_as_local(minute: u32, hour: u32) -> String {
 
 /// Convert a cron expression to a human-readable description.
 pub fn cron_to_human(cron: &str, utc: bool) -> String {
-    let parts: Vec<&str> = cron.trim().split_whitespace().collect();
+    let parts: Vec<&str> = cron.split_whitespace().collect();
     if parts.len() != 5 {
         return cron.to_string();
     }

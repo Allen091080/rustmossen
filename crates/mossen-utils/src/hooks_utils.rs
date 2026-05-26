@@ -1116,9 +1116,8 @@ fn get_plugin_hook_counts(
     for h in plugin_hooks {
         let plugin_id = h.plugin_id.as_ref().unwrap();
         let at_index = plugin_id.rfind('@');
-        let is_official = at_index.map_or(false, |idx| {
-            idx > 0 && allowed_names.contains(&plugin_id[idx + 1..])
-        });
+        let is_official =
+            at_index.is_some_and(|idx| idx > 0 && allowed_names.contains(&plugin_id[idx + 1..]));
         let key = if is_official {
             plugin_id.clone()
         } else {
@@ -1427,7 +1426,7 @@ pub async fn exec_command_hook(
     let shell_type = hook.shell.as_deref().unwrap_or(DEFAULT_HOOK_SHELL);
     let mut child = if shell_type == "powershell" {
         let mut cmd = Command::new("pwsh");
-        cmd.args(&["-NoProfile", "-NonInteractive", "-Command", &command_str]);
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &command_str]);
         cmd.envs(&env_vars);
         cmd.current_dir(safe_cwd);
         cmd.stdin(std::process::Stdio::piped());
@@ -1436,7 +1435,7 @@ pub async fn exec_command_hook(
         cmd.spawn()?
     } else {
         let mut cmd = Command::new("sh");
-        cmd.args(&["-c", &command_str]);
+        cmd.args(["-c", &command_str]);
         cmd.envs(&env_vars);
         cmd.current_dir(safe_cwd);
         cmd.stdin(std::process::Stdio::piped());
@@ -1568,9 +1567,9 @@ pub async fn execute_hooks(
     if user_hooks.is_empty() {
         let batch_start = Instant::now();
         // Execute internal callbacks sequentially
-        for (_i, matched) in matching_hooks.iter().enumerate() {
+        for matched in matching_hooks.iter() {
             if let Hook::Callback(cb) = &matched.hook {
-                let token = cancel_token.map(|t| t.clone());
+                let token = cancel_token.cloned();
                 let _result =
                     (cb.callback)(hook_input.clone(), tool_use_id.to_string(), token, 0, None)
                         .await;
@@ -1635,7 +1634,7 @@ pub async fn execute_hooks(
 
         match &matched.hook {
             Hook::Callback(cb) => {
-                let token = cancel_token.map(|t| t.clone());
+                let token = cancel_token.cloned();
                 let cb = cb.clone();
                 let input = hook_input.clone();
                 let tu_id = tool_use_id.to_string();
@@ -1713,7 +1712,7 @@ pub async fn execute_hooks(
                 let he = hook_event.to_string();
                 let _tu_id = tool_use_id.to_string();
                 let msgs = messages.map(|m| m.to_vec()).unwrap_or_default();
-                let token = cancel_token.map(|t| t.clone());
+                let token = cancel_token.cloned();
 
                 let fut = Box::pin(async move {
                     if msgs.is_empty() {
@@ -1848,7 +1847,7 @@ pub async fn execute_hooks(
                     let shell_type = cmd.shell.as_deref().unwrap_or(DEFAULT_HOOK_SHELL);
                     let spawn_result = if shell_type == "powershell" {
                         Command::new("pwsh")
-                            .args(&["-NoProfile", "-NonInteractive", "-Command", &command_str])
+                            .args(["-NoProfile", "-NonInteractive", "-Command", &command_str])
                             .envs(&env_vars)
                             .current_dir(&safe_cwd)
                             .stdin(std::process::Stdio::piped())
@@ -1857,7 +1856,7 @@ pub async fn execute_hooks(
                             .spawn()
                     } else {
                         Command::new("sh")
-                            .args(&["-c", &command_str])
+                            .args(["-c", &command_str])
                             .envs(&env_vars)
                             .current_dir(&safe_cwd)
                             .stdin(std::process::Stdio::piped())
@@ -2292,15 +2291,11 @@ pub async fn execute_hooks(
             if let Some(ref pb) = result.permission_behavior {
                 match pb.as_str() {
                     "deny" => permission_behavior = Some("deny".to_string()),
-                    "ask" => {
-                        if permission_behavior.as_deref() != Some("deny") {
-                            permission_behavior = Some("ask".to_string());
-                        }
+                    "ask" if permission_behavior.as_deref() != Some("deny") => {
+                        permission_behavior = Some("ask".to_string());
                     }
-                    "allow" => {
-                        if permission_behavior.is_none() {
-                            permission_behavior = Some("allow".to_string());
-                        }
+                    "allow" if permission_behavior.is_none() => {
+                        permission_behavior = Some("allow".to_string());
                     }
                     "passthrough" => {}
                     _ => {}
@@ -2466,7 +2461,7 @@ pub async fn execute_hooks_outside_repl(
     for (hook_index, matched) in matching_hooks.iter().enumerate() {
         match &matched.hook {
             Hook::Callback(cb) => {
-                let token = cancel_token.map(|t| t.clone());
+                let token = cancel_token.cloned();
                 let tool_use_id = Uuid::new_v4().to_string();
                 let json =
                     (cb.callback)(hook_input.clone(), tool_use_id, token, hook_index, None).await;
@@ -2559,7 +2554,7 @@ pub async fn execute_hooks_outside_repl(
                         }
 
                         let parsed = parse_hook_output(&exec_result.stdout);
-                        let json_blocked = parsed.json.as_ref().map_or(false, |j| {
+                        let json_blocked = parsed.json.as_ref().is_some_and(|j| {
                             is_sync_hook_json_output(j)
                                 && j.get("decision").and_then(|v| v.as_str()) == Some("block")
                         });
@@ -3333,14 +3328,13 @@ pub async fn execute_session_end_hooks(
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
     timeout_ms: u64,
 ) {
-    if ctx.custom_backend_enabled {
-        if std::env::var("MOSSEN_CODE_ENABLE_CUSTOM_BACKEND_SESSION_END_HOOKS")
+    if ctx.custom_backend_enabled
+        && std::env::var("MOSSEN_CODE_ENABLE_CUSTOM_BACKEND_SESSION_END_HOOKS")
             .ok()
             .as_deref()
             != Some("1")
-        {
-            return;
-        }
+    {
+        return;
     }
 
     let base = create_base_hook_input(ctx, None, None, None);
@@ -3982,12 +3976,12 @@ pub async fn execute_worktree_remove_hook(ctx: &HooksContext, worktree_path: &st
         .hooks_config_snapshot
         .as_ref()
         .and_then(|s| s.get("WorktreeRemove"))
-        .map_or(false, |h| !h.is_empty());
+        .is_some_and(|h| !h.is_empty());
     let has_registered = ctx
         .registered_hooks
         .as_ref()
         .and_then(|s| s.get("WorktreeRemove"))
-        .map_or(false, |h| !h.is_empty());
+        .is_some_and(|h| !h.is_empty());
     if !has_snapshot && !has_registered {
         return false;
     }

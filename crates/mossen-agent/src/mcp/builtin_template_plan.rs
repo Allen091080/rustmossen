@@ -240,7 +240,7 @@ pub async fn execute_mcp_template_install_plan(
 
 /// Trait for async MCP config addition.
 #[async_trait::async_trait]
-pub trait AsyncAddMcpConfig {
+pub trait AsyncAddMcpConfig: Send + Sync {
     async fn add_config(
         &self,
         name: &str,

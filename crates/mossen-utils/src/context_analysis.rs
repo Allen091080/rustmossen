@@ -55,7 +55,7 @@ pub struct ContentBlock {
 
 /// Rough token count estimation (4 chars per token heuristic).
 pub fn rough_token_count_estimation(text: &str) -> usize {
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// Analyze context token distribution.
@@ -129,7 +129,7 @@ fn process_block(
                 && block
                     .text
                     .as_deref()
-                    .map_or(false, |t| t.contains("local-command-stdout"))
+                    .is_some_and(|t| t.contains("local-command-stdout"))
             {
                 stats.local_command_outputs += tokens;
             } else if msg_type == "user" {

@@ -132,7 +132,7 @@ pub async fn detect_plugin_directories(ide_name: &str) -> Vec<PathBuf> {
                 continue;
             }
 
-            let dir = base_dir.join(&name_str.to_string());
+            let dir = base_dir.join(name_str.to_string());
 
             if platform == "linux" {
                 found_directories.push(dir);

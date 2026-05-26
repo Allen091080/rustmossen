@@ -56,7 +56,7 @@ pub async fn backup_terminal_preferences(mark_in_progress: impl FnOnce(&str)) ->
         .output()
         .await;
 
-    if let Err(_) = backup_result {
+    if backup_result.is_err() {
         return None;
     }
 

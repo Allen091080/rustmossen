@@ -103,14 +103,12 @@ pub fn use_ide_status_indicator(
         inputs.ide_status == Some(IdeStatus::Connected) && inputs.selection_present;
     let should_show_connected =
         inputs.ide_status == Some(IdeStatus::Connected) && !should_show_selection;
-    let show_install_error = (inputs.install_error_present || inputs.is_jet_brains)
+    let show_install_error = inputs.install_error_present
         && !inputs.is_jet_brains
         && !should_show_connected
         && !should_show_selection;
-    let show_jet_brains_info = (inputs.install_error_present || inputs.is_jet_brains)
-        && inputs.is_jet_brains
-        && !should_show_connected
-        && !should_show_selection;
+    let show_jet_brains_info =
+        inputs.is_jet_brains && !should_show_connected && !should_show_selection;
 
     // ide-status-hint (default integration suggestion).
     if inputs.is_supported_terminal || inputs.ide_status.is_some() || show_jet_brains_info {

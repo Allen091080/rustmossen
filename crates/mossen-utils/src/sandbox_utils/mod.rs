@@ -49,6 +49,12 @@ pub struct MossenSandboxViolationStore {
     total_count: Mutex<usize>,
 }
 
+impl Default for MossenSandboxViolationStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MossenSandboxViolationStore {
     pub fn new() -> Self {
         Self {
@@ -247,6 +253,12 @@ pub struct SandboxManager {
     bare_git_repo_scrub_paths: Mutex<Vec<String>>,
 }
 
+impl Default for SandboxManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SandboxManager {
     pub fn new() -> Self {
         Self {
@@ -318,9 +330,7 @@ impl SandboxManager {
     }
 
     pub fn refresh_config(&self) {
-        if !self.is_sandboxing_enabled() {
-            return;
-        }
+        if !self.is_sandboxing_enabled() {}
     }
 
     pub async fn reset(&self) {
@@ -355,7 +365,7 @@ impl SandboxManager {
     }
 }
 
-pub static SANDBOX_MANAGER: Lazy<SandboxManager> = Lazy::new(|| SandboxManager::new());
+pub static SANDBOX_MANAGER: Lazy<SandboxManager> = Lazy::new(SandboxManager::new);
 
 /// Detect if cwd is a git worktree and resolve the main repo path.
 pub async fn detect_worktree_main_repo_path(cwd: &str) -> Option<String> {
@@ -376,11 +386,9 @@ pub async fn detect_worktree_main_repo_path(cwd: &str) -> Option<String> {
 
     let _marker = format!("{}/.git/worktrees/", std::path::MAIN_SEPARATOR);
     let marker_alt = "/.git/worktrees/";
-    if let Some(idx) = gitdir.rfind(marker_alt) {
-        Some(gitdir[..idx].to_string())
-    } else {
-        None
-    }
+    gitdir
+        .rfind(marker_alt)
+        .map(|idx| gitdir[..idx].to_string())
 }
 
 /// Add a command to the excluded commands list.

@@ -137,6 +137,12 @@ impl SecureStorage for FallbackStorage {
 /// Plain text storage implementation using a JSON file.
 pub struct PlainTextStorage;
 
+impl Default for PlainTextStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlainTextStorage {
     pub fn new() -> Self {
         Self
@@ -169,7 +175,7 @@ impl SecureStorage for PlainTextStorage {
 
     fn update(&self, data: &SecureStorageData) -> UpdateResult {
         let (storage_dir, storage_path) = Self::get_storage_path();
-        if let Err(_) = fs::create_dir_all(&storage_dir) {
+        if fs::create_dir_all(&storage_dir).is_err() {
             return UpdateResult {
                 success: false,
                 warning: None,
@@ -208,13 +214,7 @@ impl SecureStorage for PlainTextStorage {
         let (_, storage_path) = Self::get_storage_path();
         match fs::remove_file(&storage_path) {
             Ok(_) => true,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    true
-                } else {
-                    false
-                }
-            }
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
         }
     }
 }
@@ -332,6 +332,12 @@ pub fn start_keychain_prefetch() {
 pub struct MacOsKeychainStorage {
     service: String,
     account: String,
+}
+
+impl Default for MacOsKeychainStorage {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MacOsKeychainStorage {

@@ -155,7 +155,7 @@ fn looks_like_real_hostname(host: &str) -> bool {
     if !host.contains('.') {
         return false;
     }
-    let last_segment = host.split('.').last().unwrap_or("");
+    let last_segment = host.split('.').next_back().unwrap_or("");
     if last_segment.is_empty() {
         return false;
     }

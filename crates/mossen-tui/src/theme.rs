@@ -7,18 +7,13 @@ use ratatui::style::{Color, Modifier, Style};
 use std::fmt;
 
 /// Theme name — resolved (never "auto" at render time).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ThemeName {
+    #[default]
     Dark,
     Light,
     DarkHighContrast,
     LightHighContrast,
-}
-
-impl Default for ThemeName {
-    fn default() -> Self {
-        Self::Dark
-    }
 }
 
 impl fmt::Display for ThemeName {
@@ -355,30 +350,6 @@ impl Default for Theme {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plain_color_mode_removes_semantic_terminal_colors() {
-        let theme = Theme::for_name_with_color_mode(ThemeName::Dark, RenderColorMode::Plain);
-
-        assert_eq!(theme.color_mode, RenderColorMode::Plain);
-        assert_eq!(theme.primary, Color::Reset);
-        assert_eq!(theme.error, Color::Reset);
-        assert_eq!(theme.selection, Color::Reset);
-    }
-
-    #[test]
-    fn high_contrast_theme_uses_distinct_palette() {
-        let regular = Theme::for_name(ThemeName::Dark);
-        let high = Theme::for_name(ThemeName::DarkHighContrast);
-
-        assert_ne!(regular.border_focused, high.border_focused);
-        assert_eq!(high.border, Color::White);
-    }
-}
-
 // --- Style helpers ---
 
 impl Theme {
@@ -420,5 +391,29 @@ impl Theme {
 
     pub fn style_border_focused(&self) -> Style {
         Style::default().fg(self.border_focused)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_color_mode_removes_semantic_terminal_colors() {
+        let theme = Theme::for_name_with_color_mode(ThemeName::Dark, RenderColorMode::Plain);
+
+        assert_eq!(theme.color_mode, RenderColorMode::Plain);
+        assert_eq!(theme.primary, Color::Reset);
+        assert_eq!(theme.error, Color::Reset);
+        assert_eq!(theme.selection, Color::Reset);
+    }
+
+    #[test]
+    fn high_contrast_theme_uses_distinct_palette() {
+        let regular = Theme::for_name(ThemeName::Dark);
+        let high = Theme::for_name(ThemeName::DarkHighContrast);
+
+        assert_ne!(regular.border_focused, high.border_focused);
+        assert_eq!(high.border, Color::White);
     }
 }

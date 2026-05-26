@@ -140,7 +140,7 @@ mod tests {
         let broken_pipe = io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe");
         assert!(handle_epipe(&broken_pipe));
 
-        let other_error = io::Error::new(io::ErrorKind::Other, "other");
+        let other_error = io::Error::other("other");
         assert!(!handle_epipe(&other_error));
     }
 

@@ -136,11 +136,19 @@ pub fn substitute_arguments(
         if name.is_empty() {
             continue;
         }
-        // Match $name but not $name[...] or $nameXxx (word chars)
-        let pattern = format!(r"\${}(?![\[\w])", regex::escape(name));
+        // Match $name but leave $name[...] and $nameXxx untouched.
+        let pattern = format!(r"{}(\[|\w)?", regex::escape(&format!("${name}")));
         if let Ok(re) = Regex::new(&pattern) {
             let replacement = parsed_args.get(i).map(|s| s.as_str()).unwrap_or("");
-            result = re.replace_all(&result, replacement).to_string();
+            result = re
+                .replace_all(&result, |caps: &regex::Captures| {
+                    if caps.get(1).is_some() {
+                        caps.get(0).unwrap().as_str().to_string()
+                    } else {
+                        replacement.to_string()
+                    }
+                })
+                .to_string();
         }
     }
 
@@ -158,9 +166,12 @@ pub fn substitute_arguments(
         .to_string();
 
     // Replace shorthand indexed arguments ($0, $1, etc.)
-    let shorthand_re = Regex::new(r"\$(\d+)(?!\w)").unwrap();
+    let shorthand_re = Regex::new(r"\$(\d+)(\w?)").unwrap();
     result = shorthand_re
         .replace_all(&result, |caps: &regex::Captures| {
+            if caps.get(2).is_some_and(|m| !m.as_str().is_empty()) {
+                return caps.get(0).unwrap().as_str().to_string();
+            }
             let index: usize = caps[1].parse().unwrap_or(0);
             parsed_args
                 .get(index)

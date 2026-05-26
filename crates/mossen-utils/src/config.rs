@@ -1184,7 +1184,7 @@ where
             if let Some(projects) = &fallback_config.projects {
                 config.projects = Some(remove_project_history(projects));
             }
-            let _ = save_config_inner(&config_path, &config, &create_default_global_config());
+            save_config_inner(&config_path, &config, &create_default_global_config());
             write_through_global_config_cache(&config);
         }
     }

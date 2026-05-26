@@ -378,11 +378,9 @@ pub fn is_dangerous_file_path_to_auto_edit(path: &str, ctx: &FsPermissionContext
 /// Detects suspicious Windows path patterns.
 pub fn has_suspicious_windows_path_pattern(path: &str, platform: Platform) -> bool {
     // NTFS Alternate Data Streams (Windows/WSL only)
-    if platform == Platform::Windows || platform == Platform::Wsl {
-        if path.len() > 2 {
-            if let Some(_idx) = path[2..].find(':') {
-                return true;
-            }
+    if (platform == Platform::Windows || platform == Platform::Wsl) && path.len() > 2 {
+        if let Some(_idx) = path[2..].find(':') {
+            return true;
         }
     }
 
@@ -811,8 +809,7 @@ fn glob_match(path: &str, pattern: &str) -> bool {
     if let Some(idx) = pattern.find('*') {
         let before = &pattern[..idx];
         let after = &pattern[idx + 1..];
-        if path.starts_with(before) {
-            let remaining = &path[before.len()..];
+        if let Some(remaining) = path.strip_prefix(before) {
             if after.is_empty() {
                 return !remaining.contains('/');
             }
@@ -836,17 +833,17 @@ fn normalize_pattern_to_path(pattern_root: &str, pattern: &str, root_path: &str)
         pattern.trim_start_matches('/')
     );
     if pattern_root == root_path {
-        return Some(prepend_dir_sep(pattern));
+        Some(prepend_dir_sep(pattern))
     } else if full_pattern.starts_with(&format!("{}/", root_path)) {
         let relative_part = &full_pattern[root_path.len()..];
-        return Some(prepend_dir_sep(relative_part));
+        Some(prepend_dir_sep(relative_part))
     } else {
         let rel = compute_posix_relative(root_path, pattern_root);
         if rel.is_empty() || rel.starts_with("../") || rel == ".." {
             return None;
         }
         let relative_pattern = format!("{}/{}", rel, pattern.trim_start_matches('/'));
-        return Some(prepend_dir_sep(&relative_pattern));
+        Some(prepend_dir_sep(&relative_pattern))
     }
 }
 

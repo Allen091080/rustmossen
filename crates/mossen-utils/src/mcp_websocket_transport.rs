@@ -15,20 +15,11 @@ const WS_OPEN: u8 = 1;
 pub type JsonRpcMessage = serde_json::Value;
 
 /// Callbacks for the WebSocket transport.
+#[derive(Default)]
 pub struct TransportCallbacks {
     pub on_close: Option<Box<dyn Fn() + Send + Sync>>,
     pub on_error: Option<Box<dyn Fn(anyhow::Error) + Send + Sync>>,
     pub on_message: Option<Box<dyn Fn(JsonRpcMessage) + Send + Sync>>,
-}
-
-impl Default for TransportCallbacks {
-    fn default() -> Self {
-        Self {
-            on_close: None,
-            on_error: None,
-            on_message: None,
-        }
-    }
 }
 
 /// Minimal WebSocket-like trait for abstracting over different WS implementations.

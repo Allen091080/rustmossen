@@ -1035,7 +1035,7 @@ fn file_change_summary_from_text(text: &str) -> Option<FileChangeEventSummary> {
 fn object_has_error(value: &Value) -> bool {
     match value {
         Value::Object(object) => {
-            object.get("error").is_some() || object.values().any(|child| object_has_error(child))
+            object.get("error").is_some() || object.values().any(object_has_error)
         }
         Value::Array(items) => items.iter().any(object_has_error),
         _ => false,

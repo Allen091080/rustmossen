@@ -156,7 +156,7 @@ impl TextInputState {
     /// Navigate history down (next entry).
     pub fn history_down(&mut self) {
         match self.history_index {
-            None => return,
+            None => (),
             Some(idx) if idx >= self.history.len() - 1 => {
                 self.history_index = None;
                 self.value = self.saved_current.clone();
@@ -204,7 +204,7 @@ impl TextInputState {
         self.value
             .graphemes(true)
             .take(self.cursor)
-            .map(|g| UnicodeWidthStr::width(g))
+            .map(UnicodeWidthStr::width)
             .sum()
     }
 }
@@ -307,10 +307,8 @@ impl<'a> Widget for TextInputWidget<'a> {
         }
 
         // Cursor at end.
-        if self.state.focused && cursor >= graphemes.len() && x < max_x {
-            if self.state.focused {
-                buf.set_string(x, area.y, " ", self.cursor_style);
-            }
+        if self.state.focused && cursor >= graphemes.len() && x < max_x && self.state.focused {
+            buf.set_string(x, area.y, " ", self.cursor_style);
         }
     }
 }

@@ -338,9 +338,7 @@ async fn handle_connection(
         first_line, auth_header
     );
     ws_write
-        .send(WsMessage::Binary(
-            encode_chunk(head_chunk.as_bytes()).into(),
-        ))
+        .send(WsMessage::Binary(encode_chunk(head_chunk.as_bytes())))
         .await?;
 
     // 把 trailing bytes 立刻转发出去
@@ -348,7 +346,7 @@ async fn handle_connection(
         for off in (0..trailing.len()).step_by(MAX_CHUNK_BYTES) {
             let end = (off + MAX_CHUNK_BYTES).min(trailing.len());
             ws_write
-                .send(WsMessage::Binary(encode_chunk(&trailing[off..end]).into()))
+                .send(WsMessage::Binary(encode_chunk(&trailing[off..end])))
                 .await?;
         }
     }
@@ -368,7 +366,7 @@ async fn handle_connection(
             for off in (0..n).step_by(MAX_CHUNK_BYTES) {
                 let end = (off + MAX_CHUNK_BYTES).min(n);
                 if ws_write
-                    .send(WsMessage::Binary(encode_chunk(&tmp[off..end]).into()))
+                    .send(WsMessage::Binary(encode_chunk(&tmp[off..end])))
                     .await
                     .is_err()
                 {
@@ -392,7 +390,7 @@ async fn handle_connection(
         while let Some(msg) = ws_read.next().await {
             let frame = match msg {
                 Ok(WsMessage::Binary(b)) => b,
-                Ok(WsMessage::Text(t)) => t.as_bytes().to_vec().into(),
+                Ok(WsMessage::Text(t)) => t.as_bytes().to_vec(),
                 Ok(WsMessage::Close(_)) => break,
                 Ok(_) => continue,
                 Err(_) => break,

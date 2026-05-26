@@ -218,7 +218,7 @@ pub fn add_permission_rules_to_settings(
 
     let rule_strings: Vec<String> = rule_values
         .iter()
-        .map(|rv| permission_rule_value_to_string(rv))
+        .map(permission_rule_value_to_string)
         .collect();
 
     let settings_data = get_settings_for_source(source_str)

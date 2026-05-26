@@ -45,7 +45,7 @@ pub fn pwd() -> String {
 
 /// 获取当前工作目录，失败时回退到原始工作目录。
 pub fn get_cwd() -> String {
-    let result = std::panic::catch_unwind(|| pwd());
+    let result = std::panic::catch_unwind(pwd);
     match result {
         Ok(cwd) => cwd,
         Err(_) => get_original_cwd(),

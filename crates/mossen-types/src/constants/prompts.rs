@@ -342,23 +342,29 @@ pub fn get_agent_tool_section(is_fork_subagent: bool) -> String {
     }
 }
 
+/// Options for session-specific guidance.
+pub struct SessionSpecificGuidance<'a> {
+    pub enabled_tools: &'a std::collections::HashSet<&'a str>,
+    pub skill_commands_count: usize,
+    pub is_non_interactive: bool,
+    pub is_fork_subagent: bool,
+    pub has_embedded_search: bool,
+    pub are_explore_plan_agents: bool,
+    pub explore_agent_type: &'a str,
+    pub explore_agent_min_queries: usize,
+    pub is_verification_agent_enabled: bool,
+}
+
 /// Session-specific guidance section.
 pub fn get_session_specific_guidance_section(
-    enabled_tools: &std::collections::HashSet<&str>,
-    skill_commands_count: usize,
-    is_non_interactive: bool,
-    is_fork_subagent: bool,
-    has_embedded_search: bool,
-    are_explore_plan_agents: bool,
-    explore_agent_type: &str,
-    explore_agent_min_queries: usize,
-    is_verification_agent_enabled: bool,
+    options: SessionSpecificGuidance<'_>,
 ) -> Option<String> {
-    let has_ask = enabled_tools.contains(ASK_USER_QUESTION_TOOL_NAME);
-    let has_skills = skill_commands_count > 0 && enabled_tools.contains(SKILL_TOOL_NAME);
-    let has_agent = enabled_tools.contains(AGENT_TOOL_NAME);
+    let has_ask = options.enabled_tools.contains(ASK_USER_QUESTION_TOOL_NAME);
+    let has_skills =
+        options.skill_commands_count > 0 && options.enabled_tools.contains(SKILL_TOOL_NAME);
+    let has_agent = options.enabled_tools.contains(AGENT_TOOL_NAME);
 
-    let search_tools = if has_embedded_search {
+    let search_tools = if options.has_embedded_search {
         format!("`find` or `grep` via the {} tool", BASH_TOOL_NAME)
     } else {
         format!("the {} or {}", GLOB_TOOL_NAME, GREP_TOOL_NAME)
@@ -373,24 +379,24 @@ pub fn get_session_specific_guidance_section(
         ));
     }
 
-    if !is_non_interactive {
+    if !options.is_non_interactive {
         items.push("If you need the user to run a shell command themselves (e.g., an interactive login like `gcloud auth login`), suggest they type `! <command>` in the prompt — the `!` prefix runs the command in this session so its output lands directly in the conversation.".to_string());
     }
 
     if has_agent {
-        items.push(get_agent_tool_section(is_fork_subagent));
+        items.push(get_agent_tool_section(options.is_fork_subagent));
     }
 
-    if has_agent && are_explore_plan_agents && !is_fork_subagent {
+    if has_agent && options.are_explore_plan_agents && !options.is_fork_subagent {
         items.push(format!("For simple, directed codebase searches (e.g. for a specific file/class/function) use {} directly.", search_tools));
-        items.push(format!("For broader codebase exploration and deep research, use the {} tool with subagent_type={}. This is slower than using {} directly, so use this only when a simple, directed search proves to be insufficient or when your task will clearly require more than {} queries.", AGENT_TOOL_NAME, explore_agent_type, search_tools, explore_agent_min_queries));
+        items.push(format!("For broader codebase exploration and deep research, use the {} tool with subagent_type={}. This is slower than using {} directly, so use this only when a simple, directed search proves to be insufficient or when your task will clearly require more than {} queries.", AGENT_TOOL_NAME, options.explore_agent_type, search_tools, options.explore_agent_min_queries));
     }
 
     if has_skills {
         items.push(format!("/<skill-name> (e.g., /commit) is shorthand for users to invoke a user-invocable skill. When executed, the skill gets expanded to a full prompt. Use the {} tool to execute them. IMPORTANT: Only use {} for skills listed in its user-invocable skills section - do not guess or use built-in CLI commands.", SKILL_TOOL_NAME, SKILL_TOOL_NAME));
     }
 
-    if has_agent && is_verification_agent_enabled {
+    if has_agent && options.is_verification_agent_enabled {
         items.push(format!("The contract: when non-trivial implementation happens on your turn, independent adversarial verification must happen before you report completion \u{2014} regardless of who did the implementing (you directly, a fork you spawned, or a subagent). You are the one reporting to the user; you own the gate. Non-trivial means: 3+ file edits, backend/API changes, or infrastructure changes. Spawn the {} tool with subagent_type=\"{}\". Your own checks, caveats, and a fork's self-checks do NOT substitute \u{2014} only the verifier assigns a verdict; you cannot self-assign PARTIAL. Pass the original user request, all files changed (by anyone), the approach, and the plan file path if applicable. Flag concerns if you have them but do NOT share test results or claim things work. On FAIL: fix, resume the verifier with its findings plus your fix, repeat until PASS. On PASS: spot-check it \u{2014} re-run 2-3 commands from its report, confirm every PASS has a Command run block with output that matches your re-run. If any PASS lacks a command block or diverges, resume the verifier with the specifics. On PARTIAL (from the verifier): report what passed and what could not be verified.", AGENT_TOOL_NAME, VERIFICATION_AGENT_TYPE));
     }
 
@@ -453,112 +459,117 @@ pub fn get_simple_tone_and_style_section(is_internal: bool) -> String {
     result.join("\n")
 }
 
+/// Inputs for detailed environment info.
+pub struct EnvInfo<'a> {
+    pub cwd: &'a str,
+    pub is_git: bool,
+    pub platform: &'a str,
+    pub shell_info_line: &'a str,
+    pub uname_sr: &'a str,
+    pub model_id: &'a str,
+    pub marketing_name: Option<&'a str>,
+    pub additional_dirs: &'a [String],
+    pub knowledge_cutoff: Option<&'a str>,
+    pub is_undercover: bool,
+}
+
 /// Compute environment info string (detailed).
-pub fn compute_env_info(
-    cwd: &str,
-    is_git: bool,
-    platform: &str,
-    shell_info_line: &str,
-    uname_sr: &str,
-    model_id: &str,
-    marketing_name: Option<&str>,
-    additional_dirs: &[String],
-    knowledge_cutoff: Option<&str>,
-    is_undercover: bool,
-) -> String {
-    let model_description = if is_undercover {
+pub fn compute_env_info(input: EnvInfo<'_>) -> String {
+    let model_description = if input.is_undercover {
         String::new()
     } else {
-        match marketing_name {
+        match input.marketing_name {
             Some(name) => format!(
                 "You are powered by the model named {}. The exact model ID is {}.",
-                name, model_id
+                name, input.model_id
             ),
-            None => format!("You are powered by the model {}.", model_id),
+            None => format!("You are powered by the model {}.", input.model_id),
         }
     };
 
-    let additional_dirs_info = if !additional_dirs.is_empty() {
+    let additional_dirs_info = if !input.additional_dirs.is_empty() {
         format!(
             "Additional working directories: {}\n",
-            additional_dirs.join(", ")
+            input.additional_dirs.join(", ")
         )
     } else {
         String::new()
     };
 
-    let cutoff_msg = match knowledge_cutoff {
+    let cutoff_msg = match input.knowledge_cutoff {
         Some(c) => format!("\n\nAssistant knowledge cutoff is {}.", c),
         None => String::new(),
     };
 
     format!(
         "Here is useful information about the environment you are running in:\n<env>\nWorking directory: {}\nIs directory a git repo: {}\n{}Platform: {}\n{}\nOS Version: {}\n</env>\n{}{}",
-        cwd,
-        if is_git { "Yes" } else { "No" },
+        input.cwd,
+        if input.is_git { "Yes" } else { "No" },
         additional_dirs_info,
-        platform,
-        shell_info_line,
-        uname_sr,
+        input.platform,
+        input.shell_info_line,
+        input.uname_sr,
         model_description,
         cutoff_msg,
     )
 }
 
+/// Inputs for simple environment info.
+pub struct SimpleEnvInfo<'a> {
+    pub cwd: &'a str,
+    pub is_git: bool,
+    pub is_worktree: bool,
+    pub platform: &'a str,
+    pub shell_info_line: &'a str,
+    pub uname_sr: &'a str,
+    pub model_id: &'a str,
+    pub marketing_name: Option<&'a str>,
+    pub additional_dirs: &'a [String],
+    pub knowledge_cutoff: Option<&'a str>,
+    pub is_undercover: bool,
+    pub model_family_guidance: &'a str,
+    pub product_availability_guidance: &'a str,
+    pub fast_mode_guidance: &'a str,
+}
+
 /// Compute simple environment info string.
-pub fn compute_simple_env_info(
-    cwd: &str,
-    is_git: bool,
-    is_worktree: bool,
-    platform: &str,
-    shell_info_line: &str,
-    uname_sr: &str,
-    model_id: &str,
-    marketing_name: Option<&str>,
-    additional_dirs: &[String],
-    knowledge_cutoff: Option<&str>,
-    is_undercover: bool,
-    _is_custom_backend: bool,
-    model_family_guidance: &str,
-    product_availability_guidance: &str,
-    fast_mode_guidance: &str,
-) -> String {
+pub fn compute_simple_env_info(input: SimpleEnvInfo<'_>) -> String {
     let mut env_items: Vec<String> = Vec::new();
 
-    env_items.push(format!("Primary working directory: {}", cwd));
-    if is_worktree {
+    env_items.push(format!("Primary working directory: {}", input.cwd));
+    if input.is_worktree {
         env_items.push("This is a git worktree — an isolated copy of the repository. Run all commands from this directory. Do NOT `cd` to the original repository root.".to_string());
     }
-    env_items.push(format!("Is a git repository: {}", is_git));
-    if !additional_dirs.is_empty() {
+    env_items.push(format!("Is a git repository: {}", input.is_git));
+    if !input.additional_dirs.is_empty() {
         env_items.push("Additional working directories:".to_string());
-        for d in additional_dirs {
+        for d in input.additional_dirs {
             env_items.push(format!("  - {}", d));
         }
     }
-    env_items.push(format!("Platform: {}", platform));
-    env_items.push(shell_info_line.to_string());
-    env_items.push(format!("OS Version: {}", uname_sr));
+    env_items.push(format!("Platform: {}", input.platform));
+    env_items.push(input.shell_info_line.to_string());
+    env_items.push(format!("OS Version: {}", input.uname_sr));
 
-    if !is_undercover {
-        let desc = match marketing_name {
+    if !input.is_undercover {
+        let desc = match input.marketing_name {
             Some(name) => format!(
                 "You are powered by the model named {}. The exact model ID is {}.",
-                name, model_id
+                name, input.model_id
             ),
-            None => format!("You are powered by the model {}.", model_id),
+            None => format!("You are powered by the model {}.", input.model_id),
         };
         env_items.push(desc);
     }
 
-    if let Some(cutoff) = knowledge_cutoff {
+    if let Some(cutoff) = input.knowledge_cutoff {
         env_items.push(format!("Assistant knowledge cutoff is {}.", cutoff));
     }
 
-    if !is_undercover {
-        env_items.push(model_family_guidance.to_string());
-        env_items.push(product_availability_guidance.to_string());
-        env_items.push(fast_mode_guidance.to_string());
+    if !input.is_undercover {
+        env_items.push(input.model_family_guidance.to_string());
+        env_items.push(input.product_availability_guidance.to_string());
+        env_items.push(input.fast_mode_guidance.to_string());
     }
 
     let mut result = vec![
@@ -575,9 +586,9 @@ pub fn compute_simple_env_info(
 pub fn get_knowledge_cutoff(canonical_model_name: &str) -> Option<&'static str> {
     if canonical_model_name.contains("mossen-balanced-4-6") {
         Some("August 2025")
-    } else if canonical_model_name.contains("mossen-max-4-6") {
-        Some("May 2025")
-    } else if canonical_model_name.contains("mossen-max-4-5") {
+    } else if canonical_model_name.contains("mossen-max-4-6")
+        || canonical_model_name.contains("mossen-max-4-5")
+    {
         Some("May 2025")
     } else if canonical_model_name.contains("mossen-fast-4") {
         Some("February 2025")
@@ -631,7 +642,7 @@ pub fn get_uname_sr() -> String {
 /// Default agent prompt.
 pub fn get_default_agent_prompt(is_custom_backend: bool, _product_name: &str) -> String {
     let intro = if is_custom_backend {
-        format!("You are an agent for a local platform coding CLI. Given the user's message, you should use the tools available to complete the task.")
+        "You are an agent for a local platform coding CLI. Given the user's message, you should use the tools available to complete the task.".to_string()
     } else {
         "You are an agent for Mossen. Given the user's message, you should use the tools available to complete the task.".to_string()
     };

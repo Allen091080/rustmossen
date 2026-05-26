@@ -10,7 +10,7 @@ pub const AGENT_DESCRIPTIONS_THRESHOLD: usize = 15_000;
 
 /// 粗略 token 估算（与 TS `roughTokenCountEstimation` 等价：~chars/4）。
 fn rough_token_count_estimation(text: &str) -> usize {
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// 计算代理描述的累计令牌估算。

@@ -250,7 +250,7 @@ pub fn path_list_signature(paths: &[String]) -> String {
     while i < n {
         let p = paths[i].as_bytes();
         for &b in p {
-            h = h ^ b as u32;
+            h ^= b as u32;
             h = h.wrapping_mul(0x01000193);
         }
         h = h.wrapping_mul(0x01000193);
@@ -260,7 +260,7 @@ pub fn path_list_signature(paths: &[String]) -> String {
     if n > 0 {
         let last = paths[n - 1].as_bytes();
         for &b in last {
-            h = h ^ b as u32;
+            h ^= b as u32;
             h = h.wrapping_mul(0x01000193);
         }
     }

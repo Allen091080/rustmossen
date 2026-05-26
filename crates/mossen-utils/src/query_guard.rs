@@ -17,9 +17,10 @@
 use std::sync::{Arc, Mutex};
 
 /// 查询守卫状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum QueryStatus {
     /// 空闲状态。
+    #[default]
     Idle,
     /// 分派中。
     Dispatching,
@@ -35,12 +36,6 @@ struct Inner {
     status: QueryStatus,
     generation: usize,
     subscribers: Vec<Subscriber>,
-}
-
-impl Default for QueryStatus {
-    fn default() -> Self {
-        QueryStatus::Idle
-    }
 }
 
 /// 查询生命周期状态机。

@@ -192,7 +192,7 @@ impl DirectConnectSessionManager {
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 use tokio_tungstenite::tungstenite::Message as WsMessage;
-                if write.send(WsMessage::Text(msg.into())).await.is_err() {
+                if write.send(WsMessage::Text(msg)).await.is_err() {
                     break;
                 }
             }

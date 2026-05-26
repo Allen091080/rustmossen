@@ -331,7 +331,7 @@ pub fn build_missed_task_notification(missed: &[CronTask]) -> String {
                 }
             }
             let fence_len = std::cmp::max(3, run_length + 1);
-            let fence: String = std::iter::repeat('`').take(fence_len).collect();
+            let fence: String = "`".repeat(fence_len);
             format!("{}\n{}\n{}\n{}", meta, fence, t.prompt, fence)
         })
         .collect();

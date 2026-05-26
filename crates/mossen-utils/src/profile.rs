@@ -193,5 +193,5 @@ pub fn get_current_reasoning_profile(
 
 /// Get explicit persisted reasoning effort from settings
 pub fn get_explicit_persisted_reasoning_effort(settings: &ProfileSettings) -> Option<EffortLevel> {
-    get_explicit_reasoning_profile(settings).map(|p| reasoning_profile_to_effort(p))
+    get_explicit_reasoning_profile(settings).map(reasoning_profile_to_effort)
 }

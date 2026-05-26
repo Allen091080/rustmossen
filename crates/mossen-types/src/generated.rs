@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// Protobuf Timestamp（秒 + 纳秒）。
 /// 对应 TS `google/protobuf/timestamp.ts` 中的 `Timestamp` 接口。
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProtoTimestamp {
     /// UTC 秒数（自 1970-01-01 起）。
     #[serde(default)]
@@ -21,15 +21,6 @@ pub struct ProtoTimestamp {
     /// 纳秒部分（0..999_999_999）。
     #[serde(default)]
     pub nanos: i32,
-}
-
-impl Default for ProtoTimestamp {
-    fn default() -> Self {
-        Self {
-            seconds: 0,
-            nanos: 0,
-        }
-    }
 }
 
 impl ProtoTimestamp {

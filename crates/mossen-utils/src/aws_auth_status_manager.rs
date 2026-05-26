@@ -7,21 +7,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::broadcast;
 
 /// 认证状态
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AwsAuthStatus {
     pub is_authenticating: bool,
     pub output: Vec<String>,
     pub error: Option<String>,
-}
-
-impl Default for AwsAuthStatus {
-    fn default() -> Self {
-        Self {
-            is_authenticating: false,
-            output: Vec::new(),
-            error: None,
-        }
-    }
 }
 
 /// 认证状态管理器（单例）

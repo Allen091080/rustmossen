@@ -131,11 +131,10 @@ pub async fn get_terminal_with_jetbrains_detection_async(env_info: &EnvInfo) -> 
     if std::env::var("TERMINAL_EMULATOR")
         .map(|v| v == "JetBrains-JediTerm")
         .unwrap_or(false)
+        && env_info.platform != "darwin"
     {
-        if env_info.platform != "darwin" {
-            let specific_ide = detect_jetbrains_ide_from_parent_process_async().await;
-            return Some(specific_ide.unwrap_or_else(|| "pycharm".to_string()));
-        }
+        let specific_ide = detect_jetbrains_ide_from_parent_process_async().await;
+        return Some(specific_ide.unwrap_or_else(|| "pycharm".to_string()));
     }
     env_info.terminal.clone()
 }
@@ -145,14 +144,13 @@ pub fn get_terminal_with_jetbrains_detection(env_info: &EnvInfo) -> Option<Strin
     if std::env::var("TERMINAL_EMULATOR")
         .map(|v| v == "JetBrains-JediTerm")
         .unwrap_or(false)
+        && env_info.platform != "darwin"
     {
-        if env_info.platform != "darwin" {
-            let cache = JETBRAINS_IDE_CACHE.lock().unwrap();
-            if let Some(ref result) = *cache {
-                return Some(result.clone().unwrap_or_else(|| "pycharm".to_string()));
-            }
-            return Some("pycharm".to_string());
+        let cache = JETBRAINS_IDE_CACHE.lock().unwrap();
+        if let Some(ref result) = *cache {
+            return Some(result.clone().unwrap_or_else(|| "pycharm".to_string()));
         }
+        return Some("pycharm".to_string());
     }
     env_info.terminal.clone()
 }

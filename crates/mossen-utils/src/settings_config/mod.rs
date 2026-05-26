@@ -1597,19 +1597,10 @@ pub async fn fire_raw_read() -> RawReadResult {
 // ============================================================================
 
 /// MDM result containing settings and errors.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MdmResult {
     pub settings: SettingsJson,
     pub errors: Vec<ValidationError>,
-}
-
-impl Default for MdmResult {
-    fn default() -> Self {
-        Self {
-            settings: SettingsJson::default(),
-            errors: Vec::new(),
-        }
-    }
 }
 
 static MDM_CACHE: Lazy<Mutex<Option<MdmResult>>> = Lazy::new(|| Mutex::new(None));
@@ -1750,7 +1741,7 @@ fn has_managed_settings_file() -> bool {
     let file_path = get_managed_file_path().join("managed-settings.json");
     if let Ok(content) = std::fs::read_to_string(&file_path) {
         if let Ok(data) = serde_json::from_str::<Value>(&content) {
-            if data.is_object() && data.as_object().map_or(false, |o| !o.is_empty()) {
+            if data.is_object() && data.as_object().is_some_and(|o| !o.is_empty()) {
                 return true;
             }
         }
@@ -1760,14 +1751,14 @@ fn has_managed_settings_file() -> bool {
     if let Ok(entries) = std::fs::read_dir(&drop_in_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "json")
+            if path.extension().is_some_and(|e| e == "json")
                 && !path
                     .file_name()
                     .map_or(true, |n| n.to_string_lossy().starts_with('.'))
             {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(data) = serde_json::from_str::<Value>(&content) {
-                        if data.is_object() && data.as_object().map_or(false, |o| !o.is_empty()) {
+                        if data.is_object() && data.as_object().is_some_and(|o| !o.is_empty()) {
                             return true;
                         }
                     }
@@ -1815,7 +1806,7 @@ static ADMIN_TRUSTED_SOURCES: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 
 /// Whether a customization's source is admin-trusted.
 pub fn is_source_admin_trusted(source: Option<&str>) -> bool {
-    source.map_or(false, |s| ADMIN_TRUSTED_SOURCES.contains(s))
+    source.is_some_and(|s| ADMIN_TRUSTED_SOURCES.contains(s))
 }
 
 // ============================================================================

@@ -246,8 +246,8 @@ pub async fn generate_unified_suggestions<P: PathProvider>(
     if query.is_empty() {
         let all = file_sources
             .into_iter()
-            .chain(mcp_sources.into_iter())
-            .chain(agent_sources.into_iter())
+            .chain(mcp_sources)
+            .chain(agent_sources)
             .take(MAX_UNIFIED_SUGGESTIONS)
             .map(create_suggestion_from_source)
             .collect();
@@ -266,7 +266,7 @@ pub async fn generate_unified_suggestions<P: PathProvider>(
         };
         scored.push((score, source));
     }
-    for source in mcp_sources.into_iter().chain(agent_sources.into_iter()) {
+    for source in mcp_sources.into_iter().chain(agent_sources) {
         let text = match &source {
             UnifiedSuggestionSource::McpResource {
                 display_text,

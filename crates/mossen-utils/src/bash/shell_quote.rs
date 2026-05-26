@@ -126,19 +126,15 @@ fn parse_shell_tokens(input: &str) -> Option<Vec<String>> {
                 tokens.push(op);
                 i += 1;
             }
-            '#' => {
+            '#'
                 // Comment — rest of line is ignored
                 if current.is_empty()
                     && (tokens.is_empty() || tokens.last().map(|s| s.as_str()) == Some("\n"))
-                {
+                => {
                     while i < len && chars[i] != '\n' {
                         i += 1;
                     }
-                } else {
-                    current.push(c);
-                    i += 1;
                 }
-            }
             '\n' => {
                 if !current.is_empty() {
                     tokens.push(current.clone());

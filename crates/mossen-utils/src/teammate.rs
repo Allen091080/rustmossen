@@ -35,7 +35,7 @@ static DYNAMIC_TEAM_CONTEXT: Lazy<RwLock<Option<DynamicTeamContext>>> =
 /// Thread-local teammate context (simulates AsyncLocalStorage).
 thread_local! {
     static TEAMMATE_CONTEXT: std::cell::RefCell<Option<TeammateContext>> =
-        std::cell::RefCell::new(None);
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Get the current in-process teammate context.
@@ -84,7 +84,7 @@ where
 /// Get the parent session ID.
 pub fn get_parent_session_id() -> Option<String> {
     if let Some(ctx) = get_teammate_context() {
-        return Some(ctx.parent_session_id?);
+        return ctx.parent_session_id;
     }
     DYNAMIC_TEAM_CONTEXT
         .read()

@@ -912,10 +912,8 @@ fn count_unescaped_char(s: &str, ch: char) -> usize {
 fn has_unescaped_empty_parens(s: &str) -> bool {
     let bytes = s.as_bytes();
     for i in 0..bytes.len().saturating_sub(1) {
-        if bytes[i] == b'(' && bytes[i + 1] == b')' {
-            if !is_escaped(s, i) {
-                return true;
-            }
+        if bytes[i] == b'(' && bytes[i + 1] == b')' && !is_escaped(s, i) {
+            return true;
         }
     }
     false
@@ -1585,7 +1583,7 @@ pub async fn fire_raw_read() -> RawReadResult {
                 continue;
             }
             match tokio::process::Command::new(PLUTIL_PATH)
-                .args(&["-convert", "json", "-o", "-", "--", &path.to_string_lossy()])
+                .args(["-convert", "json", "-o", "-", "--", &path.to_string_lossy()])
                 .output()
                 .await
             {
@@ -1607,7 +1605,7 @@ pub async fn fire_raw_read() -> RawReadResult {
         }
     } else if cfg!(target_os = "windows") {
         let hklm = tokio::process::Command::new("reg")
-            .args(&[
+            .args([
                 "query",
                 WINDOWS_REGISTRY_KEY_PATH_HKLM,
                 "/v",
@@ -1620,7 +1618,7 @@ pub async fn fire_raw_read() -> RawReadResult {
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
 
         let hkcu = tokio::process::Command::new("reg")
-            .args(&[
+            .args([
                 "query",
                 WINDOWS_REGISTRY_KEY_PATH_HKCU,
                 "/v",
@@ -1730,7 +1728,7 @@ pub fn load_managed_file_settings() -> (Option<SettingsJson>, Vec<ValidationErro
                         .unwrap_or(false)
             })
             .collect();
-        files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+        files.sort_by_key(|a| a.file_name());
 
         for entry in files {
             let (settings, file_errors) = parse_settings_file(&entry.path());

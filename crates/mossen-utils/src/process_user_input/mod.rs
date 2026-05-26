@@ -333,7 +333,7 @@ pub async fn process_user_input(params: ProcessUserInputParams) -> ProcessUserIn
         if hook_result
             .message
             .as_ref()
-            .map_or(false, |m| m.attachment.attachment_type == "progress")
+            .is_some_and(|m| m.attachment.attachment_type == "progress")
         {
             continue;
         }

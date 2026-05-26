@@ -112,7 +112,7 @@ impl<'a> RenderBlockWidget<'a> {
                         .theme(self.theme)
                         .glyphs(self.glyphs)
                         .max_width(width)
-                        .rendered_height(width) as usize;
+                        .rendered_height(width);
                 }
                 RenderNode::PlainText(text) => {
                     height += wrapped_line_count(text, width);
@@ -225,7 +225,7 @@ impl<'a> RenderBlockWidget<'a> {
                 .theme(self.theme)
                 .glyphs(self.glyphs)
                 .max_width(width)
-                .rendered_height(width) as usize;
+                .rendered_height(width);
         } else {
             height += wrapped_line_count(&body, width);
         }

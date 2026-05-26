@@ -9,7 +9,7 @@ use crate::team_helpers::{get_team_file_path, read_team_file};
 use crate::teammate::get_dynamic_team_context;
 
 /// 团队上下文
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TeamContext {
     pub team_name: String,
     pub team_file_path: String,
@@ -18,20 +18,6 @@ pub struct TeamContext {
     pub self_agent_name: String,
     pub is_leader: bool,
     pub teammates: std::collections::HashMap<String, serde_json::Value>,
-}
-
-impl Default for TeamContext {
-    fn default() -> Self {
-        Self {
-            team_name: String::new(),
-            team_file_path: String::new(),
-            lead_agent_id: String::new(),
-            self_agent_id: None,
-            self_agent_name: String::new(),
-            is_leader: false,
-            teammates: std::collections::HashMap::new(),
-        }
-    }
 }
 
 /// 计算 AppState 的初始 teamContext。

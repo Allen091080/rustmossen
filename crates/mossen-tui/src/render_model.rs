@@ -6173,7 +6173,7 @@ fn push_agent_approval_section(
     }
 }
 
-fn agent_result_value<'a>(object: &'a serde_json::Map<String, Value>) -> Option<&'a Value> {
+fn agent_result_value(object: &serde_json::Map<String, Value>) -> Option<&Value> {
     agent_field_value(
         object,
         &[

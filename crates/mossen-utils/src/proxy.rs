@@ -92,7 +92,7 @@ pub fn get_no_proxy_from_env(env: &EnvLike) -> Option<String> {
 /// - Port-specific matches (e.g., "example.com:8080")
 /// - IP addresses (e.g., "127.0.0.1")
 pub fn should_bypass_proxy(url_string: &str, no_proxy: Option<&str>) -> bool {
-    let no_proxy = match no_proxy.or_else(|| None) {
+    let no_proxy = match no_proxy.or(None) {
         Some(np) if !np.is_empty() => np,
         _ => {
             // Try environment

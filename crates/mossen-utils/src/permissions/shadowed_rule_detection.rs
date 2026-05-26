@@ -113,10 +113,11 @@ fn is_allow_rule_shadowed_by_ask_rule(
     };
 
     // Special case: Bash with sandbox auto-allow from personal settings
-    if tool_name == BASH_TOOL_NAME && options.sandbox_auto_allow_enabled {
-        if !is_shared_setting_source(shadowing_ask_rule.source) {
-            return ShadowResult::NotShadowed;
-        }
+    if tool_name == BASH_TOOL_NAME
+        && options.sandbox_auto_allow_enabled
+        && !is_shared_setting_source(shadowing_ask_rule.source)
+    {
+        return ShadowResult::NotShadowed;
     }
 
     ShadowResult::Shadowed {

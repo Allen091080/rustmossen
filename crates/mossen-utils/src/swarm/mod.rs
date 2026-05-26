@@ -397,7 +397,7 @@ pub fn is_inside_tmux_sync() -> bool {
 
 /// Checks if we're currently running inside a tmux session (async, cached).
 pub async fn is_inside_tmux() -> bool {
-    let cached = IS_INSIDE_TMUX_CACHED.lock().unwrap().clone();
+    let cached = *IS_INSIDE_TMUX_CACHED.lock().unwrap();
     if let Some(val) = cached {
         return val;
     }
@@ -428,7 +428,7 @@ pub const IT2_COMMAND: &str = "it2";
 
 /// Checks if we're currently running inside iTerm2.
 pub fn is_in_iterm2() -> bool {
-    let cached = IS_IN_ITERM2_CACHED.lock().unwrap().clone();
+    let cached = *IS_IN_ITERM2_CACHED.lock().unwrap();
     if let Some(val) = cached {
         return val;
     }
@@ -1904,7 +1904,7 @@ pub async fn read_pending_permissions(team_name: &str) -> Vec<SwarmPermissionReq
         if path.extension().map_or(true, |ext| ext != "json") {
             continue;
         }
-        if path.file_name().map_or(false, |n| n == ".lock") {
+        if path.file_name().is_some_and(|n| n == ".lock") {
             continue;
         }
         if let Ok(content) = fs::read_to_string(&path).await {
@@ -2246,6 +2246,12 @@ pub struct TmuxBackend {
 /// Delay after pane creation to allow shell initialization.
 const PANE_SHELL_INIT_DELAY_MS: u64 = 200;
 
+impl Default for TmuxBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TmuxBackend {
     pub fn new() -> Self {
         Self {
@@ -2348,11 +2354,11 @@ impl TmuxBackend {
     }
 
     async fn get_pane_count(&self, window_target: &str, use_swarm_socket: bool) -> Option<usize> {
-        let args = vec!["list-panes", "-t", window_target, "-F", "#{pane_id}"];
+        let args = ["list-panes", "-t", window_target, "-F", "#{pane_id}"];
         let result = if use_swarm_socket {
-            Self::run_tmux_in_swarm(&args.iter().map(|s| *s).collect::<Vec<_>>()).await
+            Self::run_tmux_in_swarm(args.as_ref()).await
         } else {
-            Self::run_tmux_in_user_session(&args.iter().map(|s| *s).collect::<Vec<_>>()).await
+            Self::run_tmux_in_user_session(args.as_ref()).await
         };
         if result.status.success() {
             let stdout = String::from_utf8_lossy(&result.stdout);
@@ -2931,6 +2937,12 @@ pub struct ITermBackend {
     pane_creation_lock: TokioMutex<()>,
 }
 
+impl Default for ITermBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ITermBackend {
     pub fn new() -> Self {
         Self {
@@ -3183,6 +3195,12 @@ impl PaneBackend for ITermBackend {
 /// InProcessBackend implements TeammateExecutor for in-process teammates.
 pub struct InProcessBackend {
     context: Mutex<Option<serde_json::Value>>,
+}
+
+impl Default for InProcessBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InProcessBackend {

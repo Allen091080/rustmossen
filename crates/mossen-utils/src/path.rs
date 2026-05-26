@@ -40,9 +40,8 @@ pub fn expand_path(path: &str, base_dir: Option<&str>) -> PathBuf {
         return normalize_path(&actual_base_dir);
     }
 
-    if trimmed_path.starts_with("~/") {
+    if let Some(relative) = trimmed_path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            let relative = &trimmed_path[2..];
             return normalize_path(&home.join(relative));
         }
     }

@@ -70,7 +70,7 @@ fn dequeue(
     filter: impl Fn(&QueuedCommand) -> bool,
     queue: &mut Vec<QueuedCommand>,
 ) -> Option<QueuedCommand> {
-    let pos = queue.iter().position(|cmd| filter(cmd))?;
+    let pos = queue.iter().position(filter)?;
     Some(queue.remove(pos))
 }
 
@@ -111,14 +111,14 @@ pub fn process_queue_if_ready(
 ) -> ProcessQueueResult {
     let is_main_thread = |cmd: &QueuedCommand| cmd.agent_id.is_none();
 
-    let next = match peek(&is_main_thread, queue) {
+    let next = match peek(is_main_thread, queue) {
         Some(cmd) => cmd,
         None => return ProcessQueueResult { processed: false },
     };
 
     // 斜杠命令和 bash 模式命令逐个处理
     if is_slash_command(next) || next.mode == "bash" {
-        let cmd = dequeue(&is_main_thread, queue).unwrap();
+        let cmd = dequeue(is_main_thread, queue).unwrap();
         let _fut = (params.execute_input)(vec![cmd]);
         return ProcessQueueResult { processed: true };
     }

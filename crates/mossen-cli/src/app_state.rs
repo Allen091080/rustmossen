@@ -56,8 +56,10 @@ pub enum CompletionBoundary {
 /// 投机执行状态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status")]
+#[derive(Default)]
 pub enum SpeculationState {
     #[serde(rename = "idle")]
+    #[default]
     Idle,
     #[serde(rename = "active")]
     Active {
@@ -67,12 +69,6 @@ pub enum SpeculationState {
         tool_use_count: usize,
         is_pipelined: bool,
     },
-}
-
-impl Default for SpeculationState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 /// 底栏项。

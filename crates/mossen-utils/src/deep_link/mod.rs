@@ -56,7 +56,7 @@ pub fn parse_deep_link(uri: &str) -> Result<DeepLinkAction> {
 
     // Validate cwd
     if let Some(ref cwd_val) = cwd {
-        if !cwd_val.starts_with('/') && !cwd_val.chars().nth(1).map_or(false, |c| c == ':') {
+        if !cwd_val.starts_with('/') && (cwd_val.chars().nth(1) != Some(':')) {
             bail!(
                 "Invalid cwd in deep link: must be an absolute path, got \"{}\"",
                 cwd_val

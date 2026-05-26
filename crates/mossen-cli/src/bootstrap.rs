@@ -582,7 +582,7 @@ impl BootstrapStateExtended {
     pub fn register_hook_callbacks(&mut self, hooks: HashMap<String, Vec<serde_json::Value>>) {
         let reg = self.registered_hooks.get_or_insert_with(HashMap::new);
         for (event, matchers) in hooks {
-            reg.entry(event).or_insert_with(Vec::new).extend(matchers);
+            reg.entry(event).or_default().extend(matchers);
         }
     }
 
@@ -594,7 +594,7 @@ impl BootstrapStateExtended {
             .registered_plugin_hooks
             .get_or_insert_with(HashMap::new);
         for (event, matchers) in hooks {
-            reg.entry(event).or_insert_with(Vec::new).extend(matchers);
+            reg.entry(event).or_default().extend(matchers);
         }
     }
 
@@ -800,11 +800,11 @@ static GLOBAL_STATE: Lazy<RwLock<GlobalBootstrap>> =
     Lazy::new(|| RwLock::new(GlobalBootstrap::new()));
 
 fn with_state<R>(f: impl FnOnce(&GlobalBootstrap) -> R) -> R {
-    f(&*GLOBAL_STATE.read().expect("bootstrap state poisoned"))
+    f(&GLOBAL_STATE.read().expect("bootstrap state poisoned"))
 }
 
 fn with_state_mut<R>(f: impl FnOnce(&mut GlobalBootstrap) -> R) -> R {
-    f(&mut *GLOBAL_STATE.write().expect("bootstrap state poisoned"))
+    f(&mut GLOBAL_STATE.write().expect("bootstrap state poisoned"))
 }
 
 // ---- Session ID / project / cwd ----

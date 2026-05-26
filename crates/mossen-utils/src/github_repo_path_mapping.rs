@@ -41,7 +41,7 @@ pub async fn update_github_repo_path_mapping(
     let existing_paths = config
         .github_repo_paths
         .entry(repo_key.clone())
-        .or_insert_with(Vec::new);
+        .or_default();
 
     if existing_paths.first().map(|s| s.as_str()) == Some(&current_path_str) {
         // Already at the front

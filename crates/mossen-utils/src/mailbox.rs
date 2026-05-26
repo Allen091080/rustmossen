@@ -90,7 +90,7 @@ impl Mailbox {
 
     /// 轮询：同步获取第一个匹配的消息
     pub fn poll(&mut self, filter: impl Fn(&MailboxMessage) -> bool) -> Option<MailboxMessage> {
-        let idx = self.queue.iter().position(|m| filter(m));
+        let idx = self.queue.iter().position(filter);
         idx.map(|i| self.queue.remove(i))
     }
 
@@ -100,7 +100,7 @@ impl Mailbox {
         filter: impl Fn(&MailboxMessage) -> bool + Send + 'static,
     ) -> oneshot::Receiver<MailboxMessage> {
         // 先检查队列中是否有匹配的
-        let idx = self.queue.iter().position(|m| filter(m));
+        let idx = self.queue.iter().position(&filter);
         if let Some(idx) = idx {
             let msg = self.queue.remove(idx);
             self.notify();

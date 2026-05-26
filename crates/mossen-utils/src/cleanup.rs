@@ -169,11 +169,11 @@ pub async fn cleanup_old_session_files(
         };
 
         while let Ok(Some(entry)) = entries.next_entry().await {
-            let file_type = entry.file_type().await.unwrap_or(std::fs::FileType::from(
+            let file_type = entry.file_type().await.unwrap_or(
                 std::fs::metadata(entry.path())
                     .unwrap_or_else(|_| std::fs::metadata(".").unwrap())
                     .file_type(),
-            ));
+            );
 
             if file_type.is_file() {
                 let name = entry.file_name().to_string_lossy().to_string();

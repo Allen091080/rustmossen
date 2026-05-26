@@ -30,10 +30,10 @@ use mossen_agent::types::{
     InteractiveGate, OrchestratorConfig, OriginTag, PermissionDecision, PermissionGate,
     PermissionMode, PermissionRequest, PromptParams, SdkMessage, SubmitOptions,
 };
-use mossen_mcp::config::ScopedMcpServerConfig;
+use mossen_mcp::config::{ConfigScope, ScopedMcpServerConfig};
 use mossen_mcp::protocol::Implementation;
 use mossen_mcp::server::McpServerManager;
-use mossen_types::{ContentBlock, TextBlock, ToolDefinition, ToolUseContext};
+use mossen_types::{ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolUseContext};
 
 use crate::bootstrap::SharedBootstrapState;
 use crate::commands_registry::DirectiveRegistry;
@@ -97,6 +97,90 @@ async fn collect_mcp_tool_definitions(manager: &McpServerManager) -> Vec<ToolDef
     definitions
 }
 
+fn mcp_configs_from_raw(
+    raw: HashMap<String, serde_json::Value>,
+    scope: ConfigScope,
+) -> HashMap<String, ScopedMcpServerConfig> {
+    raw.into_iter()
+        .filter_map(|(name, mut value)| {
+            if let Some(obj) = value.as_object_mut() {
+                obj.entry("scope".to_string())
+                    .or_insert_with(|| serde_json::json!(scope));
+            }
+            match serde_json::from_value::<ScopedMcpServerConfig>(value) {
+                Ok(config) => Some((name, config)),
+                Err(err) => {
+                    warn!(
+                        target: "mossen_cli::mcp",
+                        server = %name,
+                        error = %err,
+                        "ignoring invalid MCP server config"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+async fn load_mcp_configs(
+    config: &ReplConfig,
+    cwd: &Path,
+) -> HashMap<String, ScopedMcpServerConfig> {
+    if let Some(cfg_json) = config.mcp_config.as_deref() {
+        if let Ok(configs) =
+            serde_json::from_str::<HashMap<String, ScopedMcpServerConfig>>(cfg_json)
+        {
+            return configs;
+        }
+        match mossen_mcp::config_ext::parse_mcp_config(cfg_json) {
+            Ok(raw) => return mcp_configs_from_raw(raw, ConfigScope::Local),
+            Err(err) => warn!(
+                target: "mossen_cli::mcp",
+                error = %err,
+                "failed to parse --mcp-config as MCP config; using project config if present"
+            ),
+        }
+    }
+
+    let raw = mossen_mcp::config_ext::get_project_mcp_configs_from_cwd(cwd).await;
+    mcp_configs_from_raw(raw, ConfigScope::Local)
+}
+
+async fn initialize_mcp_manager_for_session(
+    config: &ReplConfig,
+    cwd: &Path,
+    source: &str,
+) -> Option<(Arc<McpServerManager>, Vec<ToolDefinition>, usize)> {
+    let configs = load_mcp_configs(config, cwd).await;
+    if configs.is_empty() {
+        info!(
+            target: "mossen_cli::mcp",
+            source,
+            "MCP requested but no server configs were found"
+        );
+        return None;
+    }
+
+    let server_count = configs.len();
+    let mcp_manager = Arc::new(McpServerManager::new(Implementation {
+        name: "mossen-cli".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    }));
+    mcp_manager.update_configs(configs).await;
+    mcp_manager.connect_all().await;
+    let mcp_tool_definitions = collect_mcp_tool_definitions(&mcp_manager).await;
+    info!(
+        target: "mossen_cli::mcp",
+        source,
+        connected = mcp_manager.connected_count(),
+        total = server_count,
+        tool_count = mcp_tool_definitions.len(),
+        "MCP server manager initialized"
+    );
+    Some((mcp_manager, mcp_tool_definitions, server_count))
+}
+
 /// 启动交互式 REPL 循环 — 对应 TS 的 launchRepl()。
 ///
 /// 初始化 TUI、创建 Agent 会话、启动事件循环。
@@ -151,19 +235,20 @@ pub async fn launch_repl(
 
     mossen_skills::init_bundled_skills();
 
-    // Skill dynamic discovery: interactive sessions also need the startup
-    // scan used by the non-interactive path, otherwise REPL-only runs miss
-    // project-local `.mossen/skills` directories until a future reload.
-    let discovered =
-        mossen_skills::discover_skill_dirs_for_paths(&[cwd_path.clone()], &cwd_path, ".mossen")
-            .await;
-    if !discovered.is_empty() {
-        let added = mossen_skills::add_skill_directories(&discovered).await;
+    // Skill dynamic discovery: interactive sessions need user-level skills
+    // plus project-local `.mossen/skills` from turn one.
+    let skill_load_report =
+        mossen_skills::load_startup_skill_directories(&cwd_path, ".mossen").await;
+    if skill_load_report.user_dir_present
+        || skill_load_report.project_dir_count > 0
+        || skill_load_report.added_skill_count > 0
+    {
         info!(
             target: "mossen_cli::skills",
-            count = discovered.len(),
-            added,
-            "skill directories discovered during REPL startup"
+            user_dir_present = skill_load_report.user_dir_present,
+            project_dirs = skill_load_report.project_dir_count,
+            added = skill_load_report.added_skill_count,
+            "skill directories loaded during REPL startup"
         );
     }
 
@@ -260,7 +345,8 @@ pub async fn launch_repl(
     };
     let directives = std::sync::Arc::new(mossen_commands::all_directives());
     let app = mossen_tui::App::with_engine(engine_config, directives)
-        .with_startup_hook_messages(session_hook_messages);
+        .with_startup_hook_messages(session_hook_messages)
+        .with_startup_render_session_restore(config.restore_mode);
     info!("launch_repl: TUI app created (engine + directives wired)");
 
     // Skill registry is built once and handed to the TUI so slash commands,
@@ -304,50 +390,26 @@ pub async fn launch_repl(
 
     // 4. 初始化 MCP 服务器管理器（如果配置了）
     if config.mcp_enabled {
-        info!("launch_repl: initializing MCP server manager");
-        let mcp_manager = Arc::new(McpServerManager::new(Implementation {
-            name: "mossen-cli".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-        }));
-
-        // 解析 MCP 配置 JSON（若提供）并加载到 manager
-        let configs = if let Some(cfg_json) = config.mcp_config.as_deref() {
-            match serde_json::from_str::<HashMap<String, ScopedMcpServerConfig>>(cfg_json) {
-                Ok(m) => m,
-                Err(e) => {
-                    warn!(error = %e, "launch_repl: failed to parse mcp_config JSON; using empty");
-                    HashMap::new()
-                }
+        if let Some((mcp_manager, mcp_tool_definitions, _server_count)) =
+            initialize_mcp_manager_for_session(&config, &cwd_path, "repl").await
+        {
+            let mcp_tool_count = mcp_tool_definitions.len();
+            if mcp_tool_count > 0 {
+                app = app.with_extra_tool_definitions(mcp_tool_definitions);
             }
-        } else {
-            HashMap::new()
-        };
-        let server_count = configs.len();
-        mcp_manager.update_configs(configs).await;
-        mcp_manager.connect_all().await;
-        info!(
-            connected = mcp_manager.connected_count(),
-            total = server_count,
-            "launch_repl: MCP server manager initialized"
-        );
+            info!(
+                tool_count = mcp_tool_count,
+                "launch_repl: MCP tool definitions attached to App"
+            );
 
-        let mcp_tool_definitions = collect_mcp_tool_definitions(&mcp_manager).await;
-        let mcp_tool_count = mcp_tool_definitions.len();
-        if mcp_tool_count > 0 {
-            app = app.with_extra_tool_definitions(mcp_tool_definitions);
+            // 双重安装：
+            //   1. mossen-cli 的 repl_mcp 全局，让 shutdown 路径能 disconnect_all。
+            //   2. mossen-mcp 的 OnceLock 全局，让 dialogue.rs::execute_mcp_tool
+            //      可以跨 crate 解析 mcp__server__tool 调用而不在 mossen-mcp 和
+            //      mossen-cli 之间引入循环依赖。
+            crate::repl_mcp::set_manager(mcp_manager.clone());
+            mossen_mcp::server::set_global_manager(mcp_manager);
         }
-        info!(
-            tool_count = mcp_tool_count,
-            "launch_repl: MCP tool definitions attached to App"
-        );
-
-        // 双重安装：
-        //   1. mossen-cli 的 repl_mcp 全局，让 shutdown 路径能 disconnect_all。
-        //   2. mossen-mcp 的 OnceLock 全局，让 dialogue.rs::execute_mcp_tool
-        //      可以跨 crate 解析 mcp__server__tool 调用而不在 mossen-mcp 和
-        //      mossen-cli 之间引入循环依赖。
-        crate::repl_mcp::set_manager(mcp_manager.clone());
-        mossen_mcp::server::set_global_manager(mcp_manager);
     }
 
     // 6. 处理恢复模式
@@ -386,7 +448,10 @@ pub async fn run_oneshot(
     let _span = tracing::info_span!("oneshot").entered();
     info!("run_oneshot: executing single prompt");
 
-    let (prompt_params, prompt) = build_oneshot_prompt_params(state, prompt, &config).await?;
+    let (prompt_params, prompt) =
+        build_oneshot_prompt_params(state.clone(), prompt, &config).await?;
+    let transcript_history = prompt_params.history_messages.clone();
+    let transcript_model = prompt_params.model.clone();
     info!(
         prompt_len = prompt.len(),
         "run_oneshot: dispatching to agent"
@@ -423,6 +488,17 @@ pub async fn run_oneshot(
         );
     }
     info!("run_oneshot: completed");
+    if let Err(err) = record_oneshot_transcript(
+        &state,
+        &transcript_history,
+        &prompt,
+        &result_text,
+        &transcript_model,
+    )
+    .await
+    {
+        warn!(error = %err, "failed to record oneshot transcript");
+    }
     Ok(result_text)
 }
 
@@ -1107,35 +1183,32 @@ fn terminal_render_spawn_frontend_event_pump(
         .spawn(move || {
             while !thread_stop.load(Ordering::SeqCst) {
                 match event::poll(Duration::from_millis(50)) {
-                    Ok(true) => match event::read() {
-                        Ok(event) => {
-                            if let Some(frontend_event) =
-                                terminal_render_frontend_event_from_crossterm_with_edit_capture(
-                                    &event,
-                                    edit_capture_active.load(Ordering::SeqCst),
-                                )
-                            {
-                                terminal_render_write_frontend_event_log(
-                                    event_log.as_ref(),
-                                    &event,
-                                    Some(&frontend_event),
-                                );
-                                let _ = terminal_render_try_enqueue_frontend_event_with_resize_coalescing(
-                                    &tx,
-                                    &priority_tx,
-                                    frontend_event,
-                                    &resize_event_pending,
-                                    &scroll_event_pending,
-                                );
-                            } else {
-                                terminal_render_write_frontend_event_log(
-                                    event_log.as_ref(),
-                                    &event,
-                                    None,
-                                );
-                            }
+                    Ok(true) => if let Ok(event) = event::read() {
+                        if let Some(frontend_event) =
+                            terminal_render_frontend_event_from_crossterm_with_edit_capture(
+                                &event,
+                                edit_capture_active.load(Ordering::SeqCst),
+                            )
+                        {
+                            terminal_render_write_frontend_event_log(
+                                event_log.as_ref(),
+                                &event,
+                                Some(&frontend_event),
+                            );
+                            let _ = terminal_render_try_enqueue_frontend_event_with_resize_coalescing(
+                                &tx,
+                                &priority_tx,
+                                frontend_event,
+                                &resize_event_pending,
+                                &scroll_event_pending,
+                            );
+                        } else {
+                            terminal_render_write_frontend_event_log(
+                                event_log.as_ref(),
+                                &event,
+                                None,
+                            );
                         }
-                        Err(_) => {}
                     },
                     Ok(false) => {}
                     Err(_) => std::thread::sleep(Duration::from_millis(50)),
@@ -2409,16 +2482,459 @@ fn terminal_render_write_diagnostics_snapshot_to_path(
     Ok(())
 }
 
+async fn build_oneshot_prompt_params(
+    state: SharedBootstrapState,
+    mut prompt: String,
+    config: &ReplConfig,
+) -> Result<(PromptParams, String)> {
+    // 标记为非交互式，并捕获 model/cwd
+    let (mut model, cwd) = {
+        let mut s = state
+            .write()
+            .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
+        s.is_interactive = false;
+        if let Some(ref model) = config.model_override {
+            s.model_override = Some(model.clone());
+        }
+        let m = s
+            .model_override
+            .clone()
+            .unwrap_or_else(default_model_for_unset_cli);
+        (m, s.cwd.to_string_lossy().to_string())
+    };
+
+    let restore_history = load_restore_history(config, &cwd, &model, &state).await?;
+    if let Ok(state) = state.read() {
+        if let Some(restored_model) = state.model_override.clone() {
+            model = restored_model;
+        }
+    }
+    let session_start_source = if restore_history.is_empty() || !config.restore_mode {
+        mossen_utils::session_start::SessionStartSource::Startup
+    } else {
+        mossen_utils::session_start::SessionStartSource::Resume
+    };
+    let session_hook_messages = crate::session_hooks::run_session_start_hooks(
+        &state,
+        session_start_source,
+        Some(&model),
+        true,
+    )
+    .await;
+    if !session_hook_messages.is_empty() {
+        info!(
+            target: "mossen_agent::hooks",
+            count = session_hook_messages.len(),
+            "SessionStart hook messages produced for oneshot startup"
+        );
+    }
+    let hook_initial_prompt = mossen_utils::session_start::take_initial_user_message();
+    let mut startup_additional_blocks: Vec<ContentBlock> = session_hook_messages
+        .iter()
+        .filter(|message| message.message_type == "hook_additional_context")
+        .map(|message| {
+            ContentBlock::Text(TextBlock {
+                text: message.content.clone(),
+            })
+        })
+        .collect();
+    if let Some(initial_prompt) = hook_initial_prompt {
+        if prompt.trim().is_empty() {
+            prompt = initial_prompt;
+        } else {
+            startup_additional_blocks.push(ContentBlock::Text(TextBlock {
+                text: format!("Startup hook initial user message:\n{}", initial_prompt),
+            }));
+        }
+    }
+    let hook_context = match crate::session_hooks::build_hooks_context(&state, true) {
+        Ok(context) => Some(Arc::new(context)),
+        Err(err) => {
+            warn!(
+                target: "mossen_agent::hooks",
+                error = %err,
+                "Hook context unavailable; oneshot dialogue hooks will continue disabled"
+            );
+            None
+        }
+    };
+
+    mossen_skills::init_bundled_skills();
+
+    // Build the executable tool registry the same way `launch_repl` does so
+    // --oneshot / --print mode has the same tool surface as the TUI. Without
+    // this the model is forced to fall back to writing bash inside markdown
+    // code blocks (or worse, hallucinating XML-style `<tool_call>` tags).
+    let mut oneshot_registry = mossen_agent::tool_registry::ToolRegistry::new();
+    oneshot_registry.register_all(mossen_tools::all_tools());
+    let oneshot_registry = Arc::new(oneshot_registry);
+    let mut oneshot_tools = oneshot_registry.definitions();
+    if config.mcp_enabled {
+        let cwd_path = std::path::PathBuf::from(&cwd);
+        if let Some((mcp_manager, mcp_tool_definitions, _server_count)) =
+            initialize_mcp_manager_for_session(config, &cwd_path, "oneshot").await
+        {
+            oneshot_tools.extend(mcp_tool_definitions);
+            crate::repl_mcp::set_manager(mcp_manager.clone());
+            mossen_mcp::server::set_global_manager(mcp_manager);
+        }
+    }
+    let oneshot_tool_names: Vec<String> = oneshot_tools.iter().map(|t| t.name.clone()).collect();
+
+    // Compose the same layered system prompt the REPL uses; without it,
+    // oneshot calls go to the model with zero identity / env context and
+    // the assistant treats them like raw chat completions.
+    let system_prompt_blocks = if let Some(text) = config.system_prompt.clone() {
+        vec![mossen_agent::types::SystemBlock {
+            text,
+            cache_control: None,
+        }]
+    } else {
+        let is_custom = mossen_utils::custom_backend::is_custom_backend_enabled();
+        let cwd_path = std::path::PathBuf::from(&cwd);
+        let skill_load_report =
+            mossen_skills::load_startup_skill_directories(&cwd_path, ".mossen").await;
+        if skill_load_report.user_dir_present
+            || skill_load_report.project_dir_count > 0
+            || skill_load_report.added_skill_count > 0
+        {
+            info!(
+                target: "mossen_cli::skills",
+                user_dir_present = skill_load_report.user_dir_present,
+                project_dirs = skill_load_report.project_dir_count,
+                added = skill_load_report.added_skill_count,
+                "skill directories loaded during oneshot startup"
+            );
+        }
+        let activated = mossen_skills::activate_conditional_skills_for_paths(
+            std::slice::from_ref(&cwd),
+            &cwd_path,
+        );
+        if !activated.is_empty() {
+            info!(
+                target: "mossen_cli::skills",
+                activated = ?activated,
+                "conditional skills activated during oneshot startup"
+            );
+        }
+        let skill_commands = mossen_tools::skill_tool::prompt::get_loaded_skill_tool_commands();
+        let skill_commands_text =
+            mossen_tools::skill_tool::prompt::format_commands_within_budget(&skill_commands, None);
+        let memory_text = crate::system_prompt::gather_memory_text(&cwd_path).await;
+        let inputs = crate::system_prompt::SystemPromptInputs {
+            cwd: &cwd,
+            model: &model,
+            model_marketing_name: None,
+            is_non_interactive: true,
+            is_custom_backend: is_custom,
+            is_internal: std::env::var("USER_TYPE").ok().as_deref() == Some("internal"),
+            is_git_repo: crate::system_prompt::detect_git_repo(&cwd_path),
+            product_name: "Mossen",
+            enabled_tools: &oneshot_tool_names,
+            skill_commands_count: skill_commands.len(),
+            skill_commands_text: &skill_commands_text,
+            language_preference: None,
+            memory_text: &memory_text,
+        };
+        crate::system_prompt::assemble(&inputs)
+    };
+
+    // 构造 PromptParams 并通过 mossen-agent submit_prompt 执行真实查询
+    let prompt_params = PromptParams {
+        prompt: prompt.clone(),
+        history_messages: restore_history,
+        additional_blocks: startup_additional_blocks,
+        model,
+        system_prompt: system_prompt_blocks,
+        tools: oneshot_tools,
+        tool_use_context: ToolUseContext {
+            cwd,
+            additional_working_directories: None,
+            extra: Default::default(),
+        },
+        origin_tag: OriginTag::Sdk,
+        // Allow the full tool/response round-trip. With max_turns=1 the loop
+        // exits the instant the model emits its first tool_use, so the user
+        // never sees the assistant's follow-up summary or the tool result.
+        // Setting a low double-digit cap keeps unbounded loops safe while
+        // letting real multi-tool flows complete (read → think → edit →
+        // verify, etc.).
+        max_turns: Some(12),
+        cancel_token: None,
+        api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
+        api_key: std::env::var("MOSSEN_API_KEY").ok(),
+        extra_body: Default::default(),
+        permission_mode: session_permission_mode_from_env(),
+        // Oneshot mode is unattended — there's nothing to prompt the user
+        // with — so leave the gate open.
+        permission_gate: None,
+        tool_registry: Some(oneshot_registry),
+        hook_context,
+    };
+
+    Ok((prompt_params, prompt))
+}
+
+async fn load_restore_history(
+    config: &ReplConfig,
+    cwd: &str,
+    model: &str,
+    state: &SharedBootstrapState,
+) -> Result<Vec<Message>> {
+    if !config.restore_mode && config.restore_session_id.is_none() {
+        return Ok(Vec::new());
+    }
+
+    use mossen_agent::transcript::{default_transcript_dir, list_transcripts, TranscriptManager};
+
+    let transcript = if let Some(session_id) = config.restore_session_id.as_deref() {
+        let manager = TranscriptManager::new(session_id.to_string(), default_transcript_dir());
+        match manager.load().await? {
+            Some(transcript) => Some(transcript),
+            None => {
+                warn!(
+                    session_id = %session_id,
+                    "restore-id requested but no transcript file was found"
+                );
+                None
+            }
+        }
+    } else {
+        list_transcripts(&default_transcript_dir())
+            .await?
+            .into_iter()
+            .find(|transcript| transcript.cwd.as_deref() == Some(cwd))
+    };
+
+    let Some(transcript) = transcript else {
+        return Ok(Vec::new());
+    };
+
+    if let Ok(mut state) = state.write() {
+        state.switch_session(transcript.session_id.clone());
+        if state.model_override.is_none() {
+            if let Some(model) = transcript.model.clone() {
+                state.model_override = Some(model);
+            }
+        }
+    }
+    info!(
+        session_id = %transcript.session_id,
+        message_count = transcript.messages.len(),
+        model = transcript.model.as_deref().unwrap_or(model),
+        "loaded restore transcript for oneshot"
+    );
+    Ok(transcript.messages)
+}
+
+async fn record_oneshot_transcript(
+    state: &SharedBootstrapState,
+    history_messages: &[Message],
+    prompt: &str,
+    result_text: &str,
+    model: &str,
+) -> Result<()> {
+    use mossen_agent::transcript::{default_transcript_dir, TranscriptManager};
+
+    let (session_id, persistence_disabled, cwd) = {
+        let state = state
+            .read()
+            .map_err(|e| anyhow::anyhow!("failed to read state: {}", e))?;
+        (
+            state.session_id.clone(),
+            state.session_persistence_disabled,
+            state.cwd.to_string_lossy().to_string(),
+        )
+    };
+    if persistence_disabled {
+        return Ok(());
+    }
+
+    let mut messages = history_messages.to_vec();
+    messages.push(oneshot_text_message(Role::User, prompt));
+    messages.push(oneshot_text_message(Role::Assistant, result_text));
+
+    let mut manager = TranscriptManager::new(session_id, default_transcript_dir());
+    manager.record(&messages, Some(model), Some(&cwd)).await
+}
+
+fn oneshot_text_message(role: Role, text: &str) -> Message {
+    Message {
+        role,
+        content: vec![ContentBlock::Text(TextBlock {
+            text: text.to_string(),
+        })],
+        uuid: None,
+        is_meta: None,
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra: HashMap::new(),
+    }
+}
+
+/// TUI 事件循环。
+///
+/// 使用 crossterm 进入 raw mode + alternate screen，
+/// 构建 ratatui Terminal，并调用 App::run 进入消息循环。
+/// 也持续观察 shutdown_flag 以支持外部中断。
+async fn run_event_loop(
+    mut app: mossen_tui::App,
+    state: SharedBootstrapState,
+    shutdown_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    info!("event_loop: starting");
+
+    // 0. Shut down the early-input reader BEFORE we enter raw mode. The early
+    //    capture thread spawned at pre-main also polls crossterm key events;
+    //    leaving it alive would mean two threads racing for the same stdin
+    //    keystrokes, with each input event delivered to whichever reader
+    //    happened to poll first. CJK input then loses every other character.
+    //    Consume whatever was typed during boot and seed it into the prompt so
+    //    nothing the user pressed is dropped.
+    let early = mossen_utils::early_input::consume_early_input();
+    if !early.is_empty() {
+        app.prompt.input.insert_str(&early);
+    }
+
+    // 1. 启用 crossterm raw mode + alternate screen. Mouse capture stays
+    // opt-in so normal terminal text selection/copy keeps working.
+    enable_raw_mode().map_err(|e| anyhow::anyhow!("failed to enable raw mode: {}", e))?;
+    let mut stdout = io::stdout();
+    let mouse_capture_enabled = terminal_render_should_capture_mouse();
+    execute!(stdout, EnterAlternateScreen)
+        .map_err(|e| anyhow::anyhow!("failed to enter terminal UI mode: {}", e))?;
+    if mouse_capture_enabled {
+        execute!(stdout, EnableMouseCapture)
+            .map_err(|e| anyhow::anyhow!("failed to enable mouse capture: {}", e))?;
+    }
+
+    // 2. 构建 ratatui Terminal
+    let backend = CrosstermBackend::new(stdout);
+    let terminal =
+        Terminal::new(backend).map_err(|e| anyhow::anyhow!("failed to create terminal: {}", e))?;
+
+    // 3. 启动 shutdown 监视器：将外部 shutdown_flag 转换为 app.should_quit
+    let shutdown_watch = {
+        let shutdown_flag = shutdown_flag.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                if shutdown_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+            }
+        })
+    };
+
+    // 4. 在 select 中并行运行 App 主循环与 shutdown 监视器
+    let app_result = tokio::select! {
+        r = app.run(terminal) => r,
+        _ = shutdown_watch => {
+            info!("event_loop: shutdown_flag triggered, exiting");
+            Ok(())
+        }
+    };
+
+    // 5. 恢复终端状态（即使主循环报错也要执行）
+    let _ = disable_raw_mode();
+    if mouse_capture_enabled {
+        let _ = execute!(io::stdout(), DisableMouseCapture);
+    }
+    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+
+    // 6. 同步会话统计回 BootstrapState
+    if let Ok(mut s) = state.write() {
+        s.touch_interaction();
+    }
+
+    info!("event_loop: ended");
+    app_result
+}
+
+/// 单次提交便捷入口（绕过 TUI），主要供测试 / 子命令复用。
+///
+/// 这是 `run_oneshot` 的更直接形式：直接构造 SessionOrchestrator，
+/// 提交一条 prompt，收集所有 assistant 文本内容并返回。
+pub async fn submit_once(
+    prompt: &str,
+    model: Option<String>,
+    cwd: Option<String>,
+) -> Result<String> {
+    let model = model.unwrap_or_else(default_model_for_unset_cli);
+    let cwd = cwd.unwrap_or_else(|| {
+        std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| ".".to_string())
+    });
+
+    let config = OrchestratorConfig {
+        system_prompt: Vec::new(),
+        tools: Vec::new(),
+        tool_use_context: ToolUseContext {
+            cwd,
+            additional_working_directories: None,
+            extra: Default::default(),
+        },
+        model,
+        user_specified_model: None,
+        max_output_tokens: None,
+        origin_tag: OriginTag::Sdk,
+        fast_mode: None,
+        api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
+        api_key: std::env::var("MOSSEN_API_KEY").ok(),
+        skip_stop_hooks: true,
+        auto_mode: false,
+        extra_body: Default::default(),
+        permission_mode: session_permission_mode_from_env(),
+        // `submit_once` is the non-interactive test/SDK shortcut — no UI to
+        // drive a permission modal — so we leave the gate at the
+        // `AllowAllGate` default.
+        permission_gate: None,
+        tool_registry: None,
+        hook_context: None,
+    };
+
+    let mut orchestrator = SessionOrchestrator::new(config);
+    let mut rx = orchestrator
+        .dispatch_turn(
+            prompt,
+            Some(SubmitOptions {
+                max_turns: Some(1),
+                ..Default::default()
+            }),
+        )
+        .await;
+
+    let mut result = String::new();
+    while let Some(msg) = rx.recv().await {
+        match msg {
+            SdkMessage::Assistant { message, .. } => {
+                for block in &message.content {
+                    if let mossen_types::ContentBlock::Text(t) = block {
+                        result.push_str(&t.text);
+                    }
+                }
+            }
+            SdkMessage::Result { .. } => break,
+            _ => {}
+        }
+    }
+
+    if result.is_empty() {
+        // 永远不返回空 — 至少给出结构化兜底（带 prompt 元信息），便于上层判断。
+        result = format!("[no-content] prompt_chars={}", prompt.len());
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod terminal_render_frontend_event_tests {
     use super::*;
     use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, MouseEvent};
 
     fn terminal_render_mouse_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-            .lock()
-            .expect("terminal render mouse env lock")
+        crate::test_support::env_lock()
     }
 
     fn restore_terminal_render_mouse_env(previous: Option<String>) {
@@ -2427,6 +2943,279 @@ mod terminal_render_frontend_event_tests {
         } else {
             std::env::remove_var(TERMINAL_RENDER_CAPTURE_MOUSE_ENV);
         }
+    }
+
+    const RESTORE_ENV_KEYS: &[&str] = &[
+        "HOME",
+        "MOSSEN_CONFIG_HOME",
+        "MOSSEN_CONFIG_DIR",
+        "XDG_CONFIG_HOME",
+        "MOSSEN_CODE_DISABLE_AUTO_MEMORY",
+        "MOSSEN_CODE_DISABLE_TEAM_MEMORY",
+        "MOSSEN_COWORK_MEMORY_PATH_OVERRIDE",
+    ];
+
+    struct RestoreEnvGuard(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for RestoreEnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn restore_history_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
+    }
+
+    fn isolate_restore_history_env(root: &std::path::Path) -> RestoreEnvGuard {
+        let guard = RestoreEnvGuard(
+            RESTORE_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("MOSSEN_CONFIG_HOME", root.join("home").join(".mossen"));
+        std::env::set_var("MOSSEN_CONFIG_DIR", root.join("home").join(".mossen"));
+        std::env::set_var("XDG_CONFIG_HOME", root.join("xdg"));
+        std::env::set_var("MOSSEN_CODE_DISABLE_AUTO_MEMORY", "1");
+        std::env::set_var("MOSSEN_CODE_DISABLE_TEAM_MEMORY", "1");
+        guard
+    }
+
+    fn test_repl_config(restore_mode: bool, restore_session_id: Option<String>) -> ReplConfig {
+        ReplConfig {
+            initial_prompt: None,
+            restore_mode,
+            restore_session_id,
+            mcp_enabled: false,
+            mcp_config: None,
+            system_prompt: Some("test system prompt".to_string()),
+            extra_prompt: None,
+            model_override: Some("mossen-balanced-4".to_string()),
+            shutdown_flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[tokio::test]
+    async fn oneshot_restore_id_loads_history_without_leaking_to_new_session() {
+        let _lock = restore_history_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let cwd_string = cwd.to_string_lossy().to_string();
+        let marker = "M4_5_RESTORE_HISTORY_MARKER";
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let mut manager = mossen_agent::transcript::TranscriptManager::new(
+            session_id.clone(),
+            mossen_agent::transcript::default_transcript_dir(),
+        );
+        manager
+            .record(
+                &[oneshot_text_message(Role::User, marker)],
+                Some("mossen-balanced-4"),
+                Some(&cwd_string),
+            )
+            .await
+            .expect("record transcript");
+
+        let restored_state = crate::bootstrap::new_shared_state(cwd.clone());
+        let (restored_params, _) = build_oneshot_prompt_params(
+            restored_state.clone(),
+            "continue the session".to_string(),
+            &test_repl_config(true, Some(session_id.clone())),
+        )
+        .await
+        .expect("restore prompt params");
+
+        assert_eq!(restored_params.history_messages.len(), 1);
+        assert!(serde_json::to_string(&restored_params.history_messages)
+            .expect("history json")
+            .contains(marker));
+        assert_eq!(restored_state.read().expect("state").session_id, session_id);
+
+        let fresh_state = crate::bootstrap::new_shared_state(cwd);
+        let (fresh_params, _) = build_oneshot_prompt_params(
+            fresh_state.clone(),
+            "new session".to_string(),
+            &test_repl_config(false, None),
+        )
+        .await
+        .expect("fresh prompt params");
+
+        assert!(fresh_params.history_messages.is_empty());
+        assert_ne!(
+            fresh_state.read().expect("state").session_id,
+            session_id,
+            "new sessions must not adopt explicit restore-id history"
+        );
+    }
+
+    #[tokio::test]
+    async fn oneshot_transcript_record_appends_turn_to_existing_history() {
+        let _lock = restore_history_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let cwd_string = cwd.to_string_lossy().to_string();
+        let state = crate::bootstrap::new_shared_state(cwd.clone());
+        let session_id = state.read().expect("state").session_id.clone();
+        let history = vec![oneshot_text_message(Role::Assistant, "previous answer")];
+
+        record_oneshot_transcript(
+            &state,
+            &history,
+            "new prompt",
+            "new answer",
+            "mossen-balanced-4",
+        )
+        .await
+        .expect("record oneshot transcript");
+
+        let manager = mossen_agent::transcript::TranscriptManager::new(
+            session_id,
+            mossen_agent::transcript::default_transcript_dir(),
+        );
+        let transcript = manager
+            .load()
+            .await
+            .expect("load transcript")
+            .expect("transcript exists");
+
+        assert_eq!(transcript.cwd.as_deref(), Some(cwd_string.as_str()));
+        assert_eq!(transcript.message_count, 3);
+        let transcript_json = serde_json::to_string(&transcript.messages).expect("messages json");
+        assert!(transcript_json.contains("previous answer"));
+        assert!(transcript_json.contains("new prompt"));
+        assert!(transcript_json.contains("new answer"));
+    }
+
+    #[tokio::test]
+    async fn restore_history_and_project_memory_stay_separate() {
+        let _lock = restore_history_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let cwd_string = cwd.to_string_lossy().to_string();
+        let project_marker = "MOSSEN_M5_5_PROJECT_MEMORY_MARKER";
+        let conversation_marker = "MOSSEN_M5_5_RESUME_HISTORY_MARKER";
+        std::fs::write(cwd.join("MOSSEN.md"), project_marker).expect("write project memory");
+
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let mut manager = mossen_agent::transcript::TranscriptManager::new(
+            session_id.clone(),
+            mossen_agent::transcript::default_transcript_dir(),
+        );
+        manager
+            .record(
+                &[oneshot_text_message(Role::User, conversation_marker)],
+                Some("mossen-balanced-4"),
+                Some(&cwd_string),
+            )
+            .await
+            .expect("record transcript");
+
+        let restored_config = ReplConfig {
+            system_prompt: None,
+            ..test_repl_config(true, Some(session_id.clone()))
+        };
+        let restored_state = crate::bootstrap::new_shared_state(cwd.clone());
+        let (restored_params, _) =
+            build_oneshot_prompt_params(restored_state, "continue".to_string(), &restored_config)
+                .await
+                .expect("restore prompt params");
+        let restored_history =
+            serde_json::to_string(&restored_params.history_messages).expect("history json");
+        let restored_system_prompt = restored_params
+            .system_prompt
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(restored_history.contains(conversation_marker));
+        assert!(restored_system_prompt.contains(project_marker));
+        assert!(!restored_system_prompt.contains(conversation_marker));
+
+        let fresh_config = ReplConfig {
+            system_prompt: None,
+            ..test_repl_config(false, None)
+        };
+        let fresh_state = crate::bootstrap::new_shared_state(cwd);
+        let (fresh_params, _) =
+            build_oneshot_prompt_params(fresh_state, "new session".to_string(), &fresh_config)
+                .await
+                .expect("fresh prompt params");
+        let fresh_system_prompt = fresh_params
+            .system_prompt
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(fresh_params.history_messages.is_empty());
+        assert!(fresh_system_prompt.contains(project_marker));
+        assert!(!fresh_system_prompt.contains(conversation_marker));
+    }
+
+    #[tokio::test]
+    async fn oneshot_system_prompt_includes_user_config_skill() {
+        let _lock = restore_history_env_lock();
+        mossen_skills::clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let skill_dir = temp
+            .path()
+            .join("home")
+            .join(".mossen")
+            .join("skills")
+            .join("m6_user_config_skill");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: M6 user config skill\n---\nUse this user-level skill.\n",
+        )
+        .expect("write skill");
+
+        let config = ReplConfig {
+            system_prompt: None,
+            ..test_repl_config(false, None)
+        };
+        let state = crate::bootstrap::new_shared_state(cwd);
+        let (params, _) = build_oneshot_prompt_params(state, "use a skill".to_string(), &config)
+            .await
+            .expect("oneshot params");
+        let system_prompt = params
+            .system_prompt
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(
+            system_prompt.contains("# User-invocable skills"),
+            "{system_prompt}"
+        );
+        assert!(
+            system_prompt.contains("m6_user_config_skill"),
+            "{system_prompt}"
+        );
+        assert!(
+            system_prompt.contains("M6 user config skill"),
+            "{system_prompt}"
+        );
+        mossen_skills::clear_dynamic_skills();
     }
 
     #[test]
@@ -2817,8 +3606,8 @@ mod terminal_render_frontend_event_tests {
             &scroll_event_pending,
         );
         assert_eq!(drain_report.drained_count, 1);
-        assert_eq!(drain_report.drained_resize_event, true);
-        assert_eq!(drain_report.drained_scroll_event, false);
+        assert!(drain_report.drained_resize_event);
+        assert!(!drain_report.drained_scroll_event);
         assert_eq!(
             drain_report.last_drained_scroll_state,
             TERMINAL_RENDER_SCROLL_EVENT_NONE
@@ -3281,330 +4070,25 @@ mod terminal_render_frontend_event_tests {
         assert!(!result.submitted);
         assert!(result.requires_decision_bridge);
     }
-}
 
-async fn build_oneshot_prompt_params(
-    state: SharedBootstrapState,
-    mut prompt: String,
-    config: &ReplConfig,
-) -> Result<(PromptParams, String)> {
-    // 标记为非交互式，并捕获 model/cwd
-    let (model, cwd) = {
-        let mut s = state
-            .write()
-            .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
-        s.is_interactive = false;
-        if let Some(ref model) = config.model_override {
-            s.model_override = Some(model.clone());
-        }
-        let m = s
-            .model_override
-            .clone()
-            .unwrap_or_else(default_model_for_unset_cli);
-        (m, s.cwd.to_string_lossy().to_string())
-    };
-
-    let session_hook_messages = crate::session_hooks::run_session_start_hooks(
-        &state,
-        mossen_utils::session_start::SessionStartSource::Startup,
-        Some(&model),
-        true,
-    )
-    .await;
-    if !session_hook_messages.is_empty() {
-        info!(
-            target: "mossen_agent::hooks",
-            count = session_hook_messages.len(),
-            "SessionStart hook messages produced for oneshot startup"
-        );
-    }
-    let hook_initial_prompt = mossen_utils::session_start::take_initial_user_message();
-    let mut startup_additional_blocks: Vec<ContentBlock> = session_hook_messages
-        .iter()
-        .filter(|message| message.message_type == "hook_additional_context")
-        .map(|message| {
-            ContentBlock::Text(TextBlock {
-                text: message.content.clone(),
-            })
-        })
-        .collect();
-    if let Some(initial_prompt) = hook_initial_prompt {
-        if prompt.trim().is_empty() {
-            prompt = initial_prompt;
-        } else {
-            startup_additional_blocks.push(ContentBlock::Text(TextBlock {
-                text: format!("Startup hook initial user message:\n{}", initial_prompt),
-            }));
-        }
-    }
-    let hook_context = match crate::session_hooks::build_hooks_context(&state, true) {
-        Ok(context) => Some(Arc::new(context)),
-        Err(err) => {
-            warn!(
-                target: "mossen_agent::hooks",
-                error = %err,
-                "Hook context unavailable; oneshot dialogue hooks will continue disabled"
-            );
-            None
-        }
-    };
-
-    mossen_skills::init_bundled_skills();
-
-    // Build the executable tool registry the same way `launch_repl` does so
-    // --oneshot / --print mode has the same tool surface as the TUI. Without
-    // this the model is forced to fall back to writing bash inside markdown
-    // code blocks (or worse, hallucinating XML-style `<tool_call>` tags).
-    let mut oneshot_registry = mossen_agent::tool_registry::ToolRegistry::new();
-    oneshot_registry.register_all(mossen_tools::all_tools());
-    let oneshot_registry = Arc::new(oneshot_registry);
-    let oneshot_tools = oneshot_registry.definitions();
-    let oneshot_tool_names: Vec<String> = oneshot_tools.iter().map(|t| t.name.clone()).collect();
-
-    // Compose the same layered system prompt the REPL uses; without it,
-    // oneshot calls go to the model with zero identity / env context and
-    // the assistant treats them like raw chat completions.
-    let system_prompt_blocks = if let Some(text) = config.system_prompt.clone() {
-        vec![mossen_agent::types::SystemBlock {
-            text,
-            cache_control: None,
-        }]
-    } else {
-        let is_custom = mossen_utils::custom_backend::is_custom_backend_enabled();
-        let cwd_path = std::path::PathBuf::from(&cwd);
-        let discovered =
-            mossen_skills::discover_skill_dirs_for_paths(&[cwd_path.clone()], &cwd_path, ".mossen")
-                .await;
-        if !discovered.is_empty() {
-            let added = mossen_skills::add_skill_directories(&discovered).await;
-            info!(
-                target: "mossen_cli::skills",
-                count = discovered.len(),
-                added,
-                "skill directories discovered during oneshot startup"
-            );
-        }
-        let activated = mossen_skills::activate_conditional_skills_for_paths(
-            std::slice::from_ref(&cwd),
-            &cwd_path,
-        );
-        if !activated.is_empty() {
-            info!(
-                target: "mossen_cli::skills",
-                activated = ?activated,
-                "conditional skills activated during oneshot startup"
-            );
-        }
-        let skill_commands = mossen_tools::skill_tool::prompt::get_loaded_skill_tool_commands();
-        let skill_commands_text =
-            mossen_tools::skill_tool::prompt::format_commands_within_budget(&skill_commands, None);
-        let memory_text = crate::system_prompt::gather_memory_text(&cwd_path).await;
-        let inputs = crate::system_prompt::SystemPromptInputs {
-            cwd: &cwd,
-            model: &model,
-            model_marketing_name: None,
-            is_non_interactive: true,
-            is_custom_backend: is_custom,
-            is_internal: std::env::var("USER_TYPE").ok().as_deref() == Some("internal"),
-            is_git_repo: crate::system_prompt::detect_git_repo(&cwd_path),
-            product_name: "Mossen",
-            enabled_tools: &oneshot_tool_names,
-            skill_commands_count: skill_commands.len(),
-            skill_commands_text: &skill_commands_text,
-            language_preference: None,
-            memory_text: &memory_text,
-        };
-        crate::system_prompt::assemble(&inputs)
-    };
-
-    // 构造 PromptParams 并通过 mossen-agent submit_prompt 执行真实查询
-    let prompt_params = PromptParams {
-        prompt: prompt.clone(),
-        history_messages: Vec::new(),
-        additional_blocks: startup_additional_blocks,
-        model,
-        system_prompt: system_prompt_blocks,
-        tools: oneshot_tools,
-        tool_use_context: ToolUseContext {
-            cwd,
-            additional_working_directories: None,
-            extra: Default::default(),
-        },
-        origin_tag: OriginTag::Sdk,
-        // Allow the full tool/response round-trip. With max_turns=1 the loop
-        // exits the instant the model emits its first tool_use, so the user
-        // never sees the assistant's follow-up summary or the tool result.
-        // Setting a low double-digit cap keeps unbounded loops safe while
-        // letting real multi-tool flows complete (read → think → edit →
-        // verify, etc.).
-        max_turns: Some(12),
-        cancel_token: None,
-        api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
-        api_key: std::env::var("MOSSEN_API_KEY").ok(),
-        extra_body: Default::default(),
-        permission_mode: session_permission_mode_from_env(),
-        // Oneshot mode is unattended — there's nothing to prompt the user
-        // with — so leave the gate open.
-        permission_gate: None,
-        tool_registry: Some(oneshot_registry),
-        hook_context,
-    };
-
-    Ok((prompt_params, prompt))
-}
-
-/// TUI 事件循环。
-///
-/// 使用 crossterm 进入 raw mode + alternate screen，
-/// 构建 ratatui Terminal，并调用 App::run 进入消息循环。
-/// 也持续观察 shutdown_flag 以支持外部中断。
-async fn run_event_loop(
-    mut app: mossen_tui::App,
-    state: SharedBootstrapState,
-    shutdown_flag: Arc<AtomicBool>,
-) -> Result<()> {
-    info!("event_loop: starting");
-
-    // 0. Shut down the early-input reader BEFORE we enter raw mode. The early
-    //    capture thread spawned at pre-main also polls crossterm key events;
-    //    leaving it alive would mean two threads racing for the same stdin
-    //    keystrokes, with each input event delivered to whichever reader
-    //    happened to poll first. CJK input then loses every other character.
-    //    Consume whatever was typed during boot and seed it into the prompt so
-    //    nothing the user pressed is dropped.
-    let early = mossen_utils::early_input::consume_early_input();
-    if !early.is_empty() {
-        app.prompt.input.insert_str(&early);
-    }
-
-    // 1. 启用 crossterm raw mode + alternate screen. Mouse capture stays
-    // opt-in so normal terminal text selection/copy keeps working.
-    enable_raw_mode().map_err(|e| anyhow::anyhow!("failed to enable raw mode: {}", e))?;
-    let mut stdout = io::stdout();
-    let mouse_capture_enabled = terminal_render_should_capture_mouse();
-    execute!(stdout, EnterAlternateScreen)
-        .map_err(|e| anyhow::anyhow!("failed to enter terminal UI mode: {}", e))?;
-    if mouse_capture_enabled {
-        execute!(stdout, EnableMouseCapture)
-            .map_err(|e| anyhow::anyhow!("failed to enable mouse capture: {}", e))?;
-    }
-
-    // 2. 构建 ratatui Terminal
-    let backend = CrosstermBackend::new(stdout);
-    let terminal =
-        Terminal::new(backend).map_err(|e| anyhow::anyhow!("failed to create terminal: {}", e))?;
-
-    // 3. 启动 shutdown 监视器：将外部 shutdown_flag 转换为 app.should_quit
-    let shutdown_watch = {
-        let shutdown_flag = shutdown_flag.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                if shutdown_flag.load(Ordering::SeqCst) {
-                    break;
-                }
-            }
-        })
-    };
-
-    // 4. 在 select 中并行运行 App 主循环与 shutdown 监视器
-    let app_result = tokio::select! {
-        r = app.run(terminal) => r,
-        _ = shutdown_watch => {
-            info!("event_loop: shutdown_flag triggered, exiting");
-            Ok(())
-        }
-    };
-
-    // 5. 恢复终端状态（即使主循环报错也要执行）
-    let _ = disable_raw_mode();
-    if mouse_capture_enabled {
-        let _ = execute!(io::stdout(), DisableMouseCapture);
-    }
-    let _ = execute!(io::stdout(), LeaveAlternateScreen);
-
-    // 6. 同步会话统计回 BootstrapState
-    if let Ok(mut s) = state.write() {
-        s.touch_interaction();
-    }
-
-    info!("event_loop: ended");
-    app_result
-}
-
-/// 单次提交便捷入口（绕过 TUI），主要供测试 / 子命令复用。
-///
-/// 这是 `run_oneshot` 的更直接形式：直接构造 SessionOrchestrator，
-/// 提交一条 prompt，收集所有 assistant 文本内容并返回。
-pub async fn submit_once(
-    prompt: &str,
-    model: Option<String>,
-    cwd: Option<String>,
-) -> Result<String> {
-    let model = model.unwrap_or_else(default_model_for_unset_cli);
-    let cwd = cwd.unwrap_or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| ".".to_string())
-    });
-
-    let config = OrchestratorConfig {
-        system_prompt: Vec::new(),
-        tools: Vec::new(),
-        tool_use_context: ToolUseContext {
-            cwd,
-            additional_working_directories: None,
-            extra: Default::default(),
-        },
-        model,
-        user_specified_model: None,
-        max_output_tokens: None,
-        origin_tag: OriginTag::Sdk,
-        fast_mode: None,
-        api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
-        api_key: std::env::var("MOSSEN_API_KEY").ok(),
-        skip_stop_hooks: true,
-        auto_mode: false,
-        extra_body: Default::default(),
-        permission_mode: session_permission_mode_from_env(),
-        // `submit_once` is the non-interactive test/SDK shortcut — no UI to
-        // drive a permission modal — so we leave the gate at the
-        // `AllowAllGate` default.
-        permission_gate: None,
-        tool_registry: None,
-        hook_context: None,
-    };
-
-    let mut orchestrator = SessionOrchestrator::new(config);
-    let mut rx = orchestrator
-        .dispatch_turn(
-            prompt,
-            Some(SubmitOptions {
-                max_turns: Some(1),
-                ..Default::default()
+    #[test]
+    fn mcp_configs_from_raw_adds_local_scope_for_project_config_shape() {
+        let raw = HashMap::from([(
+            "slow".to_string(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": "python3",
+                "args": ["server.py"]
             }),
-        )
-        .await;
+        )]);
 
-    let mut result = String::new();
-    while let Some(msg) = rx.recv().await {
-        match msg {
-            SdkMessage::Assistant { message, .. } => {
-                for block in &message.content {
-                    if let mossen_types::ContentBlock::Text(t) = block {
-                        result.push_str(&t.text);
-                    }
-                }
-            }
-            SdkMessage::Result { .. } => break,
-            _ => {}
-        }
-    }
+        let configs = mcp_configs_from_raw(raw, ConfigScope::Local);
+        let config = configs.get("slow").expect("scoped config");
 
-    if result.is_empty() {
-        // 永远不返回空 — 至少给出结构化兜底（带 prompt 元信息），便于上层判断。
-        result = format!("[no-content] prompt_chars={}", prompt.len());
+        assert_eq!(config.scope, ConfigScope::Local);
+        assert!(matches!(
+            config.config,
+            mossen_mcp::config::McpServerConfig::Stdio(_)
+        ));
     }
-    Ok(result)
 }

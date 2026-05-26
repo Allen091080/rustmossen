@@ -246,7 +246,7 @@ impl Transport for WebSocketTransport {
     async fn write(&self, message: StdoutMessage) -> anyhow::Result<()> {
         let json = ndjson_safe_stringify(&message)?;
         if let Some(ref mut sink) = *self.write_sink.lock().await {
-            sink.send(WsMessage::Text(json.into())).await?;
+            sink.send(WsMessage::Text(json)).await?;
             // 追踪最后发送的 ID（如果消息中包含 uuid 字段）
             if let Some(uuid) = message.get("uuid").and_then(|v| v.as_str()) {
                 *self.last_sent_id.write().await = Some(uuid.to_string());
@@ -405,7 +405,7 @@ pub async fn send_control_response(
 ) -> anyhow::Result<()> {
     if let Some(ref mut sink) = *sink.lock().await {
         let json = serde_json::to_string(response)?;
-        sink.send(WsMessage::Text(json.into())).await?;
+        sink.send(WsMessage::Text(json)).await?;
     }
     Ok(())
 }

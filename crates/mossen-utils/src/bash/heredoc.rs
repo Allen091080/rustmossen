@@ -54,7 +54,7 @@ pub fn extract_heredocs(
     options: Option<&ExtractHeredocsOptions>,
 ) -> HeredocExtractionResult {
     let mut heredocs = HashMap::new();
-    let quoted_only = options.map_or(false, |o| o.quoted_only);
+    let quoted_only = options.is_some_and(|o| o.quoted_only);
 
     // Quick check: if no << present, skip processing
     if !command.contains("<<") {
@@ -95,8 +95,7 @@ pub fn extract_heredocs(
     }
 
     // Regex for heredoc start pattern
-    let heredoc_start_re =
-        Regex::new(r#"(?<![<])<<(?![<])(-)?[ \t]*(?:(['"])(\\?\w+)\2|\\?(\w+))"#).unwrap();
+    let heredoc_start_re = Regex::new(r#"<<(-)?[ \t]*(?:'(\\?\w+)'|"(\\?\w+)"|\\?(\w+))"#).unwrap();
 
     let mut heredoc_matches: Vec<HeredocInfo> = Vec::new();
     let mut skipped_heredoc_ranges: Vec<(usize, usize)> = Vec::new();
@@ -224,9 +223,19 @@ pub fn extract_heredocs(
         };
         let full_match = caps.get(0).unwrap();
         let full_match_str = full_match.as_str();
-        let is_dash = caps.get(1).map_or(false, |m| m.as_str() == "-");
-        let quote_char = caps.get(2).map(|m| m.as_str());
-        let delimiter = caps.get(3).or_else(|| caps.get(4)).map(|m| m.as_str());
+        let is_dash = caps.get(1).is_some_and(|m| m.as_str() == "-");
+        let quote_char = if caps.get(2).is_some() {
+            Some("'")
+        } else if caps.get(3).is_some() {
+            Some("\"")
+        } else {
+            None
+        };
+        let delimiter = caps
+            .get(2)
+            .or_else(|| caps.get(3))
+            .or_else(|| caps.get(4))
+            .map(|m| m.as_str());
         let delimiter = match delimiter {
             Some(d) => d.to_string(),
             None => continue,
@@ -495,6 +504,6 @@ pub fn restore_heredocs(parts: &[String], heredocs: &HashMap<String, HeredocInfo
 
 /// Checks if a command contains heredoc syntax.
 pub fn contains_heredoc(command: &str) -> bool {
-    let re = Regex::new(r#"(?<![<])<<(?![<])(-)?[ \t]*(?:(['"])(\\?\w+)\2|\\?(\w+))"#).unwrap();
+    let re = Regex::new(r#"<<(-)?[ \t]*(?:'(\\?\w+)'|"(\\?\w+)"|\\?(\w+))"#).unwrap();
     re.is_match(command)
 }

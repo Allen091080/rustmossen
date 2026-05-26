@@ -227,7 +227,7 @@ async fn which_command(name: &str) -> Option<String> {
 }
 
 static CACHED_POWERSHELL_PATH: Lazy<tokio::sync::OnceCell<Option<String>>> =
-    Lazy::new(|| tokio::sync::OnceCell::new());
+    Lazy::new(tokio::sync::OnceCell::new);
 
 pub async fn get_cached_powershell_path() -> Option<String> {
     CACHED_POWERSHELL_PATH
@@ -303,8 +303,11 @@ pub fn contains_vulnerable_unc_path(path_or_command: &str) -> bool {
 
     // Forward-slash UNC (without preceding colon)
     static FORWARD_SLASH_UNC: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?<![:])//?[^\s\\/]+(?:@(?:\d+|ssl))?(?:[\\/]|$|\s)").unwrap());
-    if FORWARD_SLASH_UNC.is_match(path_or_command) {
+        Lazy::new(|| Regex::new(r"//?[^\s\\/]+(?:@(?:\d+|ssl))?(?:[\\/]|$|\s)").unwrap());
+    if FORWARD_SLASH_UNC
+        .find_iter(path_or_command)
+        .any(|m| m.start() == 0 || path_or_command.as_bytes().get(m.start() - 1) != Some(&b':'))
+    {
         return true;
     }
 
@@ -438,22 +441,24 @@ pub fn validate_flags(
                     }
 
                     // grep/rg attached numeric
-                    if command_name == Some("grep") || command_name == Some("rg") {
-                        if flag.starts_with('-') && !flag.starts_with("--") && flag.len() > 2 {
-                            let potential_flag = &flag[..2];
-                            let potential_value = &flag[2..];
-                            if let Some(ft) = config.safe_flags.get(potential_flag) {
-                                static DIGITS: Lazy<Regex> =
-                                    Lazy::new(|| Regex::new(r"^\d+$").unwrap());
-                                if DIGITS.is_match(potential_value) {
-                                    if *ft == FlagArgType::Number || *ft == FlagArgType::StringArg {
-                                        if validate_flag_argument(potential_value, ft) {
-                                            i += 1;
-                                            continue;
-                                        } else {
-                                            return false;
-                                        }
-                                    }
+                    if (command_name == Some("grep") || command_name == Some("rg"))
+                        && flag.starts_with('-')
+                        && !flag.starts_with("--")
+                        && flag.len() > 2
+                    {
+                        let potential_flag = &flag[..2];
+                        let potential_value = &flag[2..];
+                        if let Some(ft) = config.safe_flags.get(potential_flag) {
+                            static DIGITS: Lazy<Regex> =
+                                Lazy::new(|| Regex::new(r"^\d+$").unwrap());
+                            if DIGITS.is_match(potential_value)
+                                && (*ft == FlagArgType::Number || *ft == FlagArgType::StringArg)
+                            {
+                                if validate_flag_argument(potential_value, ft) {
+                                    i += 1;
+                                    continue;
+                                } else {
+                                    return false;
                                 }
                             }
                         }

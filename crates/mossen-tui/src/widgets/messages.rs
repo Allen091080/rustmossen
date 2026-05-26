@@ -243,7 +243,7 @@ impl<'a> Widget for MessagesWidget<'a> {
         let source_record_count = self.messages.len().max(transcript.source_record_count());
         let entries = build_entries(
             source_record_count,
-            &transcript,
+            transcript,
             self.theme,
             area.width,
             self.show_all_thinking,
@@ -298,7 +298,7 @@ impl<'a> Widget for MessagesWidget<'a> {
 
             render_entry_clipped(
                 &entry,
-                &transcript,
+                transcript,
                 self.theme,
                 self.show_all_thinking,
                 area,

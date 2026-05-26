@@ -11,19 +11,10 @@ use std::time::Instant;
 use parking_lot::Mutex;
 
 /// Recording state tracking the current file path and start timestamp.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct RecordingState {
     file_path: Option<PathBuf>,
     timestamp: u64,
-}
-
-impl Default for RecordingState {
-    fn default() -> Self {
-        Self {
-            file_path: None,
-            timestamp: 0,
-        }
-    }
 }
 
 /// Asciicast v2 header.
@@ -157,8 +148,7 @@ impl AsciicastRecorder {
         }
 
         // Write header
-        let header_json = serde_json::to_string(&header)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let header_json = serde_json::to_string(&header).map_err(std::io::Error::other)?;
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

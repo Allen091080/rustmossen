@@ -222,7 +222,7 @@ async fn open_deep_link(deep_link_url: &str) -> bool {
             .arg(deep_link_url)
             .output()
             .await;
-        return result.map(|o| o.status.success()).unwrap_or(false);
+        result.map(|o| o.status.success()).unwrap_or(false)
     }
 
     #[cfg(target_os = "linux")]

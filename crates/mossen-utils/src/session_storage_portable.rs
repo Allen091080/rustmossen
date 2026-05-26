@@ -339,7 +339,7 @@ pub fn sanitize_path(name: &str) -> String {
     }
 
     let hash = djb2_hash(name);
-    let hash_str = format!("{}", radix_fmt(hash, 36));
+    let hash_str = radix_fmt(hash, 36).to_string();
     format!(
         "{}-{}",
         prefix_chars(&sanitized, MAX_SANITIZED_LENGTH),
@@ -585,10 +585,8 @@ pub async fn read_transcript_for_load(
     }
 
     // Process any remaining data
-    if !remainder.is_empty() {
-        if !remainder.starts_with(b"{\"type\":\"attribution-snapshot\"") {
-            output.extend_from_slice(&remainder);
-        }
+    if !remainder.is_empty() && !remainder.starts_with(b"{\"type\":\"attribution-snapshot\"") {
+        output.extend_from_slice(&remainder);
     }
 
     Ok(TranscriptLoadResult {

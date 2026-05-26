@@ -417,6 +417,12 @@ pub struct ChromeMessageReader {
     buffer: Vec<u8>,
 }
 
+impl Default for ChromeMessageReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChromeMessageReader {
     pub fn new() -> Self {
         Self { buffer: Vec::new() }
@@ -446,6 +452,12 @@ impl ChromeMessageReader {
 pub struct ChromeNativeHost {
     running: AtomicBool,
     next_client_id: AtomicU64,
+}
+
+impl Default for ChromeNativeHost {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ChromeNativeHost {
@@ -634,10 +646,9 @@ pub async fn detect_extension_installation(
                 .await
                 .map(|ft| ft.is_dir())
                 .unwrap_or(false)
+                && (name == "Default" || name.starts_with("Profile "))
             {
-                if name == "Default" || name.starts_with("Profile ") {
-                    profile_dirs.push(name);
-                }
+                profile_dirs.push(name);
             }
         }
 

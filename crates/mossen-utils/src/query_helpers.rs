@@ -18,7 +18,7 @@ pub fn is_result_successful(message: Option<&Message>, stop_reason: Option<&str>
                     last_content,
                     ContentBlock::Text { .. }
                         | ContentBlock::Thinking { .. }
-                        | ContentBlock::RedactedThinking { .. }
+                        | ContentBlock::RedactedThinking
                 )
             } else {
                 stop_reason == Some("end_turn")
@@ -303,7 +303,7 @@ pub fn extract_read_files_from_messages(
                             let processed = remove_system_reminder_blocks(result_content);
                             let file_content: String = processed
                                 .lines()
-                                .map(|line| strip_line_number_prefix(line))
+                                .map(strip_line_number_prefix)
                                 .collect::<Vec<_>>()
                                 .join("\n")
                                 .trim()
@@ -404,7 +404,7 @@ const STRIPPED_COMMANDS: &[&str] = &["sudo"];
 /// env var assignments and prefixes in STRIPPED_COMMANDS.
 pub fn extract_cli_name(command: Option<&str>) -> Option<String> {
     let command = command?;
-    let tokens: Vec<&str> = command.trim().split_whitespace().collect();
+    let tokens: Vec<&str> = command.split_whitespace().collect();
     let env_var_re = Regex::new(r"^[A-Za-z_]\w*=").unwrap();
 
     for token in tokens {

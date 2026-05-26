@@ -19,11 +19,7 @@ use crate::stream_json_terminal_renderer::{
     stream_json_terminal_patch_safe_line, StreamJsonTerminalDrawScheduler,
     StreamJsonTerminalPatchRenderer, STREAM_JSON_RENDER_PATCH_MAX_LINE_CELLS,
 };
-use mossen_utils::custom_backend::{
-    custom_backend_capability_applies_to_model, get_custom_backend_max_input_tokens,
-    is_custom_backend_enabled,
-};
-use mossen_utils::model_utils::get_context_window_for_model as model_context_window_for_model;
+use mossen_utils::context::terminal_context_window_tokens;
 
 pub const STREAM_JSON_RENDER_EVENT_SCHEMA_VERSION: u32 = 2;
 pub const STREAM_JSON_RENDER_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -945,7 +941,7 @@ impl StreamJsonRenderStreamState {
 
         let previous_status_bar = terminal_status_bar_value(
             self,
-            &terminal_stage_label(&self.current_stage),
+            terminal_stage_label(&self.current_stage),
             &terminal_scope_label(&self.current_scope),
         );
         let previous_activity = self.current_activity.clone();
@@ -976,7 +972,7 @@ impl StreamJsonRenderStreamState {
 
         let next_status_bar = terminal_status_bar_value(
             self,
-            &terminal_stage_label(&self.current_stage),
+            terminal_stage_label(&self.current_stage),
             &terminal_scope_label(&self.current_scope),
         );
         previous_stage != self.current_stage
@@ -1074,6 +1070,10 @@ impl StreamJsonRenderStreamState {
                     .get("terminal")
                     .and_then(Value::as_str)
                     .map(str::to_string);
+                self.terminal_success = self
+                    .terminal_reason
+                    .as_deref()
+                    .and_then(terminal_success_from_terminal);
             }
             "final_summary_recorded" => {
                 self.terminal_finished = true;
@@ -1528,8 +1528,7 @@ impl StreamJsonRenderStreamState {
         if transcript.ends_with(text) || text.ends_with(transcript) {
             return None;
         }
-        if text.starts_with(transcript) {
-            let suffix = &text[transcript.len()..];
+        if let Some(suffix) = text.strip_prefix(transcript) {
             return (!suffix.is_empty()).then_some(suffix);
         }
         Some(text)
@@ -1552,7 +1551,7 @@ impl StreamJsonRenderStreamState {
             .assistant_text_tail
             .char_indices()
             .find_map(|(idx, _)| (idx >= excess).then_some(idx))
-            .unwrap_or_else(|| self.assistant_text_tail.len());
+            .unwrap_or(self.assistant_text_tail.len());
         self.assistant_text_tail.drain(..cut);
     }
 
@@ -1573,7 +1572,7 @@ impl StreamJsonRenderStreamState {
             .assistant_text_transcript
             .char_indices()
             .find_map(|(idx, _)| (idx >= excess).then_some(idx))
-            .unwrap_or_else(|| self.assistant_text_transcript.len());
+            .unwrap_or(self.assistant_text_transcript.len());
         self.assistant_text_transcript.drain(..cut);
         self.assistant_text_transcript_omitted_bytes = self
             .assistant_text_transcript_omitted_bytes
@@ -1583,7 +1582,7 @@ impl StreamJsonRenderStreamState {
     pub fn snapshot_value(&self) -> Value {
         let status_bar = terminal_status_bar_value(
             self,
-            &terminal_stage_label(&self.current_stage),
+            terminal_stage_label(&self.current_stage),
             &terminal_scope_label(&self.current_scope),
         );
         json!({
@@ -1737,7 +1736,7 @@ impl StreamJsonRenderStreamState {
     ) -> (Value, StreamJsonRenderFrameFingerprint) {
         let scope_label = terminal_scope_label(&self.current_scope);
         let stage_label = terminal_stage_label(&self.current_stage);
-        let status_bar = terminal_status_bar_value(self, &stage_label, &scope_label);
+        let status_bar = terminal_status_bar_value(self, stage_label, &scope_label);
         let status_line = status_bar
             .get("line")
             .and_then(Value::as_str)
@@ -5234,6 +5233,14 @@ fn terminal_stage_label(stage: &str) -> &'static str {
     }
 }
 
+fn terminal_success_from_terminal(terminal: &str) -> Option<bool> {
+    match UiStage::from_terminal(terminal) {
+        UiStage::Done => Some(true),
+        UiStage::Failed | UiStage::Cancelled => Some(false),
+        _ => None,
+    }
+}
+
 fn terminal_scope_label(scope: &Value) -> String {
     match scope.get("kind").and_then(Value::as_str) {
         Some("task") => scope
@@ -5375,22 +5382,7 @@ fn terminal_status_context_tokens(state: &StreamJsonRenderStreamState) -> Option
 }
 
 fn terminal_status_context_window_tokens(model: &str) -> Option<u64> {
-    if let Ok(raw) = std::env::var("MOSSEN_CODE_MAX_CONTEXT_TOKENS") {
-        if let Ok(tokens) = raw.parse::<u64>() {
-            if tokens > 0 {
-                return Some(tokens);
-            }
-        }
-    }
-    if is_custom_backend_enabled() && custom_backend_capability_applies_to_model(model) {
-        if let Some(tokens) = get_custom_backend_max_input_tokens() {
-            if tokens > 0 {
-                return Some(tokens);
-            }
-        }
-    }
-    let tokens = model_context_window_for_model(model);
-    (tokens > 0).then_some(tokens)
+    terminal_context_window_tokens(model)
 }
 
 fn terminal_status_context_label(tokens: Option<u64>, window_tokens: Option<u64>) -> String {
@@ -6683,13 +6675,9 @@ mod tests {
     };
     use mossen_agent::types::{ApiUsage, ContentDelta, SdkMessage, StreamEventData};
     use mossen_types::{AssistantMessage, Role, TextBlock, ToolUseBlock};
-    use std::sync::{Mutex, OnceLock};
 
     fn terminal_status_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("terminal status env lock")
+        crate::test_support::env_lock()
     }
 
     #[test]
@@ -7699,15 +7687,12 @@ mod tests {
         let second_events = emitter.emit_for_sdk_message(&second);
 
         assert_eq!(first_events.len(), 1);
-        assert_eq!(second_events.len(), 2);
+        assert_eq!(second_events.len(), 1);
         assert_eq!(first_events[0]["sequence"], 1);
         assert_eq!(second_events[0]["sequence"], 2);
-        assert_eq!(second_events[1]["sequence"], 3);
         assert_eq!(first_events[0]["stream"]["sourceMessageSequence"], 1);
         assert_eq!(second_events[0]["stream"]["sourceMessageSequence"], 2);
-        assert_eq!(second_events[1]["stream"]["sourceMessageSequence"], 2);
         assert_eq!(second_events[0]["stream"]["eventIndexInSource"], 0);
-        assert_eq!(second_events[1]["stream"]["eventIndexInSource"], 1);
         assert_eq!(second_events[0]["stream"]["sourceMessageType"], "result");
     }
 
@@ -8850,7 +8835,7 @@ mod tests {
         assert!(status_region["lineVariants"]["minimal"]
             .as_str()
             .expect("minimal status variant")
-            .contains("ctx:unknown"));
+            .contains("ctx:?/200k"));
 
         assert_eq!(footer_region["viewportSelectableLines"], true);
         assert!(footer_region["lineVariants"]["full"]
@@ -10226,11 +10211,11 @@ mod tests {
             .position(|line| *line == "file: src/two.rs +1 -1")
             .expect("second file section");
         assert!(one_index < two_index);
-        assert!(line_text.iter().any(|line| *line == "diff files:"));
-        assert!(line_text.iter().any(|line| *line == "-one_old"));
-        assert!(line_text.iter().any(|line| *line == "+one_new"));
-        assert!(line_text.iter().any(|line| *line == "-two_old"));
-        assert!(line_text.iter().any(|line| *line == "+two_new"));
+        assert!(line_text.contains(&"diff files:"));
+        assert!(line_text.contains(&"-one_old"));
+        assert!(line_text.contains(&"+one_new"));
+        assert!(line_text.contains(&"-two_old"));
+        assert!(line_text.contains(&"+two_new"));
         assert!(line_text.iter().all(|line| !line.starts_with("diff --git")));
         assert!(expanded_lines.len() <= 28);
     }
@@ -10933,21 +10918,11 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
-        assert!(final_summary_lines
-            .iter()
-            .any(|line| *line == "verification: 2 command(s), 1 passed, 1 failed"));
-        assert!(final_summary_lines
-            .iter()
-            .any(|line| *line == "commands: 2 recorded"));
-        assert!(final_summary_lines
-            .iter()
-            .any(|line| *line == "cmd: cargo fmt --check -> exit 0"));
-        assert!(final_summary_lines
-            .iter()
-            .any(|line| *line == "cmd: cargo test -> exit 1"));
-        assert!(final_summary_lines
-            .iter()
-            .any(|line| *line == "risk: 1 command(s) failed"));
+        assert!(final_summary_lines.contains(&"verification: 2 command(s), 1 passed, 1 failed"));
+        assert!(final_summary_lines.contains(&"commands: 2 recorded"));
+        assert!(final_summary_lines.contains(&"cmd: cargo fmt --check -> exit 0"));
+        assert!(final_summary_lines.contains(&"cmd: cargo test -> exit 1"));
+        assert!(final_summary_lines.contains(&"risk: 1 command(s) failed"));
     }
 
     #[test]

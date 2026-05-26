@@ -114,10 +114,8 @@ fn compute_search_text(msg: &RenderableMessage) -> String {
                 let mut parts = Vec::new();
                 for b in blocks {
                     match b {
-                        ContentBlock::Text { text } => {
-                            if !sentinels.contains(text.as_str()) {
-                                parts.push(text.clone());
-                            }
+                        ContentBlock::Text { text } if !sentinels.contains(text.as_str()) => {
+                            parts.push(text.clone());
                         }
                         ContentBlock::ToolResult { .. } => {
                             if let Some(ref result) = tool_use_result {

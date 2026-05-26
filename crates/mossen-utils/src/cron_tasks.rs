@@ -312,7 +312,7 @@ pub struct CronFields {
 
 /// Parse a 5-field cron expression into expanded field sets.
 pub fn parse_cron_expression(cron: &str) -> Option<CronFields> {
-    let parts: Vec<&str> = cron.trim().split_whitespace().collect();
+    let parts: Vec<&str> = cron.split_whitespace().collect();
     if parts.len() != 5 {
         return None;
     }

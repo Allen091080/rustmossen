@@ -8,14 +8,9 @@
 use std::path::PathBuf;
 
 /// XDG 配置选项，可覆盖环境变量和 home 目录。
+#[derive(Default)]
 pub struct XdgOptions {
     pub home: Option<String>,
-}
-
-impl Default for XdgOptions {
-    fn default() -> Self {
-        Self { home: None }
-    }
 }
 
 fn resolve_home(options: &XdgOptions) -> PathBuf {

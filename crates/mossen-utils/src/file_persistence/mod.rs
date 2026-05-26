@@ -160,9 +160,7 @@ pub async fn run_file_persistence(
     }
 
     let session_access_token = std::env::var("MOSSEN_SESSION_INGRESS_AUTH_TOKEN").ok();
-    if session_access_token.is_none() {
-        return None;
-    }
+    session_access_token.as_ref()?;
 
     let session_id = match std::env::var("MOSSEN_CODE_REMOTE_SESSION_ID") {
         Ok(id) => id,
@@ -255,9 +253,8 @@ pub async fn execute_file_persistence<F>(
 ) where
     F: FnOnce(FilesPersistedEventData),
 {
-    match run_file_persistence(turn_start_time, None).await {
-        Some(result) => on_result(result),
-        None => {}
+    if let Some(result) = run_file_persistence(turn_start_time, None).await {
+        on_result(result)
     }
 }
 

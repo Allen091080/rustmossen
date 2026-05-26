@@ -153,7 +153,7 @@ fn generate_purge_token() -> String {
 /// Create a timestamp suitable for archive dir names.
 fn timestamp_for_archive_dir(now_ms: u64) -> String {
     let secs = now_ms / 1000;
-    let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(|| chrono::Utc::now());
+    let dt = chrono::DateTime::from_timestamp(secs as i64, 0).unwrap_or_else(chrono::Utc::now);
     dt.format("%Y-%m-%dT%H-%M-%S")
         .to_string()
         .replace([':', '.'], "-")
@@ -368,7 +368,7 @@ pub async fn get_project_purge_plan(
         let name = entry.file_name().to_string_lossy().to_string();
         let ft = entry.file_type().await.unwrap_or_else(|_| {
             // Fallback - will be classified as Other
-            std::fs::FileType::from(std::fs::metadata(entry.path()).unwrap().file_type())
+            std::fs::metadata(entry.path()).unwrap().file_type()
         });
         let kind = if ft.is_dir() {
             EntryKind::Directory

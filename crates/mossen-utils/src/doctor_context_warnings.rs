@@ -97,7 +97,7 @@ pub struct UnreachableRule {
 
 /// Rough token count estimation (approximately 4 characters per token).
 pub fn rough_token_count_estimation(text: &str) -> usize {
-    (text.len() + 3) / 4
+    text.len().div_ceil(4)
 }
 
 /// Pluralize a word based on count.

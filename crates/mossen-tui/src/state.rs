@@ -53,26 +53,22 @@ pub enum InputMode {
 }
 
 /// Turn lifecycle state for Ctrl+C interrupt protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TurnState {
+    #[default]
     Idle,
     Streaming,
     Cancelling,
     Cancelled,
 }
 
-impl Default for TurnState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
 /// Product-level agent stage shown by the terminal render surface.
 ///
 /// This is intentionally broader than low-level stream state: it models the
 /// engineering workflow users care about while a turn is active.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UiStage {
+    #[default]
     Idle,
     Thinking,
     Planning,
@@ -85,12 +81,6 @@ pub enum UiStage {
     Done,
     Failed,
     Cancelled,
-}
-
-impl Default for UiStage {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl UiStage {
@@ -559,19 +549,10 @@ impl McpConnectionState {
 }
 
 /// Task list state, driven by TodoWrite tool results.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TaskListState {
     pub tasks: Vec<TodoItem>,
     pub last_update: Option<std::time::Instant>,
-}
-
-impl Default for TaskListState {
-    fn default() -> Self {
-        Self {
-            tasks: Vec::new(),
-            last_update: None,
-        }
-    }
 }
 
 /// Global application state — mirrors the TS AppState store fields.

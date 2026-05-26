@@ -318,7 +318,7 @@ pub fn needs_dimension_resize(width: u32, height: u32) -> bool {
 
 /// Check if an image buffer's base64 encoding would exceed API limits.
 pub fn exceeds_api_base64_limit(original_size: usize) -> bool {
-    let base64_size = (original_size * 4 + 2) / 3; // ceiling division
+    let base64_size = (original_size * 4).div_ceil(3); // ceiling division
     base64_size > API_IMAGE_MAX_BASE64_SIZE
 }
 

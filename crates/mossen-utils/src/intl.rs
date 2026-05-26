@@ -9,7 +9,6 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// 图素分割器（Rust 中使用 unicode-segmentation crate）
 /// 无需显式缓存，因为 Rust 的 UnicodeSegmentation 是零成本 trait
-
 /// 提取字符串的第一个字素簇
 pub fn first_grapheme(text: &str) -> &str {
     if text.is_empty() {
@@ -23,7 +22,7 @@ pub fn last_grapheme(text: &str) -> &str {
     if text.is_empty() {
         return "";
     }
-    text.graphemes(true).last().unwrap_or("")
+    text.graphemes(true).next_back().unwrap_or("")
 }
 
 /// 将字符串按词分割
@@ -183,10 +182,7 @@ pub fn get_system_locale_language() -> Option<&'static str> {
             .or_else(|_| std::env::var("LC_ALL"))
             .ok()?;
         // 提取语言子标签（第一个 '_' 或 '-' 或 '.' 之前的部分）
-        let lang = locale
-            .split(|c| c == '_' || c == '-' || c == '.')
-            .next()
-            .unwrap_or(&locale);
+        let lang = locale.split(['_', '-', '.']).next().unwrap_or(&locale);
         Some(lang.to_string())
     });
     CACHED.as_deref()

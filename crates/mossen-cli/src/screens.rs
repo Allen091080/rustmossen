@@ -475,7 +475,7 @@ fn generate_recommendation(
 pub fn format_doctor_output(diag: &DiagnosticInfo) -> String {
     let mut output = String::new();
 
-    output.push_str(&format!("=== Diagnostics ===\n"));
+    output.push_str("=== Diagnostics ===\n");
     output.push_str(&format!(
         "Currently running: {} ({})\n",
         diag.installation_type, diag.version
@@ -498,7 +498,7 @@ pub fn format_doctor_output(diag: &DiagnosticInfo) -> String {
     let rg_mode = &diag.ripgrep_status.mode;
     output.push_str(&format!("Search: {} ({})\n", rg_status, rg_mode));
 
-    output.push_str(&format!("\n=== Updates ===\n"));
+    output.push_str("\n=== Updates ===\n");
     output.push_str(&format!("Auto-updates: {}\n", diag.auto_updates));
     if let Some(perms) = diag.has_update_permissions {
         output.push_str(&format!(

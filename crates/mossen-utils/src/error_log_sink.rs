@@ -61,7 +61,7 @@ impl JsonlWriter {
         let content: String = self.buffer.drain(..).map(|l| l + "\n").collect();
         let dir = self.path.parent();
         // Attempt to write; create directory if needed
-        if let Err(_) = Self::append_to_file(&self.path, &content) {
+        if Self::append_to_file(&self.path, &content).is_err() {
             if let Some(d) = dir {
                 let _ = std::fs::create_dir_all(d);
             }
@@ -110,12 +110,11 @@ pub fn clear_log_writers_for_testing() {
     }
 }
 
-fn get_log_writer(path: PathBuf) -> () {
+fn get_log_writer(path: PathBuf) {
     let mut writers = LOG_WRITERS.lock().unwrap();
-    if !writers.contains_key(&path) {
-        let writer = JsonlWriter::new(path.clone(), 50);
-        writers.insert(path, writer);
-    }
+    writers
+        .entry(path.clone())
+        .or_insert_with(|| JsonlWriter::new(path, 50));
 }
 
 fn write_to_log(path: &Path, message: &serde_json::Value) {

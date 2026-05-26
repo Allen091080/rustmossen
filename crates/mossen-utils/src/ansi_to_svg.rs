@@ -316,7 +316,7 @@ pub fn ansi_to_svg(ansi_text: &str, options: Option<AnsiToSvgOptions>) -> String
     // Trim trailing empty lines
     while lines
         .last()
-        .map_or(false, |l| l.iter().all(|s| s.text.trim().is_empty()))
+        .is_some_and(|l| l.iter().all(|s| s.text.trim().is_empty()))
     {
         lines.pop();
     }

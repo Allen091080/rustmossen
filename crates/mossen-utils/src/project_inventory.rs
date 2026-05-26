@@ -168,7 +168,7 @@ pub fn infer_cwd(sanitized_id: &str) -> (String, &'static str) {
         return (sanitized_id.to_string(), "low");
     }
     let inferred = sanitized_id.replace('-', "/");
-    let tail = sanitized_id.split('-').last().unwrap_or("");
+    let tail = sanitized_id.split('-').next_back().unwrap_or("");
     let looks_hashed = tail.len() >= 7 && tail.chars().all(|c| c.is_ascii_alphanumeric());
     (inferred, if looks_hashed { "low" } else { "high" })
 }

@@ -180,12 +180,12 @@ impl Default for ChicagoConfig {
 static FROZEN_COORDINATE_MODE: Lazy<Mutex<Option<CoordinateMode>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn get_chicago_enabled() -> bool {
-    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal") {
-        if std::env::var("MONOREPO_ROOT_DIR").is_ok() {
-            let allow = std::env::var("ALLOW_ANT_COMPUTER_USE_MCP").unwrap_or_default();
-            if allow != "1" && allow.to_lowercase() != "true" {
-                return false;
-            }
+    if std::env::var("USER_TYPE").ok().as_deref() == Some("internal")
+        && std::env::var("MONOREPO_ROOT_DIR").is_ok()
+    {
+        let allow = std::env::var("ALLOW_ANT_COMPUTER_USE_MCP").unwrap_or_default();
+        if allow != "1" && allow.to_lowercase() != "true" {
+            return false;
         }
     }
     has_required_subscription() && read_config().enabled
@@ -411,9 +411,7 @@ pub fn unregister_esc_hotkey() {
 }
 
 pub fn notify_expected_escape() {
-    if !ESC_REGISTERED.load(Ordering::SeqCst) {
-        return;
-    }
+    if !ESC_REGISTERED.load(Ordering::SeqCst) {}
     // In production, notifies the CGEventTap to let through a model-synthesized Escape
 }
 
@@ -926,7 +924,7 @@ pub async fn cleanup_computer_use_after_turn(hidden_during_turn: Option<&HashSet
         return;
     }
 
-    if let Err(e) = std::panic::catch_unwind(|| unregister_esc_hotkey()) {
+    if let Err(e) = std::panic::catch_unwind(unregister_esc_hotkey) {
         eprintln!("[Computer Use MCP] unregisterEscHotkey failed: {:?}", e);
     }
 

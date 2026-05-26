@@ -104,9 +104,8 @@ pub fn parse_frontmatter(markdown: &str, source_path: Option<&str>) -> ParsedMar
 
 fn parse_yaml_frontmatter(text: &str, source_path: Option<&str>) -> FrontmatterData {
     // First attempt: parse as-is
-    match try_parse_yaml(text) {
-        Some(data) => return data,
-        None => {}
+    if let Some(data) = try_parse_yaml(text) {
+        return data;
     }
 
     // Second attempt: quote problematic values

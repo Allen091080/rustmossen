@@ -491,7 +491,7 @@ fn push_code_block(
         chrome_style,
     )));
 
-    let mut hl = crate::widgets::highlighted_code::HighlightedCodeWidget::new(code, &theme);
+    let mut hl = crate::widgets::highlighted_code::HighlightedCodeWidget::new(code, theme);
     if !language.is_empty() {
         hl = hl.language(language);
     }

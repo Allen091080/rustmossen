@@ -424,7 +424,7 @@ fn validate_memory_path(raw: &str, _expand_tilde: bool) -> Option<PathBuf> {
 
 fn sanitize_path_for_mem(path: &Path) -> String {
     let s = path.to_string_lossy().to_string();
-    s.replace('/', "_").replace('\\', "_").replace(':', "_")
+    s.replace(['/', '\\', ':'], "_")
 }
 
 fn is_env_truthy(val: &str) -> bool {
@@ -807,7 +807,7 @@ pub async fn load_memory_prompt(project_root: &Path) -> Option<String> {
 
     let auto_dir = get_auto_mem_path(project_root);
     ensure_memory_dir_exists(&auto_dir).await;
-    Some(build_memory_lines("auto memory", &auto_dir, None, false).join("\n"))
+    Some(build_memory_prompt("auto memory", &auto_dir))
 }
 
 fn build_how_to_save_section(skip_index: bool) -> Vec<String> {
@@ -877,6 +877,55 @@ pub async fn find_relevant_memories(
 mod tests {
     use super::*;
 
+    const MEMDIR_ENV_KEYS: &[&str] = &[
+        "HOME",
+        "MOSSEN_CONFIG_DIR",
+        "MOSSEN_COWORK_MEMORY_PATH_OVERRIDE",
+        "MOSSEN_CODE_DISABLE_AUTO_MEMORY",
+        "MOSSEN_CODE_SIMPLE",
+        "MOSSEN_CODE_REMOTE",
+        "MOSSEN_CODE_REMOTE_MEMORY_DIR",
+        "MOSSEN_CODE_DISABLE_TEAM_MEMORY",
+        "MOSSEN_CODE_ENABLE_TEAM_MEMORY",
+        "MOSSEN_TEAM_MEMORY",
+        "MOSSEN_MEMORY_TEAM_MEMORY_ENABLED",
+        "MOSSEN_TEAM_MEMORY_ENABLED",
+    ];
+
+    struct EnvGuard(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn memdir_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
+    }
+
+    fn isolate_memdir_env(root: &Path, auto_mem_dir: &Path) -> EnvGuard {
+        let guard = EnvGuard(
+            MEMDIR_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        for key in MEMDIR_ENV_KEYS {
+            std::env::remove_var(key);
+        }
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("MOSSEN_CONFIG_DIR", root.join("home").join(".mossen"));
+        std::env::set_var("MOSSEN_COWORK_MEMORY_PATH_OVERRIDE", auto_mem_dir);
+        std::env::set_var("MOSSEN_CODE_DISABLE_TEAM_MEMORY", "1");
+        guard
+    }
+
     #[test]
     fn team_memory_rollout_uses_explicit_flags_before_sync_availability() {
         assert!(!resolve_team_memory_rollout_enabled(
@@ -907,5 +956,91 @@ mod tests {
                 .join("MEMORY.md"),
             project_root,
         ));
+    }
+
+    #[tokio::test]
+    async fn scan_memory_files_parses_all_frontmatter_types() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let memory_dir = temp.path().join("memory");
+        std::fs::create_dir_all(&memory_dir).expect("memory dir");
+        std::fs::write(memory_dir.join("MEMORY.md"), "- index only\n").expect("write index");
+
+        for memory_type in MEMORY_TYPES {
+            std::fs::write(
+                memory_dir.join(format!("{memory_type}.md")),
+                format!(
+                    "---\ndescription: {memory_type} description\ntype: {memory_type}\n---\n{memory_type} body\n"
+                ),
+            )
+            .expect("write memory file");
+        }
+
+        let headers = scan_memory_files(&memory_dir).await;
+        assert_eq!(headers.len(), MEMORY_TYPES.len(), "{headers:#?}");
+        assert!(
+            headers.iter().all(|header| header.filename != "MEMORY.md"),
+            "{headers:#?}"
+        );
+
+        for memory_type in MEMORY_TYPES {
+            let header = headers
+                .iter()
+                .find(|header| header.filename == format!("{memory_type}.md"))
+                .unwrap_or_else(|| panic!("missing header for {memory_type}: {headers:#?}"));
+            assert_eq!(
+                header.memory_type.map(|kind| kind.as_str()),
+                Some(*memory_type)
+            );
+            assert_eq!(
+                header.description.as_deref(),
+                Some(format!("{memory_type} description").as_str())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_memory_files_reads_written_marker_after_restart() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let memory_dir = temp.path().join("memory");
+        std::fs::create_dir_all(&memory_dir).expect("memory dir");
+        let marker = "MOSSEN_M5_1_USER_PREF_MARKER_xyz";
+        std::fs::write(
+            memory_dir.join("user_pref_dark_mode.md"),
+            format!("---\ndescription: M5.1 fixture\ntype: user\n---\n{marker}\n"),
+        )
+        .expect("write memory file");
+
+        let headers = scan_memory_files(&memory_dir).await;
+        let header = headers
+            .iter()
+            .find(|header| header.filename == "user_pref_dark_mode.md")
+            .expect("written memory file should be visible after fresh scan");
+        let content = std::fs::read_to_string(&header.file_path).expect("read scanned memory");
+        assert!(content.contains(marker), "{content}");
+    }
+
+    #[tokio::test]
+    async fn auto_memory_prompt_loads_entrypoint_content_from_override() {
+        let _lock = memdir_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().join("project");
+        let auto_mem_dir = temp.path().join("automem");
+        std::fs::create_dir_all(&project_root).expect("project dir");
+        std::fs::create_dir_all(&auto_mem_dir).expect("auto mem dir");
+        let _env = isolate_memdir_env(temp.path(), &auto_mem_dir);
+
+        let marker = "MOSSEN_M5_1_ENTRYPOINT_MARKER";
+        std::fs::write(auto_mem_dir.join("MEMORY.md"), format!("- {marker}\n"))
+            .expect("write memory entrypoint");
+
+        let prompt = load_memory_prompt(&project_root)
+            .await
+            .expect("auto memory prompt");
+
+        assert!(prompt.contains(marker), "{prompt}");
+        assert!(
+            prompt.contains(&auto_mem_dir.display().to_string()),
+            "{prompt}"
+        );
     }
 }

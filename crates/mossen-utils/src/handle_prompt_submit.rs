@@ -20,16 +20,12 @@ pub fn is_direct_exit_input(input: &str) -> bool {
 /// Prompt input mode.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum PromptInputMode {
+    #[default]
     Prompt,
     Bash,
     TaskNotification,
-}
-
-impl Default for PromptInputMode {
-    fn default() -> Self {
-        Self::Prompt
-    }
 }
 
 /// Queued command representation.

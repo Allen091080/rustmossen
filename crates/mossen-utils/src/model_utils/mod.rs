@@ -516,7 +516,7 @@ pub fn is_model_deprecated(model: &str) -> bool {
         "mossen-3-5-balanced-20240620",
         "mossen-3-fast-20240307",
     ];
-    deprecated_models.iter().any(|&d| model == d)
+    deprecated_models.contains(&model)
 }
 
 pub fn get_deprecation_message(model: &str) -> Option<String> {

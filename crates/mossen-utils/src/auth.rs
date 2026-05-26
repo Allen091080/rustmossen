@@ -62,7 +62,7 @@ fn is_running_on_homespace() -> bool {
 fn is_custom_backend_enabled() -> bool {
     std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_URL")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
 }
 
 fn get_custom_backend_api_key() -> Option<String> {
@@ -111,7 +111,7 @@ fn get_oauth_token_from_file_descriptor() -> Option<String> {
     std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR")
         .ok()
         .filter(|v| !v.is_empty())
-        .and_then(|_| None) // Stub: actual FD reading
+        .and(None) // Stub: actual FD reading
 }
 
 fn normalize_api_key_for_config(key: &str) -> String {
@@ -123,7 +123,7 @@ fn normalize_api_key_for_config(key: &str) -> String {
 }
 
 fn should_use_hosted_auth(scopes: Option<&[String]>) -> bool {
-    scopes.map_or(false, |s| s.iter().any(|scope| scope.contains("inference")))
+    scopes.is_some_and(|s| s.iter().any(|scope| scope.contains("inference")))
 }
 
 fn is_oauth_token_expired(expires_at: Option<u64>) -> bool {
@@ -380,13 +380,13 @@ pub fn is_hosted_auth_adapter_enabled() -> bool {
             .as_deref(),
     ) || std::env::var("MOSSEN_CODE_AUTH_TOKEN")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
         || std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR")
             .ok()
-            .map_or(false, |v| !v.is_empty())
+            .is_some_and(|v| !v.is_empty())
         || std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN")
             .ok()
-            .map_or(false, |v| !v.is_empty())
+            .is_some_and(|v| !v.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -407,11 +407,11 @@ pub fn is_mossen_hosted_auth_enabled() -> bool {
     // `mossen ssh` remote
     if std::env::var("MOSSEN_CODE_UNIX_SOCKET")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
     {
         return std::env::var("MOSSEN_CODE_AUTH_TOKEN")
             .ok()
-            .map_or(false, |v| !v.is_empty());
+            .is_some_and(|v| !v.is_empty());
     }
 
     let is_3p = is_env_truthy(std::env::var("MOSSEN_CODE_USE_BEDROCK").ok().as_deref())
@@ -425,11 +425,11 @@ pub fn is_mossen_hosted_auth_enabled() -> bool {
         .map(|s| s.to_string());
     let has_external_auth_token = std::env::var("MOSSEN_CODE_AUTH_TOKEN")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
         || api_key_helper.is_some()
         || std::env::var("MOSSEN_CODE_API_KEY_FILE_DESCRIPTOR")
             .ok()
-            .map_or(false, |v| !v.is_empty());
+            .is_some_and(|v| !v.is_empty());
 
     let ApiKeyWithSource {
         source: api_key_source,
@@ -474,7 +474,7 @@ pub fn get_auth_token_source() -> AuthTokenSourceInfo {
 
     if std::env::var("MOSSEN_CODE_AUTH_TOKEN")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
         && !is_managed_oauth_context()
     {
         return AuthTokenSourceInfo {
@@ -487,7 +487,7 @@ pub fn get_auth_token_source() -> AuthTokenSourceInfo {
     if oauth_token_from_fd.is_some() {
         if std::env::var("MOSSEN_CODE_AUTH_TOKEN_FILE_DESCRIPTOR")
             .ok()
-            .map_or(false, |v| !v.is_empty())
+            .is_some_and(|v| !v.is_empty())
         {
             return AuthTokenSourceInfo {
                 source: AuthTokenSource::MossenCodeAuthTokenFileDescriptor,
@@ -707,10 +707,10 @@ fn is_api_key_helper_from_project_or_local_settings() -> bool {
 
     let project_match = project_settings
         .and_then(|s| s.get("apiKeyHelper")?.as_str().map(|s| s.to_string()))
-        .map_or(false, |v| v == api_key_helper);
+        .is_some_and(|v| v == api_key_helper);
     let local_match = local_settings
         .and_then(|s| s.get("apiKeyHelper")?.as_str().map(|s| s.to_string()))
-        .map_or(false, |v| v == api_key_helper);
+        .is_some_and(|v| v == api_key_helper);
 
     project_match || local_match
 }
@@ -736,10 +736,10 @@ pub fn is_aws_auth_refresh_from_project_settings() -> bool {
     let local_settings = get_settings_for_source("localSettings");
     project_settings
         .and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string()))
-        .map_or(false, |v| v == aws_auth_refresh)
+        .is_some_and(|v| v == aws_auth_refresh)
         || local_settings
             .and_then(|s| s.get("awsAuthRefresh")?.as_str().map(|s| s.to_string()))
-            .map_or(false, |v| v == aws_auth_refresh)
+            .is_some_and(|v| v == aws_auth_refresh)
 }
 
 fn get_configured_aws_credential_export() -> Option<String> {
@@ -763,14 +763,14 @@ pub fn is_aws_credential_export_from_project_settings() -> bool {
                 .as_str()
                 .map(|s| s.to_string())
         })
-        .map_or(false, |v| v == val)
+        .is_some_and(|v| v == val)
         || local_settings
             .and_then(|s| {
                 s.get("awsCredentialExport")?
                     .as_str()
                     .map(|s| s.to_string())
             })
-            .map_or(false, |v| v == val)
+            .is_some_and(|v| v == val)
 }
 
 // ---------------------------------------------------------------------------
@@ -803,9 +803,7 @@ pub fn get_api_key_helper_elapsed_ms() -> u64 {
 }
 
 pub async fn get_api_key_from_api_key_helper(is_non_interactive_session: bool) -> Option<String> {
-    if get_configured_api_key_helper().is_none() {
-        return None;
-    }
+    get_configured_api_key_helper()?;
     let ttl = calculate_api_key_helper_ttl();
     let epoch = API_KEY_HELPER_EPOCH.load(Ordering::Relaxed);
 
@@ -1139,10 +1137,10 @@ pub fn is_gcp_auth_refresh_from_project_settings() -> bool {
     let local_settings = get_settings_for_source("localSettings");
     project_settings
         .and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string()))
-        .map_or(false, |v| v == val)
+        .is_some_and(|v| v == val)
         || local_settings
             .and_then(|s| s.get("gcpAuthRefresh")?.as_str().map(|s| s.to_string()))
-            .map_or(false, |v| v == val)
+            .is_some_and(|v| v == val)
 }
 
 pub async fn check_gcp_credentials_valid() -> bool {
@@ -1399,7 +1397,7 @@ pub fn is_custom_api_key_approved(api_key: &str) -> bool {
         .custom_api_key_responses
         .as_ref()
         .and_then(|r| r.approved.as_ref())
-        .map_or(false, |arr| arr.iter().any(|a| a == &normalized_key))
+        .is_some_and(|arr| arr.iter().any(|a| a == &normalized_key))
 }
 
 // ---------------------------------------------------------------------------
@@ -1561,7 +1559,7 @@ pub async fn get_hosted_oauth_tokens_async() -> Option<OAuthTokens> {
 
     if std::env::var("MOSSEN_CODE_AUTH_TOKEN")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
         || get_oauth_token_from_file_descriptor().is_some()
     {
         return get_hosted_oauth_tokens();
@@ -1655,13 +1653,13 @@ pub fn is_hosted_subscriber() -> bool {
     }
     get_hosted_oauth_tokens()
         .as_ref()
-        .map_or(false, |t| should_use_hosted_auth(Some(&t.scopes)))
+        .is_some_and(|t| should_use_hosted_auth(Some(&t.scopes)))
 }
 
 pub fn has_profile_scope() -> bool {
-    get_hosted_oauth_tokens().as_ref().map_or(false, |t| {
-        t.scopes.iter().any(|s| s == HOSTED_PROFILE_SCOPE)
-    })
+    get_hosted_oauth_tokens()
+        .as_ref()
+        .is_some_and(|t| t.scopes.iter().any(|s| s == HOSTED_PROFILE_SCOPE))
 }
 
 pub fn is_1p_api_customer() -> bool {
@@ -1792,14 +1790,14 @@ pub fn is_custom_headers_helper_from_project_or_local_settings() -> bool {
                 .as_str()
                 .map(|s| s.to_string())
         })
-        .map_or(false, |v| v == value)
+        .is_some_and(|v| v == value)
         || local_settings
             .and_then(|s| {
                 s.get("customHeadersHelper")?
                     .as_str()
                     .map(|s| s.to_string())
             })
-            .map_or(false, |v| v == value)
+            .is_some_and(|v| v == value)
 }
 
 pub fn get_custom_headers_for_request() -> HashMap<String, String> {
@@ -1878,7 +1876,7 @@ fn is_consumer_plan(plan: &str) -> bool {
 
 pub fn is_consumer_subscriber() -> bool {
     let sub_type = get_subscription_type();
-    is_hosted_subscriber() && sub_type.as_ref().map_or(false, |s| is_consumer_plan(s))
+    is_hosted_subscriber() && sub_type.as_ref().is_some_and(|s| is_consumer_plan(s))
 }
 
 // ---------------------------------------------------------------------------
@@ -1951,7 +1949,7 @@ pub fn get_account_information() -> Option<UserAccountInfo> {
 pub async fn validate_force_login_org() -> OrgValidationResult {
     if std::env::var("MOSSEN_CODE_UNIX_SOCKET")
         .ok()
-        .map_or(false, |v| !v.is_empty())
+        .is_some_and(|v| !v.is_empty())
     {
         return OrgValidationResult::Valid;
     }

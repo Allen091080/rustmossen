@@ -95,11 +95,12 @@ pub struct TitleAndBranch {
 }
 
 /// 仓库匹配状态。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum RepoValidationStatus {
     Match,
     Mismatch,
     NotInRepo,
+    #[default]
     NoRepoRequired,
     Error,
 }
@@ -127,12 +128,6 @@ pub struct RepoValidationResult {
     /// 当前仓库所在主机，仅用于展示。
     pub current_host: Option<String>,
     pub error_message: Option<String>,
-}
-
-impl Default for RepoValidationStatus {
-    fn default() -> Self {
-        RepoValidationStatus::NoRepoRequired
-    }
 }
 
 /// 轮询远程会话事件的响应（增量）。
@@ -1657,6 +1652,32 @@ fn is_truthy_env(key: &str) -> bool {
         .unwrap_or(false)
 }
 
+// =============================================================================
+// 对应 TS `teleportToRemoteWithErrorHandling` — 它原本是 React/tsx 中带 UI 反馈
+// 的传送入口。Rust 端没有 React，因此把核心逻辑下放到一个普通 async 函数：
+// 出错时返回 `Err`，由调用方决定 UI 反馈。
+// =============================================================================
+
+/// 错误处理版的远程传送入口。
+///
+/// `branch_name` 可选，传入则使用指定分支名；否则由 [`generate_title_and_branch`]
+/// 推断。所有 Git/API 错误统一返回 `anyhow::Result`。
+pub async fn teleport_to_remote_with_error_handling(
+    description: Option<&str>,
+    branch_name: Option<&str>,
+) -> anyhow::Result<String> {
+    let desc = description.unwrap_or("");
+    let resolved_branch = match branch_name {
+        Some(b) if !b.is_empty() => b.to_string(),
+        _ => {
+            // 没有外部 FastClient 时回退到 NoopFastClient 行为。
+            "mossen/task".to_string()
+        }
+    };
+    tracing::info!(target = "teleport", description = desc, branch = %resolved_branch, "teleport_to_remote_with_error_handling invoked");
+    Ok(resolved_branch)
+}
+
 // ---------------------------------------------------------------------------
 // 单元测试
 // ---------------------------------------------------------------------------
@@ -1742,30 +1763,4 @@ mod tests {
         assert!(result.title.contains("Implement"));
         assert_eq!(result.branch_name, "mossen/task");
     }
-}
-
-// =============================================================================
-// 对应 TS `teleportToRemoteWithErrorHandling` — 它原本是 React/tsx 中带 UI 反馈
-// 的传送入口。Rust 端没有 React，因此把核心逻辑下放到一个普通 async 函数：
-// 出错时返回 `Err`，由调用方决定 UI 反馈。
-// =============================================================================
-
-/// 错误处理版的远程传送入口。
-///
-/// `branch_name` 可选，传入则使用指定分支名；否则由 [`generate_title_and_branch`]
-/// 推断。所有 Git/API 错误统一返回 `anyhow::Result`。
-pub async fn teleport_to_remote_with_error_handling(
-    description: Option<&str>,
-    branch_name: Option<&str>,
-) -> anyhow::Result<String> {
-    let desc = description.unwrap_or("");
-    let resolved_branch = match branch_name {
-        Some(b) if !b.is_empty() => b.to_string(),
-        _ => {
-            // 没有外部 FastClient 时回退到 NoopFastClient 行为。
-            "mossen/task".to_string()
-        }
-    };
-    tracing::info!(target = "teleport", description = desc, branch = %resolved_branch, "teleport_to_remote_with_error_handling invoked");
-    Ok(resolved_branch)
 }

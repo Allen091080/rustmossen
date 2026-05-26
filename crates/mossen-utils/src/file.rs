@@ -112,7 +112,7 @@ pub fn get_absolute_and_relative_paths(
     path: Option<&str>,
     cwd: &Path,
 ) -> (Option<PathBuf>, Option<String>) {
-    let absolute_path = path.map(|p| expand_path(p));
+    let absolute_path = path.map(expand_path);
     let relative_path = absolute_path
         .as_ref()
         .and_then(|abs| pathdiff::diff_paths(abs, cwd))
@@ -348,7 +348,7 @@ pub fn get_desktop_path() -> PathBuf {
 
     #[cfg(target_os = "macos")]
     {
-        return home.join("Desktop");
+        home.join("Desktop")
     }
 
     #[cfg(target_os = "windows")]

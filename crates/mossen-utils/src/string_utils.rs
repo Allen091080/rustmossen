@@ -5,7 +5,7 @@
 /// 转义字符串中的特殊正则表达式字符。
 pub fn escape_regexp(s: &str) -> String {
     lazy_static::lazy_static! {
-        static ref REGEX: regex::Regex = regex::Regex::new(r"[.*+?^${}()|[\]\\]").unwrap();
+        static ref REGEX: regex::Regex = regex::Regex::new(r"[.*+?^${}()|\[\]\\]").unwrap();
     }
     REGEX.replace_all(s, r"\$&").to_string()
 }

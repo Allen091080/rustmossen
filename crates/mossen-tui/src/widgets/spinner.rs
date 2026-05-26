@@ -270,7 +270,7 @@ impl<'a> Widget for SpinnerRowWidget<'a> {
             if x + width > area.x + area.width {
                 break;
             }
-            buf.set_string(x, area.y, &ch.to_string(), style);
+            buf.set_string(x, area.y, ch.to_string(), style);
             x = x.saturating_add(width);
         }
     }
@@ -347,7 +347,7 @@ impl<'a> Widget for GlimmerWidget<'a> {
             } else {
                 Style::default()
             };
-            buf.set_string(x, area.y, &ch.to_string(), style);
+            buf.set_string(x, area.y, ch.to_string(), style);
             x = x.saturating_add(width);
         }
     }
@@ -365,7 +365,7 @@ where
         if x + width > max_x {
             break;
         }
-        buf.set_string(x, y, &ch.to_string(), style_for(i));
+        buf.set_string(x, y, ch.to_string(), style_for(i));
         x = x.saturating_add(width);
     }
 }

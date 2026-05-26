@@ -93,13 +93,11 @@ pub fn get_fast_mode_unavailable_reason(
         if matches!(
             reason,
             FastModeDisabledReason::NetworkError | FastModeDisabledReason::Unknown
-        ) {
-            if std::env::var("MOSSEN_CODE_SKIP_FAST_MODE_NETWORK_ERRORS")
-                .map(|v| v == "1" || v.to_lowercase() == "true")
-                .unwrap_or(false)
-            {
-                return None;
-            }
+        ) && std::env::var("MOSSEN_CODE_SKIP_FAST_MODE_NETWORK_ERRORS")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false)
+        {
+            return None;
         }
         let auth_type = AuthType::OAuth; // Simplified
         return Some(get_disabled_reason_message(reason, auth_type));
@@ -171,17 +169,14 @@ pub enum CooldownReason {
 }
 
 /// In-memory org status for fast mode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum FastModeOrgStatus {
+    #[default]
     Pending,
     Enabled,
-    Disabled { reason: FastModeDisabledReason },
-}
-
-impl Default for FastModeOrgStatus {
-    fn default() -> Self {
-        FastModeOrgStatus::Pending
-    }
+    Disabled {
+        reason: FastModeDisabledReason,
+    },
 }
 
 /// Mutable fast mode state holder.

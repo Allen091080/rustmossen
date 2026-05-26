@@ -66,7 +66,10 @@ static SYNTHETIC_MESSAGES: Lazy<HashSet<&str>> = Lazy::new(|| {
 });
 
 static STRIPPED_TAGS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)<(commit_analysis|context|function_analysis|pr_analysis)>.*?</\1>\n?").unwrap()
+    Regex::new(
+        r"(?s)<(?:commit_analysis|context|function_analysis|pr_analysis)>.*?</(?:commit_analysis|context|function_analysis|pr_analysis)>\n?",
+    )
+    .unwrap()
 });
 
 // ---------------------------------------------------------------------------
@@ -421,7 +424,7 @@ pub struct StreamingThinking {
 }
 
 /// Message lookups for O(1) access to message relationships.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MessageLookups {
     pub sibling_tool_use_ids: HashMap<String, HashSet<String>>,
     pub progress_messages_by_tool_use_id: HashMap<String, Vec<Value>>,
@@ -432,22 +435,6 @@ pub struct MessageLookups {
     pub normalized_message_count: usize,
     pub resolved_tool_use_ids: HashSet<String>,
     pub errored_tool_use_ids: HashSet<String>,
-}
-
-impl Default for MessageLookups {
-    fn default() -> Self {
-        Self {
-            sibling_tool_use_ids: HashMap::new(),
-            progress_messages_by_tool_use_id: HashMap::new(),
-            in_progress_hook_counts: HashMap::new(),
-            resolved_hook_counts: HashMap::new(),
-            tool_result_by_tool_use_id: HashMap::new(),
-            tool_use_by_tool_use_id: HashMap::new(),
-            normalized_message_count: 0,
-            resolved_tool_use_ids: HashSet::new(),
-            errored_tool_use_ids: HashSet::new(),
-        }
-    }
 }
 
 /// Spinner mode for stream handling.
@@ -2206,12 +2193,9 @@ pub fn is_compact_boundary_message(msg: &Value) -> bool {
 
 /// Find the index of the last compact boundary in a messages array.
 pub fn find_last_compact_boundary_index(messages: &[Value]) -> Option<usize> {
-    for i in (0..messages.len()).rev() {
-        if is_compact_boundary_message(&messages[i]) {
-            return Some(i);
-        }
-    }
-    None
+    (0..messages.len())
+        .rev()
+        .find(|&i| is_compact_boundary_message(&messages[i]))
 }
 
 /// Get messages after the last compact boundary.
@@ -3310,7 +3294,7 @@ fn content_has_tool_reference(content: &[Value]) -> bool {
             && block
                 .get("content")
                 .and_then(|c| c.as_array())
-                .map(|arr| arr.iter().any(|c| is_tool_reference_block(c)))
+                .map(|arr| arr.iter().any(is_tool_reference_block))
                 .unwrap_or(false)
     })
 }
@@ -3393,7 +3377,7 @@ fn smoosh_into_tool_result_blocks(tr: &Value, blocks: &[Value]) -> Option<Value>
     }
     // Check for tool_reference in existing content
     if let Some(existing) = tr.get("content").and_then(|c| c.as_array()) {
-        if existing.iter().any(|c| is_tool_reference_block(c)) {
+        if existing.iter().any(is_tool_reference_block) {
             return None;
         }
     }
@@ -3765,7 +3749,7 @@ pub fn strip_tool_reference_blocks_from_user_message(msg: &Value) -> Value {
             && block
                 .get("content")
                 .and_then(|c| c.as_array())
-                .map(|arr| arr.iter().any(|c| is_tool_reference_block(c)))
+                .map(|arr| arr.iter().any(is_tool_reference_block))
                 .unwrap_or(false)
     });
     if !has_ref {
@@ -4052,7 +4036,7 @@ pub fn normalize_messages_for_api(
                     let processed: Vec<Value> = if chair_sermon {
                         attachment_msgs
                             .iter()
-                            .map(|m| ensure_system_reminder_wrap(m))
+                            .map(ensure_system_reminder_wrap)
                             .collect()
                     } else {
                         attachment_msgs
@@ -4123,8 +4107,7 @@ pub fn normalize_messages_for_api(
         result
     };
 
-    let result = sanitize_error_tool_result_content(&result);
-    result
+    sanitize_error_tool_result_content(&result)
 }
 
 /// Normalize content blocks from API response.
@@ -5150,7 +5133,7 @@ fn safe_parse_json(s: &str) -> Option<Value> {
 /// Strip IDE context tags from content.
 fn strip_ide_context_tags(content: &str) -> String {
     static IDE_TAGS_RE: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"(?s)<(ide-[a-z-]+)>.*?</\1>\n?").unwrap());
+        Lazy::new(|| Regex::new(r"(?s)<ide-[a-z-]+>.*?</ide-[a-z-]+>\n?").unwrap());
     IDE_TAGS_RE.replace_all(content, "").trim().to_string()
 }
 

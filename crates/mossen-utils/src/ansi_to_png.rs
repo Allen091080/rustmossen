@@ -84,12 +84,7 @@ pub fn ansi_to_png(ansi_text: &str, options: AnsiToPngOptions) -> Vec<u8> {
         }]);
     }
 
-    let cols = lines
-        .iter()
-        .map(|l| line_width_cells(l))
-        .max()
-        .unwrap_or(1)
-        .max(1);
+    let cols = lines.iter().map(line_width_cells).max().unwrap_or(1).max(1);
     let rows = lines.len();
 
     let width = (cols * GLYPH_W + padding_x * 2) * scale;
@@ -442,7 +437,7 @@ pub fn parse_ansi(text: &str) -> Vec<ParsedLine> {
 }
 
 fn process_sgr(codes: &[u32], color: &mut AnsiColor, bold: &mut bool) {
-    if codes.is_empty() || codes == &[0] {
+    if codes.is_empty() || codes == [0] {
         *color = AnsiColor {
             r: 204,
             g: 204,

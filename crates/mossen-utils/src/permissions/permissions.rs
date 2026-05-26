@@ -468,13 +468,13 @@ pub fn has_permissions_to_use_tool(
 
     // Reset denial tracking on allow
     if matches!(&inner_result, PermissionDecision::Allow(_)) {
-        if config.transcript_classifier_enabled {
-            if context.tool_permission_context.mode == PermissionMode::Auto {
-                if let Some(ref state) = context.denial_tracking {
-                    if state.consecutive_denials > 0 {
-                        let _new_state = record_success(state);
-                        // Caller is responsible for persisting
-                    }
+        if config.transcript_classifier_enabled
+            && context.tool_permission_context.mode == PermissionMode::Auto
+        {
+            if let Some(ref state) = context.denial_tracking {
+                if state.consecutive_denials > 0 {
+                    let _new_state = record_success(state);
+                    // Caller is responsible for persisting
                 }
             }
         }
@@ -582,9 +582,7 @@ pub fn has_permissions_to_use_tool(
                 if classifier_result.unavailable {
                     if config.iron_gate_closed {
                         return PermissionDecision::Deny(PermissionDenyDecision {
-                            message: format!(
-                                "Auto mode classifier unavailable. Please retry or approve manually."
-                            ),
+                            message: "Auto mode classifier unavailable. Please retry or approve manually.".to_string(),
                             decision_reason: PermissionDecisionReason::Classifier {
                                 classifier: "auto-mode".to_string(),
                                 reason: "Classifier unavailable".to_string(),
@@ -998,10 +996,8 @@ pub fn apply_permission_update(
         } => {
             let source = destination_to_source(*destination);
             let target = get_rules_map_mut(&mut ctx, *behavior);
-            let new_rules: Vec<String> = rules
-                .iter()
-                .map(|rv| permission_rule_value_to_string(rv))
-                .collect();
+            let new_rules: Vec<String> =
+                rules.iter().map(permission_rule_value_to_string).collect();
             target.insert(source, new_rules);
         }
         PermissionUpdate::RemoveRules {

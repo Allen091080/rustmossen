@@ -47,22 +47,12 @@ async fn exec_tmux(args: &[&str], _use_cwd: bool) -> TmuxExecResult {
 }
 
 /// Socket state — initialized lazily when Tmux tool is first used.
+#[derive(Default)]
 struct SocketState {
     socket_name: Option<String>,
     socket_path: Option<String>,
     server_pid: Option<u32>,
     is_initializing: bool,
-}
-
-impl Default for SocketState {
-    fn default() -> Self {
-        Self {
-            socket_name: None,
-            socket_path: None,
-            server_pid: None,
-            is_initializing: false,
-        }
-    }
 }
 
 static SOCKET_STATE: Lazy<Mutex<SocketState>> = Lazy::new(|| Mutex::new(SocketState::default()));

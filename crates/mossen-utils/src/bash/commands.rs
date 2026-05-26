@@ -151,7 +151,7 @@ pub fn split_command_with_operators(command: &str) -> Vec<String> {
     // 2. Map back from placeholders
     let quoted_parts: Vec<String> = parts
         .into_iter()
-        .filter_map(|p| p)
+        .flatten()
         .map(|part| {
             part.replace(&placeholders.single_quote, "'")
                 .replace(&placeholders.double_quote, "\"")
@@ -216,7 +216,7 @@ pub fn split_command_deprecated(command: &str) -> Vec<String> {
                 && ALLOWED_FILE_DESCRIPTORS.contains(&next_part_str[next_part_str.len() - 1..])
                 && after_next_part
                     .as_ref()
-                    .map_or(false, |a| a == ">" || a == ">>" || a == ">&")
+                    .is_some_and(|a| a == ">" || a == ">>" || a == ">&")
             {
                 effective_next_part = next_part_str[..next_part_str.len() - 2].to_string();
             }
@@ -227,7 +227,7 @@ pub fn split_command_deprecated(command: &str) -> Vec<String> {
                 && next_part_str == "&"
                 && after_next_part
                     .as_ref()
-                    .map_or(false, |a| ALLOWED_FILE_DESCRIPTORS.contains(a.as_str()))
+                    .is_some_and(|a| ALLOWED_FILE_DESCRIPTORS.contains(a.as_str()))
             {
                 should_strip = true;
                 strip_third_token = true;
@@ -265,7 +265,7 @@ pub fn split_command_deprecated(command: &str) -> Vec<String> {
 
     let string_parts: Vec<String> = parts
         .into_iter()
-        .filter_map(|p| p)
+        .flatten()
         .filter(|p| !p.is_empty())
         .collect();
     filter_control_operators(&string_parts)

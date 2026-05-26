@@ -80,7 +80,7 @@ pub fn merge_and_filter_tools<T: Tool>(
     let mut seen = HashSet::new();
     let mut all_tools = Vec::new();
 
-    for tool in initial_tools.into_iter().chain(assembled.into_iter()) {
+    for tool in initial_tools.into_iter().chain(assembled) {
         if seen.insert(tool.name().to_string()) {
             all_tools.push(tool);
         }

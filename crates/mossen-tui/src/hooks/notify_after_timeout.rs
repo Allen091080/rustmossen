@@ -27,7 +27,7 @@ impl NotifyAfterTimeoutState {
         self.fired = false;
     }
     pub fn should_fire(&self) -> bool {
-        !self.fired && self.started_at.map_or(false, |t| t.elapsed() >= self.delay)
+        !self.fired && self.started_at.is_some_and(|t| t.elapsed() >= self.delay)
     }
     pub fn fire(&mut self) -> Option<(&str, &str)> {
         if self.should_fire() {

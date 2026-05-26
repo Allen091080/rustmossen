@@ -51,8 +51,8 @@ fn destination_to_str(dest: PermissionUpdateDestination) -> &'static str {
     }
 }
 
-fn get_rules_for_source<'a>(
-    rules: &'a ToolPermissionRulesBySource,
+fn get_rules_for_source(
+    rules: &ToolPermissionRulesBySource,
     source: PermissionRuleSource,
 ) -> Vec<String> {
     rules.get(&source).cloned().unwrap_or_default()
@@ -91,10 +91,8 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: Vec<String> = rules
-                .iter()
-                .map(|r| permission_rule_value_to_string(r))
-                .collect();
+            let rule_strings: Vec<String> =
+                rules.iter().map(permission_rule_value_to_string).collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,
@@ -110,10 +108,8 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: Vec<String> = rules
-                .iter()
-                .map(|r| permission_rule_value_to_string(r))
-                .collect();
+            let rule_strings: Vec<String> =
+                rules.iter().map(permission_rule_value_to_string).collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,
@@ -128,10 +124,8 @@ pub fn apply_permission_update(
             rules,
             behavior,
         } => {
-            let rule_strings: HashSet<String> = rules
-                .iter()
-                .map(|r| permission_rule_value_to_string(r))
-                .collect();
+            let rule_strings: HashSet<String> =
+                rules.iter().map(permission_rule_value_to_string).collect();
             let source = dest_to_source(*destination);
             let rules_map = match behavior {
                 PermissionBehavior::Allow => &mut ctx.always_allow_rules,

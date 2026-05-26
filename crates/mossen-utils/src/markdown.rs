@@ -102,9 +102,7 @@ pub struct TableCell {
 
 /// Configure the markdown parser (idempotent).
 pub fn configure_marked() {
-    if MARKED_CONFIGURED.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    if MARKED_CONFIGURED.swap(true, Ordering::SeqCst) {}
     // In Rust we use pulldown-cmark; strikethrough is disabled by default
     // unless we enable the extension, so no extra config needed.
 }
@@ -676,11 +674,7 @@ pub fn pad_aligned(
     target_width: usize,
     align: Option<Alignment>,
 ) -> String {
-    let padding = if target_width > display_width {
-        target_width - display_width
-    } else {
-        0
-    };
+    let padding = target_width.saturating_sub(display_width);
     match align {
         Some(Alignment::Center) => {
             let left_pad = padding / 2;

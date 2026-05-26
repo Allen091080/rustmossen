@@ -68,15 +68,13 @@ pub fn get_ripgrep_config() -> &'static RipgrepConfig {
             .unwrap_or(false);
 
         // Try system ripgrep if user wants it
-        if user_wants_system {
-            if which::which("rg").is_ok() {
-                return RipgrepConfig {
-                    mode: RipgrepMode::System,
-                    command: "rg".to_string(),
-                    args: vec![],
-                    argv0: None,
-                };
-            }
+        if user_wants_system && which::which("rg").is_ok() {
+            return RipgrepConfig {
+                mode: RipgrepMode::System,
+                command: "rg".to_string(),
+                args: vec![],
+                argv0: None,
+            };
         }
 
         // Check for bundled ripgrep
@@ -441,7 +439,7 @@ pub async fn count_files_rounded_rg(
     let stdout = child.stdout.take()?;
     let count_task = tokio::spawn(async move {
         let reader = BufReader::new(stdout);
-        let mut lines = tokio::io::Lines::from(reader.lines());
+        let mut lines = reader.lines();
         let mut count: u64 = 0;
         while let Ok(Some(_)) = lines.next_line().await {
             count += 1;

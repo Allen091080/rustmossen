@@ -148,7 +148,7 @@ pub fn is_tool_search_enabled_optimistic() -> bool {
 
 /// Check if ToolSearchTool is available in the tools list.
 pub fn is_tool_search_tool_available(tool_names: &[&str]) -> bool {
-    tool_names.iter().any(|&name| name == TOOL_SEARCH_TOOL_NAME)
+    tool_names.contains(&TOOL_SEARCH_TOOL_NAME)
 }
 
 /// Check if an object is a tool_reference block.

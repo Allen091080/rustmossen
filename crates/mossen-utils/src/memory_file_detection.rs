@@ -123,10 +123,8 @@ pub fn memory_scope_for_path(
     file_path: &str,
     config: &MemoryDetectionConfig,
 ) -> Option<MemoryScope> {
-    if config.team_memory_enabled {
-        if is_team_mem_file(file_path, config) {
-            return Some(MemoryScope::Team);
-        }
+    if config.team_memory_enabled && is_team_mem_file(file_path, config) {
+        return Some(MemoryScope::Team);
     }
     if is_auto_mem_file(file_path, config) {
         return Some(MemoryScope::Personal);
@@ -234,7 +232,7 @@ pub fn is_shell_command_targeting_memory(command: &str, config: &MemoryDetection
         .as_ref()
         .map(|p| {
             p.to_string_lossy()
-                .trim_end_matches(|c| c == '/' || c == '\\')
+                .trim_end_matches(['/', '\\'])
                 .to_string()
         })
         .unwrap_or_default();

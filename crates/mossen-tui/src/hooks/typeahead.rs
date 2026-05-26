@@ -405,7 +405,7 @@ mod tests {
     #[test]
     fn extract_completion_token_quoted() {
         let r = extract_completion_token("@\"hello", 7, true).unwrap();
-        assert_eq!(r.is_quoted, true);
+        assert!(r.is_quoted);
         assert_eq!(r.start_pos, 0);
     }
 

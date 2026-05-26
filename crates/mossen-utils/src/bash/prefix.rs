@@ -19,9 +19,7 @@ lazy_static::lazy_static! {
     };
 }
 
-fn to_vec<'a>(
-    args: &'a [crate::bash::registry::Argument],
-) -> &'a [crate::bash::registry::Argument] {
+fn to_vec(args: &[crate::bash::registry::Argument]) -> &[crate::bash::registry::Argument] {
     args
 }
 
@@ -63,7 +61,7 @@ pub fn get_command_prefix_static(
     let mut is_wrapper = WRAPPER_COMMANDS.contains(cmd.as_str())
         || spec
             .as_ref()
-            .map_or(false, |s| s.args.iter().any(|arg| arg.is_command));
+            .is_some_and(|s| s.args.iter().any(|arg| arg.is_command));
 
     // Special case: if the command has subcommands and first arg matches
     if is_wrapper && !args.is_empty() && is_known_subcommand(&args[0], spec.as_ref()) {
@@ -223,7 +221,7 @@ pub fn get_compound_command_prefixes_static(
 
     // Collapse each group via word-aligned LCP
     let mut collapsed: Vec<String> = Vec::new();
-    for (_, group) in &groups {
+    for group in groups.values() {
         collapsed.push(longest_common_prefix(group));
     }
     collapsed

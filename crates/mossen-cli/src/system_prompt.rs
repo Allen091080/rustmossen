@@ -103,17 +103,17 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
 
     // 4. Session-specific guidance — uses the enabled tools to phrase
     //    advice that actually matches what the model can call.
-    let session_guidance = p::get_session_specific_guidance_section(
-        &tool_set,
-        inputs.skill_commands_count,
-        inputs.is_non_interactive,
-        false,     // not a fork subagent
-        false,     // no embedded search
-        true,      // explore/plan agents available
-        "Explore", // explore agent type name
-        3,         // min queries to justify Explore
-        false,     // verification agent not enabled
-    );
+    let session_guidance = p::get_session_specific_guidance_section(p::SessionSpecificGuidance {
+        enabled_tools: &tool_set,
+        skill_commands_count: inputs.skill_commands_count,
+        is_non_interactive: inputs.is_non_interactive,
+        is_fork_subagent: false,
+        has_embedded_search: false,
+        are_explore_plan_agents: true,
+        explore_agent_type: "Explore",
+        explore_agent_min_queries: 3,
+        is_verification_agent_enabled: false,
+    });
 
     // 5. Final "summarize tool results" reminder.
     let summarize = p::SUMMARIZE_TOOL_RESULTS_SECTION.to_string();
@@ -134,23 +134,22 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
     let product_avail =
         p::get_product_availability_guidance(inputs.is_custom_backend, inputs.product_name);
     let fast_mode = p::get_fast_mode_guidance(inputs.is_custom_backend);
-    let env_info = p::compute_simple_env_info(
-        inputs.cwd,
-        inputs.is_git_repo,
-        false, // not a worktree
+    let env_info = p::compute_simple_env_info(p::SimpleEnvInfo {
+        cwd: inputs.cwd,
+        is_git: inputs.is_git_repo,
+        is_worktree: false,
         platform,
-        &shell_line,
-        &uname,
-        inputs.model,
-        inputs.model_marketing_name,
-        &[],
+        shell_info_line: &shell_line,
+        uname_sr: &uname,
+        model_id: inputs.model,
+        marketing_name: inputs.model_marketing_name,
+        additional_dirs: &[],
         knowledge_cutoff,
-        false,
-        inputs.is_custom_backend,
-        &model_family,
-        &product_avail,
-        &fast_mode,
-    );
+        is_undercover: false,
+        model_family_guidance: &model_family,
+        product_availability_guidance: &product_avail,
+        fast_mode_guidance: &fast_mode,
+    });
 
     let mut blocks: Vec<SystemBlock> = Vec::with_capacity(16);
     let push = |out: &mut Vec<SystemBlock>, text: String| {
@@ -282,10 +281,7 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
 
     // 1. User-global instructions.
     if let Some(home) = dirs::home_dir() {
-        for path in [
-            home.join(".mossen").join("MOSSEN.md"),
-            home.join(".mossen").join("MOSSEN.md"),
-        ] {
+        for path in [home.join(".mossen").join("MOSSEN.md")] {
             if let Ok(text) = tokio::fs::read_to_string(&path).await {
                 let parent = path
                     .parent()
@@ -310,12 +306,7 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
 
     // 2. Project-root instructions — both MOSSEN.md and the historical
     //    MOSSEN.md filename are honoured so existing projects keep working.
-    for filename in [
-        "MOSSEN.md",
-        "MOSSEN.local.md",
-        "MOSSEN.md",
-        "MOSSEN.local.md",
-    ] {
+    for filename in ["MOSSEN.md", "MOSSEN.local.md"] {
         let p = cwd.join(filename);
         if let Ok(text) = tokio::fs::read_to_string(&p).await {
             let parent = p
@@ -395,6 +386,55 @@ pub fn detect_git_repo(cwd: &std::path::Path) -> bool {
 mod tests {
     use super::*;
 
+    const MEMORY_ENV_KEYS: &[&str] = &[
+        "HOME",
+        "MOSSEN_CONFIG_DIR",
+        "MOSSEN_COWORK_MEMORY_PATH_OVERRIDE",
+        "MOSSEN_CODE_DISABLE_AUTO_MEMORY",
+        "MOSSEN_CODE_SIMPLE",
+        "MOSSEN_CODE_REMOTE",
+        "MOSSEN_CODE_REMOTE_MEMORY_DIR",
+        "MOSSEN_CODE_DISABLE_TEAM_MEMORY",
+        "MOSSEN_CODE_ENABLE_TEAM_MEMORY",
+        "MOSSEN_TEAM_MEMORY",
+        "MOSSEN_MEMORY_TEAM_MEMORY_ENABLED",
+        "MOSSEN_TEAM_MEMORY_ENABLED",
+    ];
+
+    struct MemoryEnvGuard(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for MemoryEnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn memory_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
+    }
+
+    fn isolate_memory_env(root: &std::path::Path) -> MemoryEnvGuard {
+        let guard = MemoryEnvGuard(
+            MEMORY_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        for key in MEMORY_ENV_KEYS {
+            std::env::remove_var(key);
+        }
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("MOSSEN_CONFIG_DIR", root.join("home").join(".mossen"));
+        std::env::set_var("MOSSEN_CODE_DISABLE_AUTO_MEMORY", "1");
+        std::env::set_var("MOSSEN_CODE_DISABLE_TEAM_MEMORY", "1");
+        guard
+    }
+
     #[test]
     fn assemble_emits_identity_and_env() {
         let tools: Vec<String> = vec!["Bash".into(), "Read".into(), "Edit".into()];
@@ -468,7 +508,9 @@ mod tests {
 
     #[tokio::test]
     async fn at_include_expands_one_level() {
+        let _lock = memory_env_lock();
         let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_memory_env(temp.path());
         let root = temp.path();
         std::fs::write(root.join("MOSSEN.md"), "@included.md\n").expect("write root memory");
         std::fs::write(root.join("included.md"), "This is the included content.\n")
@@ -481,5 +523,65 @@ mod tests {
             text
         );
         assert!(!text.contains("@included.md"), "got:\n{}", text);
+    }
+
+    #[tokio::test]
+    async fn global_user_memory_is_shared_across_cwds() {
+        let _lock = memory_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_memory_env(temp.path());
+        let home_mossen = temp.path().join("home").join(".mossen");
+        let project_a = temp.path().join("worktree-a");
+        let project_b = temp.path().join("worktree-b");
+        std::fs::create_dir_all(&home_mossen).expect("home mossen dir");
+        std::fs::create_dir_all(&project_a).expect("project a");
+        std::fs::create_dir_all(&project_b).expect("project b");
+
+        let marker = "MOSSEN_M5_3_GLOBAL_USER_MEMORY_MARKER";
+        std::fs::write(home_mossen.join("MOSSEN.md"), marker).expect("write global memory");
+
+        let text_a = gather_memory_text(&project_a).await;
+        let text_b = gather_memory_text(&project_b).await;
+
+        assert!(text_a.contains(marker), "{text_a}");
+        assert!(text_b.contains(marker), "{text_b}");
+    }
+
+    #[tokio::test]
+    async fn project_memory_is_loaded_for_fresh_window() {
+        let _lock = memory_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_memory_env(temp.path());
+        let project = temp.path().join("project");
+        std::fs::create_dir_all(&project).expect("project dir");
+
+        let marker = "MOSSEN_M5_4_PROJECT_MEMORY_MARKER";
+        std::fs::write(project.join("MOSSEN.md"), marker).expect("write project memory");
+
+        let text = gather_memory_text(&project).await;
+
+        assert!(text.contains(marker), "{text}");
+    }
+
+    #[tokio::test]
+    async fn project_memory_reload_reads_updated_file() {
+        let _lock = memory_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_memory_env(temp.path());
+        let project = temp.path().join("project");
+        std::fs::create_dir_all(&project).expect("project dir");
+        let memory_file = project.join("MOSSEN.md");
+
+        let first_marker = "MOSSEN_M5_6_PROJECT_MEMORY_V1";
+        let second_marker = "MOSSEN_M5_6_PROJECT_MEMORY_V2";
+        std::fs::write(&memory_file, first_marker).expect("write first memory");
+        let first = gather_memory_text(&project).await;
+        assert!(first.contains(first_marker), "{first}");
+
+        std::fs::write(&memory_file, second_marker).expect("write second memory");
+        let second = gather_memory_text(&project).await;
+
+        assert!(second.contains(second_marker), "{second}");
+        assert!(!second.contains(first_marker), "{second}");
     }
 }

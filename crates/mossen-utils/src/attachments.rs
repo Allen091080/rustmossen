@@ -1332,10 +1332,8 @@ fn get_plan_mode_attachment_turn_count(messages: &[ConversationMessage]) -> (usi
         match msg {
             ConversationMessage::User {
                 is_meta, message, ..
-            } => {
-                if !is_meta && !has_tool_result_content(&message.content) {
-                    turns_since_last_attachment += 1;
-                }
+            } if !is_meta && !has_tool_result_content(&message.content) => {
+                turns_since_last_attachment += 1;
             }
             ConversationMessage::Attachment { attachment, .. } => match attachment {
                 Attachment::PlanMode { .. } | Attachment::PlanModeReentry { .. } => {
@@ -1401,7 +1399,7 @@ pub async fn get_plan_mode_attachments(
 
     // Determine reminder type
     let attachment_count = messages
-        .map(|m| count_plan_mode_attachments_since_last_exit(m))
+        .map(count_plan_mode_attachments_since_last_exit)
         .unwrap_or(0)
         + 1;
     let reminder_type =
@@ -1460,10 +1458,8 @@ fn get_auto_mode_attachment_turn_count(messages: &[ConversationMessage]) -> (usi
         match msg {
             ConversationMessage::User {
                 is_meta, message, ..
-            } => {
-                if !is_meta && !has_tool_result_content(&message.content) {
-                    turns_since_last_attachment += 1;
-                }
+            } if !is_meta && !has_tool_result_content(&message.content) => {
+                turns_since_last_attachment += 1;
             }
             ConversationMessage::Attachment { attachment, .. } => match attachment {
                 Attachment::AutoMode { .. } => {
@@ -1515,7 +1511,7 @@ pub async fn get_auto_mode_attachments(
     }
 
     let attachment_count = messages
-        .map(|m| count_auto_mode_attachments_since_last_exit(m))
+        .map(count_auto_mode_attachments_since_last_exit)
         .unwrap_or(0)
         + 1;
     let reminder_type =
@@ -2062,10 +2058,8 @@ pub fn extract_at_mentioned_files(content: &str) -> Vec<String> {
     for cap in quoted_re.captures_iter(content) {
         if let Some(m) = cap.get(1) {
             let val = m.as_str();
-            if !val.ends_with(" (agent)") {
-                if !results.contains(&val.to_string()) {
-                    results.push(val.to_string());
-                }
+            if !val.ends_with(" (agent)") && !results.contains(&val.to_string()) {
+                results.push(val.to_string());
             }
         }
     }
@@ -2241,10 +2235,8 @@ fn get_todo_reminder_turn_counts(messages: &[ConversationMessage]) -> (usize, us
                 }
 
                 // Check for TodoWrite usage
-                if !last_todo_write_found {
-                    if has_tool_use_name(&message.content, "TodoWrite") {
-                        last_todo_write_found = true;
-                    }
+                if !last_todo_write_found && has_tool_use_name(&message.content, "TodoWrite") {
+                    last_todo_write_found = true;
                 }
 
                 if !last_todo_write_found {
@@ -2254,12 +2246,11 @@ fn get_todo_reminder_turn_counts(messages: &[ConversationMessage]) -> (usize, us
                     turns_since_reminder += 1;
                 }
             }
-            ConversationMessage::Attachment { attachment, .. } => {
-                if !last_reminder_found {
-                    if matches!(attachment, Attachment::TodoReminder { .. }) {
-                        last_reminder_found = true;
-                    }
-                }
+            ConversationMessage::Attachment { attachment, .. }
+                if !last_reminder_found
+                    && matches!(attachment, Attachment::TodoReminder { .. }) =>
+            {
+                last_reminder_found = true;
             }
             _ => {}
         }
@@ -2320,12 +2311,11 @@ fn get_task_reminder_turn_counts(messages: &[ConversationMessage]) -> (usize, us
                     continue;
                 }
 
-                if !last_mgmt_found {
-                    if has_tool_use_name(&message.content, "TaskCreate")
-                        || has_tool_use_name(&message.content, "TaskUpdate")
-                    {
-                        last_mgmt_found = true;
-                    }
+                if !last_mgmt_found
+                    && (has_tool_use_name(&message.content, "TaskCreate")
+                        || has_tool_use_name(&message.content, "TaskUpdate"))
+                {
+                    last_mgmt_found = true;
                 }
 
                 if !last_mgmt_found {
@@ -2335,12 +2325,11 @@ fn get_task_reminder_turn_counts(messages: &[ConversationMessage]) -> (usize, us
                     turns_since_reminder += 1;
                 }
             }
-            ConversationMessage::Attachment { attachment, .. } => {
-                if !last_reminder_found {
-                    if matches!(attachment, Attachment::TaskReminder { .. }) {
-                        last_reminder_found = true;
-                    }
-                }
+            ConversationMessage::Attachment { attachment, .. }
+                if !last_reminder_found
+                    && matches!(attachment, Attachment::TaskReminder { .. }) =>
+            {
+                last_reminder_found = true;
             }
             _ => {}
         }
@@ -2405,13 +2394,11 @@ pub fn get_verify_plan_reminder_turn_count(messages: &[ConversationMessage]) -> 
                 tool_use_result,
                 message,
                 ..
-            } => {
-                if !is_meta
-                    && tool_use_result.is_none()
-                    && !has_tool_result_content(&message.content)
-                {
-                    turn_count += 1;
-                }
+            } if !is_meta
+                && tool_use_result.is_none()
+                && !has_tool_result_content(&message.content) =>
+            {
+                turn_count += 1;
             }
             ConversationMessage::Attachment { attachment, .. } => {
                 if matches!(attachment, Attachment::PlanModeExit { .. }) {
@@ -2763,7 +2750,7 @@ pub fn get_skill_listing_attachments(
 
     let agent_key = agent_id.unwrap_or("").to_string();
     let mut map = SENT_SKILL_NAMES.lock();
-    let sent = map.entry(agent_key.clone()).or_insert_with(HashSet::new);
+    let sent = map.entry(agent_key.clone()).or_default();
 
     // Handle suppress-next (resume path)
     if SUPPRESS_NEXT_SKILL.swap(false, Ordering::Relaxed) {

@@ -682,7 +682,7 @@ pub async fn copy_worktree_include_files(repo_root: &str, worktree_path: &str) -
             "--exclude-standard",
             "--",
         ];
-        let dir_strs: Vec<&str> = dirs_to_expand.iter().copied().collect();
+        let dir_strs: Vec<&str> = dirs_to_expand.to_vec();
         expand_args.extend(dir_strs);
         let expanded =
             exec_file_no_throw_with_cwd(git_exe(), &expand_args, Some(repo_root), None).await;
@@ -749,8 +749,7 @@ fn simple_glob_match(pattern: &str, path: &str) -> bool {
             return path.starts_with(prefix) && path.ends_with(suffix);
         }
         // For ** patterns
-        if pattern.starts_with("**/") {
-            let rest = &pattern[3..];
+        if let Some(rest) = pattern.strip_prefix("**/") {
             return path.ends_with(rest) || path.contains(&format!("/{}", rest));
         }
         return false;
@@ -1445,7 +1444,7 @@ pub async fn exec_into_tmux_worktree(args: &[String]) -> ExecIntoTmuxResult {
         }
         if arg == "-w" || arg == "--worktree" {
             // Skip flag + its value
-            if args.get(i + 1).map_or(false, |n| !n.starts_with('-')) {
+            if args.get(i + 1).is_some_and(|n| !n.starts_with('-')) {
                 i += 2;
             } else {
                 i += 1;

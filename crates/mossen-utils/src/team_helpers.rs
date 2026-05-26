@@ -222,6 +222,11 @@ pub fn remove_member_by_agent_id(team_name: &str, agent_id: &str) -> bool {
     write_team_file(team_name, &team_file).is_ok()
 }
 
+/// 对应 TS `Input`：teamHelpers 模块导出的输入类型别名（JSON-shaped）。
+pub type Input = serde_json::Value;
+/// 对应 TS `Output`：teamHelpers 模块导出的输出类型别名（JSON-shaped）。
+pub type Output = serde_json::Value;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,8 +242,3 @@ mod tests {
         assert_eq!(sanitize_agent_name("agent@team"), "agent-team");
     }
 }
-
-/// 对应 TS `Input`：teamHelpers 模块导出的输入类型别名（JSON-shaped）。
-pub type Input = serde_json::Value;
-/// 对应 TS `Output`：teamHelpers 模块导出的输出类型别名（JSON-shaped）。
-pub type Output = serde_json::Value;

@@ -44,14 +44,9 @@ pub enum BackgroundRemoteSessionPrecondition {
 }
 
 /// Options for eligibility check
+#[derive(Default)]
 pub struct EligibilityCheckOptions {
     pub skip_bundle: bool,
-}
-
-impl Default for EligibilityCheckOptions {
-    fn default() -> Self {
-        Self { skip_bundle: false }
-    }
 }
 
 /// Repository info detected from git remote

@@ -58,7 +58,7 @@ impl DynamicConfigState {
 
     /// Check if a config has been fetched.
     pub fn is_fetched(&self, name: &str) -> bool {
-        self.configs.get(name).map_or(false, |e| e.fetched)
+        self.configs.get(name).is_some_and(|e| e.fetched)
     }
 }
 

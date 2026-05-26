@@ -46,7 +46,7 @@ pub fn advance(l: &mut Lexer) {
         l.b += 1;
     } else if cp < 0x800 {
         l.b += 2;
-    } else if cp >= 0xD800 && cp <= 0xDBFF {
+    } else if (0xD800..=0xDBFF).contains(&cp) {
         // High surrogate — skip low surrogate too
         l.b += 4;
         l.i += 1;
@@ -84,7 +84,7 @@ pub fn byte_at(l: &mut Lexer, _char_idx: usize) -> usize {
         } else if cp < 0x800 {
             b += 2;
             i += 1;
-        } else if cp >= 0xD800 && cp <= 0xDBFF {
+        } else if (0xD800..=0xDBFF).contains(&cp) {
             if i + 1 < l.len {
                 t[i + 1] = b + 2;
             }
@@ -117,11 +117,11 @@ pub fn is_ident_start(c: char) -> bool {
 }
 
 pub fn is_ident_char(c: char) -> bool {
-    is_ident_start(c) || matches!(c, '0'..='9')
+    is_ident_start(c) || c.is_ascii_digit()
 }
 
 pub fn is_digit(c: char) -> bool {
-    matches!(c, '0'..='9')
+    c.is_ascii_digit()
 }
 
 pub fn is_hex_digit(c: char) -> bool {
@@ -469,7 +469,7 @@ pub fn next_token(l: &mut Lexer, ctx: LexCtx) -> Token {
 
     // Unknown char — consume as single-char word
     advance(l);
-    return Token::new(TokenType::Word, c.to_string(), start, l.b);
+    Token::new(TokenType::Word, c.to_string(), start, l.b)
 }
 
 fn is_number_str(s: &str) -> bool {

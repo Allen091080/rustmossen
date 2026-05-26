@@ -15,7 +15,7 @@ pub fn contains_heredoc(command: &str) -> bool {
     {
         return false;
     }
-    let heredoc_regex = Regex::new(r#"<<-?\s*(?:(['"])(\w+)\1|\\(\w+))"#).unwrap();
+    let heredoc_regex = Regex::new(r#"<<-?\s*(?:'\w+'|"\w+"|\\\w+)"#).unwrap();
     heredoc_regex.is_match(command)
 }
 
@@ -47,8 +47,12 @@ pub fn quote_shell_command(command: &str, add_stdin_redirect: bool) -> String {
 
 /// Detects if a command already has a stdin redirect.
 pub fn has_stdin_redirect(command: &str) -> bool {
-    let re = Regex::new(r"(?:^|[\s;&|])<(?![<(])\s*\S+").unwrap();
-    re.is_match(command)
+    let re = Regex::new(r"(?:^|[\s;&|])<\s*\S+").unwrap();
+    let has_redirect = re.find_iter(command).any(|m| {
+        let trimmed = m.as_str().trim_start();
+        !trimmed.starts_with("<<") && !trimmed.starts_with("<(")
+    });
+    has_redirect
 }
 
 /// Checks if stdin redirect should be added to a command.
@@ -64,6 +68,6 @@ pub fn should_add_stdin_redirect(command: &str) -> bool {
 
 /// Rewrites Windows CMD-style `>nul` redirects to POSIX `/dev/null`.
 pub fn rewrite_windows_null_redirect(command: &str) -> String {
-    let re = Regex::new(r"(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])").unwrap();
-    re.replace_all(command, "${1}/dev/null").to_string()
+    let re = Regex::new(r"(\d?&?>+\s*)[Nn][Uu][Ll]($|[\s|&;)\n])").unwrap();
+    re.replace_all(command, "${1}/dev/null$2").to_string()
 }
