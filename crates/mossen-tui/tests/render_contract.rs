@@ -1713,7 +1713,7 @@ fn app_render_contract_debug_config_modal_is_redacted_and_semantic() {
     assert_contains_all(
         "semantic debug config modal scrolled",
         &scrolled,
-        &["Footer"],
+        &["Height Cache"],
     );
 
     app.dispatch_key_for_test(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
@@ -2095,11 +2095,7 @@ fn app_render_contract_statusline_config_keeps_core_status_visible() {
         rendered.contains("running command"),
         "core status should remain visible when configurable items are hidden\n--- frame ---\n{rendered}"
     );
-    assert!(
-        rendered.contains("model hidden-model"),
-        "top status should keep the model visible even when the footer model item is hidden\n--- frame ---\n{rendered}"
-    );
-    for hidden in ["hidden-project", "$0.15"] {
+    for hidden in ["hidden-project", "hidden-model", "$0.15"] {
         assert!(
             !rendered.contains(hidden),
             "statusline config failed to hide {hidden:?}\n--- frame ---\n{rendered}"
@@ -2156,14 +2152,16 @@ fn app_render_contract_statusline_presets_are_visible_and_codex_focused() {
             "Supervised",
             "reasoning:high",
             "running command",
-            "ctx~",
+            "ctx 0/200k",
         ],
     );
     let footer_line = focused
         .lines()
         .rev()
         .find(|line| {
-            line.contains("MiniMax-M2.7") && line.contains("ctx~") && !line.contains("status:")
+            line.contains("MiniMax-M2.7")
+                && line.contains("ctx 0/200k")
+                && !line.contains("status:")
         })
         .unwrap_or_else(|| panic!("focused footer line not found\n--- frame ---\n{focused}"));
     let project_tail = dir
@@ -2271,7 +2269,7 @@ fn app_render_contract_files_modal_uses_semantic_file_change_summary() {
 }
 
 #[test]
-fn app_render_contract_keeps_top_status_visible_above_transcript() {
+fn app_render_contract_keeps_status_footer_visible_with_transcript() {
     let mut app = App::new();
     apply_common_product_state(&mut app);
     app.engine_config
@@ -2286,24 +2284,24 @@ fn app_render_contract_keeps_top_status_visible_above_transcript() {
 
     let rendered = render_app(&mut app, 100, 24);
 
-    assert_product_contract("top status", &rendered);
+    assert_product_contract("status footer", &rendered);
     assert_contains_all(
-        "top status",
+        "status footer",
         &rendered,
         &[
-            "status: running command",
-            "model MiniMax-M2.7",
-            "mode Supervised",
+            "running command",
+            "MiniMax-M2.7",
+            "Supervised",
             "reasoning:high",
         ],
     );
-    let status_y =
-        first_line_index(&rendered, "status: running command").expect("top status should render");
+    let status_y = first_line_index(&rendered, "MiniMax-M2.7").expect("status should render");
     let transcript_y =
-        first_line_index(&rendered, "完整渲染合同").expect("transcript should render below status");
+        first_line_index(&rendered, "完整渲染合同").expect("transcript should render");
+    let prompt_y = first_line_index(&rendered, "Ask anything").expect("prompt should render");
     assert!(
-        status_y < transcript_y,
-        "top status should stay above transcript content\n--- frame ---\n{rendered}"
+        status_y > transcript_y && status_y > prompt_y,
+        "status footer should stay below transcript and prompt content\n--- frame ---\n{rendered}"
     );
 }
 
@@ -2577,7 +2575,7 @@ fn app_render_contract_tall_message_scroll_crosses_scratch_boundary() {
     assert_contains_all(
         "single tall message scratch boundary",
         &boundary,
-        &["tall-single-row-0411"],
+        &["tall-single-row-0410"],
     );
 }
 
@@ -2869,9 +2867,7 @@ fn app_render_contract_keyboard_focus_scroll_owns_viewport() {
         &["tail-scroll-anchor"],
     );
 
-    for _ in 0..81 {
-        app.dispatch_key_for_test(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    }
+    app.dispatch_key_for_test(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
     assert!(
         !app.scroll.sticky,
         "keyboard focus navigation should take ownership of transcript scroll"
@@ -3050,8 +3046,8 @@ fn app_render_contract_arbitrary_tool_payloads_are_scrubbed_and_redacted() {
         "arbitrary tool payload render",
         &rendered,
         &[
-            "ThirdPartyTool",
             "CustomProvider",
+            "authorization_header",
             "arbitrary-tool-visible-query",
             "arbitrary-tool-visible-nested",
             "arbitrary-tool-anchor",

@@ -392,7 +392,7 @@ fn permission_rule_path_prefix_matches(rule: &str, candidate: &str) -> bool {
     if !rule.contains('/') && !rule.contains('\\') {
         return false;
     }
-    let prefix = rule.trim_end_matches(|ch| ch == '/' || ch == '\\');
+    let prefix = rule.trim_end_matches(['/', '\\']);
     if prefix.is_empty() {
         return false;
     }
@@ -1850,6 +1850,7 @@ pub struct App {
     pub render_snapshot_autosave_error: Option<String>,
     /// Startup restore state for the latest render-session snapshot. This is
     /// render-layer hydration only; it never resumes engine/tool execution.
+    pub startup_render_session_restore_enabled: bool,
     pub render_snapshot_startup_restore_status: RenderSnapshotStartupRestoreStatus,
     pub render_snapshot_startup_restore_path: Option<PathBuf>,
     pub render_snapshot_startup_restore_error: Option<String>,
@@ -1970,6 +1971,7 @@ impl App {
             pending_todo_write_input: None,
             render_snapshot_autosave_path: None,
             render_snapshot_autosave_error: None,
+            startup_render_session_restore_enabled: false,
             render_snapshot_startup_restore_status: RenderSnapshotStartupRestoreStatus::Pending,
             render_snapshot_startup_restore_path: None,
             render_snapshot_startup_restore_error: None,
@@ -2145,13 +2147,12 @@ impl App {
         let Some(msg) = self.messages.get(i) else {
             return false;
         };
-        if matches!(msg.message_type, MessageType::ToolResult) {
-            if i > 0
-                && matches!(self.messages[i - 1].message_type, MessageType::ToolUse)
-                && self.collapsed_tool_groups.contains(&(i - 1))
-            {
-                return false;
-            }
+        if matches!(msg.message_type, MessageType::ToolResult)
+            && i > 0
+            && matches!(self.messages[i - 1].message_type, MessageType::ToolUse)
+            && self.collapsed_tool_groups.contains(&(i - 1))
+        {
+            return false;
         }
         true
     }
@@ -2286,6 +2287,14 @@ impl App {
             };
             self.push_system_message(content, false);
         }
+        self
+    }
+
+    /// Enable or disable startup render-session snapshot hydration. Normal
+    /// fresh launches keep this off so old transcript rows do not masquerade
+    /// as the current session; explicit restore paths turn it on.
+    pub fn with_startup_render_session_restore(mut self, enabled: bool) -> Self {
+        self.startup_render_session_restore_enabled = enabled;
         self
     }
 
@@ -3330,9 +3339,8 @@ impl App {
             file.write_all(b"\n")?;
             file.sync_all()?;
         }
-        std::fs::rename(&tmp_path, path).map_err(|error| {
+        std::fs::rename(&tmp_path, path).inspect_err(|error| {
             let _ = std::fs::remove_file(&tmp_path);
-            error
         })
     }
 
@@ -3530,7 +3538,7 @@ impl App {
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
             if latest
                 .as_ref()
-                .is_none_or(|(current_modified, current_path)| {
+                .map_or(true, |(current_modified, current_path)| {
                     modified > *current_modified
                         || (modified == *current_modified && path > *current_path)
                 })
@@ -3626,7 +3634,11 @@ impl App {
             Ok(snapshot) => {
                 self.active_modal = ActiveModal::CommandOutput {
                     title: "Render Snapshot".to_string(),
-                    body: render_session_snapshot_saved_body(&path, &snapshot),
+                    body: render_session_snapshot_saved_body(
+                        &path,
+                        Path::new(&self.engine_config.cwd),
+                        &snapshot,
+                    ),
                     is_error: false,
                 };
             }
@@ -3648,7 +3660,11 @@ impl App {
             Ok(snapshot) => {
                 self.active_modal = ActiveModal::CommandOutput {
                     title: "Render Snapshot".to_string(),
-                    body: render_session_snapshot_loaded_body(&path, &snapshot),
+                    body: render_session_snapshot_loaded_body(
+                        &path,
+                        Path::new(&self.engine_config.cwd),
+                        &snapshot,
+                    ),
                     is_error: false,
                 };
             }
@@ -3694,7 +3710,11 @@ impl App {
     fn open_render_snapshot_restore_result(&mut self, path: PathBuf) {
         match Self::load_render_session_snapshot(&path) {
             Ok(snapshot) => {
-                let body = render_session_snapshot_restored_body(&path, &snapshot);
+                let body = render_session_snapshot_restored_body(
+                    &path,
+                    Path::new(&self.engine_config.cwd),
+                    &snapshot,
+                );
                 self.restore_render_session_snapshot(&snapshot);
                 self.active_modal = ActiveModal::CommandOutput {
                     title: "Render Snapshot".to_string(),
@@ -3752,7 +3772,7 @@ impl App {
             decision
                 .anchor_block_id
                 .as_ref()
-                .is_none_or(|anchor| live_anchor_ids.contains(anchor))
+                .map_or(true, |anchor| live_anchor_ids.contains(anchor))
         });
     }
 
@@ -3784,7 +3804,15 @@ impl App {
         terminal: ratatui::Terminal<impl ratatui::backend::Backend>,
     ) -> anyhow::Result<()> {
         let _ = self.load_footer_render_config_on_startup();
-        let _ = self.restore_latest_render_session_snapshot_on_startup();
+        if self.startup_render_session_restore_enabled {
+            let _ = self.restore_latest_render_session_snapshot_on_startup();
+        } else if matches!(
+            self.render_snapshot_startup_restore_status,
+            RenderSnapshotStartupRestoreStatus::Pending
+        ) {
+            self.render_snapshot_startup_restore_status =
+                RenderSnapshotStartupRestoreStatus::Skipped;
+        }
         if self.should_quit {
             self.autosave_render_session_snapshot_best_effort();
             return Ok(());
@@ -5267,9 +5295,13 @@ impl App {
                 self.render_mcp_channel_approval_dialog(frame, area, request);
             }
             ActiveModal::ModelPicker(state) => {
+                let width = (area.width.saturating_sub(4)).min(76).max(42);
+                let height = (area.height.saturating_sub(4)).min(22).max(10);
+                let modal_area = crate::layout::center(area, width, height);
+                frame.render_widget(Clear, modal_area);
                 let widget = crate::widgets::panels::ModelPickerWidget::new(state, &self.theme)
                     .glyphs(self.glyphs);
-                frame.render_widget(widget, area);
+                frame.render_widget(widget, modal_area);
             }
             ActiveModal::SkillsPanel(state) => {
                 let width = (area.width.saturating_sub(4)).min(76).max(42);
@@ -6674,20 +6706,14 @@ impl App {
                     self.move_focus(1);
                     return;
                 }
-                KeyCode::Char(' ') | KeyCode::Enter => {
-                    if self.toggle_focused_group() {
-                        return;
-                    }
+                KeyCode::Char(' ') | KeyCode::Enter if self.toggle_focused_group() => {
+                    return;
                 }
-                KeyCode::Right => {
-                    if self.toggle_focused_expand(true) {
-                        return;
-                    }
+                KeyCode::Right if self.toggle_focused_expand(true) => {
+                    return;
                 }
-                KeyCode::Left => {
-                    if self.toggle_focused_expand(false) {
-                        return;
-                    }
+                KeyCode::Left if self.toggle_focused_expand(false) => {
+                    return;
                 }
                 _ => {}
             }
@@ -7461,15 +7487,14 @@ impl App {
                     state.filter.pop();
                     state.selected = 0;
                 }
-                KeyCode::Char(c) => {
+                KeyCode::Char(c)
                     if !key
                         .modifiers
                         .contains(crossterm::event::KeyModifiers::CONTROL)
-                        && !key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
-                    {
-                        state.filter.push(c);
-                        state.selected = 0;
-                    }
+                        && !key.modifiers.contains(crossterm::event::KeyModifiers::ALT) =>
+                {
+                    state.filter.push(c);
+                    state.selected = 0;
                 }
                 _ => {}
             },
@@ -7477,10 +7502,8 @@ impl App {
                 KeyCode::Up => {
                     state.selected = state.selected.saturating_sub(1);
                 }
-                KeyCode::Down => {
-                    if state.selected + 1 < state.skills.len() {
-                        state.selected += 1;
-                    }
+                KeyCode::Down if state.selected + 1 < state.skills.len() => {
+                    state.selected += 1;
                 }
                 KeyCode::Esc => {
                     self.active_modal = ActiveModal::None;
@@ -7491,10 +7514,8 @@ impl App {
                 KeyCode::Up => {
                     state.selected = state.selected.saturating_sub(1);
                 }
-                KeyCode::Down => {
-                    if state.selected + 1 < state.entries.len() {
-                        state.selected += 1;
-                    }
+                KeyCode::Down if state.selected + 1 < state.entries.len() => {
+                    state.selected += 1;
                 }
                 KeyCode::Esc => {
                     self.active_modal = ActiveModal::None;
@@ -7555,15 +7576,11 @@ impl App {
                 let kind = *kind;
                 let len = items.len();
                 match key.code {
-                    KeyCode::Up => {
-                        if *selected > 0 {
-                            *selected -= 1;
-                        }
+                    KeyCode::Up if *selected > 0 => {
+                        *selected -= 1;
                     }
-                    KeyCode::Down => {
-                        if *selected + 1 < len {
-                            *selected += 1;
-                        }
+                    KeyCode::Down if *selected + 1 < len => {
+                        *selected += 1;
                     }
                     KeyCode::Enter => {
                         let choice = items.get(*selected).cloned().unwrap_or_default();
@@ -9179,11 +9196,12 @@ impl App {
             .map(|profile| {
                 let is_current = current_profile.as_deref() == Some(profile.name.as_str())
                     || profile.profile.model == self.engine_config.model;
+                let model = profile.profile.model.clone();
                 ModelInfo {
                     id: profile.name.clone(),
-                    name: profile.name,
-                    provider: profile.profile.model,
-                    supports_thinking: self.engine_config.model.to_lowercase().contains("m2"),
+                    name: model.clone(),
+                    provider: format!("profile: {}", profile.name),
+                    supports_thinking: model.to_lowercase().contains("m2"),
                     supports_streaming: true,
                     is_current,
                 }
@@ -9206,6 +9224,91 @@ impl App {
         }
 
         ModelPickerState::new(models)
+    }
+
+    fn model_status_body(&self) -> String {
+        let current_profile = mossen_agent::services::config::profiles::get_current_profile();
+        let default_profile = mossen_agent::services::config::profiles::get_default_profile();
+        let profiles = mossen_agent::services::config::profiles::list_all_profiles();
+        let mut lines = vec![
+            format!("Current model: {}", self.engine_config.model),
+            format!(
+                "Current profile: {}",
+                current_profile
+                    .as_ref()
+                    .map(|profile| format!("{} ({})", profile.name, profile.profile.model))
+                    .unwrap_or_else(|| "<none>".to_string())
+            ),
+            format!(
+                "Default profile: {}",
+                default_profile
+                    .as_ref()
+                    .map(|profile| format!("{} ({})", profile.name, profile.profile.model))
+                    .unwrap_or_else(|| "<none>".to_string())
+            ),
+            format!("Configured profiles: {}", profiles.len()),
+        ];
+        for profile in profiles {
+            let current_marker = if current_profile.as_ref().map(|p| p.name.as_str())
+                == Some(profile.name.as_str())
+            {
+                " [current]"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "  {}{} -> {}",
+                profile.name, current_marker, profile.profile.model
+            ));
+        }
+        lines.push("Usage: /model, /model <profile>, /model <model-id>, /model reset".to_string());
+        lines.join("\n")
+    }
+
+    fn set_custom_backend_env_for_model_profile(
+        profile: &mossen_agent::services::config::profiles::ListedProfile,
+    ) {
+        std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+        std::env::set_var(
+            "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+            profile.profile.provider.runtime_protocol(),
+        );
+        std::env::set_var("MOSSEN_CODE_CUSTOM_NAME", &profile.name);
+        std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", &profile.profile.base_url);
+        std::env::set_var("MOSSEN_CODE_CUSTOM_API_KEY", &profile.profile.api_key);
+        std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", &profile.profile.model);
+        std::env::set_var("MOSSEN_API_BASE_URL", &profile.profile.base_url);
+        std::env::set_var("MOSSEN_API_KEY", &profile.profile.api_key);
+    }
+
+    fn apply_listed_model_profile(
+        &mut self,
+        profile: mossen_agent::services::config::profiles::ListedProfile,
+        set_session_override: bool,
+    ) -> Result<(), String> {
+        if set_session_override {
+            mossen_agent::services::config::profiles::set_session_active_profile(&profile.name)
+                .map_err(|error| error.to_string())?;
+        }
+        Self::set_custom_backend_env_for_model_profile(&profile);
+        self.engine_config.model = profile.profile.model.clone();
+        self.engine_config.api_base_url = Some(profile.profile.base_url.clone());
+        self.engine_config.api_key = Some(profile.profile.api_key.clone());
+        self.state.current_model = Some(profile.profile.model.clone());
+        Ok(())
+    }
+
+    fn find_model_profile(
+        requested: &str,
+    ) -> Option<mossen_agent::services::config::profiles::ListedProfile> {
+        let requested = requested.trim();
+        mossen_agent::services::config::profiles::list_all_profiles()
+            .into_iter()
+            .find(|profile| {
+                profile.name == requested
+                    || profile.name.eq_ignore_ascii_case(requested)
+                    || profile.profile.model == requested
+            })
     }
 
     fn build_skills_panel_state(&self) -> crate::widgets::panels::SkillsPanelState {
@@ -9299,28 +9402,24 @@ impl App {
     }
 
     fn apply_model_picker_choice(&mut self, profile_name: &str) {
-        let selected = mossen_agent::services::config::profiles::list_all_profiles()
-            .into_iter()
-            .find(|profile| profile.name == profile_name);
+        let selected = Self::find_model_profile(profile_name);
 
         match selected {
             Some(profile) => {
-                let _ = mossen_agent::services::config::profiles::set_active_profile(
-                    &profile.name,
-                    mossen_agent::services::config::types::ConfigOverrideScope::Override,
-                );
-                self.engine_config.model = profile.profile.model.clone();
-                self.engine_config.api_base_url = Some(profile.profile.base_url.clone());
-                self.engine_config.api_key = Some(profile.profile.api_key.clone());
-                self.state.current_model = Some(profile.profile.model.clone());
-                self.push_command_output(
-                    "model",
-                    format!(
-                        "Switched session profile to \"{}\".\nmodel: {}\nbackend: {}",
-                        profile.name, profile.profile.model, profile.profile.base_url
+                let profile_name = profile.name.clone();
+                let model = profile.profile.model.clone();
+                let base_url = profile.profile.base_url.clone();
+                match self.apply_listed_model_profile(profile, true) {
+                    Ok(()) => self.push_command_output(
+                        "model",
+                        format!(
+                            "Switched session profile to \"{}\".\nmodel: {}\nbackend: {}",
+                            profile_name, model, base_url
+                        ),
+                        false,
                     ),
-                    false,
-                );
+                    Err(error) => self.push_command_output("model", error, true),
+                }
             }
             None if profile_name == self.engine_config.model => {
                 self.push_command_output(
@@ -9332,6 +9431,9 @@ impl App {
             None => {
                 self.engine_config.model = profile_name.to_string();
                 self.state.current_model = Some(profile_name.to_string());
+                if mossen_utils::custom_backend::is_custom_backend_enabled() {
+                    std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", profile_name);
+                }
                 self.push_command_output(
                     "model",
                     format!("Session model set to: {}", profile_name),
@@ -9339,6 +9441,32 @@ impl App {
                 );
             }
         }
+    }
+
+    fn reset_model_choice(&mut self) {
+        mossen_agent::services::config::profiles::clear_session_active_profile();
+        if let Some(profile) = mossen_agent::services::config::profiles::get_current_profile() {
+            let profile_name = profile.name.clone();
+            let model = profile.profile.model.clone();
+            match self.apply_listed_model_profile(profile, false) {
+                Ok(()) => self.push_command_output(
+                    "model",
+                    format!(
+                        "Reset session model to default profile \"{}\".\nmodel: {}",
+                        profile_name, model
+                    ),
+                    false,
+                ),
+                Err(error) => self.push_command_output("model", error, true),
+            }
+            return;
+        }
+
+        self.push_command_output(
+            "model",
+            "No default model profile is configured. Use /model <profile> or add one with --add-model-profile.",
+            true,
+        );
     }
 
     fn open_help_dialog(&mut self, query: &str) {
@@ -9380,9 +9508,32 @@ impl App {
                 return;
             }
             "model" => {
-                let requested_model = args_raw.trim();
-                if requested_model.is_empty() {
+                let requested_model = if matches!(args.first().copied(), Some("set" | "use")) {
+                    args_raw
+                        .split_whitespace()
+                        .skip(1)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                } else {
+                    args_raw.trim().to_string()
+                };
+                let requested_model = requested_model.trim();
+                let requested_action = requested_model.to_ascii_lowercase();
+                if requested_model.is_empty()
+                    || matches!(requested_action.as_str(), "list" | "options")
+                {
                     self.active_modal = ActiveModal::ModelPicker(self.build_model_picker_state());
+                } else if matches!(requested_action.as_str(), "status" | "current" | "show") {
+                    self.active_modal = ActiveModal::CommandOutput {
+                        title: "Model".to_string(),
+                        body: self.model_status_body(),
+                        is_error: false,
+                    };
+                } else if matches!(
+                    requested_action.as_str(),
+                    "reset" | "default" | "clear" | "none"
+                ) {
+                    self.reset_model_choice();
                 } else {
                     self.apply_model_picker_choice(requested_model);
                 }
@@ -9607,10 +9758,8 @@ impl App {
                 self.handle_compact_command(&args);
                 return;
             }
-            "permissions" => {
-                if self.try_handle_permissions_mode_command(&args, args_raw) {
-                    return;
-                }
+            "permissions" if self.try_handle_permissions_mode_command(&args, args_raw) => {
+                return;
             }
             "permission-mode" | "approval-mode" => {
                 self.handle_permission_mode_command(command, args_raw);
@@ -9797,7 +9946,7 @@ impl App {
                         .base
                         .aliases
                         .as_ref()
-                        .map_or(false, |aliases| aliases.iter().any(|a| a == command)))
+                        .is_some_and(|aliases| aliases.iter().any(|a| a == command)))
         }) else {
             return false;
         };
@@ -9946,13 +10095,9 @@ impl App {
     fn handle_mouse_wheel_scroll(&mut self, down: bool) -> bool {
         if self.prompt.show_suggestions {
             if down {
-                return self
-                    .prompt
-                    .suggestion_page_down(MOUSE_WHEEL_SCROLL_ROWS as usize);
+                return self.prompt.suggestion_page_down(MOUSE_WHEEL_SCROLL_ROWS);
             }
-            return self
-                .prompt
-                .suggestion_page_up(MOUSE_WHEEL_SCROLL_ROWS as usize);
+            return self.prompt.suggestion_page_up(MOUSE_WHEEL_SCROLL_ROWS);
         }
 
         let before = self.mouse_scroll_fingerprint();
@@ -10561,7 +10706,7 @@ impl App {
                         .teammate_states
                         .entry(tid.clone())
                         .or_insert(TeammateState::Running);
-                    let content_facts = assistant_content_facts(&message);
+                    let content_facts = assistant_content_facts(message);
                     let full_text = content_facts.text;
                     if !full_text.trim().is_empty() {
                         let (thinking, content) = split_thinking_and_content(&full_text);
@@ -10616,11 +10761,11 @@ impl App {
                         .or_insert(TeammateState::Running);
                     let transcript_facts = tool_summary_transcript_facts(
                         Some(&tid),
-                        &tool_name,
-                        &summary,
+                        tool_name,
+                        summary,
                         full_content.as_deref(),
                         tool_use_id.as_deref(),
-                        self.latest_tool_record_id_for_result(&tool_name),
+                        self.latest_tool_record_id_for_result(tool_name),
                     );
                     let source_index = self.messages.len();
                     if let Some(record_id) = transcript_facts.record_id.as_deref() {
@@ -10630,7 +10775,7 @@ impl App {
                         self.set_render_record_parent_override(source_index, parent_id);
                     }
                     self.messages.push(transcript_facts.message);
-                    self.state.ui_stage = ui_stage_after_tool_summary(&tool_name);
+                    self.state.ui_stage = ui_stage_after_tool_summary(tool_name);
                     self.note_transcript_changed();
                 }
                 SdkMessage::Result { terminal, .. } => {
@@ -12431,26 +12576,8 @@ fn json_string_value(value: &serde_json::Value) -> Option<String> {
 }
 
 fn context_window_tokens_for_footer(model: &str) -> u64 {
-    if let Ok(raw) = std::env::var("MOSSEN_CODE_MAX_CONTEXT_TOKENS") {
-        if let Ok(tokens) = raw.parse::<u64>() {
-            if tokens > 0 {
-                return tokens;
-            }
-        }
-    }
-    if let Ok(raw) = std::env::var("MOSSEN_CODE_CUSTOM_MAX_INPUT_TOKENS") {
-        if let Ok(tokens) = raw.parse::<u64>() {
-            if tokens > 0 {
-                return tokens;
-            }
-        }
-    }
-
-    if mossen_utils::context::has_1m_context(model) {
-        1_000_000
-    } else {
-        mossen_utils::context::MODEL_CONTEXT_WINDOW_DEFAULT
-    }
+    mossen_utils::context::terminal_context_window_tokens(model)
+        .unwrap_or(mossen_utils::context::MODEL_CONTEXT_WINDOW_DEFAULT)
 }
 
 fn env_flag_enabled(name: &str) -> bool {
@@ -12760,28 +12887,44 @@ fn sanitize_external_statusline_output(output: &[u8]) -> String {
     truncate_display_width(safe.trim(), 96)
 }
 
-fn render_session_snapshot_saved_body(path: &Path, snapshot: &RenderSessionSnapshot) -> String {
+fn render_session_snapshot_saved_body(
+    path: &Path,
+    cwd: &Path,
+    snapshot: &RenderSessionSnapshot,
+) -> String {
     format!(
         "Saved render session snapshot\n{}\npath: {}",
         render_session_snapshot_metadata(snapshot),
-        path.display()
+        render_session_snapshot_display_path(path, cwd)
     )
 }
 
-fn render_session_snapshot_loaded_body(path: &Path, snapshot: &RenderSessionSnapshot) -> String {
+fn render_session_snapshot_loaded_body(
+    path: &Path,
+    cwd: &Path,
+    snapshot: &RenderSessionSnapshot,
+) -> String {
     format!(
         "Loaded render session snapshot\nmode: metadata validation only; live transcript unchanged\nuse /render-snapshot restore <path> to hydrate the TUI transcript\n{}\npath: {}",
         render_session_snapshot_metadata(snapshot),
-        path.display()
+        render_session_snapshot_display_path(path, cwd)
     )
 }
 
-fn render_session_snapshot_restored_body(path: &Path, snapshot: &RenderSessionSnapshot) -> String {
+fn render_session_snapshot_restored_body(
+    path: &Path,
+    cwd: &Path,
+    snapshot: &RenderSessionSnapshot,
+) -> String {
     format!(
         "Restored render session snapshot\nmode: live TUI transcript hydrated; engine execution not resumed\n{}\npath: {}",
         render_session_snapshot_metadata(snapshot),
-        path.display()
+        render_session_snapshot_display_path(path, cwd)
     )
+}
+
+fn render_session_snapshot_display_path(path: &Path, cwd: &Path) -> String {
+    path.strip_prefix(cwd).unwrap_or(path).display().to_string()
 }
 
 fn render_session_snapshot_metadata(snapshot: &RenderSessionSnapshot) -> String {
@@ -13782,6 +13925,7 @@ mod engine_stream_tests {
     use crate::theme::Theme;
     use crate::widgets::idle_return::IdleReturnDialogState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+    use mossen_agent::services::config::{facade, types::ConfigOverrideScope};
     use mossen_agent::types::{ContentDelta, PermissionRequest, SdkMessage, StreamEventData};
     use mossen_types::{
         AssistantMessage, ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolInputSchema,
@@ -13797,6 +13941,77 @@ mod engine_stream_tests {
     use std::io;
     use std::sync::Arc;
     use std::time::Duration;
+
+    const MODEL_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
+
+    struct EnvGuard(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn model_config_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("model config lock")
+    }
+
+    fn isolate_model_env() -> EnvGuard {
+        let guard = EnvGuard(
+            MODEL_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        for key in MODEL_ENV_KEYS {
+            std::env::remove_var(key);
+        }
+        guard
+    }
+
+    fn seed_model_profiles() {
+        facade::reset_facade_for_testing();
+        facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "minimax": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.minimaxi.com/v1",
+                    "model": "MiniMax-M2.7-highspeed",
+                    "apiKey": "sk-minimax-secret"
+                },
+                "qwen": {
+                    "provider": "openai-responses",
+                    "baseURL": "https://qwen.example.com/v1",
+                    "model": "qwen3.6-plus",
+                    "apiKey": "sk-qwen-secret"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("qwen".to_string()),
+            ConfigOverrideScope::Override,
+        );
+    }
 
     fn buffer_text(buf: &Buffer) -> String {
         let mut out = String::new();
@@ -13828,10 +14043,7 @@ mod engine_stream_tests {
         where
             I: Iterator<Item = (u16, u16, &'a Cell)>,
         {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "synthetic terminal draw failure",
-            ))
+            Err(io::Error::other("synthetic terminal draw failure"))
         }
 
         fn hide_cursor(&mut self) -> io::Result<()> {
@@ -15109,6 +15321,99 @@ mod engine_stream_tests {
     }
 
     #[test]
+    fn slash_model_status_does_not_set_literal_status_model() {
+        let mut app = App::new();
+        app.engine_config.model = "MiniMax-M2.7-highspeed".to_string();
+
+        app.handle_command("model status");
+
+        assert_eq!(app.engine_config.model, "MiniMax-M2.7-highspeed");
+        let ActiveModal::CommandOutput {
+            title,
+            body,
+            is_error,
+        } = &app.active_modal
+        else {
+            panic!("model status should open command output");
+        };
+        assert_eq!(title, "Model");
+        assert!(!*is_error);
+        assert!(body.contains("Current model: MiniMax-M2.7-highspeed"));
+    }
+
+    #[test]
+    fn slash_model_list_opens_configured_profile_picker() {
+        let _lock = model_config_lock();
+        let _env = isolate_model_env();
+        seed_model_profiles();
+        let mut app = App::new();
+
+        app.handle_command("model list");
+
+        let ActiveModal::ModelPicker(state) = &app.active_modal else {
+            panic!("model list should open picker");
+        };
+        assert!(state.models.iter().any(|model| model.id == "minimax"
+            && model.name == "MiniMax-M2.7-highspeed"
+            && model.provider == "profile: minimax"));
+        facade::reset_facade_for_testing();
+    }
+
+    #[test]
+    fn slash_model_model_id_uses_matching_profile_backend() {
+        let _lock = model_config_lock();
+        let _env = isolate_model_env();
+        seed_model_profiles();
+        let mut app = App::new();
+
+        app.handle_command("model MiniMax-M2.7-highspeed");
+
+        assert_eq!(app.engine_config.model, "MiniMax-M2.7-highspeed");
+        assert_eq!(
+            app.engine_config.api_base_url.as_deref(),
+            Some("https://api.minimaxi.com/v1")
+        );
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://api.minimaxi.com/v1")
+        );
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
+            Ok("MiniMax-M2.7-highspeed")
+        );
+        assert_eq!(
+            mossen_agent::services::config::profiles::get_active_profile_name().as_deref(),
+            Some("minimax")
+        );
+        assert!(!app.messages.iter().any(|message| {
+            message.content.contains("sk-minimax-secret")
+                || message.content.contains("sk-qwen-secret")
+        }));
+        facade::reset_facade_for_testing();
+    }
+
+    #[test]
+    fn slash_model_profile_uses_configured_provider_protocol() {
+        let _lock = model_config_lock();
+        let _env = isolate_model_env();
+        seed_model_profiles();
+        let mut app = App::new();
+
+        app.handle_command("model qwen");
+
+        assert_eq!(app.engine_config.model, "qwen3.6-plus");
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-responses")
+        );
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://qwen.example.com/v1")
+        );
+        facade::reset_facade_for_testing();
+    }
+
+    #[test]
     fn prompt_directive_slash_command_submits_to_engine() {
         let mut app = App::new();
         app.directives = Some(Arc::new(mossen_commands::all_directives()));
@@ -16181,7 +16486,10 @@ mod engine_stream_tests {
             panic!("snapshot command should show a result modal");
         };
         assert!(!*is_error);
-        assert!(body.contains(expected.to_string_lossy().as_ref()), "{body}");
+        assert!(
+            body.contains(".mossen/render-sessions/session-unsafe-name.json"),
+            "{body}"
+        );
     }
 
     #[test]
@@ -16310,7 +16618,7 @@ mod engine_stream_tests {
         assert!(!*is_error);
         assert!(body.contains("Restored render session snapshot"), "{body}");
         assert!(
-            body.contains(saved_path.to_string_lossy().as_ref()),
+            body.contains(".mossen/render-sessions/session-resume-latest.json"),
             "{body}"
         );
     }
@@ -16447,6 +16755,41 @@ mod engine_stream_tests {
     }
 
     #[tokio::test]
+    async fn run_skips_latest_render_snapshot_by_default() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let mut source = App::new();
+        source.engine_config.cwd = dir.path().to_string_lossy().to_string();
+        source.handle_submit("fresh startup must not inherit this transcript".to_string());
+        source.handle_engine_message(SdkMessage::SystemInit {
+            session_id: "session-run-default-skip".to_string(),
+            model: "test-model".to_string(),
+            tools: vec!["Bash".to_string()],
+            task_id: None,
+        });
+        source
+            .autosave_render_session_snapshot()
+            .expect("source autosave should succeed")
+            .expect("source snapshot should be written");
+
+        let mut app = App::new();
+        app.engine_config.cwd = dir.path().to_string_lossy().to_string();
+        app.should_quit = true;
+        let terminal =
+            Terminal::new(TestBackend::new(80, 20)).expect("test terminal should initialize");
+
+        app.run(terminal)
+            .await
+            .expect("run should skip startup restore and exit cleanly");
+
+        assert_eq!(
+            app.render_snapshot_startup_restore_status,
+            RenderSnapshotStartupRestoreStatus::Skipped
+        );
+        assert!(app.engine_session_id.is_none());
+        assert!(app.messages.is_empty());
+    }
+
+    #[tokio::test]
     async fn run_restores_latest_render_snapshot_before_first_loop() {
         let dir = tempfile::tempdir().expect("tempdir should be created");
         let mut source = App::new();
@@ -16470,7 +16813,7 @@ mod engine_stream_tests {
             .expect("source autosave should succeed")
             .expect("source snapshot should be written");
 
-        let mut app = App::new();
+        let mut app = App::new().with_startup_render_session_restore(true);
         app.engine_config.cwd = dir.path().to_string_lossy().to_string();
         app.should_quit = true;
         let terminal =

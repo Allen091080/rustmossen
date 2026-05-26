@@ -8,6 +8,8 @@ use std::env;
 pub enum CustomBackendProtocol {
     MossenCompatible,
     OpenaiCompatible,
+    OpenaiResponses,
+    Anthropic,
     Private,
 }
 
@@ -16,14 +18,20 @@ impl CustomBackendProtocol {
         match self {
             Self::MossenCompatible => "mossen-compatible",
             Self::OpenaiCompatible => "openai-compatible",
+            Self::OpenaiResponses => "openai-responses",
+            Self::Anthropic => "anthropic",
             Self::Private => "private",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
-        match s {
+        match s.trim().to_ascii_lowercase().as_str() {
             "mossen-compatible" => Some(Self::MossenCompatible),
-            "openai-compatible" => Some(Self::OpenaiCompatible),
+            "openai-compatible" | "openai-chat" | "openai-chat-completions" => {
+                Some(Self::OpenaiCompatible)
+            }
+            "openai-responses" | "openai-response" | "responses" => Some(Self::OpenaiResponses),
+            "anthropic" | "anthropic-messages" => Some(Self::Anthropic),
             "private" => Some(Self::Private),
             _ => None,
         }
@@ -239,7 +247,7 @@ pub fn get_custom_backend_protocol() -> CustomBackendProtocol {
             return p;
         }
     }
-    CustomBackendProtocol::MossenCompatible
+    CustomBackendProtocol::OpenaiCompatible
 }
 
 pub fn get_custom_backend_auth_headers() -> HashMap<String, String> {
@@ -258,7 +266,10 @@ pub fn get_custom_backend_auth_headers() -> HashMap<String, String> {
             && !headers.contains_key("X-Api-Key")
             && !headers.contains_key("Authorization")
         {
-            if protocol == CustomBackendProtocol::OpenaiCompatible {
+            if matches!(
+                protocol,
+                CustomBackendProtocol::OpenaiCompatible | CustomBackendProtocol::OpenaiResponses
+            ) {
                 headers.insert("Authorization".to_string(), format!("Bearer {}", key));
             } else {
                 headers.insert("x-api-key".to_string(), key.clone());
@@ -518,5 +529,42 @@ pub fn get_custom_backend_config() -> Option<CustomBackendConfig> {
 }
 
 /// 对应 TS `CUSTOM_BACKEND_PROTOCOLS`：支持的 custom backend 协议字面量集合。
-pub const CUSTOM_BACKEND_PROTOCOLS: &[&str] =
-    &["mossen-compatible", "openai-compatible", "private"];
+pub const CUSTOM_BACKEND_PROTOCOLS: &[&str] = &[
+    "mossen-compatible",
+    "openai-compatible",
+    "openai-responses",
+    "anthropic",
+    "private",
+];
+
+#[cfg(test)]
+mod tests {
+    use super::{get_custom_backend_protocol, CustomBackendProtocol};
+
+    #[test]
+    fn custom_backend_protocol_defaults_to_openai_compatible() {
+        let previous = std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").ok();
+        std::env::remove_var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL");
+
+        assert_eq!(
+            get_custom_backend_protocol(),
+            CustomBackendProtocol::OpenaiCompatible
+        );
+
+        if let Some(previous) = previous {
+            std::env::set_var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL", previous);
+        }
+    }
+
+    #[test]
+    fn custom_backend_protocol_parses_new_protocols() {
+        assert_eq!(
+            CustomBackendProtocol::from_str("openai-responses"),
+            Some(CustomBackendProtocol::OpenaiResponses)
+        );
+        assert_eq!(
+            CustomBackendProtocol::from_str("anthropic"),
+            Some(CustomBackendProtocol::Anthropic)
+        );
+    }
+}

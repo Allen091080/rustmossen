@@ -913,6 +913,11 @@ impl StructuredIO {
             .get("mcp")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
+        let memory_runtime = slash_memory_runtime_snapshot();
+        let memory_compact = memory_runtime
+            .get("compact")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
 
         let render_ready = json_bool(&render, "event_stream")
             && json_bool(&render, "snapshot_stream")
@@ -1022,6 +1027,18 @@ impl StructuredIO {
                     "serverDetailsIncluded": false,
                     "rawConfigRedacted": true,
                     "errorDetailsRedacted": true,
+                },
+                "memory": memory_runtime,
+                "compact": {
+                    "autoCompactEnabled": json_bool(&memory_compact, "autoCompactEnabled"),
+                    "sessionMemoryCompactEnabled": json_bool(
+                        &memory_compact,
+                        "sessionMemoryCompactEnabled"
+                    ),
+                    "pendingCompactRequest": json_bool(&runtime, "pending_compact_request"),
+                    "slashBridge": true,
+                    "contentIncluded": false,
+                    "pathsRedacted": true,
                 },
                 "redaction": {
                     "pathsRedacted": true,
@@ -4210,7 +4227,7 @@ impl StructuredIO {
     pub async fn write(&self, message: StdoutMessage) -> Result<()> {
         let json = serde_json::to_string(&message)?;
         let safe = ndjson_safe_stringify(&json);
-        print!("{}\n", safe);
+        println!("{}", safe);
         Ok(())
     }
 
@@ -4897,6 +4914,18 @@ fn slash_model_response(args: &[String]) -> std::result::Result<serde_json::Valu
         return Err("unsupported_slash_command_args: model (model name too long)".to_string());
     }
 
+    let profile_match = config_profiles::list_all_profiles()
+        .into_iter()
+        .find(|profile| profile.name == requested_model);
+    if let Some(profile) = profile_match {
+        let previous = get_main_loop_model_override();
+        config_profiles::set_session_active_profile(&profile.name)
+            .map_err(|error| format!("slash_command_model_profile_set_failed: {error}"))?;
+        apply_profile_to_runtime_env(&profile);
+        set_main_loop_model_override(Some(profile.profile.model.clone()));
+        return Ok(slash_model_summary_response("set", previous));
+    }
+
     let previous = get_main_loop_model_override();
     set_main_loop_model_override(Some(requested_model));
     Ok(slash_model_summary_response("set", previous))
@@ -4912,10 +4941,29 @@ fn slash_model_summary_response(
         .ok()
         .map(|model| model.trim().to_string())
         .filter(|model| !model.is_empty());
+    let settings_profile_count = config_profiles::get_profiles().len();
+    let current_profile = config_profiles::get_current_profile();
+    let default_profile = config_profiles::get_default_profile();
+    let current_profile_name = current_profile.as_ref().map(|profile| profile.name.clone());
+    let default_profile_name = default_profile.as_ref().map(|profile| profile.name.clone());
+    let current_profile_model = current_profile
+        .as_ref()
+        .map(|profile| profile.profile.model.clone());
+    let profiles = config_profiles::list_all_profiles()
+        .iter()
+        .map(|profile| {
+            slash_profile_entry(
+                profile,
+                current_profile_name.as_deref(),
+                default_profile_name.as_deref(),
+            )
+        })
+        .collect::<Vec<_>>();
     let effective_model = override_model
         .clone()
         .or_else(|| initial_model.clone())
-        .or_else(|| env_model.clone());
+        .or_else(|| env_model.clone())
+        .or_else(|| current_profile_model.clone());
     let model_strings = get_model_strings();
     let model_strings_keys = model_strings
         .as_ref()
@@ -4936,6 +4984,8 @@ fn slash_model_summary_response(
         "initial"
     } else if env_model.is_some() {
         "env:MOSSEN_CODE_MODEL"
+    } else if current_profile_model.is_some() {
+        "profile"
     } else {
         "default"
     };
@@ -4952,6 +5002,11 @@ fn slash_model_summary_response(
             "env": env_model,
             "effective": effective_model,
             "source": source,
+            "currentProfileName": current_profile_name,
+            "defaultProfileName": default_profile_name,
+            "profileCount": profiles.len(),
+            "settingsProfileCount": settings_profile_count,
+            "profiles": profiles,
             "recognizedAlias": recognized_alias,
             "availableAliases": MODEL_ALIASES,
             "modelStringsAvailable": model_strings.is_some(),
@@ -4991,6 +5046,9 @@ fn slash_profile_response(args: &[String]) -> std::result::Result<serde_json::Va
             let previous = config_profiles::get_active_profile_name();
             config_profiles::set_session_active_profile(&requested_profile)
                 .map_err(|error| format!("slash_command_profile_set_failed: {error}"))?;
+            if let Some(profile) = config_profiles::get_current_profile() {
+                apply_profile_to_runtime_env(&profile);
+            }
             Ok(slash_profile_summary_response(&action, previous, true))
         }
         "reset" | "clear" | "default" => {
@@ -5070,6 +5128,20 @@ fn slash_profile_summary_response(
             "pathsRedacted": true,
         },
     })
+}
+
+fn apply_profile_to_runtime_env(profile: &config_profiles::ListedProfile) {
+    std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+    std::env::set_var(
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        profile.profile.provider.runtime_protocol(),
+    );
+    std::env::set_var("MOSSEN_CODE_CUSTOM_NAME", &profile.name);
+    std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", &profile.profile.base_url);
+    std::env::set_var("MOSSEN_CODE_CUSTOM_API_KEY", &profile.profile.api_key);
+    std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", &profile.profile.model);
+    std::env::set_var("MOSSEN_API_BASE_URL", &profile.profile.base_url);
+    std::env::set_var("MOSSEN_API_KEY", &profile.profile.api_key);
 }
 
 fn slash_profile_entry(
@@ -5808,8 +5880,46 @@ fn slash_memory_response() -> serde_json::Value {
             "memoryFilesAttached": false,
             "planSlugCount": plan_slug_cache.len(),
             "sessionPlanSlugsAvailable": !plan_slug_cache.is_empty(),
+            "runtime": slash_memory_runtime_snapshot(),
             "rawPathsRedacted": true,
         },
+    })
+}
+
+fn slash_memory_runtime_snapshot() -> serde_json::Value {
+    let session_memory_config =
+        mossen_agent::services::session_memory::utils::get_session_memory_config();
+    let session_memory_compact_enabled =
+        mossen_agent::services::compact::session_memory_compact::should_use_session_memory_compaction(
+        );
+
+    serde_json::json!({
+        "autoMemoryEnabled": crate::memdir::is_auto_memory_enabled(),
+        "extractModeActive": crate::memdir::is_extract_mode_active(),
+        "teamMemory": {
+            "buildEnabled": true,
+            "enabled": crate::memdir::is_team_memory_enabled(),
+            "rolloutEnabled": crate::memdir::is_team_memory_rollout_enabled(),
+            "pathIncluded": false,
+            "pathRedacted": true,
+        },
+        "sessionMemory": {
+            "enabled": session_memory_config.auto_extract_enabled,
+            "compactEnabled": session_memory_compact_enabled,
+            "initialized": mossen_agent::services::session_memory::utils::is_session_memory_initialized(),
+            "contentIncluded": false,
+        },
+        "compact": {
+            "autoCompactEnabled": crate::query_engine::is_auto_compact_enabled(),
+            "sessionMemoryCompactEnabled": session_memory_compact_enabled,
+            "pending": get_pending_compact_request().is_some(),
+        },
+        "files": {
+            "contentIncluded": false,
+            "pathsIncluded": false,
+            "pathsRedacted": true,
+        },
+        "secretsRedacted": true,
     })
 }
 
@@ -6098,7 +6208,36 @@ async fn slash_diff_response(args: &[String]) -> std::result::Result<serde_json:
 }
 
 fn slash_skills_response() -> serde_json::Value {
-    let mut skills = get_invoked_skills()
+    let mut available = mossen_skills::get_bundled_crafts();
+    available.extend(mossen_skills::get_dynamic_skills());
+    let mut available = available
+        .into_iter()
+        .filter(|skill| skill.is_user_invocable())
+        .map(|skill| {
+            serde_json::json!({
+                "name": skill.name(),
+                "description": skill.base.description,
+                "source": slash_skill_source_label(skill.loaded_from),
+                "modelInvocationEnabled": !skill.base.disable_model_invocation.unwrap_or(false),
+                "contentRedacted": true,
+                "pathRedacted": true,
+            })
+        })
+        .collect::<Vec<_>>();
+    available.sort_by(|left, right| {
+        left.get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .cmp(
+                right
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(""),
+            )
+    });
+    available.dedup_by(|left, right| left.get("name") == right.get("name"));
+
+    let mut invoked = get_invoked_skills()
         .into_values()
         .map(|skill| {
             serde_json::json!({
@@ -6110,7 +6249,7 @@ fn slash_skills_response() -> serde_json::Value {
             })
         })
         .collect::<Vec<_>>();
-    skills.sort_by(|left, right| {
+    invoked.sort_by(|left, right| {
         left.get("name")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
@@ -6127,12 +6266,26 @@ fn slash_skills_response() -> serde_json::Value {
         "command": "skills",
         "status": "completed",
         "skills": {
-            "invokedCount": skills.len(),
-            "items": skills,
+            "availableCount": available.len(),
+            "available": available,
+            "invokedCount": invoked.len(),
+            "invoked": invoked,
             "contentRedacted": true,
             "pathsRedacted": true,
+            "rawSkillRootsIncluded": false,
         },
     })
+}
+
+fn slash_skill_source_label(loaded_from: mossen_types::command::CommandLoadedFrom) -> &'static str {
+    match loaded_from {
+        mossen_types::command::CommandLoadedFrom::Bundled => "bundled",
+        mossen_types::command::CommandLoadedFrom::Plugin => "plugin",
+        mossen_types::command::CommandLoadedFrom::Mcp => "mcp",
+        mossen_types::command::CommandLoadedFrom::Skills => "skills",
+        mossen_types::command::CommandLoadedFrom::Managed => "managed",
+        mossen_types::command::CommandLoadedFrom::CommandsDeprecated => "commands_deprecated",
+    }
 }
 
 fn slash_plugin_response() -> serde_json::Value {
@@ -6150,7 +6303,7 @@ fn slash_plugin_response() -> serde_json::Value {
         "status": "completed",
         "plugins": {
             "inlinePluginCount": inline_plugins.len(),
-            "inlinePlugins": inline_plugins,
+            "inlinePluginNamesIncluded": false,
             "coworkPluginsEnabled": get_use_cowork_plugins(),
             "registeredHookCount": plugin_hook_count,
             "installMutationSupported": false,
@@ -7212,11 +7365,28 @@ mod tests {
         clear_pending_clear_request, get_pending_clear_request,
     };
 
-    fn permission_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    struct PendingCompactTestGuard {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for PendingCompactTestGuard {
+        fn drop(&mut self) {
+            clear_pending_compact_request();
+        }
+    }
+
+    fn pending_compact_test_guard() -> PendingCompactTestGuard {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        let guard = LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
-            .expect("permission env lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_pending_compact_request();
+        PendingCompactTestGuard { _guard: guard }
+    }
+
+    fn permission_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
     }
 
     fn restore_permission_env(previous: Option<String>) {
@@ -7228,10 +7398,7 @@ mod tests {
     }
 
     fn auth_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(()))
-            .lock()
-            .expect("auth env lock")
+        crate::test_support::env_lock()
     }
 
     fn restore_env_vars(previous: Vec<(&'static str, Option<String>)>) {
@@ -7243,6 +7410,17 @@ mod tests {
             }
         }
     }
+
+    const PROFILE_RUNTIME_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
 
     fn model_state_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -10766,10 +10944,7 @@ mod tests {
                 assert!(body["ide"]["promptCount"].is_u64());
                 assert!(body["ide"]["resourceCount"].is_u64());
                 assert!(body["ide"]["servers"].is_array());
-                assert_eq!(
-                    body["ide"]["diagnostics"]["pendingLspDiagnosticCount"].is_u64(),
-                    true
-                );
+                assert!(body["ide"]["diagnostics"]["pendingLspDiagnosticCount"].is_u64());
                 assert_eq!(body["ide"]["diagnostics"]["contentIncluded"], false);
                 assert_eq!(body["ide"]["diagnostics"]["pathsRedacted"], true);
                 assert_eq!(body["ide"]["detection"]["externalScanRun"], false);
@@ -10870,8 +11045,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slash_command_model_lists_and_switches_configured_profiles() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = PROFILE_RUNTIME_ENV_KEYS
+            .iter()
+            .map(|key| (*key, std::env::var(key).ok()))
+            .collect::<Vec<_>>();
+        let previous_override = get_main_loop_model_override();
+        set_main_loop_model_override(None);
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "qwen": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://qwen.example.com/v1",
+                    "model": "qwen3.6-plus[1M]",
+                    "apiKey": "sk-qwen-secret-value"
+                }
+            }),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+
+        let io = StructuredIO::new(false);
+        let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
+        let returned = io
+            .process_line(
+                r#"{"type":"control_request","request_id":"slash-model-profiles-1","request":{"subtype":"slash_command","command":"/model","args":["list"]}}"#,
+            )
+            .await
+            .expect("process line");
+        assert!(returned.is_none());
+        let response = outbound.recv().await.expect("control response");
+        match response {
+            StdoutMessage::ControlResponse(response) => {
+                let body = response.response.response.expect("response body");
+                assert_eq!(body["command"], "model");
+                assert_eq!(body["model"]["profileCount"], 1);
+                assert_eq!(body["model"]["profiles"][0]["name"], "qwen");
+                assert_eq!(body["model"]["profiles"][0]["model"], "qwen3.6-plus[1M]");
+                assert_eq!(body["model"]["profiles"][0]["apiKeyRedacted"], true);
+                let body_text = serde_json::to_string(&body).expect("serialize body");
+                assert!(!body_text.contains("sk-qwen-secret-value"));
+                assert!(!body_text.contains("https://qwen.example.com/v1"));
+            }
+            other => panic!("expected slash command response, got {other:?}"),
+        }
+
+        let returned = io
+            .process_line(
+                r#"{"type":"control_request","request_id":"slash-model-profiles-2","request":{"subtype":"slash_command","command":"/model","args":["qwen"]}}"#,
+            )
+            .await
+            .expect("process line");
+        assert!(returned.is_none());
+        assert_eq!(
+            config_profiles::get_active_profile_name().as_deref(),
+            Some("qwen")
+        );
+        assert_eq!(
+            get_main_loop_model_override().as_deref(),
+            Some("qwen3.6-plus[1M]")
+        );
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-compatible")
+        );
+        let response = outbound.recv().await.expect("control response");
+        match response {
+            StdoutMessage::ControlResponse(response) => {
+                let body = response.response.response.expect("response body");
+                assert_eq!(body["model"]["action"], "set");
+                assert_eq!(body["model"]["override"], "qwen3.6-plus[1M]");
+                assert_eq!(body["model"]["currentProfileName"], "qwen");
+                assert_eq!(body["model"]["profiles"][0]["active"], true);
+            }
+            other => panic!("expected slash command response, got {other:?}"),
+        }
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        set_main_loop_model_override(previous_override);
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
     async fn slash_command_profile_lists_and_switches_session_profile() {
         let _guard = config_state_lock();
+        let previous_env = PROFILE_RUNTIME_ENV_KEYS
+            .iter()
+            .map(|key| (*key, std::env::var(key).ok()))
+            .collect::<Vec<_>>();
         mossen_agent::services::config::facade::reset_facade_for_testing();
         mossen_agent::services::config::facade::set_mossen_config_override(
             "mossen.profiles",
@@ -10934,6 +11198,10 @@ mod tests {
             config_profiles::get_active_profile_name().as_deref(),
             Some("fast")
         );
+        assert_eq!(
+            std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-compatible")
+        );
 
         let response = outbound.recv().await.expect("control response");
         match response {
@@ -10953,6 +11221,115 @@ mod tests {
         }
 
         mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[test]
+    fn slash_command_memory_response_reports_runtime_without_content() {
+        let body = slash_memory_response();
+
+        assert_eq!(body["command"], "memory");
+        assert_eq!(body["memory"]["contentRedacted"], true);
+        assert_eq!(body["memory"]["memoryFilesAttached"], false);
+        assert!(body["memory"]["runtime"]["autoMemoryEnabled"].is_boolean());
+        assert!(body["memory"]["runtime"]["extractModeActive"].is_boolean());
+        assert_eq!(
+            body["memory"]["runtime"]["teamMemory"]["buildEnabled"],
+            true
+        );
+        assert_eq!(
+            body["memory"]["runtime"]["teamMemory"]["pathIncluded"],
+            false
+        );
+        assert_eq!(
+            body["memory"]["runtime"]["teamMemory"]["pathRedacted"],
+            true
+        );
+        assert_eq!(
+            body["memory"]["runtime"]["sessionMemory"]["contentIncluded"],
+            false
+        );
+        assert!(body["memory"]["runtime"]["compact"]["autoCompactEnabled"].is_boolean());
+        assert_eq!(body["memory"]["runtime"]["files"]["contentIncluded"], false);
+
+        let serialized = serde_json::to_string(&body).expect("serialize memory response");
+        assert!(!serialized.contains("readFile"));
+        assert!(!serialized.contains("apiKey"));
+        assert!(!serialized.contains("token"));
+        assert!(!serialized.contains("password"));
+    }
+
+    #[tokio::test]
+    async fn slash_command_doctor_reports_memory_and_compact_checks() {
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["command"], "doctor");
+        assert!(body["doctor"]["memory"]["autoMemoryEnabled"].is_boolean());
+        assert_eq!(
+            body["doctor"]["memory"]["teamMemory"]["pathIncluded"],
+            false
+        );
+        assert_eq!(
+            body["doctor"]["memory"]["sessionMemory"]["contentIncluded"],
+            false
+        );
+        assert!(body["doctor"]["compact"]["autoCompactEnabled"].is_boolean());
+        assert_eq!(body["doctor"]["compact"]["slashBridge"], true);
+        assert_eq!(body["doctor"]["compact"]["contentIncluded"], false);
+    }
+
+    #[tokio::test]
+    async fn slash_command_skills_lists_available_inventory_redacted() {
+        static SKILL_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let _guard = SKILL_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("skill inventory lock");
+        mossen_skills::clear_dynamic_skills();
+        mossen_skills::init_bundled_skills();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join("m6_inventory_skill");
+        tokio::fs::create_dir_all(&skill_dir)
+            .await
+            .expect("create skill dir");
+        tokio::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: M6 inventory skill\n---\nM6_INVENTORY_SECRET_BODY\n",
+        )
+        .await
+        .expect("write skill");
+        let added = mossen_skills::add_skill_directories(&[temp.path().to_path_buf()]).await;
+        assert_eq!(added, 1);
+
+        let body = slash_skills_response();
+
+        assert_eq!(body["command"], "skills");
+        assert!(
+            body["skills"]["availableCount"]
+                .as_u64()
+                .unwrap_or_default()
+                >= 1,
+            "{body}"
+        );
+        let available = body["skills"]["available"]
+            .as_array()
+            .expect("available array");
+        assert!(available
+            .iter()
+            .any(|skill| skill["name"] == "m6_inventory_skill"));
+        assert!(available.iter().any(|skill| skill["source"] == "bundled"));
+        assert_eq!(body["skills"]["contentRedacted"], true);
+        assert_eq!(body["skills"]["pathsRedacted"], true);
+        assert_eq!(body["skills"]["rawSkillRootsIncluded"], false);
+
+        let serialized = serde_json::to_string(&body).expect("serialize skills response");
+        assert!(!serialized.contains("M6_INVENTORY_SECRET_BODY"));
+        mossen_skills::clear_dynamic_skills();
     }
 
     #[tokio::test]
@@ -11182,6 +11559,7 @@ mod tests {
             ("slash-cost-1", "cost", "cost"),
             ("slash-hooks-1", "hooks", "hooks"),
             ("slash-skills-1", "skills", "skills"),
+            ("slash-plugin-1", "plugin", "plugins"),
         ] {
             let line = format!(
                 r#"{{"type":"control_request","request_id":"{request_id}","request":{{"subtype":"slash_command","command":"{command}"}}}}"#
@@ -11197,6 +11575,12 @@ mod tests {
                     assert_eq!(body["command"], command);
                     assert_eq!(body["status"], "completed");
                     assert!(body[payload_key].is_object());
+                    if command == "plugin" {
+                        assert_eq!(body["plugins"]["inlinePluginNamesIncluded"], false);
+                        assert!(body["plugins"].get("inlinePlugins").is_none());
+                        assert_eq!(body["plugins"]["rawConfigRedacted"], true);
+                        assert_eq!(body["plugins"]["installMutationSupported"], false);
+                    }
                 }
                 other => panic!("expected slash command response, got {other:?}"),
             }
@@ -11225,7 +11609,7 @@ mod tests {
 
     #[tokio::test]
     async fn slash_command_compact_preview_enqueues_dry_run_request() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
 
@@ -11296,7 +11680,7 @@ mod tests {
 
     #[tokio::test]
     async fn slash_command_compact_run_requires_confirm() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
 
@@ -11330,7 +11714,7 @@ mod tests {
 
     #[tokio::test]
     async fn slash_command_compact_run_confirm_enqueues_real_request() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
 
@@ -11380,7 +11764,7 @@ mod tests {
 
     #[tokio::test]
     async fn slash_command_compact_cancel_clears_pending_request() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         enqueue_pending_compact_request(
             "compact-cancel-target".to_string(),
             CompactMode::Manual,
@@ -11529,7 +11913,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_conversation_control_request_enqueues_and_responds() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
 
@@ -11566,7 +11950,7 @@ mod tests {
 
     #[tokio::test]
     async fn compact_conversation_control_request_blocks_unsupported_mode() {
-        clear_pending_compact_request();
+        let _guard = pending_compact_test_guard();
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
 

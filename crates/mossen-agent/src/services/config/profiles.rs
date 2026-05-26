@@ -20,9 +20,39 @@ use super::types::ConfigOverrideScope;
 pub enum ProfileProvider {
     #[serde(rename = "openai-compatible")]
     OpenAiCompatible,
+    #[serde(rename = "openai-responses")]
+    OpenAiResponses,
+    #[serde(rename = "anthropic")]
+    Anthropic,
 }
 
-pub const PROFILE_PROVIDER_VALUES: &[&str] = &["openai-compatible"];
+impl ProfileProvider {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "openai-compatible" | "openai-chat" | "openai-chat-completions" => {
+                Some(Self::OpenAiCompatible)
+            }
+            "openai-responses" | "openai-response" | "responses" => Some(Self::OpenAiResponses),
+            "anthropic" | "anthropic-messages" => Some(Self::Anthropic),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::OpenAiCompatible => "openai-compatible",
+            Self::OpenAiResponses => "openai-responses",
+            Self::Anthropic => "anthropic",
+        }
+    }
+
+    pub fn runtime_protocol(&self) -> &'static str {
+        self.as_str()
+    }
+}
+
+pub const PROFILE_PROVIDER_VALUES: &[&str] =
+    &["openai-compatible", "openai-responses", "anthropic"];
 
 /// Profile schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +145,8 @@ pub fn validate_profile(value: &Value) -> Result<ProfileSchema, String> {
     };
 
     let provider = obj.get("provider").and_then(|v| v.as_str()).unwrap_or("");
-    if !PROFILE_PROVIDER_VALUES.contains(&provider) {
+    let parsed_provider = ProfileProvider::parse(provider);
+    if parsed_provider.is_none() {
         return Err(format!(
             "provider must be one of {}, got \"{}\"",
             PROFILE_PROVIDER_VALUES.join("|"),
@@ -157,7 +188,7 @@ pub fn validate_profile(value: &Value) -> Result<ProfileSchema, String> {
         .filter(|s| !s.is_empty());
 
     Ok(ProfileSchema {
-        provider: ProfileProvider::OpenAiCompatible,
+        provider: parsed_provider.expect("provider was validated"),
         base_url,
         model,
         api_key,
@@ -243,8 +274,12 @@ pub fn get_fallback_profile() -> Option<ListedProfile> {
     } else {
         None
     };
+    let provider = env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL")
+        .ok()
+        .and_then(|s| ProfileProvider::parse(&s))
+        .unwrap_or(ProfileProvider::OpenAiCompatible);
     let profile = ProfileSchema {
-        provider: ProfileProvider::OpenAiCompatible,
+        provider,
         base_url: base_url.trim_end_matches('/').to_string(),
         model,
         api_key,
@@ -454,8 +489,7 @@ pub struct ProfileTestResult {
 /// Test profile connectivity (GET baseURL/models).
 pub async fn test_profile(profile: &ProfileSchema, timeout_ms: Option<u64>) -> ProfileTestResult {
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(5000));
-    let base_trimmed = profile.base_url.trim_end_matches('/');
-    let url = format!("{}/models", base_trimmed);
+    let url = profile_models_url(&profile.base_url);
     let start = Instant::now();
 
     let client = Client::builder().timeout(timeout).build();
@@ -472,13 +506,19 @@ pub async fn test_profile(profile: &ProfileSchema, timeout_ms: Option<u64>) -> P
         }
     };
 
-    match client
+    let mut request = client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", profile.api_key))
-        .header("User-Agent", "mossen-profile-test/1.0")
-        .send()
-        .await
-    {
+        .header("User-Agent", "mossen-profile-test/1.0");
+    request = match profile.provider {
+        ProfileProvider::OpenAiCompatible | ProfileProvider::OpenAiResponses => {
+            request.header("Authorization", format!("Bearer {}", profile.api_key))
+        }
+        ProfileProvider::Anthropic => request
+            .header("x-api-key", &profile.api_key)
+            .header("anthropic-version", "2023-06-01"),
+    };
+
+    match request.send().await {
         Ok(res) => ProfileTestResult {
             ok: true,
             status: res.status().as_u16(),
@@ -493,6 +533,15 @@ pub async fn test_profile(profile: &ProfileSchema, timeout_ms: Option<u64>) -> P
             duration_ms: start.elapsed().as_millis() as u64,
             error: Some(e.to_string()),
         },
+    }
+}
+
+fn profile_models_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        format!("{}/models", trimmed)
+    } else {
+        format!("{}/v1/models", trimmed)
     }
 }
 
@@ -601,5 +650,49 @@ pub fn migrate_fallback_profile(
         profile_name: validated_name,
         active_profile_set: active_set,
         scope: scope_str.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_profile, ProfileProvider};
+    use serde_json::json;
+
+    #[test]
+    fn validate_profile_accepts_openai_responses_and_anthropic() {
+        let responses = validate_profile(&json!({
+            "provider": "openai-responses",
+            "baseURL": "https://api.openai.com/v1",
+            "model": "gpt-5.1",
+            "apiKey": "sk-test"
+        }))
+        .expect("openai responses profile should validate");
+        let anthropic = validate_profile(&json!({
+            "provider": "anthropic",
+            "baseURL": "https://api.anthropic.com/v1",
+            "model": "anthropic-test-model",
+            "apiKey": "sk-ant-test"
+        }))
+        .expect("anthropic profile should validate");
+
+        assert_eq!(responses.provider, ProfileProvider::OpenAiResponses);
+        assert_eq!(responses.provider.runtime_protocol(), "openai-responses");
+        assert_eq!(anthropic.provider, ProfileProvider::Anthropic);
+        assert_eq!(anthropic.provider.runtime_protocol(), "anthropic");
+    }
+
+    #[test]
+    fn validate_profile_rejects_unknown_provider() {
+        let error = validate_profile(&json!({
+            "provider": "unknown",
+            "baseURL": "https://example.com/v1",
+            "model": "model",
+            "apiKey": "key"
+        }))
+        .expect_err("unknown providers must be rejected");
+
+        assert!(error.contains("openai-compatible"));
+        assert!(error.contains("openai-responses"));
+        assert!(error.contains("anthropic"));
     }
 }

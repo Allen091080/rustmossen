@@ -718,7 +718,7 @@ fn render_snapshot_app_frame_shows_inline_approval_and_footer_state() {
 }
 
 #[test]
-fn render_snapshot_app_frame_shows_top_status_header() {
+fn render_snapshot_app_frame_shows_status_chrome() {
     let mut app = App::new();
     app.fullscreen = true;
     app.engine_config.model = "MiniMax-M2.7".to_string();
@@ -736,16 +736,16 @@ fn render_snapshot_app_frame_shows_top_status_header() {
     let snapshot = render_app_frame(&mut app, 110, 28);
 
     assert_snapshot_has(
-        "app frame top status",
+        "app frame status chrome",
         &snapshot,
         &[
-            "status: running command",
-            "model MiniMax-M2.7",
-            "mode Supervised",
+            "running command",
+            "MiniMax-M2.7",
+            "Supervised",
             "reasoning:high",
         ],
     );
-    assert_no_protocol_noise("app frame top status", &snapshot);
+    assert_no_protocol_noise("app frame status chrome", &snapshot);
 }
 
 #[test]
@@ -1220,6 +1220,11 @@ fn render_snapshot_app_frame_model_skills_memory_panels_handle_multibyte_rows() 
         "app model picker multibyte",
         &model_snapshot,
         &["Select Model", "MiniMax-M2.7", "自定义后端"],
+    );
+    let first_line = model_snapshot.lines().next().unwrap_or_default();
+    assert!(
+        !first_line.contains("Select Model"),
+        "model picker should render as a centered modal, not at the top\n--- snapshot ---\n{model_snapshot}"
     );
     assert_no_protocol_noise("app model picker multibyte", &model_snapshot);
 
@@ -1789,7 +1794,7 @@ fn render_snapshot_command_exports_render_session_snapshot_modal() {
         app.active_modal,
         ActiveModal::CommandOutput { .. }
     ));
-    let snapshot = render_app_frame(&mut app, 104, 24);
+    let snapshot = render_app_frame(&mut app, 140, 24);
     assert_snapshot_has(
         "render snapshot export modal",
         &snapshot,
@@ -2306,7 +2311,7 @@ fn render_snapshot_status_overview_modal_is_semantic() {
             "MiniMax-M2.7",
             "running command",
             "reasoning:high",
-            "ctx~",
+            "ctx 0/200k",
             "API Key",
             "configured",
             "MCP",
@@ -2376,7 +2381,7 @@ fn render_snapshot_debug_config_modal_is_redacted_and_semantic() {
 
     app.dispatch_key_for_test(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
     let scrolled = render_app_frame(&mut app, 92, 18);
-    assert_snapshot_has("debug config modal scrolled", &scrolled, &["Footer"]);
+    assert_snapshot_has("debug config modal scrolled", &scrolled, &["Height Cache"]);
     assert_no_protocol_noise("debug config modal scrolled", &scrolled);
 
     app.dispatch_key_for_test(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));

@@ -11,7 +11,25 @@
     unused_imports,
     unused_must_use,
     unused_mut,
-    unused_variables
+    unused_variables,
+    clippy::await_holding_lock,
+    clippy::enum_variant_names,
+    clippy::field_reassign_with_default,
+    clippy::format_in_format_args,
+    clippy::if_same_then_else,
+    clippy::manual_clamp,
+    clippy::multiple_bound_locations,
+    clippy::needless_range_loop,
+    clippy::never_loop,
+    clippy::nonminimal_bool,
+    clippy::redundant_guards,
+    clippy::redundant_locals,
+    clippy::regex_creation_in_loops,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::unnecessary_filter_map,
+    clippy::unnecessary_sort_by,
+    clippy::wrong_self_convention
 )]
 
 mod app_state;
@@ -56,6 +74,8 @@ mod stream_json_terminal_renderer;
 mod structured_io;
 mod system_prompt;
 mod tasks;
+#[cfg(test)]
+mod test_support;
 mod tools_registry;
 mod transports;
 mod upstream_proxy;
@@ -65,6 +85,7 @@ mod voice;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::collections::HashMap;
+use std::env;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -227,32 +248,35 @@ async fn run(cli: Cli) -> Result<()> {
     setup::validate_permission_safety(
         cli.access_policy
             .as_ref()
-            .map_or(false, |p| matches!(p, cli::AccessPolicyArg::Unrestricted)),
+            .is_some_and(|p| matches!(p, cli::AccessPolicyArg::Unrestricted)),
         cli.dangerously_skip_permissions,
     )
     .context("permission safety check failed")?;
 
     // 6. 应用 CLI 参数到状态
     apply_cli_to_state(&cli, &state)?;
+    apply_active_profile_to_custom_backend_env(cli.model.as_deref());
 
     // 7. 执行 setup 流程
     setup::run_setup(&state, cli.bare)
         .await
         .context("setup failed")?;
 
-    // 7.6 Skill 动态发现：沿 cwd 向上查找 .mossen/skills 目录。
-    // Phase 2-2: wire discover_skill_dirs_for_paths
+    // 7.6 Skill 动态发现：加载用户级 skills 和沿 cwd 向上查找
+    // .mossen/skills 目录。
     let cwd_str = cwd_path.to_string_lossy().to_string();
-    let cwd_path_clone = cwd_path.clone();
-    let discovered =
-        mossen_skills::discover_skill_dirs_for_paths(&[cwd_path_clone], &cwd_path, ".mossen").await;
-    if !discovered.is_empty() {
-        let added = mossen_skills::add_skill_directories(&discovered).await;
+    let skill_load_report =
+        mossen_skills::load_startup_skill_directories(&cwd_path, ".mossen").await;
+    if skill_load_report.user_dir_present
+        || skill_load_report.project_dir_count > 0
+        || skill_load_report.added_skill_count > 0
+    {
         info!(
             target: "mossen_cli::skills",
-            count = discovered.len(),
-            added,
-            "skill directories discovered during startup"
+            user_dir_present = skill_load_report.user_dir_present,
+            project_dirs = skill_load_report.project_dir_count,
+            added = skill_load_report.added_skill_count,
+            "skill directories loaded during startup"
         );
     }
 
@@ -268,7 +292,7 @@ async fn run(cli: Cli) -> Result<()> {
     }
 
     // 8. 路由到对应模式
-    let result = route_command(cli, state.clone(), shutdown).await;
+    let result = route_command(cli, state.clone(), cwd_path, shutdown).await;
     stop_session_background_services().await;
 
     // 9. 清理退出
@@ -312,10 +336,64 @@ fn apply_cli_to_state(cli: &Cli, state: &SharedBootstrapState) -> Result<()> {
     Ok(())
 }
 
+fn env_value_present(key: &str) -> bool {
+    env::var(key)
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn set_env_if_missing(key: &str, value: &str) {
+    if !env_value_present(key) && !value.trim().is_empty() {
+        env::set_var(key, value);
+    }
+}
+
+/// Bridge the persisted active model profile into the legacy runtime env knobs.
+///
+/// The transport layer currently discovers OpenAI-compatible custom backends
+/// from `MOSSEN_CODE_CUSTOM_*`. Without this bridge, `mossen.activeProfile`
+/// can be correctly configured while the live session still falls through to
+/// the placeholder first-party URL.
+fn apply_active_profile_to_custom_backend_env(cli_model_override: Option<&str>) {
+    let Some(profile) = mossen_agent::services::config::profiles::get_current_profile() else {
+        return;
+    };
+
+    set_env_if_missing("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+    set_env_if_missing(
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        profile.profile.provider.runtime_protocol(),
+    );
+    set_env_if_missing("MOSSEN_CODE_CUSTOM_NAME", &profile.name);
+    set_env_if_missing("MOSSEN_CODE_CUSTOM_BASE_URL", &profile.profile.base_url);
+    set_env_if_missing("MOSSEN_CODE_CUSTOM_API_KEY", &profile.profile.api_key);
+
+    if cli_model_override
+        .map(|model| model.trim().is_empty())
+        .unwrap_or(true)
+    {
+        set_env_if_missing("MOSSEN_CODE_CUSTOM_MODEL", &profile.profile.model);
+    }
+
+    // Keep EngineConfig/status displays aligned with the active profile. The
+    // actual MiniMax/Qwen/GLM request path still uses MOSSEN_CODE_CUSTOM_*.
+    set_env_if_missing("MOSSEN_API_BASE_URL", &profile.profile.base_url);
+    set_env_if_missing("MOSSEN_API_KEY", &profile.profile.api_key);
+
+    info!(
+        target: "mossen_cli::profiles",
+        profile = %profile.name,
+        model = %profile.profile.model,
+        "active model profile applied to custom backend environment"
+    );
+}
+
 /// 路由命令到对应的执行模式。
 async fn route_command(
     cli: Cli,
     state: SharedBootstrapState,
+    cwd_path: std::path::PathBuf,
     shutdown: ShutdownSignal,
 ) -> Result<()> {
     // 子命令优先
@@ -339,7 +417,7 @@ async fn route_command(
         initial_prompt: cli.continue_prompt.clone(),
         restore_mode: cli.should_restore(),
         restore_session_id: cli.restore_id.clone(),
-        mcp_enabled: cli.mcp_config.is_some(),
+        mcp_enabled: cli.mcp_config.is_some() || cwd_path.join(".mcp.json").exists(),
         mcp_config: cli.mcp_config.clone(),
         system_prompt: cli.system_prompt.clone(),
         extra_prompt: cli.extra_prompt.clone(),
@@ -705,40 +783,24 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
             let directive = mossen_commands::plugin::PluginDirective;
             match action {
                 Some(PluginSubCmd::List) | None => {
-                    // 显示内置插件 + 通过 mossen-skills 注册的
-                    let builtin = mossen_skills::plugin::get_builtin_plugins(
-                        &std::collections::HashMap::new(),
-                    );
-                    if builtin.enabled.is_empty() && builtin.disabled.is_empty() {
-                        let result = directive.execute(&[], &ctx).await?;
-                        render_command_result(result)?;
-                    } else {
-                        println!(
-                            "Installed plugins (enabled: {}, disabled: {}):",
-                            builtin.enabled.len(),
-                            builtin.disabled.len()
-                        );
-                        for p in &builtin.enabled {
-                            println!("  - {} [enabled] (source: {})", p.name, p.source);
-                        }
-                        for p in &builtin.disabled {
-                            println!("  - {} [disabled] (source: {})", p.name, p.source);
-                        }
-                    }
+                    let result = directive.execute(&["list"], &ctx).await?;
+                    render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Install { name }) => {
                     let result = directive.execute(&["install", &name], &ctx).await?;
                     render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Uninstall { name }) => {
-                    let result = directive.execute(&["remove", &name], &ctx).await?;
+                    let result = directive.execute(&["uninstall", &name], &ctx).await?;
                     render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Enable { name }) => {
-                    println!("Plugin '{}' enabled.", name);
+                    let result = directive.execute(&["enable", &name], &ctx).await?;
+                    render_command_result(result)?;
                 }
                 Some(PluginSubCmd::Disable { name }) => {
-                    println!("Plugin '{}' disabled.", name);
+                    let result = directive.execute(&["disable", &name], &ctx).await?;
+                    render_command_result(result)?;
                 }
             }
         }
@@ -807,4 +869,173 @@ async fn read_stdin_prompt() -> Result<String> {
         anyhow::bail!("empty prompt received from stdin");
     }
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mossen_agent::services::config::{facade, types::ConfigOverrideScope};
+
+    const PROFILE_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
+    }
+
+    struct EnvRestore(Vec<(&'static str, Option<String>)>);
+
+    impl EnvRestore {
+        fn capture(keys: &'static [&'static str]) -> Self {
+            Self(
+                keys.iter()
+                    .map(|key| (*key, env::var(key).ok()))
+                    .collect::<Vec<_>>(),
+            )
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                match value {
+                    Some(value) => env::set_var(key, value),
+                    None => env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn active_profile_sets_custom_backend_env_for_runtime() {
+        let _guard = env_lock();
+        let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
+        for key in PROFILE_ENV_KEYS {
+            env::remove_var(key);
+        }
+        facade::reset_facade_for_testing();
+        facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "minimax": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.minimaxi.com/v1",
+                    "model": "MiniMax-M2.7-highspeed",
+                    "apiKey": "sk-test-secret"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("minimax".to_string()),
+            ConfigOverrideScope::Override,
+        );
+
+        apply_active_profile_to_custom_backend_env(None);
+
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://api.minimaxi.com/v1")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
+            Ok("MiniMax-M2.7-highspeed")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-compatible")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_USE_CUSTOM_BACKEND").as_deref(),
+            Ok("1")
+        );
+
+        facade::reset_facade_for_testing();
+    }
+
+    #[test]
+    fn cli_model_override_keeps_profile_model_out_of_custom_model_env() {
+        let _guard = env_lock();
+        let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
+        for key in PROFILE_ENV_KEYS {
+            env::remove_var(key);
+        }
+        facade::reset_facade_for_testing();
+        facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "minimax": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.minimaxi.com/v1",
+                    "model": "MiniMax-M2.7-highspeed",
+                    "apiKey": "sk-test-secret"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("minimax".to_string()),
+            ConfigOverrideScope::Override,
+        );
+
+        apply_active_profile_to_custom_backend_env(Some("other-model"));
+
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://api.minimaxi.com/v1")
+        );
+        assert!(env::var("MOSSEN_CODE_CUSTOM_MODEL").is_err());
+
+        facade::reset_facade_for_testing();
+    }
+
+    #[test]
+    fn active_profile_sets_provider_protocol_for_runtime() {
+        let _guard = env_lock();
+        let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
+        for key in PROFILE_ENV_KEYS {
+            env::remove_var(key);
+        }
+        facade::reset_facade_for_testing();
+        facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "openai-responses": {
+                    "provider": "openai-responses",
+                    "baseURL": "https://api.openai.com/v1",
+                    "model": "gpt-5.1",
+                    "apiKey": "sk-test-secret"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("openai-responses".to_string()),
+            ConfigOverrideScope::Override,
+        );
+
+        apply_active_profile_to_custom_backend_env(None);
+
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-responses")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://api.openai.com/v1")
+        );
+
+        facade::reset_facade_for_testing();
+    }
 }

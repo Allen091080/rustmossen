@@ -1902,8 +1902,14 @@ mod tests {
 
     impl EnvRestore {
         fn set_custom_backend(base_url: &str) -> Self {
+            Self::set_custom_backend_with_protocol(base_url, "openai-compatible")
+        }
+
+        fn set_custom_backend_with_protocol(base_url: &str, protocol: &str) -> Self {
             const KEYS: &[&str] = &[
                 "MOSSEN_CODE_CUSTOM_BASE_URL",
+                "MOSSEN_CODE_CUSTOM_API_KEY",
+                "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
                 "MOSSEN_CODE_CUSTOM_MODEL",
                 "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS",
                 "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS",
@@ -1914,6 +1920,8 @@ mod tests {
                 .map(|key| (*key, std::env::var(key).ok()))
                 .collect();
             std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", base_url);
+            std::env::set_var("MOSSEN_CODE_CUSTOM_API_KEY", "sk-test");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL", protocol);
             std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", "harness-test");
             std::env::set_var("MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS", "5");
             std::env::set_var("MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS", "5");
@@ -1990,11 +1998,186 @@ mod tests {
         http_sse_response(body)
     }
 
+    fn sse_event(event: &str, data: serde_json::Value) -> String {
+        format!("event: {event}\ndata: {data}\n\n")
+    }
+
+    fn openai_responses_final_answer_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "response.output_text.delta",
+            serde_json::json!({
+                "type": "response.output_text.delta",
+                "delta": "responses completed"
+            }),
+        ));
+        body.push_str(&sse_event(
+            "response.completed",
+            serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 4
+                    }
+                }
+            }),
+        ));
+        http_sse_response(body)
+    }
+
+    fn openai_responses_tool_call_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "response.output_item.done",
+            serde_json::json!({
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call-glob",
+                    "name": "Glob",
+                    "arguments": "{\"pattern\":\"**/*.md\"}"
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "response.completed",
+            serde_json::json!({
+                "type": "response.completed",
+                "response": {
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 4
+                    }
+                }
+            }),
+        ));
+        http_sse_response(body)
+    }
+
+    fn anthropic_final_answer_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "message_start",
+            serde_json::json!({
+                "id": "msg_01",
+                "type": "message",
+                "role": "assistant",
+                "model": "harness-test",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 0
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_start",
+            serde_json::json!({
+                "index": 0,
+                "content_block": {
+                    "type": "text",
+                    "text": ""
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_delta",
+            serde_json::json!({
+                "index": 0,
+                "delta": {
+                    "type": "text_delta",
+                    "text": "anthropic completed"
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_stop",
+            serde_json::json!({
+                "index": 0
+            }),
+        ));
+        body.push_str(&sse_event(
+            "message_delta",
+            serde_json::json!({
+                "delta": {
+                    "stop_reason": "end_turn",
+                    "stop_sequence": null
+                },
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 5
+                }
+            }),
+        ));
+        body.push_str(&sse_event("message_stop", serde_json::json!({})));
+        http_sse_response(body)
+    }
+
+    fn anthropic_tool_call_sse_response() -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "message_start",
+            serde_json::json!({
+                "id": "msg_tool",
+                "type": "message",
+                "role": "assistant",
+                "model": "harness-test",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 0
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_start",
+            serde_json::json!({
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu-glob",
+                    "name": "Glob"
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_delta",
+            serde_json::json!({
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": "{\"pattern\":\"**/*.md\"}"
+                }
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_stop",
+            serde_json::json!({
+                "index": 0
+            }),
+        ));
+        body.push_str(&sse_event(
+            "message_delta",
+            serde_json::json!({
+                "delta": {
+                    "stop_reason": "tool_use",
+                    "stop_sequence": null
+                },
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 5
+                }
+            }),
+        ));
+        body.push_str(&sse_event("message_stop", serde_json::json!({})));
+        http_sse_response(body)
+    }
+
     fn find_header_end(bytes: &[u8]) -> Option<usize> {
         bytes.windows(4).position(|window| window == b"\r\n\r\n")
     }
 
-    async fn read_http_body(stream: &mut tokio::net::TcpStream) -> String {
+    async fn read_http_request(stream: &mut tokio::net::TcpStream) -> (String, String) {
         let mut buf = Vec::new();
         let mut chunk = [0_u8; 1024];
         let header_end = loop {
@@ -2005,7 +2188,7 @@ mod tests {
                 break pos + 4;
             }
         };
-        let headers = String::from_utf8_lossy(&buf[..header_end]);
+        let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
         let content_length = headers
             .lines()
             .find_map(|line| {
@@ -2019,7 +2202,14 @@ mod tests {
             assert!(n > 0, "connection closed before request body");
             buf.extend_from_slice(&chunk[..n]);
         }
-        String::from_utf8_lossy(&buf[header_end..header_end + content_length]).to_string()
+        (
+            headers,
+            String::from_utf8_lossy(&buf[header_end..header_end + content_length]).to_string(),
+        )
+    }
+
+    async fn read_http_body(stream: &mut tokio::net::TcpStream) -> String {
+        read_http_request(stream).await.1
     }
 
     async fn spawn_openai_compatible_harness_server(
@@ -2059,6 +2249,35 @@ mod tests {
                 .await
                 .expect("write response");
             vec![body]
+        });
+        (base_url, handle)
+    }
+
+    async fn spawn_single_capture_harness_server(
+        response: String,
+    ) -> (String, tokio::task::JoinHandle<Vec<(String, String)>>) {
+        spawn_capture_harness_server(vec![response]).await
+    }
+
+    async fn spawn_capture_harness_server(
+        responses: Vec<String>,
+    ) -> (String, tokio::task::JoinHandle<Vec<(String, String)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind harness server");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for response in responses {
+                let (mut stream, _) = listener.accept().await.expect("accept request");
+                let request = read_http_request(&mut stream).await;
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write response");
+                requests.push(request);
+            }
+            requests
         });
         (base_url, handle)
     }
@@ -2252,6 +2471,350 @@ mod tests {
                 .as_str()
                 .is_some_and(|content| content.contains("phases/01-harness.md")),
             "tool result content should include the Glob output"
+        );
+    }
+
+    #[tokio::test]
+    async fn harness_routes_openai_responses_protocol_to_responses_endpoint() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_single_capture_harness_server(openai_responses_final_answer_sse_response()).await;
+        let _env = EnvRestore::set_custom_backend_with_protocol(&base_url, "openai-responses");
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "use responses")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: ".".to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(1),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: None,
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "responses-session",
+        )
+        .await
+        .expect("responses protocol should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        drop(tx);
+        let mut saw_final_answer = false;
+        while let Some(message) = rx.recv().await {
+            if let SdkMessage::Assistant { message, .. } = message {
+                if format!("{:?}", message.content).contains("responses completed") {
+                    saw_final_answer = true;
+                }
+            }
+        }
+        assert!(
+            saw_final_answer,
+            "Responses SSE text should reach assistant output"
+        );
+
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        let (headers, body) = requests.into_iter().next().expect("captured request");
+        assert!(headers.starts_with("POST /v1/responses "));
+        assert!(headers.contains("authorization: Bearer sk-test"));
+        let body: serde_json::Value = serde_json::from_str(&body).expect("body should be JSON");
+        assert_eq!(body["model"], "harness-test");
+        assert!(body.get("input").is_some());
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["max_output_tokens"], 1024);
+    }
+
+    #[tokio::test]
+    async fn harness_executes_tool_loop_through_openai_responses_protocol() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            openai_responses_tool_call_sse_response(),
+            openai_responses_final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend_with_protocol(&base_url, "openai-responses");
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessGlobTool));
+        let registry = Arc::new(registry);
+        let tools = registry.definitions();
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "responses tool loop")],
+            tools,
+            tool_use_context: ToolUseContext {
+                cwd: ".".to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(4),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: None,
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "responses-tool-loop-session",
+        )
+        .await
+        .expect("responses tool loop should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        drop(tx);
+        let mut saw_glob_summary = false;
+        while let Some(message) = rx.recv().await {
+            if let SdkMessage::ToolUseSummary {
+                tool_name, summary, ..
+            } = message
+            {
+                if tool_name == "Glob" && summary.contains("phases/01-harness.md") {
+                    saw_glob_summary = true;
+                }
+            }
+        }
+        assert!(saw_glob_summary, "Responses tool call should execute Glob");
+
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].0.starts_with("POST /v1/responses "));
+        assert!(requests[1].0.starts_with("POST /v1/responses "));
+        let second_body: serde_json::Value =
+            serde_json::from_str(&requests[1].1).expect("second request should be JSON");
+        let input = second_body["input"]
+            .as_array()
+            .expect("Responses request should include input array");
+        assert!(
+            input
+                .iter()
+                .any(|item| item["type"] == "function_call_output"
+                    && item["call_id"] == "call-glob"
+                    && item["output"]
+                        .as_str()
+                        .is_some_and(|output| output.contains("phases/01-harness.md"))),
+            "second Responses request should carry the tool output item"
+        );
+    }
+
+    #[tokio::test]
+    async fn harness_routes_anthropic_protocol_to_messages_endpoint() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_single_capture_harness_server(anthropic_final_answer_sse_response()).await;
+        let _env = EnvRestore::set_custom_backend_with_protocol(&base_url, "anthropic");
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "use anthropic")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: ".".to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(1),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: None,
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "anthropic-session",
+        )
+        .await
+        .expect("anthropic protocol should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        drop(tx);
+        let mut saw_final_answer = false;
+        while let Some(message) = rx.recv().await {
+            if let SdkMessage::Assistant { message, .. } = message {
+                if format!("{:?}", message.content).contains("anthropic completed") {
+                    saw_final_answer = true;
+                }
+            }
+        }
+        assert!(
+            saw_final_answer,
+            "Anthropic SSE text should reach assistant output"
+        );
+
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        let (headers, body) = requests.into_iter().next().expect("captured request");
+        assert!(headers.starts_with("POST /v1/messages "));
+        assert!(headers.contains("x-api-key: sk-test"));
+        assert!(headers.contains("anthropic-version: 2023-06-01"));
+        let body: serde_json::Value = serde_json::from_str(&body).expect("body should be JSON");
+        assert_eq!(body["model"], "harness-test");
+        assert_eq!(body["stream"], true);
+        assert!(body.get("messages").is_some());
+        assert!(body.get("input").is_none());
+    }
+
+    #[tokio::test]
+    async fn harness_executes_tool_loop_through_anthropic_protocol() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            anthropic_tool_call_sse_response(),
+            anthropic_final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend_with_protocol(&base_url, "anthropic");
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessGlobTool));
+        let registry = Arc::new(registry);
+        let tools = registry.definitions();
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "anthropic tool loop")],
+            tools,
+            tool_use_context: ToolUseContext {
+                cwd: ".".to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(4),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: None,
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "anthropic-tool-loop-session",
+        )
+        .await
+        .expect("anthropic tool loop should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        drop(tx);
+        let mut saw_glob_summary = false;
+        while let Some(message) = rx.recv().await {
+            if let SdkMessage::ToolUseSummary {
+                tool_name, summary, ..
+            } = message
+            {
+                if tool_name == "Glob" && summary.contains("phases/01-harness.md") {
+                    saw_glob_summary = true;
+                }
+            }
+        }
+        assert!(saw_glob_summary, "Anthropic tool call should execute Glob");
+
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].0.starts_with("POST /v1/messages "));
+        assert!(requests[1].0.starts_with("POST /v1/messages "));
+        let second_body: serde_json::Value =
+            serde_json::from_str(&requests[1].1).expect("second request should be JSON");
+        let messages = second_body["messages"]
+            .as_array()
+            .expect("Anthropic request should include messages");
+        assert!(
+            messages.iter().any(
+                |message| message["content"].as_array().is_some_and(|content| content
+                    .iter()
+                    .any(|block| block["type"] == "tool_result"
+                        && block["tool_use_id"] == "toolu-glob"))
+            ),
+            "second Anthropic request should carry the tool_result block"
         );
     }
 

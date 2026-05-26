@@ -216,7 +216,7 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 }
 
                 let provider = provider.unwrap();
-                if !PROFILE_PROVIDER_VALUES.contains(&provider) {
+                if ProfileProvider::parse(provider).is_none() {
                     eprintln!(
                         "error: --provider must be one of {}, got \"{}\"",
                         PROFILE_PROVIDER_VALUES.join("|"),
@@ -274,8 +274,8 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                 let model = get_option_value(args, "--model").unwrap_or(&existing.model);
                 let api_key = get_option_value(args, "--apiKey").unwrap_or(&existing.api_key);
                 let display_name = get_option_value(args, "--name").or(existing.name.as_deref());
-                let provider_str =
-                    get_option_value(args, "--provider").unwrap_or("openai-compatible");
+                let provider_str = get_option_value(args, "--provider")
+                    .unwrap_or_else(|| existing.provider.as_str());
 
                 let schema = json!({
                     "provider": provider_str,
@@ -317,7 +317,7 @@ pub async fn handle_model_profile_cli_flag(args: &[String]) -> (bool, i32) {
                     }
                 };
                 let updated = json!({
-                    "provider": "openai-compatible",
+                    "provider": existing.provider.as_str(),
                     "baseURL": existing.base_url,
                     "model": existing.model,
                     "apiKey": key,
