@@ -399,10 +399,7 @@ pub fn add_plugin_installation(
 ) -> Result<()> {
     let mut data = load_installed_plugins_from_disk(env);
 
-    let installations = data
-        .plugins
-        .entry(plugin_id.to_string())
-        .or_insert_with(Vec::new);
+    let installations = data.plugins.entry(plugin_id.to_string()).or_default();
 
     // Find existing entry for this scope+projectPath
     let existing_index = installations
@@ -732,8 +729,7 @@ pub fn is_installation_relevant_to_current_project(
 ) -> bool {
     inst.scope == PluginScope::User
         || inst.scope == PluginScope::Managed
-        || inst.project_path.as_deref()
-            == Some(&env.get_original_cwd().to_string_lossy().to_string())
+        || inst.project_path.as_deref() == Some(env.get_original_cwd().to_string_lossy().as_ref())
 }
 
 /// Check if a plugin is installed in a way relevant to the current project.
@@ -795,10 +791,7 @@ pub fn add_installed_plugin(
         project_path: project_path.map(|s| s.to_string()),
     };
 
-    let installations = v2_data
-        .plugins
-        .entry(plugin_id.to_string())
-        .or_insert_with(Vec::new);
+    let installations = v2_data.plugins.entry(plugin_id.to_string()).or_default();
 
     let existing_index = installations
         .iter()

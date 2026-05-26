@@ -57,7 +57,7 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
         None => return ParsedCommand::Menu,
     };
 
-    let parts: Vec<&str> = args.trim().split_whitespace().collect();
+    let parts: Vec<&str> = args.split_whitespace().collect();
     let command = parts.first().map(|s| s.to_lowercase()).unwrap_or_default();
 
     match command.as_str() {
@@ -130,7 +130,7 @@ pub fn parse_plugin_args(args: Option<&str>) -> ParsedCommand {
 
         "manage" => ParsedCommand::Manage,
 
-        "uninstall" => ParsedCommand::Uninstall {
+        "uninstall" | "remove" | "rm" => ParsedCommand::Uninstall {
             plugin: parts.get(1).map(|s| s.to_string()),
         },
 
@@ -270,5 +270,55 @@ mod tests {
             }
             _ => panic!("Expected Validate command"),
         }
+    }
+
+    #[test]
+    fn test_prune_sources_paths_and_plan_commands() {
+        assert!(matches!(
+            parse_plugin_args(Some("prune --confirm abc123")),
+            ParsedCommand::Prune {
+                confirm_token: Some(token)
+            } if token == "abc123"
+        ));
+        assert!(matches!(
+            parse_plugin_args(Some("sources")),
+            ParsedCommand::Sources
+        ));
+        assert!(matches!(
+            parse_plugin_args(Some("paths")),
+            ParsedCommand::Paths
+        ));
+
+        assert!(matches!(
+            parse_plugin_args(Some("marketplace add --dry-run owner/repo")),
+            ParsedCommand::MarketplaceAddPlan {
+                target: Some(target),
+                confirm_token: None,
+            } if target == "owner/repo"
+        ));
+        assert!(matches!(
+            parse_plugin_args(Some("marketplace add --confirm deadbeef")),
+            ParsedCommand::MarketplaceAddPlan {
+                target: None,
+                confirm_token: Some(token),
+            } if token == "deadbeef"
+        ));
+
+        assert!(matches!(
+            parse_plugin_args(Some("install --dry-run demo@market --scope project")),
+            ParsedCommand::InstallPlan {
+                plugin: Some(plugin),
+                scope: Some(scope),
+                confirm_token: None,
+            } if plugin == "demo@market" && scope == "project"
+        ));
+        assert!(matches!(
+            parse_plugin_args(Some("install --confirm feedface")),
+            ParsedCommand::InstallPlan {
+                plugin: None,
+                scope: None,
+                confirm_token: Some(token),
+            } if token == "feedface"
+        ));
     }
 }

@@ -435,7 +435,7 @@ impl Tool for ShellExecutor {
         };
 
         let elapsed = start.elapsed().as_millis() as u64;
-        let is_error = result.exit_code.map_or(true, |c| c != 0) || result.timed_out;
+        let is_error = (result.exit_code != Some(0)) || result.timed_out;
 
         Ok(ToolResult {
             output: serde_json::to_string(&result)?,
@@ -525,6 +525,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn bash_background_task_returns_id_and_records_output() {
+        let _guard = crate::task_store::test_store_guard();
         let temp = tempfile::tempdir().expect("tempdir");
         let context = ToolUseContext {
             cwd: temp.path().to_string_lossy().to_string(),
@@ -558,6 +559,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn bash_background_task_stop_kills_process_group_children() {
+        let _guard = crate::task_store::test_store_guard();
         let temp = tempfile::tempdir().expect("tempdir");
         let context = ToolUseContext {
             cwd: temp.path().to_string_lossy().to_string(),

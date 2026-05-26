@@ -148,7 +148,7 @@ pub async fn check_agent_memory_snapshot(
             let mut found = false;
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |e| e == "md") {
+                if path.is_file() && path.extension().is_some_and(|e| e == "md") {
                     found = true;
                     break;
                 }
@@ -214,7 +214,7 @@ pub async fn replace_from_snapshot(
     if let Ok(mut entries) = tokio::fs::read_dir(&local_mem_dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "md") {
+            if path.is_file() && path.extension().is_some_and(|e| e == "md") {
                 let _ = tokio::fs::remove_file(&path).await;
             }
         }

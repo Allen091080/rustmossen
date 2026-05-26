@@ -188,7 +188,7 @@ impl Directive for EffortDirective {
 
             // In interactive mode, show effort picker as text menu
             let current = show_current_effort();
-            let mut output = format!("Choose effort level\nCurrently: auto\n\n");
+            let mut output = "Choose effort level\nCurrently: auto\n\n".to_string();
             for level in &["auto", "low", "medium", "high", "max"] {
                 let desc = if *level == "auto" {
                     "Use the model's default effort level"

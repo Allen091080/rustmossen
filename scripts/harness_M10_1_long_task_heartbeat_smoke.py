@@ -1,32 +1,16 @@
 #!/usr/bin/env python3
 """
-M10.1 — 长任务 heartbeat / 真完成 e2e。
+M10.1 - long-running MCP tool completion e2e for the current Rust runner.
 
-按 harness全链路测试.md §C.6 M10.1 P0 契约:
-  长 (理论 30min) 工具调用必须真完成, 不被无声 abort, mossen 进程不退、
-  进度可见。这里用 mock MCP server 真 sleep 10s 替代 30min, 验"长任务能
-  真完成"这条最小但强契约。
+Contract:
+  - the model emits an MCP tool_use;
+  - Mossen executes a real slow MCP stdio tool and waits for completion;
+  - the tool_result is fed back into the next model request;
+  - the final assistant response is printed instead of the loop stopping after
+    the tool call.
 
-源码事实 (src/services/mcp/client.ts:212-228):
-  DEFAULT_MCP_TOOL_TIMEOUT_MS = 100_000_000  (≈27.8 小时)
-  → 默认 mossen 不会 5s 就 timeout, 10s sleep 安全。
-  内部还有"Log every 30 seconds"的 progress logger (3060 行附近)。
-
-策略:
-  - mock server: harness_mock_slow_mcp_server.py, slow_M10_1 真 sleep 10s
-  - .mcp.json 指向 mock
-  - prompt 让 model 调 slow_M10_1
-  - 验:
-    1. exit_code == 0
-    2. 总耗时 ≥ 9.5s (mock server 真 sleep 10s, model 真等到 + 回流)
-    3. session log 含 mcp__...slow_M10_1 tool_use + tool_result
-    4. tool_result 含 SLOW_TAG_FROM_MOCK_M10_1 (= mock server 真返了, 没被 abort)
-
-强契约: long-running tool 不被 mossen 主进程 abort, 真完成。
-
-反测信号: 如果有人改 src/services/mcp/client.ts 把 timeoutMs 强写成 5000ms,
-slow_M10_1 在 5s 后被 abort → tool_result 是 timeout error → SLOW_TAG 不出现
-→ 此 case fail。
+This test uses a local OpenAI-compatible mock server so it does not depend on a
+real LLM service or the removed legacy run-mossen.sh wrapper.
 """
 
 from __future__ import annotations
@@ -34,127 +18,259 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
+REAL_HOME = Path.home()
+DEBUG_MOSSEN = ROOT / "target" / "debug" / "mossen"
 MCP_SERVER_NAME = "harness_mock_slow_M10_1"
 MCP_TOOL_FULL_NAME = f"mcp__{MCP_SERVER_NAME}__slow_M10_1"
 SLOW_TAG = "SLOW_TAG_FROM_MOCK_M10_1"
 SLOW_SLEEP_SECS = 10
-MIN_EXPECTED_DURATION = 9.5  # 给一点点 jitter
+MIN_EXPECTED_DURATION = 9.5
+FINAL_MARKER = "FINAL_OK_M10_1"
 
 
-def _find_session_logs(fixture_home: Path) -> list[Path]:
-    found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
-        for p in fixture_home.glob(pattern):
-            if p not in found:
-                found.append(p)
-    return found
+def mossen_runner() -> str:
+    if DEBUG_MOSSEN.exists() and DEBUG_MOSSEN.is_file():
+        return str(DEBUG_MOSSEN)
+    return str(ROOT / "scripts" / "start-mossen.sh")
+
+
+class MockOpenAIState:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.requests: list[dict[str, Any]] = []
+        self.tool_result_seen = False
+
+    def record(self, path: str, body: bytes) -> int:
+        try:
+            parsed = json.loads(body.decode("utf-8")) if body else {}
+        except json.JSONDecodeError:
+            parsed = {"_decode_error": body.decode("utf-8", "replace")}
+        with self.lock:
+            self.requests.append({"path": path, "body": parsed})
+            if SLOW_TAG in json.dumps(parsed, ensure_ascii=False):
+                self.tool_result_seen = True
+            return len(self.requests)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {
+                "request_count": len(self.requests),
+                "paths": [req["path"] for req in self.requests],
+                "tool_result_seen": self.tool_result_seen,
+            }
+
+
+def write_sse(wfile, payload: dict[str, Any]) -> None:
+    wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+    wfile.flush()
+
+
+def make_handler(state: MockOpenAIState):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            payload = json.dumps(
+                {"object": "list", "data": [{"id": "m10-agent-loop-model", "object": "model"}]}
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length else b""
+            request_index = state.record(self.path, body)
+            if not self.path.endswith("/chat/completions"):
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                if request_index == 1:
+                    self._write_tool_call()
+                else:
+                    self._write_final()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            finally:
+                self.close_connection = True
+
+        def _write_tool_call(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-long-tool-call",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_m10_1_slow",
+                                        "type": "function",
+                                        "function": {
+                                            "name": MCP_TOOL_FULL_NAME,
+                                            "arguments": json.dumps({"note": "heartbeat_test"}),
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-long-tool-call",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def _write_final(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-long-final",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": f"{FINAL_MARKER}: slow tool result was received."
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-long-final",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 8},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+    return Handler
+
+
+@contextmanager
+def mock_openai_server():
+    state = MockOpenAIState()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield f"http://{host}:{port}", state
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def case_long_task_completes() -> dict:
     ctx = make_fixture("M10.1")
-
     mock_server_path = ROOT / "scripts" / "harness_mock_slow_mcp_server.py"
 
-    mcp_config = ctx.root_dir / ".mcp.json"
-    mcp_config.write_text(json.dumps({
+    mcp_config = {
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": "python3",
                 "args": [str(mock_server_path)],
-                "env": {
-                    # 让 mock server 知道睡多久
-                    "HARNESS_SLOW_SLEEP_SECS": str(SLOW_SLEEP_SECS),
-                },
+                "env": {"HARNESS_SLOW_SLEEP_SECS": str(SLOW_SLEEP_SECS)},
             }
         }
-    }, indent=2))
+    }
 
-    # 把 env 也设上 (subprocess 启动时 mock server 进程会继承部分)
     env = dict(ctx.env)
-    env["HARNESS_SLOW_SLEEP_SECS"] = str(SLOW_SLEEP_SECS)
+    env.setdefault("CARGO_HOME", str(REAL_HOME / ".cargo"))
+    env.setdefault("RUSTUP_HOME", str(REAL_HOME / ".rustup"))
+    env.update(
+        {
+            "HARNESS_SLOW_SLEEP_SECS": str(SLOW_SLEEP_SECS),
+            "MOSSEN_CODE_USE_CUSTOM_BACKEND": "1",
+            "MOSSEN_CODE_CUSTOM_MODEL": "m10-agent-loop-model",
+            "MOSSEN_CODE_CUSTOM_NAME": "M10 Agent Loop Mock",
+            "MOSSEN_CODE_CUSTOM_API_KEY": "sk-m10-local-fake",
+            "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL": "openai-compatible",
+            "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS": "30",
+            "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS": "30",
+        }
+    )
 
     prompt = (
-        f"请用 slow_M10_1 这个 MCP 工具, 参数 note=heartbeat_test, "
-        f"等它返回后把工具返回内容原样打印出来。"
-        f"该工具会真睡 {SLOW_SLEEP_SECS} 秒后才返, 请耐心等待, 不要中途取消。"
+        "Call the slow_M10_1 MCP tool once, wait for it to finish, then answer "
+        f"with {FINAL_MARKER}."
     )
 
-    t_start = time.monotonic()
-    proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "-p",
-         "--allowedTools", MCP_TOOL_FULL_NAME],
-        input=prompt,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=360,
-        cwd=str(ctx.root_dir),
-    )
-    duration = time.monotonic() - t_start
+    with mock_openai_server() as (base_url, model_state):
+        env["MOSSEN_CODE_CUSTOM_BASE_URL"] = base_url
+        command = [
+            mossen_runner(),
+            "--stdin",
+            "--mcp-config",
+            json.dumps(mcp_config),
+        ]
+        t_start = time.monotonic()
+        proc = subprocess.run(
+            command,
+            input=prompt,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(ctx.root_dir),
+        )
+        duration = time.monotonic() - t_start
+        server_snapshot = model_state.snapshot()
 
-    write_command_log(
-        ctx,
-        [str(ROOT / "run-mossen.sh"), "-p", "--allowedTools", MCP_TOOL_FULL_NAME],
-        proc.stdout, proc.stderr, proc.returncode,
-    )
+    write_command_log(ctx, command, proc.stdout, proc.stderr, proc.returncode)
 
     duration_ok = duration >= MIN_EXPECTED_DURATION
-    slow_tag_in_stdout = SLOW_TAG in proc.stdout
-
-    # session log 验: tool_use + tool_result + tool_result 含 SLOW_TAG
-    session_logs = _find_session_logs(ctx.home_dir)
-    slow_tool_use_ids: set[str] = set()
-    slow_tool_result_has_tag = False
-    slow_tool_result_was_error = False
-
-    for log_file in session_logs:
-        try:
-            for line in log_file.read_text().splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                msg = obj.get("message", obj)
-                content = msg.get("content")
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get("type") == "tool_use":
-                        name = block.get("name", "")
-                        if name.startswith("mcp__") and "slow_M10_1" in name:
-                            tid = block.get("id")
-                            if tid:
-                                slow_tool_use_ids.add(tid)
-                    elif block.get("type") == "tool_result":
-                        tid = block.get("tool_use_id")
-                        if tid in slow_tool_use_ids:
-                            result_str = str(block.get("content", ""))
-                            if SLOW_TAG in result_str:
-                                slow_tool_result_has_tag = True
-                            if block.get("is_error") is True:
-                                slow_tool_result_was_error = True
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    slow_tool_use_found = len(slow_tool_use_ids) > 0
+    final_marker_in_stdout = FINAL_MARKER in proc.stdout
+    tool_result_seen_by_model = bool(server_snapshot["tool_result_seen"])
+    request_count_ok = server_snapshot["request_count"] >= 2
 
     ok = (
         proc.returncode == 0
         and duration_ok
-        and slow_tool_use_found
-        and slow_tool_result_has_tag
-        and not slow_tool_result_was_error
+        and final_marker_in_stdout
+        and tool_result_seen_by_model
+        and request_count_ok
     )
 
     return {
@@ -163,43 +279,38 @@ def case_long_task_completes() -> dict:
         "exit_code": proc.returncode,
         "duration_secs": round(duration, 2),
         "duration_ok": duration_ok,
-        "slow_tag_in_stdout": slow_tag_in_stdout,
-        "slow_tool_use_found": slow_tool_use_found,
-        "slow_tool_use_count": len(slow_tool_use_ids),
-        "slow_tool_result_has_tag": slow_tool_result_has_tag,
-        "slow_tool_result_was_error": slow_tool_result_was_error,
-        "stdout_excerpt": proc.stdout[:400],
-        "stderr_excerpt": proc.stderr[:300],
+        "final_marker_in_stdout": final_marker_in_stdout,
+        "tool_result_seen_by_model": tool_result_seen_by_model,
+        "model_request_count": server_snapshot["request_count"],
+        "model_request_paths": server_snapshot["paths"],
+        "stdout_excerpt": proc.stdout[:500],
+        "stderr_excerpt": proc.stderr[:500],
         "fixture_root": str(ctx.root_dir),
         "_ctx": ctx,
     }
 
 
 def main() -> int:
-    res1 = None
-    ctx = None
-    for attempt in range(3):  # transient LLM retry
-        res1 = case_long_task_completes()
-        ctx = res1.pop("_ctx")
-        if res1.get("ok"):
-            res1["_attempt"] = attempt + 1
-            break
-        res1["_attempt"] = attempt + 1
-    results = [res1]
+    res = case_long_task_completes()
+    ctx = res.pop("_ctx")
+    results = [res]
 
     write_assertions(
         ctx,
         status="passed" if all(r.get("ok") for r in results) else "failed",
         assertions=[
-            {"name": r["name"], "expected": True,
-             "actual": r.get("ok"), "passed": r.get("ok"),
-             "evidence": (
-                 f"duration={r.get('duration_secs')}s "
-                 f"duration_ok={r.get('duration_ok')} "
-                 f"slow_use={r.get('slow_tool_use_found')} "
-                 f"result_tag={r.get('slow_tool_result_has_tag')} "
-                 f"result_err={r.get('slow_tool_result_was_error')}"
-             )}
+            {
+                "name": r["name"],
+                "expected": True,
+                "actual": r.get("ok"),
+                "passed": r.get("ok"),
+                "evidence": (
+                    f"duration={r.get('duration_secs')}s duration_ok={r.get('duration_ok')} "
+                    f"requests={r.get('model_request_count')} "
+                    f"tool_result_seen={r.get('tool_result_seen_by_model')} "
+                    f"final_stdout={r.get('final_marker_in_stdout')}"
+                ),
+            }
             for r in results
         ],
     )
@@ -210,12 +321,8 @@ def main() -> int:
         "total": len(results),
         "fixture_root": str(ctx.root_dir),
         "design_note": (
-            f"M10.1 长任务真完成: mock MCP server 真 sleep {SLOW_SLEEP_SECS}s, "
-            "mossen 必须等到 + 收 tool_result + 含 SLOW_TAG, 不被 abort。"
-        ),
-        "antitest_signal": (
-            "如果有人改 src/services/mcp/client.ts 让 timeoutMs 强写成 5000, "
-            "slow_M10_1 会在 5s 被 abort → result_tag=False / result_err=True → fail。"
+            f"M10.1 uses current Rust runner and mock OpenAI backend. MCP sleeps "
+            f"{SLOW_SLEEP_SECS}s; the next model request must contain {SLOW_TAG}."
         ),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

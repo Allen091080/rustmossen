@@ -1,142 +1,114 @@
 #!/usr/bin/env python3
-"""
-W67 — plugin marketplace add dry-run/confirm smoke.
-
-Locks the safe optional path:
-- existing /plugin marketplace add <source> remains routed to PluginSettings
-- new /plugin marketplace add --dry-run <source> creates a token plan
-- new /plugin marketplace add --confirm <token> reuses existing
-  addMarketplaceSource() + saveMarketplaceToSettings()
-- no force/yes, no protocol/query loop/Workbench/insights drift
-"""
+"""W67 — current Rust plugin marketplace add dry-run/confirm smoke."""
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINE = ROOT / "utils" / "plugins" / "marketplaceAddPlan.ts"
-PARSER = ROOT / "commands" / "plugin" / "parseArgs.ts"
-ROUTER = ROOT / "commands" / "plugin" / "plugin.tsx"
-UI = ROOT / "commands" / "plugin" / "PluginMarketplaceAddPlan.tsx"
-SETTINGS = ROOT / "commands" / "plugin" / "PluginSettings.tsx"
-RUN_ALL = ROOT / "scripts" / "run_all_smoke.sh"
+sys.path.insert(0, str(ROOT / "scripts"))
 
-
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def diff_names() -> set[str]:
-    committed = subprocess.run(
-        ["git", "diff", "--name-only", "origin/main..HEAD"],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-    ).stdout
-    dirty = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD"],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-    ).stdout
-    return {
-        line.strip()
-        for line in (committed + "\n" + dirty).splitlines()
-        if line.strip()
-    }
-
-
-def require(condition: bool, failures: list[str], message: str) -> None:
-    if not condition:
-        failures.append(message)
-
-
-def check_engine(failures: list[str]) -> None:
-    src = read(ENGINE)
-    require(
-        "export const PLUGIN_MARKETPLACE_ADD_TOKEN_TTL_MS = 10 * 60 * 1000" in src,
-        failures,
-        "token TTL must be 10 minutes",
-    )
-    for symbol in [
-        "getPluginMarketplaceAddPlan",
-        "executePluginMarketplaceAddPlan",
-        "_resetPluginMarketplaceAddPlanStoreForTesting",
-    ]:
-        require(symbol in src, failures, f"missing {symbol}")
-    require("parseMarketplaceInput(trimmed)" in src, failures, "dry-run must reuse parseMarketplaceInput")
-    require("addMarketplaceSource(plan.source)" in src, failures, "confirm must reuse addMarketplaceSource")
-    require("saveMarketplaceToSettings(name, { source: resolvedSource })" in src, failures, "confirm must save resolved source to settings")
-    require("clearAllCaches()" in src, failures, "confirm must clear plugin caches")
-    require("planStore.delete(token)" in src, failures, "confirm token must be one-shot")
-    for forbidden in [
-        "child_process",
-        "execSync",
-        "spawnSync",
-        "git clone",
-        "--force",
-        "--yes",
-        "i-know-what-im-doing",
-    ]:
-        require(forbidden not in src, failures, f"forbidden bypass/shell token in engine: {forbidden}")
-
-
-def check_command(failures: list[str]) -> None:
-    parser = read(PARSER)
-    router = read(ROUTER)
-    ui = read(UI)
-    settings = read(SETTINGS)
-    require("type: 'marketplace-add-plan'" in parser, failures, "parser missing marketplace-add-plan type")
-    require("rest[0] === '--dry-run'" in parser, failures, "parser missing --dry-run route")
-    require("rest[0] === '--confirm'" in parser, failures, "parser missing --confirm route")
-    require("<PluginMarketplaceAddPlan" in router, failures, "plugin router missing plan component")
-    require("getPluginMarketplaceAddPlan" in ui and "executePluginMarketplaceAddPlan" in ui, failures, "UI must call dry-run + confirm helpers")
-    require("No settings were changed and no marketplace was fetched" in ui, failures, "dry-run text must promise no side effects")
-    require("/plugin marketplace add --dry-run <path/url>" in settings, failures, "help must advertise dry-run command")
-    require("/plugin marketplace add --confirm <token>" in settings, failures, "help must advertise confirm command")
-
-
-def check_boundaries(failures: list[str]) -> None:
-    names = diff_names()
-    for item in {
-        "entrypoints/sdk/controlSchemas.ts",
-        "entrypoints/sdk/coreSchemas.ts",
-        "query.ts",
-        "utils/processUserInput/processUserInput.ts",
-        "Tool.ts",
-        "commands/insights.ts",
-    }:
-        require(item not in names, failures, f"forbidden touched file: {item}")
-    for name in names:
-        require(not name.startswith("src/template-shell/"), failures, f"Workbench touched: {name}")
-        require(not name.startswith("src-tauri/"), failures, f"Tauri touched: {name}")
+from harness_rust_context import Step, cargo_test, run_context_harness, source_check
 
 
 def main() -> int:
-    failures: list[str] = []
-    check_engine(failures)
-    check_command(failures)
-    check_boundaries(failures)
-    require(
-        "wave_w67_plugin_marketplace_add_plan_smoke.py" in read(RUN_ALL),
-        failures,
-        "run_all_smoke.sh must register W67",
+    return run_context_harness(
+        test_id="W67",
+        script_name=Path(__file__).name,
+        steps=[
+            Step(
+                name="marketplace_add_plan_confirms_once",
+                command=cargo_test(
+                    "-p",
+                    "mossen-utils",
+                    "plugins::marketplace_add_plan::tests::marketplace_add_plan_confirms_once_and_clears_caches",
+                ),
+            ),
+            Step(
+                name="marketplace_add_plan_rejects_invalid_sources",
+                command=cargo_test(
+                    "-p",
+                    "mossen-utils",
+                    "plugins::marketplace_add_plan::tests::marketplace_add_plan_rejects_missing_and_invalid_sources",
+                ),
+            ),
+            Step(
+                name="plugin_parse_args_marketplace_add_plan",
+                command=cargo_test(
+                    "-p",
+                    "mossen-commands",
+                    "plugin_parse_args::tests::test_prune_sources_paths_and_plan_commands",
+                ),
+            ),
+            Step(
+                name="plugin_directive_marketplace_add_plan_writes_settings",
+                command=cargo_test(
+                    "-p",
+                    "mossen-commands",
+                    "plugin::tests::plugin_directive_marketplace_add_plan_writes_settings",
+                ),
+            ),
+        ],
+        checks=[
+            source_check(
+                "rust_marketplace_add_plan_contract",
+                "crates/mossen-utils/src/plugins/marketplace_add_plan.rs",
+                [
+                    "pub const PLUGIN_MARKETPLACE_ADD_TOKEN_TTL_MS: u64 = 10 * 60 * 1000;",
+                    "pub async fn get_plugin_marketplace_add_plan(",
+                    "pub async fn execute_plugin_marketplace_add_plan(",
+                    "store.remove(token)",
+                    "save_marketplace_to_settings",
+                    "clear_all_caches",
+                    "reset_plugin_marketplace_add_plan_store_for_testing()",
+                ],
+            ),
+            source_check(
+                "rust_marketplace_input_parser_present",
+                "crates/mossen-utils/src/plugins/parse_marketplace_input.rs",
+                [
+                    "pub async fn parse_marketplace_input(",
+                    "MarketplaceSource::GitHub",
+                    "MarketplaceSource::Git",
+                    "MarketplaceSource::Directory",
+                    "MarketplaceSource::File",
+                ],
+            ),
+            source_check(
+                "rust_plugin_parse_args_routes_marketplace_add_plan",
+                "crates/mossen-commands/src/plugin_parse_args.rs",
+                [
+                    "MarketplaceAddPlan",
+                    "\"marketplace\" | \"market\"",
+                    "Some(\"add\")",
+                    "\"--dry-run\"",
+                    "\"--confirm\"",
+                ],
+            ),
+            source_check(
+                "rust_plugin_directive_routes_marketplace_add_plan",
+                "crates/mossen-commands/src/plugin.rs",
+                [
+                    "ParsedCommand::MarketplaceAddPlan",
+                    "run_marketplace_add_plan(target, confirm_token, &runtime).await",
+                    "execute_plugin_marketplace_add_plan(",
+                    "save_marketplace_to_user_settings",
+                ],
+            ),
+            source_check(
+                "run_all_keeps_w67_registered",
+                "scripts/run_all_smoke.sh",
+                ["wave_w67_plugin_marketplace_add_plan_smoke.py"],
+            ),
+        ],
+        design_note=(
+            "W67 now validates the Rust marketplace-add plan: dry-run parses a "
+            "marketplace source into a tokenized plan, confirm writes via the injected "
+            "settings callback, clears caches, and consumes the token exactly once."
+        ),
     )
-    if failures:
-        print("W67 plugin marketplace add-plan smoke: FAIL")
-        for failure in failures:
-            print(f"  - {failure}")
-        return 1
-    print("W67 plugin marketplace add-plan smoke: PASS")
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

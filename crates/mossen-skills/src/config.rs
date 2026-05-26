@@ -291,7 +291,7 @@ fn parse_boolean_frontmatter(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Bool(b) => *b,
         serde_json::Value::String(s) => matches!(s.to_lowercase().as_str(), "true" | "yes" | "1"),
-        serde_json::Value::Number(n) => n.as_f64().map_or(false, |f| f != 0.0),
+        serde_json::Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
         _ => false,
     }
 }
@@ -381,9 +381,8 @@ pub fn parse_frontmatter(content: &str) -> (FrontmatterData, String) {
         let yaml_section = &trimmed[3..3 + end_idx];
         let markdown = &trimmed[3 + end_idx + 4..]; // skip \n---
 
-        match serde_json::from_value(serde_yaml_to_json(yaml_section)) {
-            Ok(fm) => return (fm, markdown.trim_start_matches('\n').to_string()),
-            Err(_) => {}
+        if let Ok(fm) = serde_json::from_value(serde_yaml_to_json(yaml_section)) {
+            return (fm, markdown.trim_start_matches('\n').to_string());
         }
     }
 

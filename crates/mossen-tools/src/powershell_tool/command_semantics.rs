@@ -35,7 +35,7 @@ pub fn interpret_command_result(
             is_error: exit_code >= 8,
             message: if exit_code == 0 {
                 Some("No files copied (already in sync)".to_string())
-            } else if exit_code >= 1 && exit_code < 8 {
+            } else if (1..8).contains(&exit_code) {
                 if exit_code & 1 != 0 {
                     Some("Files copied successfully".to_string())
                 } else {

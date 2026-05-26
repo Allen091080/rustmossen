@@ -1691,3 +1691,500 @@ pub fn cache_plugin_settings(env: &dyn PluginLoaderEnv, plugins: &[LoadedPlugin]
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::load_plugin_commands::{
+        clear_plugin_command_cache, get_plugin_commands, PluginInfo,
+    };
+    use crate::plugins::schemas::{
+        InstalledPluginsFileV2, KnownMarketplace, MarketplaceSource, PluginMarketplace,
+        PluginMarketplaceEntry,
+    };
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MockPluginLoaderEnv {
+        root: PathBuf,
+        inline_plugins: Mutex<Vec<String>>,
+    }
+
+    impl MockPluginLoaderEnv {
+        fn new(root: PathBuf, inline_plugins: Vec<String>) -> Self {
+            Self {
+                root,
+                inline_plugins: Mutex::new(inline_plugins),
+            }
+        }
+
+        fn set_inline_plugins(&self, inline_plugins: Vec<String>) {
+            *self.inline_plugins.lock().unwrap() = inline_plugins;
+        }
+    }
+
+    fn loaded_to_command_info(plugin: &LoadedPlugin) -> PluginInfo {
+        PluginInfo {
+            name: plugin.name.clone(),
+            source: plugin.source.clone(),
+            path: plugin.path.clone(),
+            enabled: plugin.enabled,
+            manifest: plugin.manifest.clone(),
+            commands_path: plugin.commands_path.clone(),
+            commands_paths: plugin.commands_paths.clone().unwrap_or_default(),
+            skills_path: plugin.skills_path.clone(),
+        }
+    }
+
+    fn write_test_plugin(root: &Path, name: &str, commands: &[(&str, &str)]) {
+        let manifest_dir = root.join(".mossen-plugin");
+        std::fs::create_dir_all(&manifest_dir).expect("create manifest dir");
+        std::fs::write(
+            manifest_dir.join("plugin.json"),
+            serde_json::json!({
+                "name": name,
+                "version": "0.0.1",
+                "description": format!("{name} test plugin")
+            })
+            .to_string(),
+        )
+        .expect("write plugin manifest");
+
+        let commands_dir = root.join("commands");
+        std::fs::create_dir_all(&commands_dir).expect("create commands dir");
+        for (command, body) in commands {
+            std::fs::write(
+                commands_dir.join(format!("{command}.md")),
+                format!(
+                    "---\ndescription: \"{command} command\"\nuser-invocable: true\n---\n\n{body}\n"
+                ),
+            )
+            .expect("write command");
+        }
+    }
+
+    fn write_bad_plugin(root: &Path) {
+        let manifest_dir = root.join(".mossen-plugin");
+        std::fs::create_dir_all(&manifest_dir).expect("create bad manifest dir");
+        std::fs::write(
+            manifest_dir.join("plugin.json"),
+            "{ this is not valid json for M7_4_BAD",
+        )
+        .expect("write bad manifest");
+    }
+
+    fn copy_dir_recursively(src: &Path, dest: &Path) -> anyhow::Result<()> {
+        std::fs::create_dir_all(dest)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let source_path = entry.path();
+            let dest_path = dest.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                copy_dir_recursively(&source_path, &dest_path)?;
+            } else {
+                std::fs::copy(&source_path, &dest_path)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[async_trait::async_trait]
+    impl PluginLoaderEnv for MockPluginLoaderEnv {
+        fn get_plugins_directory(&self) -> PathBuf {
+            self.root.join("plugins")
+        }
+
+        fn get_plugin_seed_dirs(&self) -> Vec<PathBuf> {
+            Vec::new()
+        }
+
+        fn get_builtin_marketplace_name(&self) -> &str {
+            "builtin"
+        }
+
+        fn parse_plugin_identifier(&self, plugin_id: &str) -> (Option<String>, Option<String>) {
+            if let Some((name, marketplace)) = plugin_id.split_once('@') {
+                (Some(name.to_string()), Some(marketplace.to_string()))
+            } else {
+                (Some(plugin_id.to_string()), None)
+            }
+        }
+
+        fn get_settings_enabled_plugins(&self) -> HashMap<String, serde_json::Value> {
+            HashMap::new()
+        }
+
+        fn get_add_dir_enabled_plugins(&self) -> HashMap<String, serde_json::Value> {
+            HashMap::new()
+        }
+
+        fn get_inline_plugins(&self) -> Vec<String> {
+            self.inline_plugins.lock().unwrap().clone()
+        }
+
+        fn get_managed_plugin_names(&self) -> Option<HashSet<String>> {
+            None
+        }
+
+        fn is_env_truthy(&self, _key: &str) -> bool {
+            false
+        }
+
+        async fn get_marketplace_cache_only(&self, _name: &str) -> Option<PluginMarketplace> {
+            None
+        }
+
+        async fn get_plugin_by_id_cache_only(
+            &self,
+            _plugin_id: &str,
+        ) -> Option<(PluginMarketplaceEntry, String)> {
+            None
+        }
+
+        async fn load_known_marketplaces_config_safe(&self) -> HashMap<String, KnownMarketplace> {
+            HashMap::new()
+        }
+
+        fn is_source_allowed_by_policy(&self, _source: &MarketplaceSource) -> bool {
+            true
+        }
+
+        fn is_source_in_blocklist(&self, _source: &MarketplaceSource) -> bool {
+            false
+        }
+
+        fn format_source_for_display(&self, source: &MarketplaceSource) -> String {
+            format!("{source:?}")
+        }
+
+        fn get_strict_known_marketplaces(&self) -> Option<Vec<MarketplaceSource>> {
+            None
+        }
+
+        fn get_blocked_marketplaces(&self) -> Option<Vec<MarketplaceSource>> {
+            None
+        }
+
+        fn get_in_memory_installed_plugins(&self) -> InstalledPluginsFileV2 {
+            InstalledPluginsFileV2::default()
+        }
+
+        async fn path_exists(&self, path: &Path) -> bool {
+            path.exists()
+        }
+
+        async fn read_file(&self, path: &Path) -> anyhow::Result<String> {
+            Ok(tokio::fs::read_to_string(path).await?)
+        }
+
+        async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<String>> {
+            let mut entries = tokio::fs::read_dir(path).await?;
+            let mut names = Vec::new();
+            while let Some(entry) = entries.next_entry().await? {
+                names.push(entry.file_name().to_string_lossy().to_string());
+            }
+            Ok(names)
+        }
+
+        async fn mkdir(&self, path: &Path) -> anyhow::Result<()> {
+            Ok(tokio::fs::create_dir_all(path).await?)
+        }
+
+        async fn copy_dir(&self, src: &Path, dest: &Path) -> anyhow::Result<()> {
+            copy_dir_recursively(src, dest)
+        }
+
+        async fn copy_file(&self, src: &Path, dest: &Path) -> anyhow::Result<()> {
+            if let Some(parent) = dest.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::copy(src, dest).await?;
+            Ok(())
+        }
+
+        async fn rename(&self, src: &Path, dest: &Path) -> anyhow::Result<()> {
+            Ok(tokio::fs::rename(src, dest).await?)
+        }
+
+        async fn rm(&self, path: &Path) -> anyhow::Result<()> {
+            if path.is_dir() {
+                tokio::fs::remove_dir_all(path).await?;
+            } else if path.exists() {
+                tokio::fs::remove_file(path).await?;
+            }
+            Ok(())
+        }
+
+        async fn stat_is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+            Ok(tokio::fs::metadata(path).await?.is_dir())
+        }
+
+        fn git_exe(&self) -> String {
+            "git".to_string()
+        }
+
+        async fn exec_git(
+            &self,
+            _args: &[&str],
+            _cwd: Option<&Path>,
+        ) -> crate::plugins::marketplace_manager::GitResult {
+            crate::plugins::marketplace_manager::GitResult {
+                code: 1,
+                stderr: "git disabled in test".to_string(),
+                error: Some("git disabled in test".to_string()),
+                stdout: None,
+            }
+        }
+
+        async fn check_git_available(&self) -> bool {
+            false
+        }
+
+        async fn calculate_plugin_version(
+            &self,
+            _plugin_id: &str,
+            _source: &PluginSource,
+            manifest: Option<&PluginManifest>,
+            _plugin_dir: Option<&Path>,
+            fallback_version: Option<&str>,
+            _git_commit_sha: Option<&str>,
+        ) -> String {
+            fallback_version
+                .map(str::to_string)
+                .or_else(|| manifest.and_then(|m| m.version.clone()))
+                .unwrap_or_else(|| "unknown".to_string())
+        }
+
+        fn is_plugin_zip_cache_enabled(&self) -> bool {
+            false
+        }
+
+        async fn get_session_plugin_cache_path(&self) -> anyhow::Result<PathBuf> {
+            Ok(self.root.join("session-plugin-cache"))
+        }
+
+        async fn extract_zip_to_directory(
+            &self,
+            _zip_path: &Path,
+            _dest: &Path,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn convert_directory_to_zip_in_place(
+            &self,
+            _dir: &Path,
+            _zip_path: &Path,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn verify_and_demote(
+            &self,
+            _plugins: &[LoadedPlugin],
+        ) -> (HashSet<String>, Vec<PluginError>) {
+            (HashSet::new(), Vec::new())
+        }
+
+        fn get_builtin_plugins(&self) -> PluginLoadResult {
+            PluginLoadResult {
+                enabled: Vec::new(),
+                disabled: Vec::new(),
+                errors: Vec::new(),
+            }
+        }
+
+        fn log_plugin_fetch(
+            &self,
+            _operation: &str,
+            _url: &str,
+            _status: &str,
+            _duration_ms: f64,
+            _error_class: Option<&str>,
+        ) {
+        }
+
+        fn classify_fetch_error(&self, error: &str) -> String {
+            error.to_string()
+        }
+
+        fn get_plugin_settings_base(&self) -> Option<HashMap<String, serde_json::Value>> {
+            None
+        }
+
+        fn set_plugin_settings_base(&self, _settings: Option<HashMap<String, serde_json::Value>>) {}
+
+        fn clear_plugin_settings_base(&self) {}
+
+        fn reset_settings_cache(&self) {}
+
+        fn validate_path_within_base(
+            &self,
+            base: &Path,
+            rel_path: &str,
+        ) -> anyhow::Result<PathBuf> {
+            if Path::new(rel_path).is_absolute() || rel_path.contains("..") {
+                return Err(anyhow!("invalid relative path: {rel_path}"));
+            }
+            Ok(base.join(rel_path))
+        }
+    }
+
+    struct PluginCommandCacheTestGuard {
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for PluginCommandCacheTestGuard {
+        fn drop(&mut self) {
+            clear_plugin_command_cache();
+        }
+    }
+
+    fn plugin_command_cache_test_guard() -> PluginCommandCacheTestGuard {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let guard = LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_plugin_command_cache();
+        PluginCommandCacheTestGuard { _guard: guard }
+    }
+
+    #[tokio::test]
+    async fn inline_plugin_loads_and_exposes_command_body() {
+        let _guard = plugin_command_cache_test_guard();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin_dir = temp.path().join("mock_plugin");
+        write_test_plugin(
+            &plugin_dir,
+            "mock_plugin_M7_1",
+            &[("mock_cmd_M7_1", "PLUGIN_M7_2_RAN")],
+        );
+        let env = MockPluginLoaderEnv::new(
+            temp.path().to_path_buf(),
+            vec![plugin_dir.to_string_lossy().to_string()],
+        );
+
+        let result = load_all_plugins_cache_only(&env).await;
+        assert!(
+            result.errors.is_empty(),
+            "unexpected errors: {:?}",
+            result.errors
+        );
+        let plugin = result
+            .enabled
+            .iter()
+            .find(|plugin| plugin.name == "mock_plugin_M7_1")
+            .expect("inline plugin should be enabled");
+        assert_eq!(plugin.source, "mock_plugin_M7_1@inline");
+        assert!(plugin
+            .commands_path
+            .as_ref()
+            .is_some_and(|path| path.ends_with("commands")));
+
+        let commands = get_plugin_commands(&[loaded_to_command_info(plugin)], false).await;
+        let command = commands
+            .iter()
+            .find(|command| command.name == "mock_plugin_M7_1:mock_cmd_M7_1")
+            .expect("plugin command should be listed");
+        assert_eq!(command.command_type, "prompt");
+        assert_eq!(command.source, "plugin");
+        assert!(command.user_invocable);
+        assert!(command.content.contains("PLUGIN_M7_2_RAN"));
+        assert!(command.content_length > 0);
+    }
+
+    #[tokio::test]
+    async fn inline_plugin_reload_and_disable_updates_commands() {
+        let _guard = plugin_command_cache_test_guard();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plugin_dir = temp.path().join("mock_reload_plugin");
+        write_test_plugin(
+            &plugin_dir,
+            "mock_plugin_M7_3",
+            &[("cmd_v1_M7_3", "M7_3_V1_BODY")],
+        );
+        let env = MockPluginLoaderEnv::new(
+            temp.path().to_path_buf(),
+            vec![plugin_dir.to_string_lossy().to_string()],
+        );
+
+        let first = load_all_plugins_cache_only(&env).await;
+        let first_info = first
+            .enabled
+            .iter()
+            .map(loaded_to_command_info)
+            .collect::<Vec<_>>();
+        let first_commands = get_plugin_commands(&first_info, false).await;
+        assert!(first_commands
+            .iter()
+            .any(|command| command.name == "mock_plugin_M7_3:cmd_v1_M7_3"));
+
+        std::fs::write(
+            plugin_dir.join("commands").join("cmd_v2_M7_3.md"),
+            "---\ndescription: \"M7.3 v2\"\nuser-invocable: true\n---\n\nM7_3_V2_BODY\n",
+        )
+        .expect("write v2 command");
+        clear_plugin_command_cache();
+        let reloaded = load_all_plugins_cache_only(&env).await;
+        let reloaded_info = reloaded
+            .enabled
+            .iter()
+            .map(loaded_to_command_info)
+            .collect::<Vec<_>>();
+        let reloaded_commands = get_plugin_commands(&reloaded_info, false).await;
+        assert!(reloaded_commands
+            .iter()
+            .any(|command| command.name == "mock_plugin_M7_3:cmd_v1_M7_3"));
+        assert!(reloaded_commands
+            .iter()
+            .any(|command| command.name == "mock_plugin_M7_3:cmd_v2_M7_3"));
+
+        env.set_inline_plugins(Vec::new());
+        clear_plugin_command_cache();
+        let disabled = load_all_plugins_cache_only(&env).await;
+        assert!(disabled.enabled.is_empty());
+        let disabled_commands = get_plugin_commands(&[], false).await;
+        assert!(disabled_commands
+            .iter()
+            .all(|command| !command.name.starts_with("mock_plugin_M7_3:")));
+    }
+
+    #[tokio::test]
+    async fn bad_inline_plugin_isolated_from_good_plugin() {
+        let _guard = plugin_command_cache_test_guard();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let good_dir = temp.path().join("good_plugin");
+        let bad_dir = temp.path().join("bad_plugin");
+        write_test_plugin(&good_dir, "m74_good", &[("m74_good_cmd", "M7_4_GOOD_BODY")]);
+        write_bad_plugin(&bad_dir);
+        let env = MockPluginLoaderEnv::new(
+            temp.path().to_path_buf(),
+            vec![
+                good_dir.to_string_lossy().to_string(),
+                bad_dir.to_string_lossy().to_string(),
+            ],
+        );
+
+        let result = load_all_plugins_cache_only(&env).await;
+        assert!(result
+            .enabled
+            .iter()
+            .any(|plugin| plugin.name == "m74_good"));
+        assert!(result.errors.iter().any(|error| matches!(
+            error,
+            PluginError::GenericError { source, error, .. }
+                if source == "inline[1]" && error.contains("Failed to load plugin")
+        )));
+
+        let plugin_infos = result
+            .enabled
+            .iter()
+            .map(loaded_to_command_info)
+            .collect::<Vec<_>>();
+        let commands = get_plugin_commands(&plugin_infos, false).await;
+        assert!(commands
+            .iter()
+            .any(|command| command.name == "m74_good:m74_good_cmd"));
+    }
+}

@@ -163,7 +163,7 @@ pub fn is_search_or_read_bash_command(command: &str) -> SearchReadResult {
     let mut is_list = true;
 
     for part in &parts {
-        let base = part.trim().split_whitespace().next().unwrap_or("");
+        let base = part.split_whitespace().next().unwrap_or("");
         if neutral_cmds.contains(base) {
             continue;
         }

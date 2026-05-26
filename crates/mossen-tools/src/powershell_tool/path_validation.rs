@@ -214,14 +214,14 @@ fn extract_cmdlet_path_arg(command: &str) -> Option<String> {
     // Look for -Path, -LiteralPath, or -Destination parameter
     for i in 1..parts.len() {
         let lower = parts[i].to_lowercase();
-        if lower == "-path" || lower == "-literalpath" || lower == "-destination" {
-            if i + 1 < parts.len() {
-                return Some(
-                    parts[i + 1]
-                        .trim_matches(|c| c == '"' || c == '\'')
-                        .to_string(),
-                );
-            }
+        if (lower == "-path" || lower == "-literalpath" || lower == "-destination")
+            && i + 1 < parts.len()
+        {
+            return Some(
+                parts[i + 1]
+                    .trim_matches(|c| c == '"' || c == '\'')
+                    .to_string(),
+            );
         }
     }
 

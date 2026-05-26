@@ -287,18 +287,35 @@ pub fn clear() {
 }
 
 #[cfg(test)]
+pub(crate) struct TaskStoreTestGuard {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for TaskStoreTestGuard {
+    fn drop(&mut self) {
+        clear();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_store_guard() -> TaskStoreTestGuard {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let guard = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    clear();
+    TaskStoreTestGuard { _guard: guard }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    /// The store is process-global, so unit tests have to run mutually
-    /// exclusively or `clear()` from one test races another's writes.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn create_then_get_returns_same_record() {
-        let _g = TEST_LOCK.lock().unwrap();
-        clear();
+        let _guard = test_store_guard();
         let r = create_task("write docs".into(), "section: install".into());
         let got = get_task(&r.id).expect("task should be retrievable");
         assert_eq!(got.subject, "write docs");
@@ -307,8 +324,7 @@ mod tests {
 
     #[test]
     fn update_mutates_status_and_owner() {
-        let _g = TEST_LOCK.lock().unwrap();
-        clear();
+        let _guard = test_store_guard();
         let r = create_task("ship".into(), "merge PR".into());
         let updated = update_task(&r.id, |t| {
             t.status = "in_progress".into();
@@ -321,8 +337,7 @@ mod tests {
 
     #[test]
     fn list_returns_inserted_tasks() {
-        let _g = TEST_LOCK.lock().unwrap();
-        clear();
+        let _guard = test_store_guard();
         create_task("a".into(), "".into());
         create_task("b".into(), "".into());
         assert_eq!(list_tasks().len(), 2);

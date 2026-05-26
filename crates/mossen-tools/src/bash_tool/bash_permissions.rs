@@ -425,7 +425,7 @@ pub fn suggestion_for_prefix(tool_name: &str, prefix: &str) -> PermissionUpdate 
 /// Get the command-subcommand prefix for suggestion generation.
 /// E.g., "git push origin main" → "git push"
 pub fn get_command_subcommand_prefix(command: &str) -> Option<String> {
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.len() >= 2 {
         // Only consider as subcommand if second word doesn't start with -
         if !parts[1].starts_with('-') {

@@ -62,7 +62,7 @@ pub fn is_line_printing_command(command: &str, expressions: &[String]) -> bool {
     }
 
     // Must have -n flag
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     let has_n = parts
         .iter()
         .any(|p| *p == "-n" || p.contains('n') && p.starts_with('-') && !p.starts_with("--"));
@@ -216,10 +216,8 @@ pub fn check_sed_constraints(command: &str) -> SedCheckResult {
     let has_n = flags
         .iter()
         .any(|f| *f == "-n" || (f.starts_with('-') && !f.starts_with("--") && f.contains('n')));
-    if has_n && !has_in_place {
-        if is_line_printing_command(trimmed, &expressions) {
-            return SedCheckResult::Allowed;
-        }
+    if has_n && !has_in_place && is_line_printing_command(trimmed, &expressions) {
+        return SedCheckResult::Allowed;
     }
 
     // In-place sed always needs approval (modifies files)
@@ -251,64 +249,6 @@ pub fn sed_command_is_allowed_by_allowlist(command: &str, allow_rules: &[String]
         }
     }
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sed_print_command() {
-        let result = check_sed_constraints("sed -n '5p' file.txt");
-        assert_eq!(result, SedCheckResult::Allowed);
-    }
-
-    #[test]
-    fn test_sed_in_place() {
-        let result = check_sed_constraints("sed -i 's/foo/bar/g' file.txt");
-        assert_eq!(
-            result,
-            SedCheckResult::NeedsApproval {
-                message: "sed -i modifies files in place".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn test_sed_non_in_place_substitution() {
-        let result = check_sed_constraints("sed 's/foo/bar/g' file.txt");
-        assert_eq!(result, SedCheckResult::Allowed);
-    }
-
-    #[test]
-    fn test_not_sed_command() {
-        let result = check_sed_constraints("grep pattern file.txt");
-        assert_eq!(result, SedCheckResult::Passthrough);
-    }
-
-    #[test]
-    fn test_dangerous_e_flag() {
-        let result = check_sed_constraints("sed 's/foo/bar/e' file.txt");
-        assert_eq!(
-            result,
-            SedCheckResult::NeedsApproval {
-                message: "sed command contains potentially dangerous pattern: s/foo/bar/e"
-                    .to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn test_validate_flags() {
-        assert!(validate_flags_against_allowlist(
-            &["-n", "-E"],
-            LINE_PRINT_SAFE_FLAGS
-        ));
-        assert!(!validate_flags_against_allowlist(
-            &["-n", "-x"],
-            LINE_PRINT_SAFE_FLAGS
-        ));
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -377,4 +317,62 @@ pub fn extract_sed_expressions(command: &str) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sed_print_command() {
+        let result = check_sed_constraints("sed -n '5p' file.txt");
+        assert_eq!(result, SedCheckResult::Allowed);
+    }
+
+    #[test]
+    fn test_sed_in_place() {
+        let result = check_sed_constraints("sed -i 's/foo/bar/g' file.txt");
+        assert_eq!(
+            result,
+            SedCheckResult::NeedsApproval {
+                message: "sed -i modifies files in place".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_sed_non_in_place_substitution() {
+        let result = check_sed_constraints("sed 's/foo/bar/g' file.txt");
+        assert_eq!(result, SedCheckResult::Allowed);
+    }
+
+    #[test]
+    fn test_not_sed_command() {
+        let result = check_sed_constraints("grep pattern file.txt");
+        assert_eq!(result, SedCheckResult::Passthrough);
+    }
+
+    #[test]
+    fn test_dangerous_e_flag() {
+        let result = check_sed_constraints("sed 's/foo/bar/e' file.txt");
+        assert_eq!(
+            result,
+            SedCheckResult::NeedsApproval {
+                message: "sed command contains potentially dangerous pattern: s/foo/bar/e"
+                    .to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_validate_flags() {
+        assert!(validate_flags_against_allowlist(
+            &["-n", "-E"],
+            LINE_PRINT_SAFE_FLAGS
+        ));
+        assert!(!validate_flags_against_allowlist(
+            &["-n", "-x"],
+            LINE_PRINT_SAFE_FLAGS
+        ));
+    }
 }

@@ -73,7 +73,7 @@ pub fn get_plugin_editable_scopes(
                         continue;
                     }
                     if *value {
-                        result.insert(plugin_id.clone(), scope.clone());
+                        result.insert(plugin_id.clone(), *scope);
                     } else {
                         result.remove(plugin_id);
                     }

@@ -203,7 +203,7 @@ fn parse_ref_from_command(command: &str, verb: &str) -> Option<String> {
     let re = git_cmd_re(verb, "");
     let parts: Vec<&str> = re.split(command).collect();
     let after = parts.get(1)?;
-    for token in after.trim().split_whitespace() {
+    for token in after.split_whitespace() {
         if token.starts_with('&')
             || token.starts_with('|')
             || token.starts_with(';')
@@ -349,7 +349,8 @@ pub fn track_git_operations(command: &str, exit_code: i32, stdout: Option<&str>)
             || command.contains(" -d "));
 
     static PR_ENDPOINT_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https?://[^\s']*/(pulls|pull-requests|merge[-_]requests)(?!/\d)").unwrap()
+        Regex::new(r#"https?://[^\s'"]*/(?:pulls|pull-requests|merge[-_]requests)(?:$|[?#\s'"])"#)
+            .unwrap()
     });
     let is_pr_endpoint = PR_ENDPOINT_RE.is_match(command);
 

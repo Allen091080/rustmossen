@@ -530,3 +530,218 @@ fn current_time_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
+
+    #[derive(Clone)]
+    struct MockResolver {
+        entries: HashMap<String, (PluginMarketplaceEntry, String)>,
+        marketplace_plugins: Vec<String>,
+        enabled_ids: HashSet<String>,
+        blocked: HashSet<String>,
+        resolution: DependencyResolution,
+    }
+
+    impl Default for MockResolver {
+        fn default() -> Self {
+            let mut entries = HashMap::new();
+            entries.insert(
+                "demo@market".to_string(),
+                (
+                    PluginMarketplaceEntry {
+                        name: "demo".to_string(),
+                        source: PluginSource::RelativePath("./demo".to_string()),
+                        version: Some("1.0.0".to_string()),
+                        description: Some("demo plugin".to_string()),
+                        ..Default::default()
+                    },
+                    "/tmp/market".to_string(),
+                ),
+            );
+            Self {
+                entries,
+                marketplace_plugins: vec!["market".to_string()],
+                enabled_ids: HashSet::new(),
+                blocked: HashSet::new(),
+                resolution: DependencyResolution {
+                    ok: true,
+                    closure: vec!["demo@market".to_string()],
+                    error_reason: None,
+                },
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PluginInstallResolver for MockResolver {
+        async fn get_plugin_by_id(&self, id: &str) -> Option<(PluginMarketplaceEntry, String)> {
+            self.entries.get(id).cloned()
+        }
+
+        async fn get_marketplace_cache_only(&self, _marketplace: &str) -> Option<Vec<String>> {
+            Some(self.marketplace_plugins.clone())
+        }
+
+        fn get_enabled_plugin_ids_for_scope(&self, _scope: &str) -> HashSet<String> {
+            self.enabled_ids.clone()
+        }
+
+        fn is_plugin_blocked_by_policy(&self, plugin_id: &str) -> bool {
+            self.blocked.contains(plugin_id)
+        }
+
+        fn parse_plugin_identifier(&self, id: &str) -> (String, Option<String>) {
+            if let Some((name, marketplace)) = id.split_once('@') {
+                (name.to_string(), Some(marketplace.to_string()))
+            } else {
+                (id.to_string(), None)
+            }
+        }
+
+        fn scope_to_setting_source(&self, scope: &str) -> String {
+            match scope {
+                "project" => "projectSettings".to_string(),
+                "local" => "localSettings".to_string(),
+                _ => "userSettings".to_string(),
+            }
+        }
+
+        async fn resolve_dependency_closure(
+            &self,
+            _plugin_id: &str,
+            _enabled_ids: &HashSet<String>,
+            _allowed_cross: &HashSet<String>,
+        ) -> DependencyResolution {
+            self.resolution.clone()
+        }
+
+        fn format_resolution_error(&self, resolution: &DependencyResolution) -> String {
+            resolution
+                .error_reason
+                .clone()
+                .unwrap_or_else(|| "dependency resolution failed".to_string())
+        }
+
+        fn format_dependency_count_suffix(&self, deps: &[String]) -> String {
+            if deps.is_empty() {
+                String::new()
+            } else {
+                format!(" (+{} dependencies)", deps.len())
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct MockInstaller {
+        installed: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PluginInstaller for MockInstaller {
+        async fn install_resolved_plugin(
+            &self,
+            plan: &PluginInstallPlan,
+        ) -> Result<InstallResult, String> {
+            self.installed.lock().unwrap().push(plan.plugin_id.clone());
+            Ok(InstallResult {
+                closure: plan.dependency_closure.clone(),
+                dep_note: "installed from plan".to_string(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn plugin_install_plan_resolves_dependencies_and_confirm_is_one_shot() {
+        reset_plugin_install_plan_store_for_testing();
+        let resolver = MockResolver {
+            resolution: DependencyResolution {
+                ok: true,
+                closure: vec!["helper@market".to_string(), "demo@market".to_string()],
+                error_reason: None,
+            },
+            ..Default::default()
+        };
+
+        let plan = get_plugin_install_plan(Some("demo@market"), Some("project"), &resolver)
+            .await
+            .expect("create install plan");
+        assert!(!plan.token.is_empty());
+        assert_eq!(plan.plugin_id, "demo@market");
+        assert_eq!(plan.plugin_name, "demo");
+        assert_eq!(plan.marketplace_name, "market");
+        assert_eq!(plan.scope, "project");
+        assert_eq!(
+            plan.marketplace_install_location.as_deref(),
+            Some("/tmp/market")
+        );
+        assert_eq!(
+            plan.dependency_closure,
+            vec!["helper@market".to_string(), "demo@market".to_string()]
+        );
+        assert_eq!(plan.dep_note, " (+1 dependencies)");
+
+        let installer = MockInstaller::default();
+        let confirmed = execute_plugin_install_plan(&plan.token, &installer)
+            .await
+            .expect("confirm install plan");
+        assert_eq!(confirmed.plugin_id, "demo@market");
+        assert_eq!(confirmed.dep_note, "installed from plan");
+        assert_eq!(
+            installer.installed.lock().unwrap().as_slice(),
+            &["demo@market".to_string()]
+        );
+
+        let second = execute_plugin_install_plan(&plan.token, &installer).await;
+        assert!(matches!(
+            second,
+            Err(PluginInstallPlanError::UnknownToken { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn plugin_install_plan_rejects_missing_scope_and_blocked_dependency() {
+        reset_plugin_install_plan_store_for_testing();
+        let resolver = MockResolver::default();
+
+        let missing_plugin = get_plugin_install_plan(None, Some("user"), &resolver).await;
+        assert!(matches!(
+            missing_plugin,
+            Err(PluginInstallPlanError::MissingPlugin)
+        ));
+
+        let invalid_scope =
+            get_plugin_install_plan(Some("demo@market"), Some("team"), &resolver).await;
+        assert!(matches!(
+            invalid_scope,
+            Err(PluginInstallPlanError::InvalidScope { .. })
+        ));
+
+        let marketplace_required =
+            get_plugin_install_plan(Some("demo"), Some("user"), &resolver).await;
+        assert!(matches!(
+            marketplace_required,
+            Err(PluginInstallPlanError::MarketplaceRequired { .. })
+        ));
+
+        let blocked_resolver = MockResolver {
+            blocked: HashSet::from(["blocked@market".to_string()]),
+            resolution: DependencyResolution {
+                ok: true,
+                closure: vec!["demo@market".to_string(), "blocked@market".to_string()],
+                error_reason: None,
+            },
+            ..Default::default()
+        };
+        let blocked =
+            get_plugin_install_plan(Some("demo@market"), Some("user"), &blocked_resolver).await;
+        assert!(matches!(
+            blocked,
+            Err(PluginInstallPlanError::BlockedByPolicy { plugin_id })
+                if plugin_id == "blocked@market"
+        ));
+    }
+}

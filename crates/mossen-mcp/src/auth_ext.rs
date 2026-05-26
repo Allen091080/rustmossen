@@ -123,10 +123,7 @@ pub fn normalize_oauth_error_body(status: u16, text: &str) -> (u16, String) {
         return (status, text.to_string());
     };
 
-    let normalized = if NONSTANDARD_INVALID_GRANT_ALIASES
-        .iter()
-        .any(|a| *a == err_code)
-    {
+    let normalized = if NONSTANDARD_INVALID_GRANT_ALIASES.contains(&err_code) {
         let desc = parsed
             .get("error_description")
             .and_then(|v| v.as_str())

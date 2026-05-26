@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn save_then_get_idp_id_token() {
-        let _ = clear_idp_id_token("https://i.test");
+        clear_idp_id_token("https://i.test");
         let expires_at = now_ms() + 3_600_000;
         save_idp_id_token("https://i.test", "tok", expires_at);
         assert_eq!(

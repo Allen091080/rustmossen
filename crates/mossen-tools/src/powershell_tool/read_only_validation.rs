@@ -274,7 +274,7 @@ fn is_single_statement_read_only(stmt: &str) -> bool {
         if let Some(rhs_start) = lower.find('=') {
             let rhs = &lower[rhs_start + 1..];
             // If RHS is a simple expression or read cmdlet, it's safe
-            let rhs_first = rhs.trim().split_whitespace().next().unwrap_or("");
+            let rhs_first = rhs.split_whitespace().next().unwrap_or("");
             if READ_ONLY_CMDLETS.contains(rhs_first)
                 || rhs_first.starts_with('$')
                 || rhs_first.starts_with('"')
@@ -290,7 +290,7 @@ fn is_single_statement_read_only(stmt: &str) -> bool {
     if lower.contains('|') {
         let segments: Vec<&str> = lower.split('|').collect();
         let all_safe = segments.iter().all(|seg| {
-            let seg_first = seg.trim().split_whitespace().next().unwrap_or("");
+            let seg_first = seg.split_whitespace().next().unwrap_or("");
             READ_ONLY_CMDLETS.contains(seg_first)
         });
         if all_safe {

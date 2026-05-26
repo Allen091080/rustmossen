@@ -88,9 +88,7 @@ pub fn is_in_fork_child(messages: &[Value]) -> bool {
             block
                 .get("text")
                 .and_then(|t| t.as_str())
-                .map_or(false, |text| {
-                    text.contains(&format!("<{}>", FORK_BOILERPLATE_TAG))
-                })
+                .is_some_and(|text| text.contains(&format!("<{}>", FORK_BOILERPLATE_TAG)))
         })
     })
 }

@@ -55,17 +55,13 @@ const IN_PROCESS_TEAMMATE_ALLOWED_TOOLS: &[&str] = &[
 /// Permission mode for agent execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub enum PermissionMode {
+    #[default]
     AcceptEdits,
     DontAsk,
     Plan,
     Bubble,
-}
-
-impl Default for PermissionMode {
-    fn default() -> Self {
-        Self::AcceptEdits
-    }
 }
 
 /// Result of resolving tools for an agent.
@@ -296,11 +292,10 @@ pub fn tool_matches_name(tool_name: &str, target: &str) -> bool {
 
 /// Get the last assistant message from a conversation history.
 pub fn get_last_assistant_message(messages: &[serde_json::Value]) -> Option<&serde_json::Value> {
-    messages.iter().rev().find(|m| {
-        m.get("type")
-            .and_then(|t| t.as_str())
-            .map_or(false, |t| t == "assistant")
-    })
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.get("type").and_then(|t| t.as_str()) == Some("assistant"))
 }
 
 // ---------------------------------------------------------------------------

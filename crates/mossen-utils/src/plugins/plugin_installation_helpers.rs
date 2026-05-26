@@ -273,7 +273,7 @@ pub async fn install_resolved_plugin(
                 .cache_and_register_plugin(
                     id,
                     &dep_entry,
-                    plugin_scope.clone(),
+                    plugin_scope,
                     project_path.as_deref(),
                     local_source_path.as_deref(),
                 )

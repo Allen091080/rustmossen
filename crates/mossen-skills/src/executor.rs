@@ -111,7 +111,7 @@ pub fn find_craft_by_name<'a>(crafts: &'a [CraftCommand], name: &str) -> Option<
             || c.base
                 .aliases
                 .as_ref()
-                .map_or(false, |aliases| aliases.iter().any(|a| a == name))
+                .is_some_and(|aliases| aliases.iter().any(|a| a == name))
     })
 }
 

@@ -78,7 +78,7 @@ fn parse_url(input: &str) -> Option<ParsedUrl> {
     if scheme.is_empty() {
         return None;
     }
-    let (authority, path) = match rest.find(|c| c == '/' || c == '?' || c == '#') {
+    let (authority, path) = match rest.find(['/', '?', '#']) {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, ""),
     };
@@ -131,7 +131,7 @@ fn parse_url(input: &str) -> Option<ParsedUrl> {
 }
 
 fn port_or_default(p: &ParsedUrl) -> Option<u16> {
-    p.port.or_else(|| match p.scheme.as_str() {
+    p.port.or(match p.scheme.as_str() {
         "http" => Some(80),
         "https" => Some(443),
         _ => None,

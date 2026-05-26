@@ -228,7 +228,7 @@ fn build_statusline_summary(inspection: &StatusLineInspection, ctx: &CommandCont
 
     let summary_line = inspection.script_summary.as_deref().unwrap_or_else(|| {
         // basename of the command
-        cmd.split('/').last().unwrap_or(cmd)
+        cmd.split('/').next_back().unwrap_or(cmd)
     });
 
     format!(

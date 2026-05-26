@@ -61,7 +61,7 @@ pub fn generate_prompt() -> String {
 }
 
 fn generate_model_section() -> String {
-    let default_models = vec!["mossen-balanced-4-6", "mossen-max-4-6", "mossen-fast-4-5"];
+    let default_models = ["mossen-balanced-4-6", "mossen-max-4-6", "mossen-fast-4-5"];
     let lines: Vec<String> = default_models
         .iter()
         .map(|m| format!("  - \"{}\"", m))

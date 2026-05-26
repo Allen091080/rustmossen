@@ -1977,6 +1977,7 @@ dependencies = [
  "futures",
  "mockall",
  "mossen-agent",
+ "mossen-skills",
  "mossen-tools",
  "mossen-types",
  "mossen-utils",
@@ -1985,12 +1986,14 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_yaml",
  "similar",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
  "tracing",
+ "url",
  "uuid",
 ]
 

@@ -26,7 +26,10 @@ def main() -> None:
         "fn slash_model_response",
         "fn slash_model_summary_response",
         "set_main_loop_model_override(Some(requested_model))",
+        "config_profiles::set_session_active_profile(&profile.name)",
+        "set_main_loop_model_override(Some(profile.profile.model.clone()))",
         "set_main_loop_model_override(None)",
+        "slash_command_model_lists_and_switches_configured_profiles",
         "slash_command_model_reports_and_updates_override",
     ]:
         require(structured, token, "model slash handler", failures)
@@ -36,6 +39,8 @@ def main() -> None:
         '"mutationSupported"',
         '"switchAppliesToNextTurn"',
         '"availableAliases"',
+        '"profileCount"',
+        '"profiles"',
         '"modelStringsAvailable"',
     ]:
         require(structured, token, "model payload", failures)

@@ -156,8 +156,9 @@ def main() -> int:
         }, indent=2, ensure_ascii=False))
 
     fail_count = report["by_status_counts"].get("failed", 0)
+    block_count = report["by_status_counts"].get("blocked", 0)
     err_count = report["by_status_counts"].get("load_error", 0)
-    return 0 if (fail_count + err_count == 0) else 1
+    return 0 if (fail_count + block_count + err_count == 0) else 1
 
 
 if __name__ == "__main__":

@@ -137,7 +137,7 @@ pub fn get_flagged_plugins() -> HashMap<String, FlaggedPlugin> {
 pub async fn add_flagged_plugin(plugin_id: &str) {
     let mut cache = {
         let guard = CACHE.lock().unwrap();
-        guard.clone().unwrap_or_else(|| HashMap::new())
+        guard.clone().unwrap_or_default()
     };
     // If cache was None, read from disk
     if CACHE.lock().unwrap().is_none() {

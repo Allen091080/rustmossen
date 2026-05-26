@@ -165,7 +165,7 @@ pub fn save_mcp_server_user_config(
     let mut sensitive: HashMap<String, String> = HashMap::new();
 
     for (key, value) in values {
-        if schema.get(key).map_or(false, |o| o.sensitive) {
+        if schema.get(key).is_some_and(|o| o.sensitive) {
             sensitive.insert(key.clone(), value.to_string());
         } else {
             non_sensitive.insert(key.clone(), value.clone());

@@ -76,10 +76,12 @@ fn normalize_git_path_arg(arg: &str) -> String {
     }
 
     // Drive-relative: C:foo (no sep after colon) → foo
-    if s.len() >= 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':' {
-        if s.len() == 2 || (s.as_bytes()[2] != b'/' && s.as_bytes()[2] != b'\\') {
-            s = s[2..].to_string();
-        }
+    if s.len() >= 2
+        && s.as_bytes()[0].is_ascii_alphabetic()
+        && s.as_bytes()[1] == b':'
+        && (s.len() == 2 || (s.as_bytes()[2] != b'/' && s.as_bytes()[2] != b'\\'))
+    {
+        s = s[2..].to_string();
     }
 
     // Convert backslashes to forward slashes
@@ -195,7 +197,7 @@ fn resolve_escaping_path_to_cwd_relative(n: &str) -> Option<String> {
     let cwd_str = cwd.to_string_lossy().to_lowercase();
 
     // Reconstruct platform path from posix-normalized form
-    let platform_path = n.replace('/', &MAIN_SEPARATOR.to_string());
+    let platform_path = n.replace('/', std::path::MAIN_SEPARATOR_STR);
     let abs = cwd.join(&platform_path);
     let abs_str = abs.to_string_lossy().to_lowercase();
 

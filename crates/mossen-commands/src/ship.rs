@@ -75,19 +75,15 @@ fn get_prompt_content(ctx: &CommandContext, default_branch: &str, pr_attribution
     let mut prefix = String::new();
     let mut reviewer_arg = String::new();
     let mut add_reviewer_arg = String::new();
-    let mut changelog_section = format!(
-        r#"
+    let mut changelog_section = r#"
 
 ## Changelog
 <!-- CHANGELOG:START -->
 [If this PR contains user-facing changes, add a changelog entry here. Otherwise, remove this section.]
-<!-- CHANGELOG:END -->"#
-    );
-    let mut slack_step = format!(
-        r#"
+<!-- CHANGELOG:END -->"#.to_string();
+    let mut slack_step = r#"
 
-5. After creating/updating the PR, check if the user's MOSSEN.md mentions posting to Slack channels. If it does, use ToolSearch to search for "slack send message" tools. If ToolSearch finds a Slack tool, ask the user if they'd like you to post the PR URL to the relevant Slack channel. Only post if the user confirms. If ToolSearch returns no results or errors, skip this step silently—do not mention the failure, do not attempt workarounds, and do not try alternative approaches."#
-    );
+5. After creating/updating the PR, check if the user's MOSSEN.md mentions posting to Slack channels. If it does, use ToolSearch to search for "slack send message" tools. If ToolSearch finds a Slack tool, ask the user if they'd like you to post the PR URL to the relevant Slack channel. Only post if the user confirms. If ToolSearch returns no results or errors, skip this step silently—do not mention the failure, do not attempt workarounds, and do not try alternative approaches."#.to_string();
 
     if ctx.is_internal_user() && is_undercover(ctx) {
         prefix = format!("{}\n", get_undercover_instructions());

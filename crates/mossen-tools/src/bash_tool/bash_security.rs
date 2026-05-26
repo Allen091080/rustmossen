@@ -265,7 +265,7 @@ fn check_zsh_dangerous_commands(command: &str) -> SecurityResult {
     let subcommands = split_simple(command);
 
     for subcmd in &subcommands {
-        let base_command = subcmd.trim().split_whitespace().next().unwrap_or("");
+        let base_command = subcmd.split_whitespace().next().unwrap_or("");
         if dangerous.contains(base_command) {
             return SecurityResult::deny(
                 format!(
@@ -315,7 +315,7 @@ fn check_incomplete_commands(command: &str) -> SecurityResult {
 fn check_jq_security(command: &str) -> SecurityResult {
     // Check for jq's @system function
     if command.contains("@system") || command.contains("@base64d") {
-        let base = command.trim().split_whitespace().next().unwrap_or("");
+        let base = command.split_whitespace().next().unwrap_or("");
         if base == "jq" || command.contains("| jq") {
             return SecurityResult::ask(
                 "jq command uses potentially dangerous function",
@@ -434,6 +434,17 @@ pub fn check_command_safety_no_heredoc(command: &str) -> SecurityResult {
     SecurityResult::safe()
 }
 
+// ---------------------------------------------------------------------------
+// TS-mirror — `tools/BashTool/bashSecurity.ts` additional export.
+// ---------------------------------------------------------------------------
+
+/// `bashSecurity.ts` `hasSafeHeredocSubstitution` — true when the command
+/// uses a single- or double-quoted heredoc delimiter that disables variable
+/// expansion in the body.
+pub fn has_safe_heredoc_substitution(command: &str) -> bool {
+    command.contains("<<'") || command.contains("<<\"")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,15 +499,4 @@ mod tests {
         // After stripping, the heredoc body is removed
         assert!(!stripped.contains("$USER") || stripped.contains("'EOF'"));
     }
-}
-
-// ---------------------------------------------------------------------------
-// TS-mirror — `tools/BashTool/bashSecurity.ts` additional export.
-// ---------------------------------------------------------------------------
-
-/// `bashSecurity.ts` `hasSafeHeredocSubstitution` — true when the command
-/// uses a single- or double-quoted heredoc delimiter that disables variable
-/// expansion in the body.
-pub fn has_safe_heredoc_substitution(command: &str) -> bool {
-    command.contains("<<'") || command.contains("<<\"")
 }

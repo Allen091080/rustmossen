@@ -12,10 +12,9 @@ pub const CRON_LIST_TOOL_NAME: &str = "CronList";
 /// Gate for the cron scheduling system.
 /// Returns true unless MOSSEN_CODE_DISABLE_CRON is set.
 pub fn is_kairos_cron_enabled() -> bool {
-    std::env::var("MOSSEN_CODE_DISABLE_CRON")
+    !std::env::var("MOSSEN_CODE_DISABLE_CRON")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
-        == false
 }
 
 /// Kill switch for disk-persistent (durable) cron tasks.
@@ -34,13 +33,11 @@ pub fn build_cron_create_description(durable_enabled: bool) -> &'static str {
 
 pub fn build_cron_create_prompt(durable_enabled: bool) -> String {
     let durability_section = if durable_enabled {
-        format!(
-            "## Durability\n\n\
+        "## Durability\n\n\
              By default (durable: false) the job lives only in this Mossen session \u{2014} nothing is written to disk, and the job is gone when Mossen exits. \
              Pass durable: true to write to .mossen/scheduled_tasks.json so the job survives restarts. \
              Only use durable: true when the user explicitly asks for the task to persist (\"keep doing this every day\", \"set this up permanently\"). \
-             Most \"remind me in 5 minutes\" / \"check back in an hour\" requests should stay session-only."
-        )
+             Most \"remind me in 5 minutes\" / \"check back in an hour\" requests should stay session-only.".to_string()
     } else {
         "## Session-only\n\n\
          Jobs live only in this Mossen session \u{2014} nothing is written to disk, and the job is gone when Mossen exits."

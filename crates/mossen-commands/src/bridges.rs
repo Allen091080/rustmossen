@@ -7,8 +7,18 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde_json::{Map, Value};
+use std::path::{Path, PathBuf};
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
+use mossen_agent::mcp::builtin_template_plan::{
+    AsyncAddMcpConfig, McpTemplateInstallResult, McpTemplatePlanError,
+};
+use mossen_agent::mcp::config::McpConfigWriter;
+use mossen_agent::mcp::remote_install_plan::{McpRemoteInstallResult, McpRemotePlanError};
+use mossen_agent::mcp::runtime_status::{self, RuntimeMcpConnectionState};
+use mossen_agent::mcp::slash_add_plan::{McpSlashAddPlanError, McpSlashAddPlanResult};
+use mossen_agent::mcp::types::{ConfigScope, McpServerConfig};
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -63,6 +73,113 @@ struct McpClientInfo {
     max_reconnect_attempts: Option<u32>,
 }
 
+#[derive(Debug, Clone)]
+struct FileMcpConfigWriter {
+    cwd: PathBuf,
+}
+
+impl FileMcpConfigWriter {
+    fn new(cwd: PathBuf) -> Self {
+        Self { cwd }
+    }
+
+    fn config_path(&self, scope: ConfigScope) -> std::result::Result<PathBuf, String> {
+        match scope {
+            ConfigScope::User => {
+                Ok(mossen_utils::env::get_mossen_config_home_dir().join("mcp.json"))
+            }
+            ConfigScope::Local | ConfigScope::Project => Ok(self.cwd.join(".mcp.json")),
+            ConfigScope::Dynamic
+            | ConfigScope::Enterprise
+            | ConfigScope::Hosted
+            | ConfigScope::Managed => Err(format!("Cannot write MCP config to scope: {:?}", scope)),
+        }
+    }
+}
+
+async fn read_mcp_json(path: &Path) -> std::result::Result<Value, String> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(text) => serde_json::from_str::<Value>(&text)
+            .map_err(|error| format!("Failed to parse {}: {error}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(serde_json::json!({ "mcpServers": {} }))
+        }
+        Err(error) => Err(format!("Failed to read {}: {error}", path.display())),
+    }
+}
+
+async fn write_mcp_json(path: &Path, value: &Value) -> std::result::Result<(), String> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    }
+    let text = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("Failed to serialize MCP config: {error}"))?;
+    tokio::fs::write(path, format!("{text}\n"))
+        .await
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))
+}
+
+fn mcp_servers_object_mut(value: &mut Value) -> &mut Map<String, Value> {
+    if !value.is_object() {
+        *value = serde_json::json!({});
+    }
+    let object = value.as_object_mut().expect("value converted to object");
+    object
+        .entry("mcpServers".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if object
+        .get("mcpServers")
+        .and_then(Value::as_object)
+        .is_none()
+    {
+        object.insert("mcpServers".to_string(), serde_json::json!({}));
+    }
+    object
+        .get_mut("mcpServers")
+        .and_then(Value::as_object_mut)
+        .expect("mcpServers converted to object")
+}
+
+#[async_trait]
+impl McpConfigWriter for FileMcpConfigWriter {
+    async fn write(
+        &self,
+        name: &str,
+        config: &McpServerConfig,
+        scope: ConfigScope,
+    ) -> std::result::Result<(), String> {
+        let path = self.config_path(scope)?;
+        let mut value = read_mcp_json(&path).await?;
+        let server_value = serde_json::to_value(config)
+            .map_err(|error| format!("Failed to serialize MCP server config: {error}"))?;
+        mcp_servers_object_mut(&mut value).insert(name.to_string(), server_value);
+        write_mcp_json(&path, &value).await
+    }
+
+    async fn remove(&self, name: &str, scope: ConfigScope) -> std::result::Result<(), String> {
+        let path = self.config_path(scope)?;
+        let mut value = read_mcp_json(&path).await?;
+        mcp_servers_object_mut(&mut value).remove(name);
+        write_mcp_json(&path, &value).await
+    }
+}
+
+#[async_trait]
+impl AsyncAddMcpConfig for FileMcpConfigWriter {
+    async fn add_config(
+        &self,
+        name: &str,
+        config: &McpServerConfig,
+        scope: ConfigScope,
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        mossen_agent::mcp::config::add_mcp_config(name, config, scope, self)
+            .await
+            .map_err(|error| error.into())
+    }
+}
+
 // ── Argument Parsers ──────────────────────────────────────────────────
 
 const VALUE_FLAGS: &[&str] = &[
@@ -92,7 +209,7 @@ const SUPPORTED_FLAGS: &[&str] = &[
 
 fn read_flag_value(parts: &[&str], long_flag: &str, short_flag: Option<&str>) -> Option<String> {
     for (i, part) in parts.iter().enumerate() {
-        if *part == long_flag || short_flag.map_or(false, |sf| *part == sf) {
+        if *part == long_flag || (short_flag == Some(*part)) {
             return parts.get(i + 1).map(|s| s.to_string());
         }
     }
@@ -106,7 +223,7 @@ fn read_repeated_flag_values(
 ) -> Vec<String> {
     let mut values = Vec::new();
     for (i, part) in parts.iter().enumerate() {
-        if *part == long_flag || short_flag.map_or(false, |sf| *part == sf) {
+        if *part == long_flag || (short_flag == Some(*part)) {
             if let Some(v) = parts.get(i + 1) {
                 values.push(v.to_string());
             }
@@ -297,6 +414,35 @@ fn status_label(status: &str) -> &str {
     }
 }
 
+async fn current_mcp_clients() -> Vec<McpClientInfo> {
+    runtime_status::snapshot()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|status| {
+            let (status_label, reconnect_attempt, max_reconnect_attempts) = match status.state {
+                RuntimeMcpConnectionState::Connected => ("connected".to_string(), None, None),
+                RuntimeMcpConnectionState::Pending => ("pending".to_string(), None, None),
+                RuntimeMcpConnectionState::Failed => ("failed".to_string(), None, None),
+                RuntimeMcpConnectionState::NeedsAuth => ("needs-auth".to_string(), None, None),
+                RuntimeMcpConnectionState::Disabled => ("disabled".to_string(), None, None),
+            };
+            McpClientInfo {
+                name: status.name,
+                status: status_label,
+                scope: status.scope,
+                transport: status.transport,
+                tool_count: status.tools_count,
+                prompt_count: status.prompts_count,
+                resource_count: status.resources_count,
+                error: status.last_error,
+                reconnect_attempt,
+                max_reconnect_attempts,
+            }
+        })
+        .collect()
+}
+
 fn format_mcp_status(clients: &[McpClientInfo]) -> String {
     let mut counts = (0usize, 0usize, 0usize, 0usize, 0usize); // connected, disabled, pending, needs_auth, failed
     let total_tools: usize = clients.iter().map(|c| c.tool_count).sum();
@@ -373,40 +519,17 @@ fn format_mcp_status(clients: &[McpClientInfo]) -> String {
 
 // ── MCP Add Formatting ────────────────────────────────────────────────
 
-const MCP_SLASH_ADD_PLAN_TOKEN_TTL_MS: u64 = 300_000; // 5 minutes
-
-fn format_mcp_add_error(args: &ParsedMcpAddArgs) -> String {
-    if args.server_name.is_none() {
-        return format!(
-            "✗ Missing MCP server name.\nUsage: /mcp add <name> [--scope local|user|project] -- <command> [args...]"
-        );
-    }
-    if args.command_or_url.is_none() {
-        return format!(
-            "✗ Missing MCP command or URL.\nExample: /mcp add playwright --scope local -- npx -y @playwright/mcp@latest"
-        );
-    }
-    String::new()
-}
-
-fn format_mcp_add_plan(args: &ParsedMcpAddArgs) -> String {
-    let ttl_min = MCP_SLASH_ADD_PLAN_TOKEN_TTL_MS / 60_000;
-    let server_name = args.server_name.as_deref().unwrap_or("(unknown)");
-    let scope = args.scope.as_deref().unwrap_or("local");
-    let transport = args.transport.as_deref().unwrap_or("stdio");
-    let config = args.command_or_url.as_deref().unwrap_or("");
+fn format_mcp_add_plan(plan: &mossen_agent::mcp::slash_add_plan::McpSlashAddPlan) -> String {
+    let ttl_min = mossen_agent::mcp::slash_add_plan::MCP_SLASH_ADD_PLAN_TOKEN_TTL_MS / 60_000;
+    let config = mcp_config_summary(&plan.config);
 
     let mut lines = Vec::new();
     lines.push("ℹ MCP add dry-run".to_string());
     lines.push(String::new());
-    lines.push(format!("Server name: {}", server_name));
-    lines.push(format!("Scope: {}", scope));
-    lines.push(format!("Transport: {}", transport));
-    lines.push(
-        format!("Config: {} {}", config, args.args.join(" "))
-            .trim()
-            .to_string(),
-    );
+    lines.push(format!("Server name: {}", plan.server_name));
+    lines.push(format!("Scope: {}", scope_label(plan.scope)));
+    lines.push(format!("Transport: {}", plan.transport));
+    lines.push(format!("Config: {}", config));
     lines.push(String::new());
     lines.push(
         "No files were modified. Confirming will write this MCP server through the existing addMcpConfig() path; it will not auto-connect the server."
@@ -414,37 +537,31 @@ fn format_mcp_add_plan(args: &ParsedMcpAddArgs) -> String {
     );
     lines.push(String::new());
     lines.push(format!(
-        "To install within {} min: /mcp add --confirm <token>",
-        ttl_min
+        "To install within {} min: /mcp add --confirm {}",
+        ttl_min, plan.token
     ));
     lines.join("\n")
 }
 
 // ── MCP Install Formatting ────────────────────────────────────────────
 
-const MCP_REMOTE_PLAN_TOKEN_TTL_MS: u64 = 300_000;
-
-fn format_mcp_install_error(args: &ParsedMcpInstallArgs) -> Option<String> {
-    if args.source.is_none() {
-        return Some(format!(
-            "✗ Missing remote MCP config URL.\nUsage: /mcp install --dry-run <url> [--name server] [--scope local|user|project]"
-        ));
-    }
-    None
-}
-
-fn format_mcp_install_plan(args: &ParsedMcpInstallArgs) -> String {
-    let ttl_min = MCP_REMOTE_PLAN_TOKEN_TTL_MS / 60_000;
-    let source = args.source.as_deref().unwrap_or("(unknown)");
-    let server_name = args.server_name.as_deref().unwrap_or("(auto)");
-    let scope = args.scope.as_deref().unwrap_or("local");
+fn format_mcp_install_plan(
+    plan: &mossen_agent::mcp::remote_install_plan::McpRemoteInstallPlan,
+) -> String {
+    let ttl_min = mossen_agent::mcp::remote_install_plan::MCP_REMOTE_PLAN_TOKEN_TTL_MS / 60_000;
 
     let mut lines = Vec::new();
     lines.push("ℹ MCP remote install dry-run".to_string());
     lines.push(String::new());
-    lines.push(format!("Source: {}", source));
-    lines.push(format!("Server name: {}", server_name));
-    lines.push(format!("Scope: {}", scope));
+    lines.push(format!("Source: {}", plan.source));
+    lines.push(format!("Server name: {}", plan.server_name));
+    lines.push(format!("Scope: {}", scope_label(plan.scope)));
+    if plan.available_servers.len() > 1 {
+        lines.push(format!(
+            "Available servers: {}",
+            plan.available_servers.join(", ")
+        ));
+    }
     lines.push(String::new());
     lines.push(
         "No files were modified. Confirming will write this MCP server through the existing addMcpConfig() path; it will not auto-connect the server."
@@ -452,56 +569,13 @@ fn format_mcp_install_plan(args: &ParsedMcpInstallArgs) -> String {
     );
     lines.push(String::new());
     lines.push(format!(
-        "To install within {} min: /mcp install --confirm <token>",
-        ttl_min
+        "To install within {} min: /mcp install --confirm {}",
+        ttl_min, plan.token
     ));
     lines.join("\n")
 }
 
 // ── MCP Template Formatting ───────────────────────────────────────────
-
-const MCP_TEMPLATE_PLAN_TOKEN_TTL_MS: u64 = 300_000;
-
-/// Built-in MCP template definition.
-struct McpTemplate {
-    name: &'static str,
-    title: &'static str,
-    description: &'static str,
-    risk: &'static str,
-    read_only: bool,
-    requires_credentials: bool,
-    requires_network: bool,
-    command: &'static str,
-    args: &'static str,
-    notes: &'static [&'static str],
-}
-
-const BUILTIN_TEMPLATES: &[McpTemplate] = &[
-    McpTemplate {
-        name: "filesystem",
-        title: "Filesystem (read-only)",
-        description: "Read-only access to local filesystem paths",
-        risk: "low",
-        read_only: true,
-        requires_credentials: false,
-        requires_network: false,
-        command: "npx",
-        args: "-y @modelcontextprotocol/server-filesystem --root <path>",
-        notes: &["Requires --root <absolute-path>"],
-    },
-    McpTemplate {
-        name: "postgres",
-        title: "PostgreSQL (read-only)",
-        description: "Read-only SQL access to a PostgreSQL database",
-        risk: "medium",
-        read_only: true,
-        requires_credentials: true,
-        requires_network: true,
-        command: "npx",
-        args: "-y @modelcontextprotocol/server-postgres",
-        notes: &["Requires --db <connection-string>"],
-    },
-];
 
 fn format_templates_list() -> String {
     let mut lines = Vec::new();
@@ -513,10 +587,17 @@ fn format_templates_list() -> String {
     );
     lines.push(String::new());
 
-    for template in BUILTIN_TEMPLATES {
+    for template in mossen_agent::mcp::builtin_templates::get_builtin_mcp_templates() {
+        let localized =
+            mossen_agent::mcp::builtin_templates::get_localized_builtin_mcp_template_text(
+                template.name,
+            );
         lines.push(format!("❯ {}", template.name));
-        lines.push(format!("  title:       {}", template.title));
-        lines.push(format!("  risk:        {}", template.risk));
+        lines.push(format!(
+            "  title:       {}",
+            localized.title.unwrap_or(template.title)
+        ));
+        lines.push(format!("  risk:        {:?}", template.risk).to_lowercase());
         lines.push(format!(
             "  readonly:    {}",
             if template.read_only { "yes" } else { "no" }
@@ -537,10 +618,16 @@ fn format_templates_list() -> String {
                 "not required"
             }
         ));
-        lines.push(format!("  command:     {}", template.command));
-        lines.push(format!("  args:        {}", template.args));
-        lines.push(format!("  {}", template.description));
-        for note in template.notes {
+        lines.push(format!(
+            "  config:      {}",
+            mcp_config_summary(&template.config)
+        ));
+        lines.push(format!(
+            "  {}",
+            localized.description.unwrap_or(template.description)
+        ));
+        let notes = localized.notes.unwrap_or(template.notes);
+        for note in notes {
             lines.push(format!("  - {}", note));
         }
         lines.push(String::new());
@@ -553,54 +640,25 @@ fn format_templates_list() -> String {
     lines.join("\n")
 }
 
-fn format_mcp_add_template_error(args: &ParsedMcpAddTemplateArgs) -> Option<String> {
-    if args.template_name.is_none() {
-        let available: Vec<&str> = BUILTIN_TEMPLATES.iter().map(|t| t.name).collect();
-        return Some(format!(
-            "✗ Unknown MCP template: (missing)\nAvailable templates: {}",
-            available.join(", ")
-        ));
-    }
-    let name = args.template_name.as_deref().unwrap();
-    if !BUILTIN_TEMPLATES.iter().any(|t| t.name == name) {
-        let available: Vec<&str> = BUILTIN_TEMPLATES.iter().map(|t| t.name).collect();
-        return Some(format!(
-            "✗ Unknown MCP template: {}\nAvailable templates: {}",
-            name,
-            available.join(", ")
-        ));
-    }
-    None
-}
-
-fn format_mcp_add_template_plan(args: &ParsedMcpAddTemplateArgs) -> String {
-    let ttl_min = MCP_TEMPLATE_PLAN_TOKEN_TTL_MS / 60_000;
-    let template_name = args.template_name.as_deref().unwrap_or("(unknown)");
-    let server_name = args.server_name.as_deref().unwrap_or(template_name);
-    let scope = args.scope.as_deref().unwrap_or("local");
-
-    let template = BUILTIN_TEMPLATES.iter().find(|t| t.name == template_name);
-
+fn format_mcp_add_template_plan(
+    plan: &mossen_agent::mcp::builtin_template_plan::McpTemplateInstallPlan,
+) -> String {
+    let ttl_min = mossen_agent::mcp::builtin_template_plan::MCP_TEMPLATE_PLAN_TOKEN_TTL_MS / 60_000;
     let mut lines = Vec::new();
     lines.push("ℹ MCP add-template dry-run".to_string());
     lines.push(String::new());
-
-    if let Some(tmpl) = template {
-        lines.push(format!("Template: {} ({})", template_name, tmpl.title));
-        lines.push(format!("Server name: {}", server_name));
-        lines.push(format!("Scope: {}", scope));
-        lines.push(format!(
-            "Readonly: {}  Risk: {}",
-            if tmpl.read_only { "yes" } else { "no" },
-            tmpl.risk
-        ));
-        lines.push(format!("Command: {} {}", tmpl.command, tmpl.args));
-    } else {
-        lines.push(format!("Template: {}", template_name));
-        lines.push(format!("Server name: {}", server_name));
-        lines.push(format!("Scope: {}", scope));
+    lines.push(format!("Template: {} ({})", plan.template_name, plan.title));
+    lines.push(format!("Server name: {}", plan.server_name));
+    lines.push(format!("Scope: {}", scope_label(plan.scope)));
+    lines.push(format!(
+        "Readonly: {}  Risk: {}",
+        if plan.read_only { "yes" } else { "no" },
+        plan.risk
+    ));
+    lines.push(format!("Config: {}", mcp_config_summary(&plan.config)));
+    for note in &plan.notes {
+        lines.push(format!("Note: {}", note));
     }
-
     lines.push(String::new());
     lines.push(
         "No files were modified. Confirming will write this MCP server through the existing addMcpConfig() path; it will not auto-connect the server."
@@ -608,8 +666,8 @@ fn format_mcp_add_template_plan(args: &ParsedMcpAddTemplateArgs) -> String {
     );
     lines.push(String::new());
     lines.push(format!(
-        "To install within {} min: /mcp add-template --confirm <token>",
-        ttl_min
+        "To install within {} min: /mcp add-template --confirm {}",
+        ttl_min, plan.token
     ));
     lines.join("\n")
 }
@@ -623,6 +681,179 @@ fn format_mcp_toggle(action: &str, target: &str) -> String {
         format!("{} all MCP servers", verb)
     } else {
         format!("MCP server \"{}\" {}", target, action.to_lowercase() + "d")
+    }
+}
+
+fn scope_label(scope: ConfigScope) -> &'static str {
+    match scope {
+        ConfigScope::Local => "local",
+        ConfigScope::User => "user",
+        ConfigScope::Project => "project",
+        ConfigScope::Dynamic => "dynamic",
+        ConfigScope::Enterprise => "enterprise",
+        ConfigScope::Hosted => "hosted",
+        ConfigScope::Managed => "managed",
+    }
+}
+
+fn mcp_config_summary(config: &McpServerConfig) -> String {
+    match config {
+        McpServerConfig::Stdio { command, args, .. } => {
+            let mut parts = vec![command.clone()];
+            parts.extend(args.iter().cloned());
+            parts.join(" ")
+        }
+        McpServerConfig::Sse { url, .. } => format!("sse {url}"),
+        McpServerConfig::SseIde { url, ide_name, .. } => format!("sse-ide {ide_name} {url}"),
+        McpServerConfig::Http { url, .. } => format!("http {url}"),
+        McpServerConfig::Ws { url, .. } => format!("ws {url}"),
+        McpServerConfig::WsIde { url, ide_name, .. } => format!("ws-ide {ide_name} {url}"),
+        McpServerConfig::Sdk { name } => format!("sdk {name}"),
+        McpServerConfig::HostedProxy { url, id } => format!("hosted {id} {url}"),
+    }
+}
+
+fn slash_add_error_text(error: McpSlashAddPlanError) -> String {
+    match error {
+        McpSlashAddPlanError::MissingServerName => {
+            "✗ Missing MCP server name.\nUsage: /mcp add <name> [--scope local|user|project] -- <command> [args...]".to_string()
+        }
+        McpSlashAddPlanError::MissingCommand => {
+            "✗ Missing MCP command or URL.\nExample: /mcp add playwright --scope local -- npx -y @playwright/mcp@latest".to_string()
+        }
+        McpSlashAddPlanError::InvalidScope { scope } => {
+            format!("✗ Invalid MCP scope: {}. Use local, user, or project.", scope.unwrap_or_else(|| "(missing)".to_string()))
+        }
+        McpSlashAddPlanError::InvalidTransport { transport } => {
+            format!("✗ Invalid MCP transport: {}. Use stdio, sse, or http.", transport.unwrap_or_else(|| "(missing)".to_string()))
+        }
+        McpSlashAddPlanError::InvalidEnv { message }
+        | McpSlashAddPlanError::InvalidHeader { message }
+        | McpSlashAddPlanError::InvalidConfig { reason: message }
+        | McpSlashAddPlanError::InstallFailed { message } => format!("✗ {message}"),
+        McpSlashAddPlanError::UnknownToken { token } => {
+            format!("✗ Unknown or already used MCP add token: {token}")
+        }
+        McpSlashAddPlanError::ExpiredToken { token } => {
+            format!("✗ Expired MCP add token: {token}. Run /mcp add again.")
+        }
+    }
+}
+
+fn template_error_text(error: McpTemplatePlanError) -> String {
+    match error {
+        McpTemplatePlanError::UnknownTemplate {
+            template_name,
+            available_templates,
+        } => format!(
+            "✗ Unknown MCP template: {}\nAvailable templates: {}",
+            template_name.unwrap_or_else(|| "(missing)".to_string()),
+            available_templates.join(", ")
+        ),
+        McpTemplatePlanError::MissingParameter {
+            template_name,
+            missing,
+        } => format!(
+            "✗ MCP template {template_name} missing required parameter(s): {}",
+            missing
+                .into_iter()
+                .map(|parameter| format!("{:?}", parameter).to_lowercase())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        McpTemplatePlanError::PathNotAbsolute { parameter, value } => format!(
+            "✗ MCP template parameter {} must be an absolute path: {}",
+            format!("{:?}", parameter).to_lowercase(),
+            value
+        ),
+        McpTemplatePlanError::InvalidScope { scope } => format!(
+            "✗ Invalid MCP scope: {}. Use local, user, or project.",
+            scope.unwrap_or_else(|| "(missing)".to_string())
+        ),
+        McpTemplatePlanError::UnknownToken { token } => {
+            format!("✗ Unknown or already used MCP template token: {token}")
+        }
+        McpTemplatePlanError::ExpiredToken { token } => {
+            format!("✗ Expired MCP template token: {token}. Run /mcp add-template again.")
+        }
+        McpTemplatePlanError::InstallFailed { message } => format!("✗ {message}"),
+    }
+}
+
+fn remote_error_text(error: McpRemotePlanError) -> String {
+    match error {
+        McpRemotePlanError::MissingSource => {
+            "✗ Missing remote MCP config URL.\nUsage: /mcp install --dry-run <url> [--name server] [--scope local|user|project]".to_string()
+        }
+        McpRemotePlanError::InvalidScope { scope } => format!(
+            "✗ Invalid MCP scope: {}. Use local, user, or project.",
+            scope.unwrap_or_else(|| "(missing)".to_string())
+        ),
+        McpRemotePlanError::InvalidSource { reason } => format!("✗ {reason}"),
+        McpRemotePlanError::MultipleServers { available_servers } => format!(
+            "✗ Remote MCP config contains multiple servers. Re-run with --name <server>. Available: {}",
+            available_servers.join(", ")
+        ),
+        McpRemotePlanError::MissingServerName => {
+            "✗ Remote MCP config is a bare server config. Re-run with --name <server>.".to_string()
+        }
+        McpRemotePlanError::ServerNotFound {
+            server_name,
+            available_servers,
+        } => format!(
+            "✗ Remote MCP server {server_name} was not found. Available: {}",
+            available_servers.join(", ")
+        ),
+        McpRemotePlanError::UnknownToken { token } => {
+            format!("✗ Unknown or already used remote MCP install token: {token}")
+        }
+        McpRemotePlanError::ExpiredToken { token } => {
+            format!("✗ Expired remote MCP install token: {token}. Run /mcp install again.")
+        }
+        McpRemotePlanError::InstallFailed { message } => format!("✗ {message}"),
+    }
+}
+
+async fn execute_add_confirm(token: &str, ctx: &CommandContext) -> CommandResult {
+    let writer = FileMcpConfigWriter::new(ctx.cwd.clone());
+    match mossen_agent::mcp::slash_add_plan::execute_mcp_slash_add_plan(token, &writer).await {
+        McpSlashAddPlanResult::Ok { plan } => CommandResult::System(format!(
+            "✓ Installed MCP server {}\nscope: {}\nconfig: {}\nNo auto-connect was performed; restart or reconnect MCP to use it.",
+            plan.server_name,
+            scope_label(plan.scope),
+            mcp_config_summary(&plan.config)
+        )),
+        McpSlashAddPlanResult::Err { error } => CommandResult::Error(slash_add_error_text(error)),
+    }
+}
+
+async fn execute_template_confirm(token: &str, ctx: &CommandContext) -> CommandResult {
+    let writer = FileMcpConfigWriter::new(ctx.cwd.clone());
+    match mossen_agent::mcp::builtin_template_plan::execute_mcp_template_install_plan(token, writer)
+        .await
+    {
+        McpTemplateInstallResult::Ok { plan } => CommandResult::System(format!(
+            "✓ Installed MCP template {} as {}\nscope: {}\nNo auto-connect was performed; restart or reconnect MCP to use it.",
+            plan.template_name,
+            plan.server_name,
+            scope_label(plan.scope)
+        )),
+        McpTemplateInstallResult::Err { error } => CommandResult::Error(template_error_text(error)),
+    }
+}
+
+async fn execute_remote_confirm(token: &str, ctx: &CommandContext) -> CommandResult {
+    let writer = FileMcpConfigWriter::new(ctx.cwd.clone());
+    match mossen_agent::mcp::remote_install_plan::execute_mcp_remote_install_plan(token, &writer)
+        .await
+    {
+        McpRemoteInstallResult::Ok { plan } => CommandResult::System(format!(
+            "✓ Installed remote MCP server {}\nscope: {}\nsource: {}\nNo auto-connect was performed; restart or reconnect MCP to use it.",
+            plan.server_name,
+            scope_label(plan.scope),
+            plan.source
+        )),
+        McpRemoteInstallResult::Err { error } => CommandResult::Error(remote_error_text(error)),
     }
 }
 
@@ -723,14 +954,12 @@ impl Directive for BridgesDirective {
             "templates" | "template" => Ok(CommandResult::Text(format_templates_list())),
 
             "status" | "stat" => {
-                // In a real implementation, this reads live MCP state.
-                // For now, produce the read-only status with no servers.
-                let clients: Vec<McpClientInfo> = Vec::new();
+                let clients = current_mcp_clients().await;
                 Ok(CommandResult::Text(format_mcp_status(&clients)))
             }
 
             "add" => {
-                let rest_strs: Vec<&str> = rest.iter().copied().collect();
+                let rest_strs: Vec<&str> = rest.to_vec();
                 let parsed = parse_mcp_add_args(&rest_strs);
 
                 if let Some(ref flag) = parsed.unsupported_flag {
@@ -741,25 +970,29 @@ impl Directive for BridgesDirective {
                 }
 
                 if let Some(ref token) = parsed.confirm_token {
-                    // Execute confirmed plan
-                    return Ok(CommandResult::System(format!(
-                        "✓ Confirmed MCP add with token: {}\nServer was written to config only; reconnect or restart MCP if needed.",
-                        token
-                    )));
+                    return Ok(execute_add_confirm(token, ctx).await);
                 }
 
-                // Validate required fields
-                let error_msg = format_mcp_add_error(&parsed);
-                if !error_msg.is_empty() {
-                    return Ok(CommandResult::Error(error_msg));
+                match mossen_agent::mcp::slash_add_plan::get_mcp_slash_add_plan(
+                    parsed.server_name.as_deref(),
+                    parsed.scope.as_deref(),
+                    parsed.transport.as_deref(),
+                    parsed.command_or_url.as_deref(),
+                    Some(&parsed.args),
+                    Some(&parsed.env),
+                    Some(&parsed.headers),
+                ) {
+                    McpSlashAddPlanResult::Ok { plan } => {
+                        Ok(CommandResult::Text(format_mcp_add_plan(&plan)))
+                    }
+                    McpSlashAddPlanResult::Err { error } => {
+                        Ok(CommandResult::Error(slash_add_error_text(error)))
+                    }
                 }
-
-                // Dry-run plan
-                Ok(CommandResult::Text(format_mcp_add_plan(&parsed)))
             }
 
             "add-template" => {
-                let rest_strs: Vec<&str> = rest.iter().copied().collect();
+                let rest_strs: Vec<&str> = rest.to_vec();
                 let parsed = parse_mcp_add_template_args(&rest_strs);
 
                 if let Some(ref flag) = parsed.unsupported_flag {
@@ -770,21 +1003,27 @@ impl Directive for BridgesDirective {
                 }
 
                 if let Some(ref token) = parsed.confirm_token {
-                    return Ok(CommandResult::System(format!(
-                        "✓ Confirmed MCP template install with token: {}\nServer was written to config only; reconnect or restart MCP if needed.",
-                        token
-                    )));
+                    return Ok(execute_template_confirm(token, ctx).await);
                 }
 
-                if let Some(err) = format_mcp_add_template_error(&parsed) {
-                    return Ok(CommandResult::Error(err));
+                match mossen_agent::mcp::builtin_template_plan::get_mcp_template_install_plan(
+                    parsed.template_name.as_deref(),
+                    parsed.server_name.as_deref(),
+                    parsed.scope.as_deref(),
+                    parsed.root.as_deref(),
+                    parsed.db.as_deref(),
+                ) {
+                    McpTemplateInstallResult::Ok { plan } => {
+                        Ok(CommandResult::Text(format_mcp_add_template_plan(&plan)))
+                    }
+                    McpTemplateInstallResult::Err { error } => {
+                        Ok(CommandResult::Error(template_error_text(error)))
+                    }
                 }
-
-                Ok(CommandResult::Text(format_mcp_add_template_plan(&parsed)))
             }
 
             "install" => {
-                let rest_strs: Vec<&str> = rest.iter().copied().collect();
+                let rest_strs: Vec<&str> = rest.to_vec();
                 let parsed = parse_mcp_install_args(&rest_strs);
 
                 if let Some(ref flag) = parsed.unsupported_flag {
@@ -795,17 +1034,23 @@ impl Directive for BridgesDirective {
                 }
 
                 if let Some(ref token) = parsed.confirm_token {
-                    return Ok(CommandResult::System(format!(
-                        "✓ Confirmed remote MCP install with token: {}\nServer was written to config only; reconnect or restart MCP if needed.",
-                        token
-                    )));
+                    return Ok(execute_remote_confirm(token, ctx).await);
                 }
 
-                if let Some(err) = format_mcp_install_error(&parsed) {
-                    return Ok(CommandResult::Error(err));
+                match mossen_agent::mcp::remote_install_plan::get_mcp_remote_install_plan(
+                    parsed.source.as_deref(),
+                    parsed.server_name.as_deref(),
+                    parsed.scope.as_deref(),
+                )
+                .await
+                {
+                    McpRemoteInstallResult::Ok { plan } => {
+                        Ok(CommandResult::Text(format_mcp_install_plan(&plan)))
+                    }
+                    McpRemoteInstallResult::Err { error } => {
+                        Ok(CommandResult::Error(remote_error_text(error)))
+                    }
                 }
-
-                Ok(CommandResult::Text(format_mcp_install_plan(&parsed)))
             }
 
             "enable" | "disable" => {
@@ -833,5 +1078,300 @@ impl Directive for BridgesDirective {
                 subcommand
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn test_context(cwd: PathBuf) -> CommandContext {
+        CommandContext {
+            cwd,
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+        }
+    }
+
+    fn result_text(result: CommandResult) -> String {
+        match result {
+            CommandResult::Text(text)
+            | CommandResult::System(text)
+            | CommandResult::Error(text) => text,
+            other => panic!("unexpected command result: {other:?}"),
+        }
+    }
+
+    fn extract_confirm_token(output: &str, marker: &str) -> String {
+        output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(marker))
+            .map(str::trim)
+            .expect("confirm token line")
+            .to_string()
+    }
+
+    fn read_project_mcp_config(cwd: &Path) -> Value {
+        let path = cwd.join(".mcp.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("read .mcp.json"))
+            .expect("parse .mcp.json")
+    }
+
+    #[tokio::test]
+    async fn mcp_add_confirm_writes_project_config_and_token_is_one_shot() {
+        mossen_agent::mcp::slash_add_plan::reset_mcp_slash_add_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let ctx = test_context(temp.path().to_path_buf());
+
+        let dry_run = BridgesDirective
+            .execute(
+                &[
+                    "add",
+                    "demo",
+                    "--scope",
+                    "project",
+                    "--",
+                    "python3",
+                    "server.py",
+                ],
+                &ctx,
+            )
+            .await
+            .expect("dry run");
+        let dry_run_text = result_text(dry_run);
+        assert!(dry_run_text.contains("MCP add dry-run"), "{dry_run_text}");
+        assert!(!temp.path().join(".mcp.json").exists());
+        let token = extract_confirm_token(
+            &dry_run_text,
+            "To install within 10 min: /mcp add --confirm ",
+        );
+
+        let confirm = BridgesDirective
+            .execute(&["add", "--confirm", &token], &ctx)
+            .await
+            .expect("confirm");
+        let confirm_text = result_text(confirm);
+        assert!(
+            confirm_text.contains("Installed MCP server demo"),
+            "{confirm_text}"
+        );
+        let config = read_project_mcp_config(temp.path());
+        assert_eq!(
+            config["mcpServers"]["demo"]["command"].as_str(),
+            Some("python3")
+        );
+        assert_eq!(
+            config["mcpServers"]["demo"]["args"][0].as_str(),
+            Some("server.py")
+        );
+
+        let second = BridgesDirective
+            .execute(&["add", "--confirm", &token], &ctx)
+            .await
+            .expect("second confirm");
+        let second_text = result_text(second);
+        assert!(
+            second_text.contains("Unknown or already used MCP add token"),
+            "{second_text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_add_template_confirm_writes_instantiated_builtin_template() {
+        mossen_agent::mcp::builtin_template_plan::reset_mcp_template_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let ctx = test_context(temp.path().to_path_buf());
+        let root = temp.path().join("repo-root");
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let root_arg = root.to_string_lossy().to_string();
+
+        let dry_run = BridgesDirective
+            .execute(
+                &[
+                    "add-template",
+                    "filesystem-readonly",
+                    "--name",
+                    "fs",
+                    "--scope",
+                    "project",
+                    "--root",
+                    &root_arg,
+                ],
+                &ctx,
+            )
+            .await
+            .expect("dry run");
+        let dry_run_text = result_text(dry_run);
+        assert!(
+            dry_run_text.contains("MCP add-template dry-run"),
+            "{dry_run_text}"
+        );
+        let token = extract_confirm_token(
+            &dry_run_text,
+            "To install within 10 min: /mcp add-template --confirm ",
+        );
+
+        let confirm = BridgesDirective
+            .execute(&["add-template", "--confirm", &token], &ctx)
+            .await
+            .expect("confirm");
+        let confirm_text = result_text(confirm);
+        assert!(
+            confirm_text.contains("Installed MCP template filesystem-readonly as fs"),
+            "{confirm_text}"
+        );
+        let config = read_project_mcp_config(temp.path());
+        assert_eq!(
+            config["mcpServers"]["fs"]["command"].as_str(),
+            Some("mcp-server-filesystem")
+        );
+        assert_eq!(
+            config["mcpServers"]["fs"]["args"][1].as_str(),
+            Some(root_arg.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_templates_lists_current_rust_builtin_inventory() {
+        let ctx = test_context(tempfile::tempdir().expect("tempdir").path().to_path_buf());
+        let output = BridgesDirective
+            .execute(&["templates"], &ctx)
+            .await
+            .expect("templates");
+        let text = result_text(output);
+        for name in [
+            "filesystem-readonly",
+            "git-readonly",
+            "local-docs",
+            "playwright-local",
+            "sqlite-readonly",
+        ] {
+            assert!(text.contains(name), "missing {name}: {text}");
+        }
+        assert!(text.contains("文件系统只读"), "{text}");
+    }
+
+    async fn serve_remote_mcp_config(body: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept request");
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+        format!("http://{addr}/mcp.json")
+    }
+
+    #[tokio::test]
+    async fn mcp_remote_install_confirm_writes_selected_server() {
+        mossen_agent::mcp::remote_install_plan::reset_mcp_remote_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let ctx = test_context(temp.path().to_path_buf());
+        let url = serve_remote_mcp_config(
+            r#"{"mcpServers":{"remote":{"type":"stdio","command":"node","args":["server.js"]}}}"#,
+        )
+        .await;
+
+        let dry_run = BridgesDirective
+            .execute(&["install", &url, "--scope", "project"], &ctx)
+            .await
+            .expect("dry run");
+        let dry_run_text = result_text(dry_run);
+        assert!(
+            dry_run_text.contains("MCP remote install dry-run"),
+            "{dry_run_text}"
+        );
+        let token = extract_confirm_token(
+            &dry_run_text,
+            "To install within 10 min: /mcp install --confirm ",
+        );
+
+        let confirm = BridgesDirective
+            .execute(&["install", "--confirm", &token], &ctx)
+            .await
+            .expect("confirm");
+        let confirm_text = result_text(confirm);
+        assert!(
+            confirm_text.contains("Installed remote MCP server remote"),
+            "{confirm_text}"
+        );
+        let config = read_project_mcp_config(temp.path());
+        assert_eq!(
+            config["mcpServers"]["remote"]["command"].as_str(),
+            Some("node")
+        );
+        assert_eq!(
+            config["mcpServers"]["remote"]["args"][0].as_str(),
+            Some("server.js")
+        );
+    }
+
+    #[test]
+    fn mcp_status_formats_all_connection_states_and_counts() {
+        let text = format_mcp_status(&[
+            McpClientInfo {
+                name: "ok".to_string(),
+                status: "connected".to_string(),
+                scope: "project".to_string(),
+                transport: "stdio".to_string(),
+                tool_count: 2,
+                prompt_count: 1,
+                resource_count: 3,
+                error: None,
+                reconnect_attempt: None,
+                max_reconnect_attempts: None,
+            },
+            McpClientInfo {
+                name: "auth".to_string(),
+                status: "needs-auth".to_string(),
+                scope: "user".to_string(),
+                transport: "http".to_string(),
+                tool_count: 0,
+                prompt_count: 0,
+                resource_count: 0,
+                error: None,
+                reconnect_attempt: None,
+                max_reconnect_attempts: None,
+            },
+            McpClientInfo {
+                name: "bad".to_string(),
+                status: "failed".to_string(),
+                scope: "project".to_string(),
+                transport: "stdio".to_string(),
+                tool_count: 0,
+                prompt_count: 0,
+                resource_count: 0,
+                error: Some("boom".to_string()),
+                reconnect_attempt: None,
+                max_reconnect_attempts: None,
+            },
+        ]);
+        assert!(text.contains("3 total, 1 connected"), "{text}");
+        assert!(text.contains("1 needs auth, 1 failed"), "{text}");
+        assert!(
+            text.contains("Capabilities: 2 tools, 1 prompts/skills, 3 resources"),
+            "{text}"
+        );
+        assert!(text.contains("error:     boom"), "{text}");
     }
 }

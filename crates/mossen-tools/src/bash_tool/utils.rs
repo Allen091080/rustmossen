@@ -175,10 +175,10 @@ pub fn reset_cwd_if_outside_project(
     should_maintain_project_dir: bool,
     is_in_allowed_path: bool,
 ) -> bool {
-    if should_maintain_project_dir || (current_cwd != original_cwd && !is_in_allowed_path) {
-        if !should_maintain_project_dir {
-            return true;
-        }
+    if (should_maintain_project_dir || (current_cwd != original_cwd && !is_in_allowed_path))
+        && !should_maintain_project_dir
+    {
+        return true;
     }
     false
 }

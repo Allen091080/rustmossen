@@ -171,7 +171,7 @@ pub fn merge_plugin_errors(existing: &[PluginError], fresh: &[PluginError]) -> V
         .filter(|e| e.source == "lsp-manager" || e.source.starts_with("plugin:"))
         .collect();
 
-    let fresh_keys: HashSet<String> = fresh.iter().map(|e| error_key(e)).collect();
+    let fresh_keys: HashSet<String> = fresh.iter().map(error_key).collect();
     let deduped: Vec<PluginError> = preserved
         .into_iter()
         .filter(|e| !fresh_keys.contains(&error_key(e)))

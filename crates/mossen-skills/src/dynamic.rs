@@ -68,6 +68,13 @@ pub async fn get_skill_dir_commands(
     crate::loader::load_skills_from_dir(base_path, source).await
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StartupSkillLoadReport {
+    pub user_dir_present: bool,
+    pub project_dir_count: usize,
+    pub added_skill_count: usize,
+}
+
 /// 设置作用域 — 对应 TS `SettingSource`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillSettingSource {
@@ -351,17 +358,14 @@ pub async fn discover_skill_dirs_for_paths(
 
             let skill_dir = dir.join(canonical_config_dir_name).join("skills");
 
-            let already_checked = {
-                let mut s = state().write().unwrap();
-                if s.checked_dirs.contains(&skill_dir) {
-                    true
-                } else {
-                    s.checked_dirs.insert(skill_dir.clone());
-                    false
-                }
-            };
+            let already_checked = state().read().unwrap().checked_dirs.contains(&skill_dir);
 
             if !already_checked && tokio::fs::metadata(&skill_dir).await.is_ok() {
+                state()
+                    .write()
+                    .unwrap()
+                    .checked_dirs
+                    .insert(skill_dir.clone());
                 new_dirs.push(skill_dir);
             }
 
@@ -415,19 +419,32 @@ pub async fn add_skill_directories(dirs: &[PathBuf]) -> usize {
     if dirs.is_empty() {
         return 0;
     }
+    let dirs_with_source = dirs
+        .iter()
+        .rev()
+        .cloned()
+        .map(|dir| (dir, PromptCommandSource::ProjectSettings))
+        .collect::<Vec<_>>();
+    add_skill_directories_in_precedence_order(&dirs_with_source).await
+}
 
-    // Load all directories concurrently.
+pub async fn add_skill_directories_in_precedence_order(
+    dirs: &[(PathBuf, PromptCommandSource)],
+) -> usize {
+    if dirs.is_empty() {
+        return 0;
+    }
+
     let mut all_loaded: Vec<Vec<CraftCommand>> = Vec::with_capacity(dirs.len());
-    for dir in dirs {
-        let loaded = load_skills_from_dir(dir, PromptCommandSource::ProjectSettings).await;
+    for (dir, source) in dirs {
+        let loaded = load_skills_from_dir(dir, source.clone()).await;
         all_loaded.push(loaded.into_iter().map(|(cmd, _)| cmd).collect());
     }
 
-    // shallower first, so deeper overrides
     let mut added: usize = 0;
     {
         let mut s = state().write().unwrap();
-        for skills in all_loaded.iter().rev() {
+        for skills in &all_loaded {
             for skill in skills {
                 let name = skill.base.name.clone();
                 if s.skills.insert(name.clone(), skill.clone()).is_none() {
@@ -441,6 +458,34 @@ pub async fn add_skill_directories(dirs: &[PathBuf]) -> usize {
         emit_skills_loaded();
     }
     added
+}
+
+pub async fn load_startup_skill_directories(
+    cwd: &Path,
+    canonical_config_dir_name: &str,
+) -> StartupSkillLoadReport {
+    let user_dir = mossen_utils::env::get_mossen_config_home_dir().join("skills");
+    let user_dir_present = tokio::fs::metadata(&user_dir).await.is_ok();
+    let project_dirs =
+        discover_skill_dirs_for_paths(&[cwd.to_path_buf()], cwd, canonical_config_dir_name).await;
+
+    let mut dirs = Vec::new();
+    if user_dir_present {
+        dirs.push((user_dir, PromptCommandSource::UserSettings));
+    }
+    dirs.extend(
+        project_dirs
+            .iter()
+            .rev()
+            .cloned()
+            .map(|dir| (dir, PromptCommandSource::ProjectSettings)),
+    );
+
+    StartupSkillLoadReport {
+        user_dir_present,
+        project_dir_count: project_dirs.len(),
+        added_skill_count: add_skill_directories_in_precedence_order(&dirs).await,
+    }
 }
 
 /// `loadSkillsDir.ts` `activateConditionalSkillsForPaths`。
@@ -561,6 +606,53 @@ pub fn add_conditional_skill(skill: CraftCommand) {
 mod tests {
     use super::*;
 
+    const SKILL_ENV_KEYS: &[&str] = &["HOME", "MOSSEN_CONFIG_DIR"];
+
+    struct EnvGuard(Vec<(&'static str, Option<String>)>);
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    fn skill_state_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("skill state lock")
+    }
+
+    fn isolate_skill_env(root: &Path) -> EnvGuard {
+        let guard = EnvGuard(
+            SKILL_ENV_KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect(),
+        );
+        std::env::set_var("HOME", root.join("home"));
+        std::env::set_var("MOSSEN_CONFIG_DIR", root.join("home").join(".mossen"));
+        guard
+    }
+
+    async fn write_skill(dir: &Path, name: &str, description: &str, body: &str) {
+        let skill_dir = dir.join(name);
+        tokio::fs::create_dir_all(&skill_dir)
+            .await
+            .expect("create skill dir");
+        tokio::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\ndescription: {description}\n---\n{body}\n"),
+        )
+        .await
+        .expect("write skill");
+    }
+
     #[test]
     fn glob_matches_basic_and_double_star() {
         assert!(simple_glob_match("src/*.ts", "src/foo.ts"));
@@ -577,6 +669,7 @@ mod tests {
 
     #[tokio::test]
     async fn discover_skill_dirs_checks_cwd_level_skills() {
+        let _lock = skill_state_lock();
         clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("tempdir");
         let cwd = temp.path();
@@ -595,6 +688,150 @@ mod tests {
             .expect("create src");
         let from_child = discover_skill_dirs_for_paths(&[src], cwd, ".mossen").await;
         assert_eq!(from_child, vec![skills]);
+        clear_dynamic_skills();
+    }
+
+    #[tokio::test]
+    async fn discover_skill_dirs_rechecks_absent_directory_created_later() {
+        let _lock = skill_state_lock();
+        clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cwd = temp.path();
+        let skills = cwd.join(".mossen").join("skills");
+
+        let before = discover_skill_dirs_for_paths(&[cwd.to_path_buf()], cwd, ".mossen").await;
+        assert!(before.is_empty(), "{before:?}");
+
+        tokio::fs::create_dir_all(&skills)
+            .await
+            .expect("create skills dir");
+        let after = discover_skill_dirs_for_paths(&[cwd.to_path_buf()], cwd, ".mossen").await;
+        assert_eq!(after, vec![skills]);
+        clear_dynamic_skills();
+    }
+
+    #[tokio::test]
+    async fn startup_loads_user_and_project_skill_sources() {
+        let _lock = skill_state_lock();
+        clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_skill_env(temp.path());
+        let cwd = temp.path().join("project");
+        let user_skills = temp.path().join("home").join(".mossen").join("skills");
+        let project_skills = cwd.join(".mossen").join("skills");
+        tokio::fs::create_dir_all(&cwd).await.expect("create cwd");
+        write_skill(
+            &user_skills,
+            "m61_user_skill",
+            "M6 user source",
+            "M6_USER_BODY",
+        )
+        .await;
+        write_skill(
+            &project_skills,
+            "m64_project_skill",
+            "M6 project source",
+            "M6_PROJECT_BODY",
+        )
+        .await;
+
+        let report = load_startup_skill_directories(&cwd, ".mossen").await;
+        assert!(report.user_dir_present, "{report:?}");
+        assert_eq!(report.project_dir_count, 1, "{report:?}");
+        assert_eq!(report.added_skill_count, 2, "{report:?}");
+
+        let skills = get_dynamic_skills();
+        let user = skills
+            .iter()
+            .find(|skill| skill.name() == "m61_user_skill")
+            .expect("user skill loaded");
+        let project = skills
+            .iter()
+            .find(|skill| skill.name() == "m64_project_skill")
+            .expect("project skill loaded");
+        assert_eq!(user.prompt_data.source, PromptCommandSource::UserSettings);
+        assert_eq!(
+            project.prompt_data.source,
+            PromptCommandSource::ProjectSettings
+        );
+        clear_dynamic_skills();
+    }
+
+    #[tokio::test]
+    async fn add_skill_directories_reload_updates_existing_skill_content() {
+        let _lock = skill_state_lock();
+        clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skills = temp.path().join("skills");
+        let skill_dir = skills.join("m63_reload_skill");
+        tokio::fs::create_dir_all(&skill_dir)
+            .await
+            .expect("create skill dir");
+        let skill_file = skill_dir.join("SKILL.md");
+        tokio::fs::write(
+            &skill_file,
+            "---\ndescription: reload v1\n---\nSKILL_RELOAD_V1_M6_3\n",
+        )
+        .await
+        .expect("write v1");
+
+        let added = add_skill_directories(&[skills.clone()]).await;
+        assert_eq!(added, 1);
+
+        tokio::fs::write(
+            &skill_file,
+            "---\ndescription: reload v2\n---\nSKILL_RELOAD_V2_M6_3\n",
+        )
+        .await
+        .expect("write v2");
+        let added_again = add_skill_directories(&[skills]).await;
+        assert_eq!(added_again, 0);
+
+        let skill = get_dynamic_skills()
+            .into_iter()
+            .find(|skill| skill.name() == "m63_reload_skill")
+            .expect("reloaded skill");
+        let content = skill.markdown_content.unwrap_or_default();
+        assert!(content.contains("SKILL_RELOAD_V2_M6_3"), "{content}");
+        assert!(!content.contains("SKILL_RELOAD_V1_M6_3"), "{content}");
+        clear_dynamic_skills();
+    }
+
+    #[tokio::test]
+    async fn load_skills_from_dir_skips_bad_entry_and_keeps_good_skill() {
+        let _lock = skill_state_lock();
+        clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skills = temp.path().join("skills");
+        write_skill(
+            &skills,
+            "m66_good_skill",
+            "M6 good skill",
+            "M6_6_GOOD_BODY_xyz",
+        )
+        .await;
+        let bad_skill_file = skills.join("m66_bad_skill").join("SKILL.md");
+        tokio::fs::create_dir_all(&bad_skill_file)
+            .await
+            .expect("create bad SKILL.md dir");
+
+        let loaded = get_skill_dir_commands(&skills, PromptCommandSource::UserSettings).await;
+        let names = loaded
+            .iter()
+            .map(|(skill, _)| skill.name().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"m66_good_skill".to_string()), "{names:?}");
+        assert!(!names.contains(&"m66_bad_skill".to_string()), "{names:?}");
+        let good = loaded
+            .iter()
+            .find(|(skill, _)| skill.name() == "m66_good_skill")
+            .expect("good skill");
+        assert!(good
+            .0
+            .markdown_content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("M6_6_GOOD_BODY_xyz"));
         clear_dynamic_skills();
     }
 }

@@ -333,3 +333,105 @@ pub async fn save_project_mcp_config(cwd: &Path, config: &McpJsonConfig) -> anyh
     tokio::fs::write(&path, contents).await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn load_merged_configs_surfaces_user_and_project_scopes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cwd = temp.path().join("project");
+        let global = temp.path().join("global");
+        tokio::fs::create_dir_all(&cwd).await.expect("project dir");
+        tokio::fs::create_dir_all(&global)
+            .await
+            .expect("global dir");
+
+        tokio::fs::write(
+            global.join("mcp.json"),
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": {
+                    "m34_user_server": {
+                        "type": "stdio",
+                        "command": "python3",
+                        "args": ["user.py"]
+                    },
+                    "m34_overlap": {
+                        "type": "stdio",
+                        "command": "python3",
+                        "args": ["user-overlap.py"]
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .await
+        .expect("write user config");
+
+        tokio::fs::write(
+            cwd.join(".mcp.json"),
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": {
+                    "m34_project_server": {
+                        "type": "stdio",
+                        "command": "python3",
+                        "args": ["project.py"]
+                    },
+                    "m34_overlap": {
+                        "type": "stdio",
+                        "command": "python3",
+                        "args": ["project-overlap.py"]
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .await
+        .expect("write project config");
+
+        let merged = load_merged_configs(&cwd, &global)
+            .await
+            .expect("merged configs load");
+
+        assert_eq!(
+            merged.get("m34_user_server").map(|cfg| cfg.scope),
+            Some(ConfigScope::User)
+        );
+        assert_eq!(
+            merged.get("m34_project_server").map(|cfg| cfg.scope),
+            Some(ConfigScope::Local)
+        );
+        assert_eq!(
+            merged.get("m34_overlap").map(|cfg| cfg.scope),
+            Some(ConfigScope::Local)
+        );
+    }
+
+    #[test]
+    fn add_scope_to_servers_ignores_invalid_server_configs() {
+        let servers = HashMap::from([
+            (
+                "valid".to_string(),
+                json!({
+                    "type": "stdio",
+                    "command": "python3",
+                    "args": ["server.py"]
+                }),
+            ),
+            (
+                "invalid".to_string(),
+                json!({
+                    "type": "stdio",
+                    "args": ["missing-command.py"]
+                }),
+            ),
+        ]);
+
+        let scoped = add_scope_to_servers(&servers, ConfigScope::Local);
+
+        assert!(scoped.contains_key("valid"));
+        assert!(!scoped.contains_key("invalid"));
+    }
+}

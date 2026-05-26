@@ -194,9 +194,9 @@ pub async fn update_plugins_for_marketplaces(
 
         let relevant: Vec<PluginInstallation> = all_installations
             .iter()
-            .filter(|i| is_installation_relevant(*i))
+            .filter(|i| is_installation_relevant(i))
             .map(|i| PluginInstallation {
-                scope: i.scope.clone(),
+                scope: i.scope,
                 project_path: i.project_path.clone(),
             })
             .collect();

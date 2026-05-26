@@ -548,7 +548,7 @@ where
         return Err(err.to_string());
     }
     let params = err.get("data").cloned().unwrap_or(JsonValue::Null);
-    elicit(params).await.map_err(|m| m)?;
+    elicit(params).await?;
     call_tool()
         .await
         .map_err(|e| serde_json::to_string(&e).unwrap_or_default())

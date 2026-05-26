@@ -34,7 +34,7 @@ pub async fn discover_skill_dirs_for_paths(
         let cwd_prefix = format!("{}{}", resolved_cwd, std::path::MAIN_SEPARATOR);
         while current_dir
             .to_str()
-            .map_or(false, |s| s.starts_with(&cwd_prefix))
+            .is_some_and(|s| s.starts_with(&cwd_prefix))
         {
             let skill_dir = get_scoped_config_dir(&current_dir).join("skills");
             let skill_dir_str = skill_dir.to_string_lossy().to_string();

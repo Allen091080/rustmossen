@@ -127,12 +127,10 @@ fn get_commit_and_pr_instructions(config: &PromptConfig) -> String {
 
     if config.user_type == "mossen" {
         let skills_section = if !config.is_simple_mode {
-            format!(
-                "For git commits and pull requests, use the `/commit` and `/commit-push-pr` skills:\n\
+            "For git commits and pull requests, use the `/commit` and `/commit-push-pr` skills:\n\
                  - `/commit` - Create a git commit with staged changes\n\
                  - `/commit-push-pr` - Commit, push, and create a pull request\n\n\
-                 These skills handle git safety protocols, proper commit message formatting, and PR creation.\n"
-            )
+                 These skills handle git safety protocols, proper commit message formatting, and PR creation.\n".to_string()
         } else {
             String::new()
         };
@@ -147,8 +145,7 @@ fn get_commit_and_pr_instructions(config: &PromptConfig) -> String {
             skills_section
         )
     } else {
-        format!(
-            "# Committing changes with git\n\n\
+        "# Committing changes with git\n\n\
              Only create commits when requested by the user. If unclear, ask first.\n\n\
              Git Safety Protocol:\n\
              - NEVER update the git config\n\
@@ -159,8 +156,7 @@ fn get_commit_and_pr_instructions(config: &PromptConfig) -> String {
              - When staging files, prefer adding specific files by name rather than using \"git add -A\"\n\
              - NEVER commit changes unless the user explicitly asks you to\n\n\
              # Creating pull requests\n\
-             Use the gh command via the Bash tool for ALL GitHub-related tasks."
-        )
+             Use the gh command via the Bash tool for ALL GitHub-related tasks.".to_string()
     }
 }
 

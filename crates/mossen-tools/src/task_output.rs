@@ -176,6 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_output_blocks_until_background_task_is_ready() {
+        let _guard = crate::task_store::test_store_guard();
         let record = crate::task_store::create_background_shell_task(
             "printf task-output-ready".to_string(),
             ".".to_string(),

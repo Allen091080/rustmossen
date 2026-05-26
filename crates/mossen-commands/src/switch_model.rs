@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use mossen_agent::services::config::profiles as config_profiles;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
@@ -24,16 +25,17 @@ struct ModelEntry {
 fn format_model_list(models: &[ModelEntry], cli_name: &str) -> String {
     if models.is_empty() {
         return format!(
-            "No model options are available.\n\n\
-             Set a literal session model with:\n\
-             \x20 /model <model-id>\n\n\
-             Or start {} with --model <model-id>.",
+            "No model profiles configured.\n\n\
+             Add one with:\n\
+             \x20 {} --add-model-profile <name> --base-url <url> --model <model> --api-key <key>\n\n\
+             Or start {} with --model <model-id> for a literal session model.",
+            cli_name,
             cli_name
         );
     }
 
     let mut lines = Vec::new();
-    lines.push(format!("Model options ({}):", models.len()));
+    lines.push(format!("Model profiles ({}):", models.len()));
     lines.push(String::new());
 
     let mut current_name: Option<String> = None;
@@ -66,22 +68,20 @@ fn format_model_list(models: &[ModelEntry], cli_name: &str) -> String {
         lines.push(String::new());
     }
 
-    // Current session profile
     match &current_name {
-        Some(name) => lines.push(format!("Current session model: {}", name)),
-        None => lines.push("Current session model: <default>".to_string()),
+        Some(name) => lines.push(format!("Current session profile: {}", name)),
+        None => lines.push("Current session profile: <none>".to_string()),
     }
-    // Global default
     match &default_name {
-        Some(name) => lines.push(format!("Default option:         {}", name)),
-        None => lines.push("Default option:         <none>".to_string()),
+        Some(name) => lines.push(format!("Global default profile:  {}", name)),
+        None => lines.push("Global default profile:  <none>".to_string()),
     }
 
     lines.push(String::new());
     lines.push("Usage:".to_string());
-    lines.push("  /model <model-id-or-alias>     Switch this session model".to_string());
+    lines.push("  /model <profile-name>          Switch this session profile".to_string());
     lines.push(format!(
-        "  {} --model <model-id>          Start with a model",
+        "  {} --set-model-profile <name>  Set the global default profile",
         cli_name
     ));
 
@@ -89,49 +89,81 @@ fn format_model_list(models: &[ModelEntry], cli_name: &str) -> String {
 }
 
 fn model_entries(ctx: &CommandContext) -> Vec<ModelEntry> {
-    let current_model = ctx
-        .env_vars
-        .get("MOSSEN_CODE_MODEL")
-        .or_else(|| ctx.env_vars.get("MOSSEN_MODEL"))
-        .filter(|value| !value.trim().is_empty())
-        .cloned();
-
-    mossen_utils::model_utils::get_model_options()
+    let current_profile = config_profiles::get_current_profile().map(|profile| profile.name);
+    let default_profile = config_profiles::get_default_profile().map(|profile| profile.name);
+    let mut entries = config_profiles::list_all_profiles()
         .into_iter()
-        .map(|option| {
-            let value = option
-                .value
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            let is_default = option.value.is_none();
-            let is_current = current_model
-                .as_deref()
-                .map(|model| option.value.as_deref() == Some(model) || option.label == model)
-                .unwrap_or(is_default);
+        .map(|profile| {
+            let is_current = current_profile.as_deref() == Some(profile.name.as_str());
+            let is_default = default_profile.as_deref() == Some(profile.name.as_str());
             ModelEntry {
-                name: option.label,
-                value: value.clone(),
-                model: option.description_for_model.unwrap_or(value),
-                source: "model-options".to_string(),
+                name: profile.name.clone(),
+                value: profile.name,
+                model: profile.profile.model,
+                source: profile_source_label(&profile.source).to_string(),
                 is_current,
                 is_default,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        let current_model = ctx
+            .env_vars
+            .get("MOSSEN_CODE_MODEL")
+            .or_else(|| ctx.env_vars.get("MOSSEN_MODEL"))
+            .filter(|value| !value.trim().is_empty())
+            .cloned();
+        if let Some(model) = current_model {
+            entries.push(ModelEntry {
+                name: model.clone(),
+                value: model.clone(),
+                model,
+                source: "env".to_string(),
+                is_current: true,
+                is_default: false,
+            });
+        }
+    }
+
+    entries
+}
+
+fn profile_source_label(source: &config_profiles::ProfileSource) -> &'static str {
+    match source {
+        config_profiles::ProfileSource::Settings => "settings",
+        config_profiles::ProfileSource::FallbackEnv => "fallback-env",
+    }
 }
 
 /// Format the result of a model switch request.
-fn format_switch_result(name: &str, cli_name: &str) -> String {
+fn format_switch_result(profile: &config_profiles::ListedProfile, cli_name: &str) -> String {
     let mut lines = Vec::new();
-    lines.push(format!("Session model override requested: \"{}\".", name));
-    lines.push(format!("  model: {}", name));
-    lines.push(String::new());
-    lines.push("In the TUI this is applied to the active session engine.".to_string());
+    lines.push(format!("Switched session profile to \"{}\".", profile.name));
+    lines.push(format!("  model: {}", profile.profile.model));
     lines.push(format!(
-        "Use `{} --model {}` when starting a new session.",
-        cli_name, name
+        "  source: {}",
+        profile_source_label(&profile.source)
+    ));
+    lines.push(String::new());
+    lines.push(format!(
+        "Use `{} --set-model-profile {}` to make this the global default.",
+        cli_name, profile.name
     ));
     lines.join("\n")
+}
+
+fn format_unknown_profile(name: &str, models: &[ModelEntry]) -> String {
+    let available = if models.is_empty() {
+        "<none>".to_string()
+    } else {
+        models
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!("Unknown model profile: {name}\nAvailable profiles: {available}")
 }
 
 /// `/model` command.
@@ -144,7 +176,7 @@ impl Directive for SwitchModelDirective {
     }
 
     fn description(&self) -> &str {
-        "List model options or switch session model"
+        "List configured model profiles or switch session profile"
     }
 
     fn directive_type(&self) -> DirectiveType {
@@ -182,7 +214,120 @@ impl Directive for SwitchModelDirective {
             ));
         }
 
-        output.push_str(&format_switch_result(name, cli_name));
-        Ok(CommandResult::Text(output))
+        let selected = config_profiles::list_all_profiles()
+            .into_iter()
+            .find(|profile| profile.name == name);
+
+        match selected {
+            Some(profile) => {
+                config_profiles::set_session_active_profile(&profile.name)
+                    .map_err(anyhow::Error::msg)?;
+                output.push_str(&format_switch_result(&profile, cli_name));
+                Ok(CommandResult::Text(output))
+            }
+            None => {
+                let models = model_entries(ctx);
+                output.push_str(&format_unknown_profile(name, &models));
+                Ok(CommandResult::Error(output))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use mossen_agent::services::config::{facade, types::ConfigOverrideScope};
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    fn config_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+        }
+    }
+
+    fn seed_profiles() {
+        facade::reset_facade_for_testing();
+        facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "glm": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://glm.example.com/v1",
+                    "model": "glm-5.1",
+                    "apiKey": "sk-glm-secret"
+                },
+                "qwen": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://qwen.example.com/v1",
+                    "model": "qwen3.6-plus[1M]",
+                    "apiKey": "sk-qwen-secret"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("qwen".to_string()),
+            ConfigOverrideScope::Override,
+        );
+    }
+
+    #[tokio::test]
+    async fn model_directive_lists_configured_profiles_without_secrets() {
+        let _guard = config_lock();
+        seed_profiles();
+        let result = SwitchModelDirective
+            .execute(&[], &test_context())
+            .await
+            .expect("model list");
+        let CommandResult::Text(text) = result else {
+            panic!("expected text");
+        };
+
+        assert!(text.contains("Model profiles (2)"));
+        assert!(text.contains("qwen [session]"));
+        assert!(text.contains("glm"));
+        assert!(text.contains("qwen3.6-plus[1M]"));
+        assert!(!text.contains("sk-qwen-secret"));
+        assert!(!text.contains("https://qwen.example.com/v1"));
+        facade::reset_facade_for_testing();
+    }
+
+    #[tokio::test]
+    async fn model_directive_switches_session_profile() {
+        let _guard = config_lock();
+        seed_profiles();
+        let result = SwitchModelDirective
+            .execute(&["glm"], &test_context())
+            .await
+            .expect("model switch");
+        let CommandResult::Text(text) = result else {
+            panic!("expected text");
+        };
+
+        assert!(text.contains("Switched session profile to \"glm\""));
+        assert!(text.contains("model: glm-5.1"));
+        assert_eq!(
+            config_profiles::get_active_profile_name().as_deref(),
+            Some("glm")
+        );
+        facade::reset_facade_for_testing();
     }
 }

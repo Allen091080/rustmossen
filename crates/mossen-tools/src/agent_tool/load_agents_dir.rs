@@ -120,7 +120,7 @@ impl BuiltInAgentDefinition {
             skills: None,
             mcp_servers: None,
             hooks: None,
-            color: self.color.clone(),
+            color: self.color,
             model: Some(self.model.to_string()),
             effort: None,
             permission_mode: Some(self.permission_mode.clone()),
@@ -272,11 +272,11 @@ async fn parse_json_agents(path: &Path, source: &str) -> Option<Vec<AgentDefinit
         let permission_mode = config
             .get("permissionMode")
             .and_then(|p| p.as_str())
-            .and_then(|s| parse_permission_mode(s));
+            .and_then(parse_permission_mode);
         let memory = config
             .get("memory")
             .and_then(|m| m.as_str())
-            .and_then(|s| parse_memory_scope(s));
+            .and_then(parse_memory_scope);
         let background = config.get("background").and_then(|b| b.as_bool());
 
         agents.push(AgentDefinition {
@@ -703,8 +703,8 @@ pub fn parse_agent_from_markdown(
     let yaml: serde_yaml::Value = serde_yaml::from_str(frontmatter).ok()?;
     let map = yaml.as_mapping()?;
     let agent_type = map
-        .get(&serde_yaml::Value::String("name".to_string()))
-        .or_else(|| map.get(&serde_yaml::Value::String("agentType".to_string())))
+        .get(serde_yaml::Value::String("name".to_string()))
+        .or_else(|| map.get(serde_yaml::Value::String("agentType".to_string())))
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| {
             Path::new(filename)
@@ -714,8 +714,8 @@ pub fn parse_agent_from_markdown(
         })
         .to_string();
     let when_to_use = map
-        .get(&serde_yaml::Value::String("description".to_string()))
-        .or_else(|| map.get(&serde_yaml::Value::String("whenToUse".to_string())))
+        .get(serde_yaml::Value::String("description".to_string()))
+        .or_else(|| map.get(serde_yaml::Value::String("whenToUse".to_string())))
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
@@ -723,7 +723,7 @@ pub fn parse_agent_from_markdown(
         agent_type,
         when_to_use,
         tools: map
-            .get(&serde_yaml::Value::String("tools".to_string()))
+            .get(serde_yaml::Value::String("tools".to_string()))
             .and_then(|v| v.as_sequence())
             .map(|s| {
                 s.iter()
@@ -731,7 +731,7 @@ pub fn parse_agent_from_markdown(
                     .collect()
             }),
         disallowed_tools: map
-            .get(&serde_yaml::Value::String("disallowedTools".to_string()))
+            .get(serde_yaml::Value::String("disallowedTools".to_string()))
             .and_then(|v| v.as_sequence())
             .map(|s| {
                 s.iter()
@@ -739,7 +739,7 @@ pub fn parse_agent_from_markdown(
                     .collect()
             }),
         skills: map
-            .get(&serde_yaml::Value::String("skills".to_string()))
+            .get(serde_yaml::Value::String("skills".to_string()))
             .and_then(|v| v.as_sequence())
             .map(|s| {
                 s.iter()
@@ -750,34 +750,34 @@ pub fn parse_agent_from_markdown(
         hooks: None,
         color: None,
         model: map
-            .get(&serde_yaml::Value::String("model".to_string()))
+            .get(serde_yaml::Value::String("model".to_string()))
             .and_then(|v| v.as_str())
             .map(String::from),
         effort: None,
         permission_mode: None,
         max_turns: map
-            .get(&serde_yaml::Value::String("maxTurns".to_string()))
+            .get(serde_yaml::Value::String("maxTurns".to_string()))
             .and_then(|v| v.as_u64())
             .map(|v| v as u32),
         filename: Some(filename.to_string()),
         base_dir: Some(base_dir.to_string()),
         source: source.to_string(),
         background: map
-            .get(&serde_yaml::Value::String("background".to_string()))
+            .get(serde_yaml::Value::String("background".to_string()))
             .and_then(|v| v.as_bool()),
         isolation: map
-            .get(&serde_yaml::Value::String("isolation".to_string()))
+            .get(serde_yaml::Value::String("isolation".to_string()))
             .and_then(|v| v.as_str())
             .map(String::from),
         memory: None,
         initial_prompt: None,
         use_exact_tools: map
-            .get(&serde_yaml::Value::String("useExactTools".to_string()))
+            .get(serde_yaml::Value::String("useExactTools".to_string()))
             .and_then(|v| v.as_bool()),
         system_prompt: Some(body),
     };
     if let Some(servers) = map
-        .get(&serde_yaml::Value::String("mcpServers".to_string()))
+        .get(serde_yaml::Value::String("mcpServers".to_string()))
         .and_then(|v| v.as_sequence())
     {
         let mut specs = Vec::new();

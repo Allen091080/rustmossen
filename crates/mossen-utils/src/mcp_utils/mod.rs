@@ -391,51 +391,44 @@ pub fn validate_elicitation_input(
             // Check format
             if let Some(fmt) = format {
                 match fmt.as_str() {
-                    "email" => {
-                        if !string_value.contains('@') || !string_value.contains('.') {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(
-                                    "Must be a valid email address, e.g. user@example.com"
-                                        .to_string(),
-                                ),
-                            };
-                        }
+                    "email" if (!string_value.contains('@') || !string_value.contains('.')) => {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(
+                                "Must be a valid email address, e.g. user@example.com".to_string(),
+                            ),
+                        };
                     }
-                    "uri" => {
+                    "uri"
                         if !string_value.starts_with("http://")
-                            && !string_value.starts_with("https://")
-                        {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(
-                                    "Must be a valid URI, e.g. https://example.com".to_string(),
-                                ),
-                            };
-                        }
+                            && !string_value.starts_with("https://") =>
+                    {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(
+                                "Must be a valid URI, e.g. https://example.com".to_string(),
+                            ),
+                        };
                     }
-                    "date" => {
-                        if !looks_like_iso8601(string_value) || string_value.len() != 10 {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some("Must be a valid date, e.g. 2024-03-15".to_string()),
-                            };
-                        }
+                    "date" if (!looks_like_iso8601(string_value) || string_value.len() != 10) => {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some("Must be a valid date, e.g. 2024-03-15".to_string()),
+                        };
                     }
-                    "date-time" => {
-                        if !looks_like_iso8601(string_value) || !string_value.contains('T') {
-                            return ValidationResult {
-                                value: None,
-                                is_valid: false,
-                                error: Some(
-                                    "Must be a valid date-time, e.g. 2024-03-15T14:30:00Z"
-                                        .to_string(),
-                                ),
-                            };
-                        }
+                    "date-time"
+                        if (!looks_like_iso8601(string_value) || !string_value.contains('T')) =>
+                    {
+                        return ValidationResult {
+                            value: None,
+                            is_valid: false,
+                            error: Some(
+                                "Must be a valid date-time, e.g. 2024-03-15T14:30:00Z".to_string(),
+                            ),
+                        };
                     }
                     _ => {}
                 }
@@ -546,11 +539,9 @@ pub fn get_format_hint(schema: &PrimitiveSchema) -> Option<String> {
             format: Some(fmt), ..
         } => {
             let formats = get_string_formats();
-            if let Some(info) = formats.get(fmt.as_str()) {
-                Some(format!("{}, e.g. {}", info.description, info.example))
-            } else {
-                None
-            }
+            formats
+                .get(fmt.as_str())
+                .map(|info| format!("{}, e.g. {}", info.description, info.example))
         }
         PrimitiveSchema::Number { minimum, maximum } => match (minimum, maximum) {
             (Some(min), Some(max)) => Some(format!("(number between {} and {})", min, max)),

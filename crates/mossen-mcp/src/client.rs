@@ -5,13 +5,29 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
 
+use futures::StreamExt;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::config::ScopedMcpServerConfig;
 use crate::protocol::*;
 use crate::transport::McpTransport;
+
+fn request_timeout_for_method(method: &str) -> Duration {
+    if method == methods::CALL_TOOL {
+        if let Ok(raw) = std::env::var("MCP_TOOL_TIMEOUT") {
+            if let Ok(ms) = raw.parse::<u64>() {
+                if ms > 0 {
+                    return Duration::from_millis(ms);
+                }
+            }
+        }
+    }
+
+    Duration::from_secs(30)
+}
 
 // ─── MCP 客户端 ──────────────────────────────────────────────────────────────
 
@@ -190,13 +206,53 @@ impl McpClient {
         self.pending_requests.insert(id.clone(), tx);
 
         // 发送请求
-        self.transport.send(&request).await?;
+        if let Err(err) = self.transport.send(&request).await {
+            self.pending_requests.remove(&id);
+            return Err(err);
+        }
 
-        // 等待响应（带超时）
-        let response = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
-            .await
-            .map_err(|_| anyhow::anyhow!("MCP request timed out: {}", method))?
-            .map_err(|_| anyhow::anyhow!("MCP response channel dropped"))?;
+        // 等待响应（带超时），同时泵 transport，把 JSON-RPC 响应分发给对应请求。
+        let mut rx = rx;
+        let mut inbound = self.transport.receive();
+        let timeout = tokio::time::sleep(request_timeout_for_method(method));
+        tokio::pin!(timeout);
+
+        let response = loop {
+            tokio::select! {
+                response = &mut rx => {
+                    break response.map_err(|_| anyhow::anyhow!("MCP response channel dropped"))?;
+                }
+                message = inbound.next() => {
+                    match message {
+                        Some(Ok(JsonRpcMessage::Response(response))) => {
+                            if let Some((_, tx)) = self.pending_requests.remove(&response.id) {
+                                let _ = tx.send(response);
+                            } else {
+                                tracing::debug!(id = ?response.id, method, "Dropping MCP response with no pending request");
+                            }
+                        }
+                        Some(Ok(JsonRpcMessage::Request(request))) => {
+                            tracing::debug!(method = %request.method, "Ignoring server-initiated MCP request");
+                        }
+                        Some(Ok(JsonRpcMessage::Notification(notification))) => {
+                            tracing::debug!(method = %notification.method, "Ignoring MCP notification");
+                        }
+                        Some(Err(err)) => {
+                            self.pending_requests.remove(&id);
+                            return Err(err);
+                        }
+                        None => {
+                            self.pending_requests.remove(&id);
+                            return Err(anyhow::anyhow!("MCP response stream closed: {}", method));
+                        }
+                    }
+                }
+                _ = &mut timeout => {
+                    self.pending_requests.remove(&id);
+                    return Err(anyhow::anyhow!("MCP request timed out: {}", method));
+                }
+            }
+        };
 
         if let Some(error) = response.error {
             return Err(anyhow::anyhow!(
@@ -311,6 +367,196 @@ impl McpServerConnection {
             Self::Pending(_) => "pending",
             Self::Disabled(_) => "disabled",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::McpTransport;
+    use async_trait::async_trait;
+    use futures::stream::BoxStream;
+    use serde_json::json;
+    use tokio::sync::{mpsc, Mutex};
+
+    struct TestTransport {
+        sent_tx: mpsc::UnboundedSender<JsonRpcMessage>,
+        inbound_rx: Mutex<mpsc::UnboundedReceiver<JsonRpcMessage>>,
+    }
+
+    #[async_trait]
+    impl McpTransport for TestTransport {
+        async fn send(&self, message: &JsonRpcMessage) -> anyhow::Result<()> {
+            self.sent_tx
+                .send(message.clone())
+                .map_err(|_| anyhow::anyhow!("test send channel closed"))
+        }
+
+        fn receive(&self) -> BoxStream<'_, anyhow::Result<JsonRpcMessage>> {
+            Box::pin(futures::stream::unfold((), move |()| async move {
+                let mut rx = self.inbound_rx.lock().await;
+                rx.recv().await.map(|msg| (Ok(msg), ()))
+            }))
+        }
+
+        async fn close(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn client_routes_transport_responses_to_pending_requests() {
+        let (sent_tx, mut sent_rx) = mpsc::unbounded_channel::<JsonRpcMessage>();
+        let (inbound_tx, inbound_rx) = mpsc::unbounded_channel::<JsonRpcMessage>();
+
+        tokio::spawn(async move {
+            while let Some(message) = sent_rx.recv().await {
+                let JsonRpcMessage::Request(request) = message else {
+                    continue;
+                };
+
+                let result = match request.method.as_str() {
+                    methods::INITIALIZE => json!({
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
+                        "serverInfo": { "name": "test-mcp", "version": "1.0.0" }
+                    }),
+                    methods::LIST_TOOLS => json!({
+                        "tools": [{
+                            "name": "slow_M10_1",
+                            "description": "test tool",
+                            "inputSchema": { "type": "object" }
+                        }]
+                    }),
+                    methods::CALL_TOOL => {
+                        let params = request.params.unwrap_or_else(|| json!({}));
+                        let args = params
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or_else(|| json!({}));
+                        let text = args.get("text").and_then(Value::as_str);
+                        match text {
+                            Some(text) => json!({
+                                "content": [{ "type": "text", "text": format!("ECHO_TAG_FROM_MOCK_MCP: {text}") }],
+                                "isError": false
+                            }),
+                            None => json!({
+                                "content": [{ "type": "text", "text": "MISSING_REQUIRED_text_M3_5" }],
+                                "isError": true
+                            }),
+                        }
+                    }
+                    methods::LIST_RESOURCES => json!({
+                        "resources": [{
+                            "uri": "mcp://fixture/doc",
+                            "name": "fixture-doc",
+                            "description": "Fixture resource",
+                            "mimeType": "text/plain"
+                        }]
+                    }),
+                    methods::READ_RESOURCE => json!({
+                        "contents": [{
+                            "uri": "mcp://fixture/doc",
+                            "mimeType": "text/plain",
+                            "text": "RESOURCE_BODY_M3"
+                        }]
+                    }),
+                    methods::LIST_PROMPTS => json!({
+                        "prompts": [{
+                            "name": "review_prompt",
+                            "description": "Review prompt",
+                            "arguments": [{ "name": "target", "required": true }]
+                        }]
+                    }),
+                    methods::GET_PROMPT => json!({
+                        "description": "Review prompt",
+                        "messages": [{
+                            "role": "user",
+                            "content": { "type": "text", "text": "Review src/lib.rs" }
+                        }]
+                    }),
+                    other => panic!("unexpected request method: {other}"),
+                };
+
+                inbound_tx
+                    .send(JsonRpcMessage::Response(JsonRpcResponse {
+                        jsonrpc: JSONRPC_VERSION.to_string(),
+                        id: request.id,
+                        result: Some(result),
+                        error: None,
+                    }))
+                    .expect("test inbound channel open");
+            }
+        });
+
+        let client = McpClient::new(
+            Box::new(TestTransport {
+                sent_tx,
+                inbound_rx: Mutex::new(inbound_rx),
+            }),
+            Implementation {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        );
+
+        let init = client.initialize().await.expect("initialize succeeds");
+        assert!(init.capabilities.tools.is_some());
+
+        let tools = client.list_tools().await.expect("list tools succeeds");
+        assert_eq!(tools.tools.len(), 1);
+        assert_eq!(tools.tools[0].name, "slow_M10_1");
+
+        let ok_call = client
+            .call_tool(
+                "slow_M10_1",
+                Some(json!({ "text": "M3_2_PAYLOAD_unique_xyz" })),
+            )
+            .await
+            .expect("tool call succeeds");
+        assert_eq!(ok_call.is_error, Some(false));
+        assert!(matches!(
+            ok_call.content.as_slice(),
+            [ContentBlock::Text { text }] if text.contains("M3_2_PAYLOAD_unique_xyz")
+        ));
+
+        let error_call = client
+            .call_tool("slow_M10_1", Some(json!({ "foo": "bar" })))
+            .await
+            .expect("schema-style tool rejection is still a valid MCP response");
+        assert_eq!(error_call.is_error, Some(true));
+        assert!(matches!(
+            error_call.content.as_slice(),
+            [ContentBlock::Text { text }] if text == "MISSING_REQUIRED_text_M3_5"
+        ));
+
+        let resources = client
+            .list_resources()
+            .await
+            .expect("list resources succeeds");
+        assert_eq!(resources.resources[0].uri, "mcp://fixture/doc");
+        assert_eq!(
+            resources.resources[0].mime_type.as_deref(),
+            Some("text/plain")
+        );
+
+        let resource = client
+            .read_resource("mcp://fixture/doc")
+            .await
+            .expect("read resource succeeds");
+        assert_eq!(
+            resource.contents[0].text.as_deref(),
+            Some("RESOURCE_BODY_M3")
+        );
+
+        let prompts = client.list_prompts().await.expect("list prompts succeeds");
+        assert_eq!(prompts.prompts[0].name, "review_prompt");
+
+        let prompt = client
+            .get_prompt("review_prompt", None)
+            .await
+            .expect("get prompt succeeds");
+        assert_eq!(prompt.description.as_deref(), Some("Review prompt"));
     }
 }
 

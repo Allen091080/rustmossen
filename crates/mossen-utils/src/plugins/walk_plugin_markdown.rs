@@ -6,18 +6,10 @@ use tracing::debug;
 
 static SKILL_MD_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^skill\.md$").unwrap());
 
+#[derive(Default)]
 pub struct WalkOptions {
     pub stop_at_skill_dir: bool,
     pub log_label: Option<String>,
-}
-
-impl Default for WalkOptions {
-    fn default() -> Self {
-        Self {
-            stop_at_skill_dir: false,
-            log_label: None,
-        }
-    }
 }
 
 /// Recursively walk a plugin directory, invoking on_file for each .md file.

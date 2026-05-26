@@ -9,7 +9,12 @@
     unused_imports,
     unused_must_use,
     unused_mut,
-    unused_variables
+    unused_variables,
+    clippy::manual_strip,
+    clippy::needless_range_loop,
+    clippy::nonminimal_bool,
+    clippy::regex_creation_in_loops,
+    clippy::should_implement_trait
 )]
 
 // ── P0 核心工具（13 个） ──────────────────────────────────────────

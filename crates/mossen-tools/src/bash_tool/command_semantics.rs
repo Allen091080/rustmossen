@@ -87,12 +87,7 @@ fn get_command_semantic(command: &str) -> CommandSemantic {
 
 /// Extract just the command name (first word) from a single command string.
 fn extract_base_command(command: &str) -> String {
-    command
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string()
+    command.split_whitespace().next().unwrap_or("").to_string()
 }
 
 /// Split a command by `&&`, `||`, and `;` operators (deprecated simple split).

@@ -130,7 +130,7 @@ pub fn save_plugin_options(
     let mut sensitive: HashMap<String, String> = HashMap::new();
 
     for (key, value) in values.iter() {
-        if schema.get(key).map_or(false, |s| s.sensitive) {
+        if schema.get(key).is_some_and(|s| s.sensitive) {
             sensitive.insert(key.clone(), value.to_string());
         } else {
             non_sensitive.insert(key.clone(), value.clone());
@@ -170,7 +170,7 @@ pub fn save_plugin_options(
         let merged: HashMap<String, String> = secure_scrubbed
             .unwrap_or_default()
             .into_iter()
-            .chain(sensitive.into_iter())
+            .chain(sensitive)
             .collect();
         plugin_secrets.insert(plugin_id.to_string(), merged);
         let result = secure_storage.update(data);
@@ -394,7 +394,7 @@ pub fn substitute_user_config_in_content(
         let key = caps.get(1).unwrap().as_str();
         result.push_str(&content[last_end..full_match.start()]);
 
-        if schema.get(key).map_or(false, |s| s.sensitive) {
+        if schema.get(key).is_some_and(|s| s.sensitive) {
             result.push_str(&format!(
                 "[sensitive option '{}' not available in skill content]",
                 key

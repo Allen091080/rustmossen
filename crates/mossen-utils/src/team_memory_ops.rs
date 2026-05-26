@@ -48,38 +48,6 @@ pub fn is_team_memory_write_or_edit(tool_name: &str, tool_input: &serde_json::Va
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn is_team_mem_file_matches_current_and_legacy_path_shapes() {
-        assert!(is_team_mem_file(
-            "/tmp/projects/_repo/memory/team/MEMORY.md"
-        ));
-        assert!(is_team_mem_file("/tmp/.mossen/team-memory/MEMORY.md"));
-        assert!(!is_team_mem_file(
-            "/tmp/projects/_repo/memory/team-other/MEMORY.md"
-        ));
-        assert!(!is_team_mem_file(
-            "/tmp/projects/_repo/memory/personal/team.md"
-        ));
-    }
-
-    #[test]
-    fn write_or_edit_detection_uses_production_tool_names() {
-        let input = json!({
-            "file_path": "/tmp/projects/_repo/memory/team/MEMORY.md"
-        });
-
-        assert!(is_team_memory_write_or_edit("Write", &input));
-        assert!(is_team_memory_write_or_edit("Edit", &input));
-        assert!(!is_team_memory_write_or_edit("file_write", &input));
-        assert!(!is_team_memory_write_or_edit("Read", &input));
-    }
-}
-
 /// 团队记忆计数
 pub struct MemoryCounts {
     pub team_memory_read_count: u32,
@@ -151,5 +119,37 @@ pub fn append_team_memory_summary_parts(
             "memories"
         };
         parts.push(format!("{} {} team {}", verb, team_write_count, noun));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn is_team_mem_file_matches_current_and_legacy_path_shapes() {
+        assert!(is_team_mem_file(
+            "/tmp/projects/_repo/memory/team/MEMORY.md"
+        ));
+        assert!(is_team_mem_file("/tmp/.mossen/team-memory/MEMORY.md"));
+        assert!(!is_team_mem_file(
+            "/tmp/projects/_repo/memory/team-other/MEMORY.md"
+        ));
+        assert!(!is_team_mem_file(
+            "/tmp/projects/_repo/memory/personal/team.md"
+        ));
+    }
+
+    #[test]
+    fn write_or_edit_detection_uses_production_tool_names() {
+        let input = json!({
+            "file_path": "/tmp/projects/_repo/memory/team/MEMORY.md"
+        });
+
+        assert!(is_team_memory_write_or_edit("Write", &input));
+        assert!(is_team_memory_write_or_edit("Edit", &input));
+        assert!(!is_team_memory_write_or_edit("file_write", &input));
+        assert!(!is_team_memory_write_or_edit("Read", &input));
     }
 }

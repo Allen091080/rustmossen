@@ -1,35 +1,10 @@
 #!/usr/bin/env python3
 """
-M10.2 — Timeout 归因 e2e。
+M10.2 - MCP timeout attribution e2e for the current Rust runner.
 
-按 harness全链路测试.md §C.6 M10.2 P0 契约:
-  当工具超时, mossen 必须把它显示为"timeout / 超时"事件 (附带服务器/工具
-  名), 不能静默 idle 或当成成功。
-
-源码事实 (src/services/mcp/client.ts:212-228, 3066-3087):
-  - DEFAULT_MCP_TOOL_TIMEOUT_MS = 100_000_000 (≈27.8h)
-  - 可由 MCP_TOOL_TIMEOUT 环境变量覆盖 (单位 ms)
-  - 超时时抛: `MCP server "${name}" tool "${tool}" timed out after ${secs}s`
-  - timeoutMs 也传给 SDK 的 client.callTool({signal, timeout: timeoutMs})
-
-策略:
-  - mock server: forever_M10_2 真 sleep 60s
-  - 我们设 MCP_TOOL_TIMEOUT=4000 (4s) → tool 4s 后被 mossen 内部 timeout
-  - .mcp.json 指向 mock; allowedTools mcp__...forever_M10_2
-  - mossen subprocess 主超时 = 90s (远大于 tool timeout, 让 mossen 自己处理 + 回流)
-  - 验:
-    1. mossen 不能跑满 60s 才结束 — 总耗时应远小于 60s (= 内部 timeout 真触发)
-    2. session log 含 forever_M10_2 tool_use (model 真发了)
-    3. session log 中, 该 tool_use 对应的 tool_result.is_error 是 True
-       OR result content 含 "timed out" / "timeout" / "超时" 字面
-       (= timeout 被归因, 不是 silent success)
-    4. exit_code == 0 (mossen 自己应当 graceful 处理 tool timeout, 不崩)
-
-强契约: tool timeout 在 session log 里有 timeout 字面, 不静默 idle。
-
-反测信号: 如果有人改 src/services/mcp/client.ts 把 timeout 异常 swallow
-(catch 后 return 空 success 而不是 throw / is_error), 那么 tool_result 既
-不 is_error 也不含 timeout 字面 → 此 case fail。
+The model calls a real MCP stdio tool that sleeps longer than the configured
+MCP timeout. Mossen must turn that into an error tool_result, feed it back into
+the next model request, and finish gracefully.
 """
 
 from __future__ import annotations
@@ -37,137 +12,294 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
+REAL_HOME = Path.home()
+DEBUG_MOSSEN = ROOT / "target" / "debug" / "mossen"
 MCP_SERVER_NAME = "harness_mock_slow_M10_2"
 MCP_TOOL_FULL_NAME = f"mcp__{MCP_SERVER_NAME}__forever_M10_2"
-FOREVER_SLEEP_SECS = 60          # mock server 真睡这么久
-TOOL_TIMEOUT_MS = 4_000          # 但我们让 mossen 4s 就触发 timeout
+FOREVER_SLEEP_SECS = 60
+TOOL_TIMEOUT_MS = 4_000
+TOOL_TIMEOUT_BUDGET_SECS = max(15.0, TOOL_TIMEOUT_MS / 1000 + 8)
 TIMEOUT_KEYWORDS = ["timed out", "timeout", "超时", "time out", "timed-out"]
+FINAL_MARKER = "FINAL_OK_M10_2"
 
 
-def _find_session_logs(fixture_home: Path) -> list[Path]:
-    found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
-        for p in fixture_home.glob(pattern):
-            if p not in found:
-                found.append(p)
-    return found
+def mossen_runner() -> str:
+    if DEBUG_MOSSEN.exists() and DEBUG_MOSSEN.is_file():
+        return str(DEBUG_MOSSEN)
+    return str(ROOT / "scripts" / "start-mossen.sh")
+
+
+class MockOpenAIState:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.requests: list[dict[str, Any]] = []
+        self.timeout_result_seen = False
+
+    def record(self, path: str, body: bytes) -> int:
+        try:
+            parsed = json.loads(body.decode("utf-8")) if body else {}
+        except json.JSONDecodeError:
+            parsed = {"_decode_error": body.decode("utf-8", "replace")}
+        body_text = json.dumps(parsed, ensure_ascii=False).lower()
+        with self.lock:
+            self.requests.append({"path": path, "body": parsed})
+            if any(keyword.lower() in body_text for keyword in TIMEOUT_KEYWORDS):
+                self.timeout_result_seen = True
+            return len(self.requests)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {
+                "request_count": len(self.requests),
+                "paths": [req["path"] for req in self.requests],
+                "timeout_result_seen": self.timeout_result_seen,
+            }
+
+
+def write_sse(wfile, payload: dict[str, Any]) -> None:
+    wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+    wfile.flush()
+
+
+def make_handler(state: MockOpenAIState):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            payload = json.dumps(
+                {"object": "list", "data": [{"id": "m10-timeout-model", "object": "model"}]}
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length else b""
+            request_index = state.record(self.path, body)
+            if not self.path.endswith("/chat/completions"):
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                if request_index == 1:
+                    self._write_tool_call()
+                elif state.snapshot()["timeout_result_seen"]:
+                    self._write_final()
+                else:
+                    self._write_missing_timeout()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            finally:
+                self.close_connection = True
+
+        def _write_tool_call(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-tool-call",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_m10_2_forever",
+                                        "type": "function",
+                                        "function": {
+                                            "name": MCP_TOOL_FULL_NAME,
+                                            "arguments": json.dumps({"note": "timeout_test"}),
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-tool-call",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def _write_missing_timeout(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-missing",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": "FINAL_MISSING_TIMEOUT_M10_2: timeout result was absent."
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-missing",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 8},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def _write_final(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-final",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": f"{FINAL_MARKER}: timeout result was attributed."
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-timeout-final",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 8},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+    return Handler
+
+
+@contextmanager
+def mock_openai_server():
+    state = MockOpenAIState()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield f"http://{host}:{port}", state
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def case_timeout_is_attributed() -> dict:
     ctx = make_fixture("M10.2")
-
     mock_server_path = ROOT / "scripts" / "harness_mock_slow_mcp_server.py"
-
-    mcp_config = ctx.root_dir / ".mcp.json"
-    mcp_config.write_text(json.dumps({
+    mcp_config = {
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "type": "stdio",
                 "command": "python3",
                 "args": [str(mock_server_path)],
-                "env": {
-                    "HARNESS_FOREVER_SLEEP_SECS": str(FOREVER_SLEEP_SECS),
-                },
+                "env": {"HARNESS_FOREVER_SLEEP_SECS": str(FOREVER_SLEEP_SECS)},
             }
         }
-    }, indent=2))
+    }
 
     env = dict(ctx.env)
-    env["HARNESS_FOREVER_SLEEP_SECS"] = str(FOREVER_SLEEP_SECS)
-    env["MCP_TOOL_TIMEOUT"] = str(TOOL_TIMEOUT_MS)  # 关键: 4s timeout
+    env.setdefault("CARGO_HOME", str(REAL_HOME / ".cargo"))
+    env.setdefault("RUSTUP_HOME", str(REAL_HOME / ".rustup"))
+    env.update(
+        {
+            "HARNESS_FOREVER_SLEEP_SECS": str(FOREVER_SLEEP_SECS),
+            "MCP_TOOL_TIMEOUT": str(TOOL_TIMEOUT_MS),
+            "MOSSEN_CODE_USE_CUSTOM_BACKEND": "1",
+            "MOSSEN_CODE_CUSTOM_MODEL": "m10-timeout-model",
+            "MOSSEN_CODE_CUSTOM_NAME": "M10 Timeout Mock",
+            "MOSSEN_CODE_CUSTOM_API_KEY": "sk-m10-local-fake",
+            "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL": "openai-compatible",
+            "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS": "30",
+            "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS": "30",
+        }
+    )
 
     prompt = (
-        "请用 forever_M10_2 这个 MCP 工具, 参数 note=timeout_test。"
-        "调用一次, 然后告诉我工具返回了什么 (包括任何错误/超时信息)。"
+        "Call the forever_M10_2 MCP tool once, wait for the timeout result, "
+        f"then answer with {FINAL_MARKER}."
     )
 
-    t_start = time.monotonic()
-    proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "-p",
-         "--allowedTools", MCP_TOOL_FULL_NAME],
-        input=prompt,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=120,  # 远大于 tool timeout, mossen 应当自己 graceful 处理
-        cwd=str(ctx.root_dir),
-    )
-    duration = time.monotonic() - t_start
+    with mock_openai_server() as (base_url, model_state):
+        env["MOSSEN_CODE_CUSTOM_BASE_URL"] = base_url
+        command = [
+            mossen_runner(),
+            "--stdin",
+            "--mcp-config",
+            json.dumps(mcp_config),
+        ]
+        t_start = time.monotonic()
+        proc = subprocess.run(
+            command,
+            input=prompt,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(ctx.root_dir),
+        )
+        duration = time.monotonic() - t_start
+        server_snapshot = model_state.snapshot()
 
-    write_command_log(
-        ctx,
-        [str(ROOT / "run-mossen.sh"), "-p", "--allowedTools", MCP_TOOL_FULL_NAME],
-        proc.stdout, proc.stderr, proc.returncode,
-    )
+    write_command_log(ctx, command, proc.stdout, proc.stderr, proc.returncode)
 
-    # mossen 不能跑满 60s — tool timeout 应当在 4s 触发, 留余量给 LLM 回流
     duration_under_full_sleep = duration < (FOREVER_SLEEP_SECS - 5)
-
-    # session log: tool_use forever_M10_2 + tool_result is_error 或含 timeout 字面
-    session_logs = _find_session_logs(ctx.home_dir)
-    forever_tool_use_ids: set[str] = set()
-    forever_tool_results: list[dict] = []
-    timeout_attributed = False  # is_error=True 或 content 含 timeout 字面
-
-    for log_file in session_logs:
-        try:
-            for line in log_file.read_text().splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                msg = obj.get("message", obj)
-                content = msg.get("content")
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get("type") == "tool_use":
-                        name = block.get("name", "")
-                        if name.startswith("mcp__") and "forever_M10_2" in name:
-                            tid = block.get("id")
-                            if tid:
-                                forever_tool_use_ids.add(tid)
-                    elif block.get("type") == "tool_result":
-                        tid = block.get("tool_use_id")
-                        if tid in forever_tool_use_ids:
-                            result_str = str(block.get("content", ""))
-                            is_err = block.get("is_error") is True
-                            has_timeout_kw = any(
-                                kw.lower() in result_str.lower()
-                                for kw in TIMEOUT_KEYWORDS
-                            )
-                            forever_tool_results.append({
-                                "tool_use_id": tid,
-                                "is_error": is_err,
-                                "has_timeout_keyword": has_timeout_kw,
-                                "content_excerpt": result_str[:300],
-                            })
-                            if is_err or has_timeout_kw:
-                                timeout_attributed = True
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    forever_tool_use_found = len(forever_tool_use_ids) > 0
-
-    # stdout / stderr 有 timeout 字面 (辅助证据)
-    combined_out = (proc.stdout + "\n" + proc.stderr).lower()
-    timeout_in_output = any(kw.lower() in combined_out for kw in TIMEOUT_KEYWORDS)
+    duration_respects_tool_timeout = duration < TOOL_TIMEOUT_BUDGET_SECS
+    final_marker_in_stdout = FINAL_MARKER in proc.stdout
+    timeout_result_seen_by_model = bool(server_snapshot["timeout_result_seen"])
+    request_count_ok = server_snapshot["request_count"] >= 2
 
     ok = (
         proc.returncode == 0
         and duration_under_full_sleep
-        and forever_tool_use_found
-        and timeout_attributed  # 强契约
+        and duration_respects_tool_timeout
+        and final_marker_in_stdout
+        and timeout_result_seen_by_model
+        and request_count_ok
     )
 
     return {
@@ -176,43 +308,40 @@ def case_timeout_is_attributed() -> dict:
         "exit_code": proc.returncode,
         "duration_secs": round(duration, 2),
         "duration_under_full_sleep": duration_under_full_sleep,
-        "forever_tool_use_found": forever_tool_use_found,
-        "forever_tool_use_count": len(forever_tool_use_ids),
-        "tool_results_count": len(forever_tool_results),
-        "timeout_attributed_in_session": timeout_attributed,
-        "timeout_keyword_in_stdout_or_stderr": timeout_in_output,
-        "tool_result_excerpts": forever_tool_results[:3],
-        "stdout_excerpt": proc.stdout[:400],
-        "stderr_excerpt": proc.stderr[:300],
+        "duration_respects_tool_timeout": duration_respects_tool_timeout,
+        "timeout_result_seen_by_model": timeout_result_seen_by_model,
+        "final_marker_in_stdout": final_marker_in_stdout,
+        "model_request_count": server_snapshot["request_count"],
+        "model_request_paths": server_snapshot["paths"],
+        "stdout_excerpt": proc.stdout[:500],
+        "stderr_excerpt": proc.stderr[:500],
         "fixture_root": str(ctx.root_dir),
         "_ctx": ctx,
     }
 
 
 def main() -> int:
-    res1 = None
-    ctx = None
-    for attempt in range(3):  # transient LLM retry
-        res1 = case_timeout_is_attributed()
-        ctx = res1.pop("_ctx")
-        if res1.get("ok"):
-            res1["_attempt"] = attempt + 1
-            break
-        res1["_attempt"] = attempt + 1
-    results = [res1]
+    res = case_timeout_is_attributed()
+    ctx = res.pop("_ctx")
+    results = [res]
 
     write_assertions(
         ctx,
         status="passed" if all(r.get("ok") for r in results) else "failed",
         assertions=[
-            {"name": r["name"], "expected": True,
-             "actual": r.get("ok"), "passed": r.get("ok"),
-             "evidence": (
-                 f"duration={r.get('duration_secs')}s "
-                 f"under_full_sleep={r.get('duration_under_full_sleep')} "
-                 f"tool_use={r.get('forever_tool_use_found')} "
-                 f"timeout_attributed={r.get('timeout_attributed_in_session')}"
-             )}
+            {
+                "name": r["name"],
+                "expected": True,
+                "actual": r.get("ok"),
+                "passed": r.get("ok"),
+                "evidence": (
+                    f"duration={r.get('duration_secs')}s "
+                    f"under_full_sleep={r.get('duration_under_full_sleep')} "
+                    f"requests={r.get('model_request_count')} "
+                    f"timeout_seen={r.get('timeout_result_seen_by_model')} "
+                    f"final_stdout={r.get('final_marker_in_stdout')}"
+                ),
+            }
             for r in results
         ],
     )
@@ -223,13 +352,9 @@ def main() -> int:
         "total": len(results),
         "fixture_root": str(ctx.root_dir),
         "design_note": (
-            f"M10.2 timeout 归因: mock server 睡 {FOREVER_SLEEP_SECS}s, "
-            f"MCP_TOOL_TIMEOUT={TOOL_TIMEOUT_MS}ms 触发 mossen 内部 timeout, "
-            "session log 应有 timeout 字面 / is_error=True, 不静默 idle。"
-        ),
-        "antitest_signal": (
-            "如果有人改 client.ts 把 timeout 异常 swallow, tool_result 既不 "
-            "is_error 也不含 timeout 字面 → 此 case fail。"
+            f"M10.2 uses current Rust runner and mock OpenAI backend. MCP sleeps "
+            f"{FOREVER_SLEEP_SECS}s while MCP_TOOL_TIMEOUT={TOOL_TIMEOUT_MS}ms; the next "
+            "model request must contain a timeout tool_result."
         ),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

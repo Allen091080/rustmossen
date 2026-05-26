@@ -98,8 +98,8 @@ impl Directive for SandboxDirective {
 
                 // Remove quotes if present
                 let clean_pattern = pattern
-                    .trim_start_matches(|c| c == '"' || c == '\'')
-                    .trim_end_matches(|c| c == '"' || c == '\'');
+                    .trim_start_matches(['"', '\''])
+                    .trim_end_matches(['"', '\'']);
 
                 Ok(CommandResult::Text(format!(
                     "Added \"{}\" to excluded commands in .mossen/settings.local.json",

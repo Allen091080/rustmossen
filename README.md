@@ -161,26 +161,12 @@ python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
   - LSP binary guard
   - language/runtime audits
 
-## 当前已知边界
-
-下面这些目前**不算个人单机版 blocker**，但要明确知道：
-
-- `direct-connect`
-- `ssh remote`
-- hosted bridge / remote attach
-- team memory sync / hosted workflow
-
-原因主要有两类：
-
-1. 当前快照缺源码模块
-2. 这些能力依赖官方 hosted 服务，不是单机版能完整替代的
-
 ## 还剩哪些问题
 
-### 1. 第二层品牌残留仍可能有零散漏网
+### 1. 第二层残留仍可能有零散漏网
 
-虽然高频用户面已经基本收口，但低频路径里仍可能还有少量旧品牌 / 老命令名残留。
-这类问题一般不再是主链阻塞，而是继续打磨项。
+虽然高频用户面已经基本收口，但低频路径里仍可能还有少量旧品牌、老命令名或旧 hosted/remote 产品面残留。
+这类问题一旦进入当前用户可见输出，就应继续清理，不再作为单机版边界说明保留。
 
 ### 2. 语言体验仍需要继续真实使用中观察
 

@@ -382,6 +382,39 @@ def steps() -> list[Step]:
             cargo_ok,
         ),
         Step(
+            "skill_startup_user_project_sources",
+            "skill_system",
+            rust_test([
+                "-p",
+                "mossen-skills",
+                "--lib",
+                "dynamic::tests::startup_loads_user_and_project_skill_sources",
+            ]),
+            cargo_ok,
+        ),
+        Step(
+            "skill_reload_updates_content",
+            "skill_system",
+            rust_test([
+                "-p",
+                "mossen-skills",
+                "--lib",
+                "dynamic::tests::add_skill_directories_reload_updates_existing_skill_content",
+            ]),
+            cargo_ok,
+        ),
+        Step(
+            "skill_error_isolation",
+            "skill_system",
+            rust_test([
+                "-p",
+                "mossen-skills",
+                "--lib",
+                "dynamic::tests::load_skills_from_dir_skips_bad_entry_and_keeps_good_skill",
+            ]),
+            cargo_ok,
+        ),
+        Step(
             "skill_tool_execution",
             "skill_system",
             rust_test([
@@ -389,6 +422,29 @@ def steps() -> list[Step]:
                 "mossen-tools",
                 "--lib",
                 "skill::tests::skill_tool_executes_loaded_dynamic_skill",
+            ]),
+            cargo_ok,
+        ),
+        Step(
+            "skill_tool_followup_body",
+            "skill_system",
+            rust_test([
+                "-p",
+                "mossen-tools",
+                "--lib",
+                "skill::tests::skill_tool_result_contains_rendered_body_for_model_followup",
+            ]),
+            cargo_ok,
+        ),
+        Step(
+            "skill_slash_inventory",
+            "skill_system",
+            rust_test([
+                "-p",
+                "mossen-cli",
+                "--bin",
+                "mossen",
+                "structured_io::tests::slash_command_skills_lists_available_inventory_redacted",
             ]),
             cargo_ok,
         ),

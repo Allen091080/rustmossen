@@ -500,3 +500,85 @@ fn current_time_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use filetime::FileTime;
+
+    fn make_version(cache: &Path, marketplace: &str, plugin: &str, version: &str) -> PathBuf {
+        let path = cache.join(marketplace).join(plugin).join(version);
+        std::fs::create_dir_all(&path).expect("create version dir");
+        std::fs::write(
+            path.join("payload.txt"),
+            format!("{marketplace}/{plugin}/{version}"),
+        )
+        .expect("write payload");
+        path
+    }
+
+    fn mark_orphaned_with_age(path: &Path, age_ms: u64) {
+        let marker = path.join(ORPHANED_AT_FILENAME);
+        std::fs::write(&marker, "orphaned").expect("write orphan marker");
+        let mtime = std::time::SystemTime::now()
+            .checked_sub(std::time::Duration::from_millis(age_ms))
+            .expect("compute old marker time");
+        filetime::set_file_mtime(&marker, FileTime::from_system_time(mtime))
+            .expect("set marker mtime");
+    }
+
+    #[tokio::test]
+    async fn plugin_prune_plan_marks_unmarked_deletes_expired_and_is_one_shot() {
+        reset_prune_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache = temp.path().join("cache");
+        let expired = make_version(&cache, "market", "demo", "0.1.0");
+        let unmarked = make_version(&cache, "market", "demo", "0.2.0");
+        let fresh = make_version(&cache, "market", "demo", "0.3.0");
+        let installed = make_version(&cache, "market", "demo", "0.4.0");
+        mark_orphaned_with_age(&expired, CLEANUP_AGE_MS + 60_000);
+        mark_orphaned_with_age(&fresh, 60_000);
+        let installed_paths = HashSet::from([installed.clone()]);
+
+        let summary = summarize_plugin_cache(&cache, &installed_paths, false).await;
+        assert_eq!(summary.marketplace_count, 1);
+        assert_eq!(summary.unique_plugin_count, 1);
+        assert_eq!(summary.cache_version_count, 4);
+        assert_eq!(summary.expired_orphan_count, 1);
+        assert_eq!(summary.unmarked_orphan_count, 1);
+        assert_eq!(summary.fresh_orphan_count, 1);
+        assert_eq!(summary.installed_skipped_count, 1);
+
+        let plan = get_plugin_prune_plan(&cache, &installed_paths, false).await;
+        assert_eq!(plan.expired_orphans.len(), 1);
+        assert_eq!(plan.unmarked_orphans.len(), 1);
+        assert_eq!(plan.fresh_orphans.len(), 1);
+        assert_eq!(plan.installed_skipped.len(), 1);
+
+        let result = execute_plugin_prune_plan(&plan.token, &installed_paths)
+            .await
+            .expect("execute prune plan");
+        assert_eq!(result.deleted, vec![expired.clone()]);
+        assert_eq!(result.marked, vec![unmarked.clone()]);
+        assert!(result.errors.is_empty());
+        assert!(!expired.exists());
+        assert!(unmarked.join(ORPHANED_AT_FILENAME).exists());
+        assert!(fresh.exists());
+        assert!(installed.exists());
+
+        let second = execute_plugin_prune_plan(&plan.token, &installed_paths).await;
+        assert!(matches!(second, Err(PluginPruneError::UnknownToken)));
+    }
+
+    #[tokio::test]
+    async fn plugin_prune_plan_refuses_zip_cache_mode() {
+        reset_prune_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let installed_paths = HashSet::new();
+        let plan = get_plugin_prune_plan(temp.path(), &installed_paths, true).await;
+        assert!(plan.zip_cache_mode);
+
+        let result = execute_plugin_prune_plan(&plan.token, &installed_paths).await;
+        assert!(matches!(result, Err(PluginPruneError::ZipCacheMode)));
+    }
+}

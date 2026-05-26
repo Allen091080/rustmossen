@@ -161,8 +161,7 @@ fn basename_no_ext(value: &str) -> String {
     let normalized = normalize_github_path(value);
     let last = normalized
         .split('/')
-        .filter(|s| !s.is_empty())
-        .last()
+        .rfind(|s| !s.is_empty())
         .unwrap_or("skill");
     if last.to_lowercase().ends_with(".md") {
         last[..last.len() - 3].to_string()
@@ -230,6 +229,14 @@ where
     if files.is_empty() {
         return Ok(None);
     }
+    if !files.iter().any(|file| {
+        Path::new(&file.path)
+            .file_name()
+            .map(|name| name == "SKILL.md")
+            .unwrap_or(false)
+    }) {
+        return Ok(None);
+    }
     if files.len() > MAX_FILES {
         bail!(
             "Skill exceeds maximum file count ({} > {})",
@@ -249,7 +256,7 @@ where
     let skill_name = frontmatter
         .get("name")
         .and_then(|v| v.as_str())
-        .map(|s| to_skill_slug(s))
+        .map(to_skill_slug)
         .unwrap_or_else(|| basename_no_ext(&target.path));
     let description = frontmatter
         .get("description")
@@ -330,7 +337,21 @@ pub async fn execute_github_skill_install_plan(
         files_written,
         total_bytes: bytes_total,
         warnings: plan.warnings.clone(),
-    })
+    }
+    .tap_notify_skill_change(&plan.install_dir))
+}
+
+trait NotifySkillChange {
+    fn tap_notify_skill_change(self, install_dir: &str) -> Self;
+}
+
+impl NotifySkillChange for GitHubSkillInstallResult {
+    fn tap_notify_skill_change(self, install_dir: &str) -> Self {
+        if matches!(self, GitHubSkillInstallResult::Installed { .. }) {
+            SKILL_CHANGE_DETECTOR.notify_change(install_dir);
+        }
+        self
+    }
 }
 
 fn build_warnings(frontmatter: &HashMap<String, serde_json::Value>) -> Vec<String> {
@@ -379,6 +400,12 @@ pub struct SkillChangeDetector {
     initialized: Mutex<bool>,
     disposed: Mutex<bool>,
     listeners: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+}
+
+impl Default for SkillChangeDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SkillChangeDetector {
@@ -439,5 +466,112 @@ impl SkillChangeDetector {
     }
 }
 
-pub static SKILL_CHANGE_DETECTOR: Lazy<SkillChangeDetector> =
-    Lazy::new(|| SkillChangeDetector::new());
+pub static SKILL_CHANGE_DETECTOR: Lazy<SkillChangeDetector> = Lazy::new(SkillChangeDetector::new);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    fn skill_file(path: &str, body: &str) -> GitHubSkillInstallFile {
+        GitHubSkillInstallFile {
+            path: path.to_string(),
+            size_bytes: body.len(),
+            download_url: format!("https://raw.githubusercontent.invalid/{path}"),
+            content: Some(body.as_bytes().to_vec()),
+        }
+    }
+
+    #[tokio::test]
+    async fn github_skill_install_plan_execute_is_bounded_one_shot_and_notifies() {
+        reset_github_skill_install_plan_store_for_testing();
+        SKILL_CHANGE_DETECTOR.reset_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let install_root = temp.path().join(".mossen").join("skills");
+        let notifications = Arc::new(AtomicUsize::new(0));
+        let notifications_for_listener = notifications.clone();
+        let _unsubscribe = SKILL_CHANGE_DETECTOR.subscribe(Box::new(move || {
+            notifications_for_listener.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        let plan = get_github_skill_install_plan(
+            "https://github.com/example/skills/tree/main/review-skill",
+            &install_root.to_string_lossy(),
+            |_target| async move {
+                let mut frontmatter = HashMap::new();
+                frontmatter.insert(
+                    "name".to_string(),
+                    serde_json::Value::String("Review Skill".to_string()),
+                );
+                frontmatter.insert(
+                    "description".to_string(),
+                    serde_json::Value::String("Review changes safely".to_string()),
+                );
+                Ok((
+                    vec![skill_file(
+                        "SKILL.md",
+                        "---\nname: Review Skill\ndescription: Review changes safely\n---\nBody\n",
+                    )],
+                    frontmatter,
+                ))
+            },
+        )
+        .await
+        .expect("plan")
+        .expect("skill plan");
+
+        assert_eq!(GITHUB_SKILL_INSTALL_TOKEN_TTL_MS, 10 * 60 * 1000);
+        assert_eq!(plan.skill_name, "review-skill");
+        assert!(plan.install_dir.ends_with("/review-skill"), "{plan:?}");
+        assert_eq!(plan.files.len(), 1);
+        assert_eq!(plan.total_bytes, plan.files[0].size_bytes);
+
+        let result = execute_github_skill_install_plan(&plan)
+            .await
+            .expect("execute plan");
+        match result {
+            GitHubSkillInstallResult::Installed {
+                skill_name,
+                files_written,
+                ..
+            } => {
+                assert_eq!(skill_name, "review-skill");
+                assert_eq!(files_written, 1);
+            }
+            other => panic!("expected installed, got {other:?}"),
+        }
+        assert!(Path::new(&plan.install_dir).join("SKILL.md").exists());
+        assert_eq!(notifications.load(Ordering::SeqCst), 1);
+
+        let second = execute_github_skill_install_plan(&plan)
+            .await
+            .expect("execute plan again");
+        assert!(matches!(second, GitHubSkillInstallResult::UnknownToken));
+        reset_github_skill_install_plan_store_for_testing();
+        SKILL_CHANGE_DETECTOR.reset_for_testing();
+    }
+
+    #[tokio::test]
+    async fn github_skill_install_plan_requires_skill_md() {
+        reset_github_skill_install_plan_store_for_testing();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let install_root = temp.path().join(".mossen").join("skills");
+
+        let plan = get_github_skill_install_plan(
+            "example/skills",
+            &install_root.to_string_lossy(),
+            |_target| async move {
+                Ok((
+                    vec![skill_file("README.md", "# no skill here\n")],
+                    HashMap::new(),
+                ))
+            },
+        )
+        .await
+        .expect("plan");
+
+        assert!(plan.is_none());
+        reset_github_skill_install_plan_store_for_testing();
+    }
+}

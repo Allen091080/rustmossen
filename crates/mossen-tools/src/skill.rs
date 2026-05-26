@@ -297,4 +297,52 @@ mod tests {
             false
         );
     }
+
+    #[tokio::test]
+    async fn skill_tool_result_contains_rendered_body_for_model_followup() {
+        mossen_skills::clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("temp dir");
+        let skill_dir = temp.path().join("m65_force_marker");
+        tokio::fs::create_dir_all(&skill_dir)
+            .await
+            .expect("create skill dir");
+        tokio::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: Force a deterministic marker\n---\nAlways include M6_5_FORCED_END_MARKER_xyz after $ARGUMENTS",
+        )
+        .await
+        .expect("write skill");
+        let added = mossen_skills::add_skill_directories(&[temp.path().to_path_buf()]).await;
+        assert_eq!(added, 1);
+
+        let tool = CraftInvoker;
+        let result = tool
+            .execute(
+                json!({"skill": "m65_force_marker", "args": "hello"}),
+                &ToolUseContext {
+                    cwd: temp.path().display().to_string(),
+                    additional_working_directories: None,
+                    extra: Default::default(),
+                },
+            )
+            .await
+            .expect("skill execution");
+
+        assert!(!result.is_error);
+        let output: CraftInvokerOutput =
+            serde_json::from_str(&result.output).expect("valid skill output");
+        let rendered = output.result.expect("skill result");
+        assert!(rendered.contains("<command-name>/m65_force_marker</command-name>"));
+        assert!(rendered.contains("<command-args>hello</command-args>"));
+        assert!(
+            rendered.contains("M6_5_FORCED_END_MARKER_xyz"),
+            "{rendered}"
+        );
+        assert_eq!(
+            result.metadata["skill_invocation"]["resultIncludesCommandTags"],
+            true
+        );
+
+        mossen_skills::clear_dynamic_skills();
+    }
 }

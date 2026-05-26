@@ -256,10 +256,8 @@ pub fn validate_flags(
         let arg = &args[i];
 
         // End of flags marker
-        if arg == "--" {
-            if respects_double_dash {
-                break; // Everything after -- is positional
-            }
+        if arg == "--" && respects_double_dash {
+            break; // Everything after -- is positional
         }
 
         if arg.starts_with('-') {
@@ -309,7 +307,7 @@ pub fn validate_flags(
 
 /// Check if a git command is read-only.
 fn is_git_read_only(command: &str) -> bool {
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() || parts[0] != "git" {
         return false;
     }
@@ -339,7 +337,7 @@ fn is_git_read_only(command: &str) -> bool {
 
 /// Check if a docker command is read-only.
 fn is_docker_read_only(command: &str) -> bool {
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() || parts[0] != "docker" {
         return false;
     }
@@ -352,7 +350,7 @@ fn is_docker_read_only(command: &str) -> bool {
 
 /// Check if a gh command is read-only.
 fn is_gh_read_only(command: &str) -> bool {
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() || parts[0] != "gh" {
         return false;
     }
@@ -449,6 +447,18 @@ pub fn sed_command_is_allowed_by_allowlist(command: &str) -> bool {
     false
 }
 
+// ---------------------------------------------------------------------------
+// TS-mirror — `tools/BashTool/readOnlyValidation.ts` additional export.
+// ---------------------------------------------------------------------------
+
+/// `readOnlyValidation.ts` `isCommandSafeViaFlagParsing`.
+pub fn is_command_safe_via_flag_parsing(command: &str) -> bool {
+    matches!(
+        check_read_only_constraints(command),
+        ReadOnlyResult::ReadOnly
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,16 +526,4 @@ mod tests {
             ReadOnlyResult::ReadOnly
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// TS-mirror — `tools/BashTool/readOnlyValidation.ts` additional export.
-// ---------------------------------------------------------------------------
-
-/// `readOnlyValidation.ts` `isCommandSafeViaFlagParsing`.
-pub fn is_command_safe_via_flag_parsing(command: &str) -> bool {
-    matches!(
-        check_read_only_constraints(command),
-        ReadOnlyResult::ReadOnly
-    )
 }

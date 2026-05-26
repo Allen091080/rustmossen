@@ -3,13 +3,12 @@ pub const DESCRIPTION: &str = "Send a message to another agent";
 
 /// Get the full prompt for the SendMessage tool.
 pub fn get_prompt() -> String {
-    format!(
-        r#"# SendMessage
+    r#"# SendMessage
 
 Send a message to another agent.
 
 ```json
-{{"to": "researcher", "summary": "assign task 1", "message": "start on task #1"}}
+{"to": "researcher", "summary": "assign task 1", "message": "start on task #1"}
 ```
 
 | `to` | |
@@ -24,10 +23,9 @@ Your plain text output is NOT visible to other agents — to communicate, you MU
 If you receive a JSON message with `type: "shutdown_request"` or `type: "plan_approval_request"`, respond with the matching `_response` type — echo the `request_id`, set `approve` true/false:
 
 ```json
-{{"to": "team-lead", "message": {{"type": "shutdown_response", "request_id": "...", "approve": true}}}}
-{{"to": "researcher", "message": {{"type": "plan_approval_response", "request_id": "...", "approve": false, "feedback": "add error handling"}}}}
+{"to": "team-lead", "message": {"type": "shutdown_response", "request_id": "...", "approve": true}}
+{"to": "researcher", "message": {"type": "plan_approval_response", "request_id": "...", "approve": false, "feedback": "add error handling"}}
 ```
 
-Approving shutdown terminates your process. Rejecting plan sends the teammate back to revise. Don't originate `shutdown_request` unless asked. Don't send structured JSON status messages — use TaskUpdate."#
-    )
+Approving shutdown terminates your process. Rejecting plan sends the teammate back to revise. Don't originate `shutdown_request` unless asked. Don't send structured JSON status messages — use TaskUpdate."#.to_string()
 }

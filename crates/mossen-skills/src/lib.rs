@@ -14,7 +14,13 @@
 //! - [`plugin`] — 内置插件管理
 //! - [`executor`] — 技能执行引擎与命令参数解析
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_imports,
+    clippy::await_holding_lock,
+    clippy::cloned_ref_to_slice_refs,
+    clippy::type_complexity
+)]
 
 pub mod bundled;
 pub mod config;
@@ -39,10 +45,11 @@ pub use bundled::{
 
 pub use dynamic::{
     activate_conditional_skills_for_paths, add_conditional_skill, add_skill_directories,
-    clear_dynamic_skills, clear_skill_caches, create_skill_command, discover_skill_dirs_for_paths,
-    get_conditional_skill_count, get_conditional_skills_count, get_dynamic_skills,
-    get_skill_dir_commands, get_skills_path, on_dynamic_skills_loaded, CreateSkillCommandInput,
-    LoadedFrom, SkillSettingSource,
+    add_skill_directories_in_precedence_order, clear_dynamic_skills, clear_skill_caches,
+    create_skill_command, discover_skill_dirs_for_paths, get_conditional_skill_count,
+    get_conditional_skills_count, get_dynamic_skills, get_skill_dir_commands, get_skills_path,
+    load_startup_skill_directories, on_dynamic_skills_loaded, CreateSkillCommandInput, LoadedFrom,
+    SkillSettingSource, StartupSkillLoadReport,
 };
 
 // Re-export 核心类型

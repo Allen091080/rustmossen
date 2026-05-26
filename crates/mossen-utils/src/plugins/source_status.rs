@@ -74,7 +74,7 @@ pub async fn describe_plugin_sources(
                 .and_then(|k| k.source.as_ref())
                 .or_else(|| declared_entry.and_then(|d| d.source.as_ref()));
             let source_display = source
-                .map(|s| get_marketplace_source_display(s))
+                .map(&get_marketplace_source_display)
                 .unwrap_or_else(|| "(unknown)".to_string());
             let auto_update = known_entry
                 .and_then(|k| k.auto_update)
@@ -130,4 +130,95 @@ pub struct KnownMarketplaceInfo {
     pub source: Option<MarketplaceSource>,
     pub install_location: Option<String>,
     pub auto_update: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn describe_plugin_sources_merges_declared_known_and_official_status() {
+        let official_source = MarketplaceSource::GitHub {
+            repo: "mossen/mossen-plugins-official".to_string(),
+            git_ref: None,
+            path: None,
+            sparse_paths: None,
+        };
+        let custom_source = MarketplaceSource::Directory {
+            path: "/tmp/custom-market".to_string(),
+        };
+
+        let status = describe_plugin_sources(
+            || {
+                HashMap::from([(
+                    "custom".to_string(),
+                    DeclaredMarketplaceInfo {
+                        source: Some(custom_source.clone()),
+                        auto_update: Some(false),
+                        source_is_fallback: Some(true),
+                    },
+                )])
+            },
+            async {
+                HashMap::from([
+                    (
+                        OFFICIAL_MARKETPLACE_NAME.to_string(),
+                        KnownMarketplaceInfo {
+                            source: Some(official_source.clone()),
+                            install_location: Some("/tmp/official-cache".to_string()),
+                            auto_update: Some(true),
+                        },
+                    ),
+                    (
+                        "custom".to_string(),
+                        KnownMarketplaceInfo {
+                            source: Some(custom_source.clone()),
+                            install_location: Some("/tmp/custom-cache".to_string()),
+                            auto_update: Some(false),
+                        },
+                    ),
+                ])
+            },
+            |source| match source {
+                MarketplaceSource::GitHub { repo, .. } => repo.clone(),
+                MarketplaceSource::Directory { path } => path.clone(),
+                other => format!("{other:?}"),
+            },
+            || "/tmp/plugins".to_string(),
+            || "/tmp/plugins/marketplaces".to_string(),
+            || vec!["/tmp/seed".to_string()],
+            &official_source,
+        )
+        .await;
+
+        assert_eq!(status.plugin_root, "/tmp/plugins");
+        assert_eq!(status.marketplace_cache_dir, "/tmp/plugins/marketplaces");
+        assert_eq!(status.seed_dirs, vec!["/tmp/seed".to_string()]);
+        assert_eq!(status.official_marketplace.name, OFFICIAL_MARKETPLACE_NAME);
+        assert_eq!(
+            status.official_marketplace.source_display,
+            "mossen/mossen-plugins-official"
+        );
+        assert!(status.official_marketplace.known);
+
+        let custom = status
+            .entries
+            .iter()
+            .find(|entry| entry.name == "custom")
+            .expect("custom marketplace entry");
+        assert!(custom.declared);
+        assert!(custom.known);
+        assert_eq!(custom.source_display, "/tmp/custom-market");
+        assert_eq!(
+            custom.install_location.as_deref(),
+            Some("/tmp/custom-cache")
+        );
+        assert_eq!(custom.auto_update, Some(false));
+        assert_eq!(custom.source_is_fallback, Some(true));
+
+        assert!(status
+            .suggested_commands
+            .iter()
+            .any(|command| command == "/plugin status"));
+    }
 }

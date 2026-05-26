@@ -119,7 +119,7 @@ impl Directive for ReloadPluginsDirective {
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let r = refresh_active_plugins(ctx).await;
 
-        let parts = vec![
+        let parts = [
             plural(r.enabled_count, "plugin"),
             plural(r.command_count, "skill"),
             plural(r.agent_count, "agent"),

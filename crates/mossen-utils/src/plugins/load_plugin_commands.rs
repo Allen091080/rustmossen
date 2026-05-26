@@ -48,17 +48,9 @@ struct PluginMarkdownFile {
 }
 
 /// Load config for commands or skills.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LoadConfig {
     pub is_skill_mode: bool,
-}
-
-impl Default for LoadConfig {
-    fn default() -> Self {
-        Self {
-            is_skill_mode: false,
-        }
-    }
 }
 
 static PLUGIN_COMMAND_CACHE: Lazy<Mutex<Option<Vec<Command>>>> = Lazy::new(|| Mutex::new(None));

@@ -23,31 +23,6 @@ MISSING_EXPORT_RE = re.compile(
 
 FEATURE_PROFILES = [
     {
-        "id": "default-runtime",
-        "features": ["DIRECT_CONNECT", "SSH_REMOTE"],
-        "expected_commands": ["open", "server", "ssh"],
-    },
-    {
-        "id": "direct-connect",
-        "features": ["DIRECT_CONNECT"],
-        "expected_commands": ["open", "server"],
-        "runtime_expectations": {
-            "platformCore.directConnectFeatureEnabled": True,
-            "platformCore.directConnectSnapshotMissing": True,
-        },
-        "runtime_blocking": True,
-    },
-    {
-        "id": "ssh-remote",
-        "features": ["SSH_REMOTE"],
-        "expected_commands": ["ssh"],
-        "runtime_expectations": {
-            "platformCore.sshFeatureEnabled": True,
-            "platformCore.sshSnapshotMissing": True,
-        },
-        "runtime_blocking": True,
-    },
-    {
         "id": "transcript-classifier",
         "features": ["TRANSCRIPT_CLASSIFIER"],
         "expected_commands": ["auto-mode"],

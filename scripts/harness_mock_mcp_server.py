@@ -11,8 +11,10 @@
   - notifications/initialized (no response)
   - tools/list
   - tools/call
+  - resources/list
+  - resources/read
 
-不实现: prompts, resources, sampling 等高级特性。
+不实现: prompts, sampling 等高级特性。
 """
 
 import json
@@ -24,6 +26,8 @@ SERVER_VERSION = "0.1.0"
 
 ECHO_TOOL_NAME = "echo_M3_2"
 ECHO_TAG = "ECHO_TAG_FROM_MOCK_MCP"
+RESOURCE_URI = "mcp://fixture/doc"
+RESOURCE_BODY = "RESOURCE_BODY_M3"
 
 
 def respond(req_id, result=None, error=None):
@@ -88,6 +92,38 @@ def handle_tools_call(req_id, params):
     })
 
 
+def handle_resources_list(req_id, params):
+    respond(req_id, result={
+        "resources": [
+            {
+                "uri": RESOURCE_URI,
+                "name": "fixture-doc",
+                "description": "Fixture MCP resource",
+                "mimeType": "text/plain",
+            }
+        ]
+    })
+
+
+def handle_resources_read(req_id, params):
+    uri = (params or {}).get("uri")
+    if uri != RESOURCE_URI:
+        respond(req_id, error={
+            "code": -32602,
+            "message": f"Unknown resource: {uri}",
+        })
+        return
+    respond(req_id, result={
+        "contents": [
+            {
+                "uri": RESOURCE_URI,
+                "mimeType": "text/plain",
+                "text": RESOURCE_BODY,
+            }
+        ]
+    })
+
+
 def main():
     for line in sys.stdin:
         line = line.strip()
@@ -112,6 +148,10 @@ def main():
             handle_tools_list(req_id, params)
         elif method == "tools/call":
             handle_tools_call(req_id, params)
+        elif method == "resources/list":
+            handle_resources_list(req_id, params)
+        elif method == "resources/read":
+            handle_resources_read(req_id, params)
         elif method == "ping":
             respond(req_id, result={})
         else:

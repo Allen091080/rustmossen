@@ -47,11 +47,11 @@ pub fn should_inject_agent_list_in_messages() -> bool {
 
 /// Get the tools description for an agent.
 fn get_tools_description(agent: &AgentDefinition) -> String {
-    let has_allowlist = agent.tools.as_ref().map_or(false, |t| !t.is_empty());
+    let has_allowlist = agent.tools.as_ref().is_some_and(|t| !t.is_empty());
     let has_denylist = agent
         .disallowed_tools
         .as_ref()
-        .map_or(false, |t| !t.is_empty());
+        .is_some_and(|t| !t.is_empty());
 
     if has_allowlist && has_denylist {
         let deny_set: std::collections::HashSet<&str> = agent
@@ -108,7 +108,7 @@ pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinato
             "Available agent types and the tools they have access to:\n{}",
             effective_agents
                 .iter()
-                .map(|a| format_agent_line(a))
+                .map(format_agent_line)
                 .collect::<Vec<_>>()
                 .join("\n")
         )
@@ -148,12 +148,12 @@ pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinato
     // Build full prompt with all sections
     let embedded = has_embedded_search_tools();
     let file_search_hint = if embedded {
-        format!("`find` via the Bash tool")
+        "`find` via the Bash tool".to_string()
     } else {
         format!("the {} tool", GLOB_TOOL_NAME)
     };
     let content_search_hint = if embedded {
-        format!("`grep` via the Bash tool")
+        "`grep` via the Bash tool".to_string()
     } else {
         format!("the {} tool", GLOB_TOOL_NAME)
     };

@@ -20,7 +20,7 @@ fn is_feature_enabled(feature_name: &str) -> bool {
 
 /// Check if an environment variable is truthy.
 fn is_env_truthy(val: Option<&str>) -> bool {
-    val.map_or(false, |v| v == "1" || v.eq_ignore_ascii_case("true"))
+    val.is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 /// Check if the current session is non-interactive (SDK/API usage).

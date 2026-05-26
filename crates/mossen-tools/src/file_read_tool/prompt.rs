@@ -25,11 +25,9 @@ pub fn render_prompt_template(
     offset_instruction: &str,
 ) -> String {
     let pdf_instruction = if is_pdf_supported() {
-        format!(
-            "\n- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), \
+        "\n- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), \
              you MUST provide the pages parameter to read specific page ranges (e.g., pages: \"1-5\"). \
-             Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request."
-        )
+             Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.".to_string()
     } else {
         String::new()
     };

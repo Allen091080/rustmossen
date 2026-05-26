@@ -14,17 +14,20 @@ mossen-types.workspace = true
 mossen-utils.workspace = true
 mossen-agent.workspace = true
 mossen-tools.workspace = true
+mossen-skills.workspace = true
 
 # 核心
 tokio.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+url.workspace = true
 
 # 工具
 chrono.workspace = true

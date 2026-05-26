@@ -125,7 +125,7 @@ pub struct PathValidationConfig {
 
 /// Extract file paths from a command's arguments.
 pub fn extract_paths_from_command(command: &str) -> Vec<String> {
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
         return vec![];
     }
@@ -269,7 +269,7 @@ pub fn check_dangerous_removal_paths(command: &str) -> Option<String> {
     }
 
     let dangerous_targets = ["/", "/*", "~", "~/*", "$HOME", "$HOME/*"];
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
 
     for part in &parts {
         let trimmed = part.trim_matches('"').trim_matches('\'');
@@ -279,6 +279,52 @@ pub fn check_dangerous_removal_paths(command: &str) -> Option<String> {
     }
 
     None
+}
+
+// ---------------------------------------------------------------------------
+// TS-mirror — `tools/BashTool/pathValidation.ts` additional exports.
+// ---------------------------------------------------------------------------
+
+use once_cell::sync::Lazy;
+
+/// `pathValidation.ts` `PATH_EXTRACTORS` — name set for commands whose
+/// arguments are path-like and therefore subject to path validation.
+pub static PATH_EXTRACTORS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+    for cmd in [
+        "cat", "cp", "mv", "rm", "ls", "touch", "mkdir", "rmdir", "chmod", "chown", "ln", "find",
+        "grep", "sed", "head", "tail", "wc", "stat", "diff", "less", "more",
+    ] {
+        m.insert(cmd, cmd);
+    }
+    m
+});
+
+/// Boxed checker for a single path.
+pub type PathChecker = Box<dyn Fn(&str) -> PathCheckResult + Send + Sync + 'static>;
+
+/// `pathValidation.ts` `createPathChecker`.
+pub fn create_path_checker(cwd: String, additional_dirs: Vec<String>) -> PathChecker {
+    Box::new(move |path: &str| {
+        let p = std::path::Path::new(path);
+        let abs = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            std::path::Path::new(&cwd).join(p)
+        };
+        let abs_str = abs.to_string_lossy().to_string();
+        if abs_str.starts_with(&cwd) {
+            return PathCheckResult::Allowed;
+        }
+        for dir in &additional_dirs {
+            if abs_str.starts_with(dir) {
+                return PathCheckResult::Allowed;
+            }
+        }
+        PathCheckResult::Denied {
+            message: format!("Path is outside the working directory: {}", abs_str),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -336,50 +382,4 @@ mod tests {
         assert!(check_dangerous_removal_paths("rm -rf ~").is_some());
         assert!(check_dangerous_removal_paths("rm file.txt").is_none());
     }
-}
-
-// ---------------------------------------------------------------------------
-// TS-mirror — `tools/BashTool/pathValidation.ts` additional exports.
-// ---------------------------------------------------------------------------
-
-use once_cell::sync::Lazy;
-
-/// `pathValidation.ts` `PATH_EXTRACTORS` — name set for commands whose
-/// arguments are path-like and therefore subject to path validation.
-pub static PATH_EXTRACTORS: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
-    let mut m = HashMap::new();
-    for cmd in [
-        "cat", "cp", "mv", "rm", "ls", "touch", "mkdir", "rmdir", "chmod", "chown", "ln", "find",
-        "grep", "sed", "head", "tail", "wc", "stat", "diff", "less", "more",
-    ] {
-        m.insert(cmd, cmd);
-    }
-    m
-});
-
-/// Boxed checker for a single path.
-pub type PathChecker = Box<dyn Fn(&str) -> PathCheckResult + Send + Sync + 'static>;
-
-/// `pathValidation.ts` `createPathChecker`.
-pub fn create_path_checker(cwd: String, additional_dirs: Vec<String>) -> PathChecker {
-    Box::new(move |path: &str| {
-        let p = std::path::Path::new(path);
-        let abs = if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            std::path::Path::new(&cwd).join(p)
-        };
-        let abs_str = abs.to_string_lossy().to_string();
-        if abs_str.starts_with(&cwd) {
-            return PathCheckResult::Allowed;
-        }
-        for dir in &additional_dirs {
-            if abs_str.starts_with(dir) {
-                return PathCheckResult::Allowed;
-            }
-        }
-        PathCheckResult::Denied {
-            message: format!("Path is outside the working directory: {}", abs_str),
-        }
-    })
 }

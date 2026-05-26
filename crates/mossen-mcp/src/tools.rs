@@ -373,4 +373,17 @@ mod tests {
         assert!(converted.input_schema.required.is_none());
         assert!(converted.input_schema.extra.is_empty());
     }
+
+    #[test]
+    fn call_result_conversion_preserves_server_error_marker() {
+        let converted = convert_call_result(CallToolResult {
+            content: vec![ContentBlock::Text {
+                text: "MISSING_REQUIRED_text_M3_5".to_string(),
+            }],
+            is_error: Some(true),
+        });
+
+        assert!(converted.is_error);
+        assert_eq!(converted.text, "MISSING_REQUIRED_text_M3_5");
+    }
 }

@@ -116,7 +116,7 @@ pub async fn run_agent(options: RunAgentOptions) -> RunAgentResult {
     if let Some(fork_msgs) = &options.fork_context_messages {
         // Prepend fork context before the prompt messages
         let mut all_msgs = fork_msgs.clone();
-        all_msgs.extend(state.messages.drain(..));
+        all_msgs.append(&mut state.messages);
         state.messages = all_msgs;
     }
 

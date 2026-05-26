@@ -92,9 +92,8 @@ pub async fn get_git_commit_sha(dir_path: &str) -> Option<String> {
     match tokio::fs::read_to_string(&head_file).await {
         Ok(content) => {
             let content = content.trim();
-            if content.starts_with("ref: ") {
+            if let Some(ref_path) = content.strip_prefix("ref: ") {
                 // It's a symbolic reference, resolve it
-                let ref_path = &content[5..];
                 let full_ref_path = Path::new(dir_path).join(".git").join(ref_path);
                 tokio::fs::read_to_string(&full_ref_path)
                     .await

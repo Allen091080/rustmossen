@@ -115,9 +115,7 @@ impl Directive for GithubAppDirective {
     }
 
     fn is_enabled(&self, ctx: &CommandContext) -> bool {
-        !ctx.is_env_truthy("DISABLE_INSTALL_GITHUB_APP_COMMAND")
-            && (!ctx.is_custom_backend || get_github_workflow_readiness(ctx))
-            && !ctx.is_custom_backend
+        !ctx.is_env_truthy("DISABLE_INSTALL_GITHUB_APP_COMMAND") && !ctx.is_custom_backend
     }
 
     fn is_hidden(&self) -> bool {

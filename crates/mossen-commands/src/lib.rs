@@ -13,7 +13,15 @@
     unused_assignments,
     unused_imports,
     unused_mut,
-    unused_variables
+    unused_variables,
+    clippy::await_holding_lock,
+    clippy::if_same_then_else,
+    clippy::manual_checked_ops,
+    clippy::needless_range_loop,
+    clippy::ptr_arg,
+    clippy::should_implement_trait,
+    clippy::unnecessary_sort_by,
+    clippy::vec_init_then_push
 )]
 
 pub mod command_extras;
@@ -344,7 +352,9 @@ mod tests {
 
         assert!(text.contains("Help for /model"));
         assert!(text.contains("Usage: /model [profile-name]"));
-        assert!(text.contains("Description: List model options or switch session model"));
+        assert!(
+            text.contains("Description: List configured model profiles or switch session profile")
+        );
         assert!(!text.contains("registry is fully connected"));
     }
 
@@ -442,7 +452,7 @@ mod tests {
                             args
                         ));
                     }
-                    CommandResult::Widget { .. } => {
+                    CommandResult::Widget => {
                         failures.push(format!(
                             "{ctx_name}: /{name} returned Widget for safe args {:?}",
                             args

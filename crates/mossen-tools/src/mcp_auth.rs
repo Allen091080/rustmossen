@@ -60,15 +60,38 @@ impl Tool for BridgeAuthenticator {
         _context: &ToolUseContext,
     ) -> anyhow::Result<ToolResult> {
         let output = BridgeAuthOutput {
-            status: "unsupported".to_string(),
-            message: "MCP OAuth authentication is not yet implemented in this build.".to_string(),
+            status: "unavailable".to_string(),
+            message: "MCP OAuth is handled by the runtime MCP connection flow; this generic tool cannot start the browser callback flow.".to_string(),
             auth_url: None,
         };
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
-            is_error: false,
+            is_error: true,
             duration_ms: 0,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bridge_authenticator_fails_closed_when_runtime_flow_is_unavailable() {
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = BridgeAuthenticator
+            .execute(Value::Object(Default::default()), &context)
+            .await
+            .expect("auth tool returns structured failure");
+
+        assert!(result.is_error);
+        assert!(result.output.contains("\"status\":\"unavailable\""));
+        assert!(result.output.contains("runtime MCP connection flow"));
     }
 }

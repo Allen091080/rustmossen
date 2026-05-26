@@ -63,7 +63,7 @@ pub fn get_max_mcp_output_tokens(flag_override: Option<u64>) -> u64 {
 
 /// Rough token count estimation (chars / 4).
 fn rough_token_count_estimation(text: &str) -> u64 {
-    (text.len() as u64 + 3) / 4
+    (text.len() as u64).div_ceil(4)
 }
 
 /// Get a content size estimate in tokens.
@@ -241,4 +241,77 @@ pub trait AsyncCompressImage: Send + Sync {
 #[async_trait::async_trait]
 pub trait AsyncCountTokens: Send + Sync {
     async fn count(&self, content: &McpToolResult) -> anyhow::Result<Option<u64>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct BrokenCounter;
+
+    #[async_trait::async_trait]
+    impl AsyncCountTokens for BrokenCounter {
+        async fn count(&self, _content: &McpToolResult) -> anyhow::Result<Option<u64>> {
+            Err(anyhow::anyhow!("countTokens unavailable"))
+        }
+    }
+
+    struct CountingCounter {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl AsyncCountTokens for CountingCounter {
+        async fn count(&self, _content: &McpToolResult) -> anyhow::Result<Option<u64>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(1))
+        }
+    }
+
+    #[tokio::test]
+    async fn tiny_mcp_content_does_not_call_token_counter() {
+        let counter = CountingCounter {
+            calls: AtomicUsize::new(0),
+        };
+
+        let needs_truncation = mcp_content_needs_truncation(
+            &McpToolResult::Text("hello world".to_string()),
+            25_000,
+            Some(&counter),
+        )
+        .await;
+
+        assert!(!needs_truncation);
+        assert_eq!(counter.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn large_mcp_content_with_broken_counter_falls_back_to_size_estimate() {
+        let content = McpToolResult::Text("x".repeat(2_000));
+
+        let needs_truncation =
+            mcp_content_needs_truncation(&content, 250, Some(&BrokenCounter)).await;
+
+        assert!(needs_truncation);
+        assert!(get_content_size_estimate(&content) > 250);
+    }
+
+    #[tokio::test]
+    async fn truncate_if_needed_appends_truncation_guidance() {
+        let content = McpToolResult::Text("x".repeat(64));
+
+        let truncated = truncate_mcp_content_if_needed(&content, 4, None, None).await;
+
+        let McpToolResult::Text(text) = truncated else {
+            panic!("expected text result");
+        };
+        let retained = text
+            .split("\n\n[OUTPUT TRUNCATED")
+            .next()
+            .expect("retained prefix");
+        assert_eq!(retained.len(), 16);
+        assert!(text.contains("[OUTPUT TRUNCATED - exceeded 4 token limit]"));
+        assert!(text.contains("pagination or filtering tools"));
+    }
 }

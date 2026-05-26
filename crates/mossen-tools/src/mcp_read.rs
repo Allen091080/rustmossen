@@ -27,6 +27,8 @@ pub struct ResourceContent {
     pub mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,18 +83,65 @@ impl Tool for BridgeReader {
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
         let inp: BridgeReaderInput = serde_json::from_value(input)?;
-        let output = BridgeReaderOutput {
-            contents: vec![ResourceContent {
-                uri: inp.uri,
-                mime_type: None,
-                text: None,
-            }],
+        let Some(manager) = mossen_mcp::server::global_manager() else {
+            return Ok(ToolResult {
+                output: "Error: MCP server manager not installed — resource cannot be read."
+                    .to_string(),
+                is_error: true,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            });
         };
-        Ok(ToolResult {
-            output: serde_json::to_string(&output)?,
-            is_error: false,
-            duration_ms: 0,
-            metadata: HashMap::new(),
-        })
+
+        let normalized = mossen_mcp::normalize_name_for_mcp(&inp.server);
+        let client = manager.get_client(&inp.server).or_else(|| {
+            manager
+                .get_client_by_normalized_name(&normalized)
+                .map(|(_, client)| client)
+        });
+
+        let Some(client) = client else {
+            return Ok(ToolResult {
+                output: format!(
+                    "Error: MCP server '{}' is not connected (or not present in the configured set).",
+                    inp.server
+                ),
+                is_error: true,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            });
+        };
+
+        match client.read_resource(&inp.uri).await {
+            Ok(result) => {
+                let output = BridgeReaderOutput {
+                    contents: result
+                        .contents
+                        .into_iter()
+                        .map(|content| ResourceContent {
+                            uri: content.uri,
+                            mime_type: content.mime_type,
+                            text: content.text,
+                            blob: content.blob,
+                        })
+                        .collect(),
+                };
+                Ok(ToolResult {
+                    output: serde_json::to_string(&output)?,
+                    is_error: false,
+                    duration_ms: 0,
+                    metadata: HashMap::new(),
+                })
+            }
+            Err(err) => Ok(ToolResult {
+                output: format!(
+                    "Error: MCP resource read from '{}/{}' failed: {}",
+                    inp.server, inp.uri, err
+                ),
+                is_error: true,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            }),
+        }
     }
 }

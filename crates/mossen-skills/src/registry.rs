@@ -34,7 +34,7 @@ impl Signal {
 
     fn emit(&self) {
         for listener in &self.listeners {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener())) {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(listener)) {
                 tracing::error!("Signal listener panicked: {:?}", e);
             }
         }
@@ -92,7 +92,7 @@ impl CraftRegistry {
                 .prompt_data
                 .paths
                 .as_ref()
-                .map_or(false, |p| !p.is_empty());
+                .is_some_and(|p| !p.is_empty());
             let already_activated = self.activated_conditional_names.contains(craft.name());
 
             if has_paths && !already_activated {
@@ -311,5 +311,5 @@ fn glob_matches(pattern: &str, path: &str) -> bool {
         .replace("§§", ".*");
     regex::Regex::new(&format!("^{}$", regex_pattern))
         .ok()
-        .map_or(false, |re| re.is_match(path))
+        .is_some_and(|re| re.is_match(path))
 }

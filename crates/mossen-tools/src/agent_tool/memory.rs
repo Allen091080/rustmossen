@@ -239,7 +239,7 @@ async fn read_memory_dir_contents(dir: &Path) -> String {
     let mut files = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "md") {
+        if path.extension().is_some_and(|ext| ext == "md") {
             files.push(path);
         }
     }

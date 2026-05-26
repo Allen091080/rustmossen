@@ -10,10 +10,8 @@ pub const RIGHT_DOUBLE_CURLY_QUOTE: char = '\u{201D}';
 
 /// Normalizes quotes in a string by converting curly quotes to straight quotes.
 pub fn normalize_quotes(s: &str) -> String {
-    s.replace(LEFT_SINGLE_CURLY_QUOTE, "'")
-        .replace(RIGHT_SINGLE_CURLY_QUOTE, "'")
-        .replace(LEFT_DOUBLE_CURLY_QUOTE, "\"")
-        .replace(RIGHT_DOUBLE_CURLY_QUOTE, "\"")
+    s.replace([LEFT_SINGLE_CURLY_QUOTE, RIGHT_SINGLE_CURLY_QUOTE], "'")
+        .replace([LEFT_DOUBLE_CURLY_QUOTE, RIGHT_DOUBLE_CURLY_QUOTE], "\"")
 }
 
 /// Strips trailing whitespace from each line while preserving line endings.

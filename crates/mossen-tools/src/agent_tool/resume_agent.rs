@@ -129,13 +129,10 @@ pub fn filter_unresolved_tool_uses(messages: Vec<serde_json::Value>) -> Vec<serd
     // Filter out assistant messages that have tool_use blocks without results
     messages
         .into_iter()
-        .map(|msg| {
+        .inspect(|msg| {
             let msg_type = msg.get("type").and_then(|t| t.as_str());
-            if msg_type != Some("assistant") {
-                return msg;
-            }
+            if msg_type != Some("assistant") {}
             // Keep all blocks — caller handles missing results
-            msg
         })
         .collect()
 }

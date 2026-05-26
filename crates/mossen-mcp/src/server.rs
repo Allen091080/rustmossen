@@ -337,3 +337,94 @@ impl McpServerManager {
         Ok(McpClient::new(transport, self.client_info.clone()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ConfigScope, StdioServerConfig};
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    fn stdio_config(command: impl Into<String>, args: Vec<String>) -> ScopedMcpServerConfig {
+        ScopedMcpServerConfig {
+            config: McpServerConfig::Stdio(StdioServerConfig {
+                transport_type: Some("stdio".to_string()),
+                command: command.into(),
+                args,
+                env: None,
+            }),
+            scope: ConfigScope::Local,
+            plugin_source: None,
+        }
+    }
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("crate is under crates/mossen-mcp")
+            .to_path_buf()
+    }
+
+    #[tokio::test]
+    async fn connect_all_keeps_good_server_when_another_server_fails() {
+        let mock_server = repo_root().join("scripts/harness_mock_mcp_server.py");
+        assert!(mock_server.exists(), "mock MCP server fixture exists");
+
+        let manager = McpServerManager::new(Implementation {
+            name: "mossen-test".to_string(),
+            version: "0.0.0".to_string(),
+        })
+        .with_max_reconnect_attempts(1);
+
+        manager
+            .update_configs(HashMap::from([
+                (
+                    "m34_good_server".to_string(),
+                    stdio_config("python3", vec![mock_server.to_string_lossy().to_string()]),
+                ),
+                (
+                    "m34_bad_server".to_string(),
+                    stdio_config("/bin/this-binary-does-not-exist-M34-zzz", vec![]),
+                ),
+            ]))
+            .await;
+
+        manager.connect_all().await;
+
+        let connections = manager.get_all_connections();
+        assert_eq!(manager.total_count(), 2);
+        assert_eq!(manager.connected_count(), 1);
+        assert!(connections.iter().any(|conn| matches!(
+            conn,
+            McpServerConnection::Connected(server) if server.name == "m34_good_server"
+        )));
+        assert!(connections.iter().any(|conn| matches!(
+            conn,
+            McpServerConnection::Failed(server)
+                if server.name == "m34_bad_server"
+                    && server.error.as_deref().unwrap_or_default().contains("No such file")
+        )));
+
+        let tools = manager.get_all_tools().await;
+        assert!(tools.iter().any(|(server, tools)| {
+            server == "m34_good_server" && tools.iter().any(|tool| tool.name == "echo_M3_2")
+        }));
+
+        let client = manager
+            .get_client("m34_good_server")
+            .expect("good server remains connected");
+        let result = crate::tools::execute_mcp_tool_call(
+            &client,
+            "echo_M3_2",
+            Some(json!({ "text": "M3_2_PAYLOAD_unique_xyz" })),
+        )
+        .await
+        .expect("tool call through connected manager client succeeds");
+        assert!(!result.is_error);
+        assert!(result.text.contains("ECHO_TAG_FROM_MOCK_MCP"));
+        assert!(result.text.contains("M3_2_PAYLOAD_unique_xyz"));
+
+        manager.disconnect_all().await;
+    }
+}
