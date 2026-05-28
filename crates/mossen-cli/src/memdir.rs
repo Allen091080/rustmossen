@@ -949,16 +949,21 @@ mod tests {
 
     #[test]
     fn team_memory_path_detection_uses_component_boundaries() {
-        let project_root = Path::new("/workspace/project");
-        let team_dir = get_team_mem_path(project_root);
-        assert!(is_team_mem_path(&team_dir.join("MEMORY.md"), project_root));
+        let _lock = memdir_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().join("project");
+        let auto_mem_dir = temp.path().join("automem");
+        let _env = isolate_memdir_env(temp.path(), &auto_mem_dir);
+
+        let team_dir = get_team_mem_path(&project_root);
+        assert!(is_team_mem_path(&team_dir.join("MEMORY.md"), &project_root));
         assert!(!is_team_mem_path(
             &team_dir
                 .parent()
                 .expect("team parent")
                 .join("team-other")
                 .join("MEMORY.md"),
-            project_root,
+            &project_root,
         ));
     }
 
