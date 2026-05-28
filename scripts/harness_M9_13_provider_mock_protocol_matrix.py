@@ -113,8 +113,8 @@ def main() -> int:
             name="startup_profile_bridge_preserves_provider_protocol",
             command=cargo_test(
                 "-p",
-                "mossen-cli",
-                "active_profile_sets_provider_protocol_for_runtime",
+                "mossen-agent",
+                "current_profile_applies_provider_protocol_to_runtime_env",
             ),
             timeout_secs=180,
         ),
@@ -148,6 +148,14 @@ def main() -> int:
                 "custom_backend_non_streaming_routes_openai_compatible_uses_bearer_auth",
                 "custom_backend_non_streaming_routes_openai_responses_protocol",
                 "custom_backend_non_streaming_routes_anthropic_protocol",
+            ],
+        ),
+        source_check(
+            "cli_startup_bridges_active_profile_into_runtime_env",
+            "crates/mossen-cli/src/main.rs",
+            [
+                "apply_active_profile_to_custom_backend_env(cli.model.as_deref())",
+                "apply_current_profile_to_custom_backend_env_if_missing",
             ],
         ),
         source_check(

@@ -737,13 +737,49 @@ pub fn migrate_fallback_profile(
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_active_profile, delete_profile, desensitize_profiles, get_active_profile,
-        get_active_profile_name, get_profile_by_name, get_profiles, set_active_profile,
-        set_profile, validate_profile, validate_profile_name, ProfileProvider,
+        apply_current_profile_to_custom_backend_env_if_missing, clear_active_profile,
+        delete_profile, desensitize_profiles, get_active_profile, get_active_profile_name,
+        get_profile_by_name, get_profiles, set_active_profile, set_profile, validate_profile,
+        validate_profile_name, ProfileProvider,
     };
     use crate::services::config::facade::{reset_facade_for_testing, set_mossen_config_override};
     use crate::services::config::types::ConfigOverrideScope;
     use serde_json::json;
+    use std::env;
+
+    const PROFILE_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
+
+    struct EnvRestore(Vec<(&'static str, Option<String>)>);
+
+    impl EnvRestore {
+        fn capture(keys: &[&'static str]) -> Self {
+            Self(
+                keys.iter()
+                    .map(|key| (*key, env::var(key).ok()))
+                    .collect::<Vec<_>>(),
+            )
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                match value {
+                    Some(value) => env::set_var(key, value),
+                    None => env::remove_var(key),
+                }
+            }
+        }
+    }
 
     fn config_test_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::test_support::config_lock()
@@ -784,6 +820,57 @@ mod tests {
         assert_eq!(responses.provider.runtime_protocol(), "openai-responses");
         assert_eq!(anthropic.provider, ProfileProvider::Anthropic);
         assert_eq!(anthropic.provider.runtime_protocol(), "anthropic");
+    }
+
+    #[tokio::test]
+    async fn current_profile_applies_provider_protocol_to_runtime_env() {
+        let _env_guard = crate::test_support::env_lock_async().await;
+        let _config_guard = config_test_lock();
+        let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
+        for key in PROFILE_ENV_KEYS {
+            env::remove_var(key);
+        }
+        reset_profile_config_for_test();
+        set_mossen_config_override(
+            "mossen.profiles",
+            json!({
+                "responses": {
+                    "provider": "openai-responses",
+                    "baseURL": "https://api.openai.example/v1",
+                    "model": "responses-model",
+                    "apiKey": "sk-test-responses"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        set_mossen_config_override(
+            "mossen.activeProfile",
+            json!("responses"),
+            ConfigOverrideScope::Override,
+        );
+
+        let applied = apply_current_profile_to_custom_backend_env_if_missing(None)
+            .expect("active profile should apply to runtime env");
+
+        assert_eq!(applied.name, "responses");
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-responses")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://api.openai.example/v1")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
+            Ok("responses-model")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_USE_CUSTOM_BACKEND").as_deref(),
+            Ok("1")
+        );
+
+        reset_facade_for_testing();
     }
 
     #[test]
