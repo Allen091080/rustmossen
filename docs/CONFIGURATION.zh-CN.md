@@ -1,16 +1,16 @@
-# LLM Configuration
+# LLM 配置
 
 [English](CONFIGURATION.md) | [简体中文](CONFIGURATION.zh-CN.md)
 
-Mossen uses local model profiles. The default user-level config file is:
+Mossen 使用本地模型 profile。默认用户级配置文件是：
 
 ```text
 ~/.mossen/settings.json
 ```
 
-This file can contain API keys and must not be committed.
+这个文件可能包含 API key，不能提交到仓库。
 
-## Profile Schema
+## Profile 结构
 
 ```json
 {
@@ -26,15 +26,15 @@ This file can contain API keys and must not be committed.
 }
 ```
 
-Supported `provider` values:
+支持的 `provider` 值：
 
 - `openai-compatible`
 - `openai-responses`
 - `anthropic`
 
-## CLI Setup
+## CLI 配置
 
-Add a profile:
+添加 profile：
 
 ```bash
 mossen --add-model-profile my-model \
@@ -44,31 +44,31 @@ mossen --add-model-profile my-model \
   --apiKey "$YOUR_API_KEY"
 ```
 
-Activate it:
+启用 profile：
 
 ```bash
 mossen --set-model-profile my-model
 ```
 
-List profiles:
+列出 profile：
 
 ```bash
 mossen --list-model-profiles
 ```
 
-Show the active profile with secrets redacted:
+查看当前 profile，密钥会被隐藏：
 
 ```bash
 mossen --get-model-profile
 ```
 
-Test a profile:
+测试 profile：
 
 ```bash
 mossen --test-model-profile my-model --timeout 30000
 ```
 
-Update a profile:
+更新 profile：
 
 ```bash
 mossen --update-model-profile my-model \
@@ -78,21 +78,21 @@ mossen --update-model-profile my-model \
   --apiKey "$YOUR_API_KEY"
 ```
 
-Set only the key:
+只更新 key：
 
 ```bash
 mossen --set-model-profile-key my-model "$YOUR_API_KEY"
 ```
 
-Delete a profile:
+删除 profile：
 
 ```bash
 mossen --delete-model-profile my-model
 ```
 
-## Environment Override
+## 环境变量覆盖
 
-Profiles are the recommended path. For temporary sessions, Mossen also accepts runtime environment variables:
+推荐使用 profile。临时会话也可以通过环境变量指定运行时模型后端：
 
 ```bash
 export MOSSEN_CODE_USE_CUSTOM_BACKEND=1
@@ -103,11 +103,11 @@ export MOSSEN_CODE_CUSTOM_API_KEY="$YOUR_API_KEY"
 mossen
 ```
 
-Use `MOSSEN_CODE_CUSTOM_AUTH_TOKEN` instead of `MOSSEN_CODE_CUSTOM_API_KEY` only when your provider expects a bearer token flow.
+只有当你的供应商明确要求 bearer token 流程时，才使用 `MOSSEN_CODE_CUSTOM_AUTH_TOKEN` 代替 `MOSSEN_CODE_CUSTOM_API_KEY`。
 
-## Project Scope
+## 项目级配置
 
-By default, profile commands write user-level settings. A project scope exists for local experiments:
+默认情况下，profile 命令写入用户级配置。项目级 scope 可用于本地实验：
 
 ```bash
 mossen --add-model-profile local-dev \
@@ -118,4 +118,4 @@ mossen --add-model-profile local-dev \
   --apiKey "$LOCAL_TEST_KEY"
 ```
 
-Do not use project-scoped config in a public repository unless `.mossen/` is ignored and you have verified no secrets are tracked.
+不要在公开仓库中使用项目级配置，除非 `.mossen/` 已被忽略，并且你已经确认没有密钥被 Git 跟踪。

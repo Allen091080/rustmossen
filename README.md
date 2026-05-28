@@ -1,5 +1,7 @@
 # Mossen
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Mossen is a Rust-native terminal coding agent. It implements the core Claude Code-style workflow in a local-first, provider-flexible CLI: conversational coding, file editing, shell execution with permissions, slash commands, context management, MCP integration, sub-agents, and terminal rendering.
 
 Mossen is not affiliated with Anthropic or Claude Code. The goal is to provide an open Rust implementation of the same class of developer experience, with user-controlled model providers and credentials.
@@ -128,7 +130,7 @@ Supported provider values:
 - `openai-responses`
 - `anthropic`
 
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration guide and an example settings file.
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration guide and an example settings file. A Chinese version is available at [docs/CONFIGURATION.zh-CN.md](docs/CONFIGURATION.zh-CN.md).
 
 ## Security
 

@@ -1,5 +1,7 @@
 # Open Source Release Checklist
 
+[English](OPEN_SOURCE_CHECKLIST.md) | [简体中文](OPEN_SOURCE_CHECKLIST.zh-CN.md)
+
 Use this checklist before publishing the repository.
 
 ## Required
