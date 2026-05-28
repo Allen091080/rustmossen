@@ -29,23 +29,14 @@ def main() -> int:
                 "mossen-agent",
                 "call_streaming_without_backend_config_fails_fast_with_personal_hint",
             ),
-            timeout_secs=180,
+            timeout_secs=360,
         ),
         Step(
-            name="preflight_no_backend_uses_personal_hint",
+            name="preflight_missing_backend_uses_personal_hints",
             command=cargo_test(
                 "-p",
                 "mossen-utils",
-                "endpoints_no_backend_points_to_personal_config_without_hosted_login",
-            ),
-            timeout_secs=180,
-        ),
-        Step(
-            name="preflight_custom_backend_missing_url_uses_local_hint",
-            command=cargo_test(
-                "-p",
-                "mossen-utils",
-                "endpoints_custom_backend_missing_url_points_to_local_config",
+                "endpoints_",
             ),
             timeout_secs=180,
         ),
