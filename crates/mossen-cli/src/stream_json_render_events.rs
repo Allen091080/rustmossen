@@ -11167,7 +11167,11 @@ mod tests {
         let resize_plan = &resize_items[0];
 
         assert_eq!(resize_plan["draw"]["forcedRedraw"], true);
-        assert_eq!(resize_plan["draw"]["scrollbackAppendOnceSuppressed"], true);
+        assert!(!resize_plan["regionPlans"]
+            .as_array()
+            .expect("resize region plans")
+            .iter()
+            .any(|plan| plan["regionId"] == "transcript"));
         assert!(resize_plan["terminalOps"]
             .as_array()
             .expect("resize terminal ops")
