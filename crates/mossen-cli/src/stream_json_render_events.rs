@@ -8623,7 +8623,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_metadata_after_seeded_heartbeat_skips_redundant_waiting_redraw() {
+    fn terminal_metadata_after_seeded_heartbeat_preserves_waiting_activity_without_active_redraw() {
         let mut emitter = StreamJsonRenderEventEmitter::new();
         let model = "terminal-metadata-stable-model";
 
@@ -8637,10 +8637,37 @@ mod tests {
                 task_id: None,
             });
         let draw_plan = items.first().expect("metadata draw plan");
+        let changed_region_ids = draw_plan["draw"]["changedRegionIds"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let operations = draw_plan["operations"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(!changed_region_ids
+            .iter()
+            .any(|id| id.as_str() == Some("active") || id.as_str() == Some("transcript")));
+        assert!(!operations.iter().any(|operation| {
+            operation["regionId"].as_str() == Some("active")
+                || operation["regionId"].as_str() == Some("transcript")
+        }));
 
-        assert_eq!(draw_plan["draw"]["skipped"], true);
-        assert_eq!(draw_plan["draw"]["skipReason"], "frame_hash_unchanged");
-        assert_eq!(draw_plan["draw"]["operationCount"], 0);
+        let frame = emitter.terminal_frame_value();
+        let active_region = frame["regions"]
+            .as_array()
+            .expect("regions")
+            .iter()
+            .find(|region| region["id"] == "active")
+            .expect("active region");
+        let active_lines = active_region["lines"].as_array().expect("active lines");
+        assert!(active_lines
+            .iter()
+            .any(|line| line.as_str() == Some("waiting for model stream")));
+        assert!(emitter.snapshot_value()["terminal"]["statusBar"]["model"]
+            .as_str()
+            .expect("status model")
+            .starts_with("terminal-metadata-stable"));
     }
 
     #[test]
