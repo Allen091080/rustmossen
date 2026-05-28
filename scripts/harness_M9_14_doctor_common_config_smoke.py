@@ -12,15 +12,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_rust_context import Step, cargo_test, run_context_harness, source_check
 
 
+def doctor_cargo_test() -> list[str]:
+    command = cargo_test(
+        "-p",
+        "mossen-cli",
+        "slash_command_doctor",
+    )
+    command.append("--test-threads=1")
+    return command
+
+
 def main() -> int:
     steps = [
         Step(
             name="doctor_common_config_diagnostics",
-            command=cargo_test(
-                "-p",
-                "mossen-cli",
-                "slash_command_doctor",
-            ),
+            command=doctor_cargo_test(),
             timeout_secs=240,
         ),
     ]
