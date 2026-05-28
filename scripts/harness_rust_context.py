@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -79,24 +80,34 @@ def run_step(ctx: Any, step: Step) -> dict[str, Any]:
     stderr = ""
     exit_code = 1
 
+    proc = subprocess.Popen(
+        step.command,
+        cwd=str(ROOT),
+        env=context_env(ctx),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=os.name != "nt",
+    )
     try:
-        proc = subprocess.run(
-            step.command,
-            cwd=str(ROOT),
-            env=context_env(ctx),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=step.timeout_secs,
-        )
-        stdout = proc.stdout
-        stderr = proc.stderr
+        stdout, stderr = proc.communicate(timeout=step.timeout_secs)
         exit_code = proc.returncode
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         timed_out = True
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
         exit_code = 124
+        if os.name != "nt":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            proc.kill()
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            stderr = (stderr or "") + "\n<harness timed out while collecting child output>"
 
     combined = stdout + "\n" + stderr
     expected_ok = all(token in combined for token in step.expected)

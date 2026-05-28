@@ -27,38 +27,46 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Unit tests
+        timeout-minutes: 20
         run: cargo test --workspace --lib --bins
 
       - name: Slash command help and capability matrix
+        timeout-minutes: 15
         run: |
           python3 scripts/harness_M8_1_command_inventory_real_smoke.py
           python3 scripts/harness_M8_4_hidden_commands_smoke.py
           python3 scripts/harness_M13_3_capability_matrix_smoke.py
 
       - name: Missing model and doctor guidance
+        timeout-minutes: 15
         run: |
           python3 scripts/harness_M9_2_auth_missing_clear_error_smoke.py
           python3 scripts/harness_M9_14_doctor_common_config_smoke.py
 
       - name: Provider mock protocol matrix
+        timeout-minutes: 15
         run: python3 scripts/harness_M9_13_provider_mock_protocol_matrix.py
 
       - name: Sub-agent lifecycle smoke
+        timeout-minutes: 15
         run: |
           python3 scripts/harness_M10_4_async_agent_taskoutput_smoke.py
           python3 scripts/harness_M10_6_parallel_agents_taskoutput_smoke.py
 
       - name: Release readiness contract smoke
+        timeout-minutes: 20
         run: |
           python3 scripts/harness_R11_1_release_readiness_contract_smoke.py
           python3 scripts/harness_R11_2_package_install_smoke.py
           python3 scripts/harness_R11_3_v11_external_user_ready_contract_smoke.py
 
       - name: TUI interaction smoke
+        timeout-minutes: 15
         run: |
           python3 scripts/harness_M17_1_tui_rendering_interaction_smoke.py
           python3 scripts/harness_M17_2_tui_agent_input_responsiveness_smoke.py
           python3 scripts/harness_M17_3_tui_copy_contract_smoke.py
 
       - name: V1.1 external user readiness status
+        timeout-minutes: 10
         run: python3 scripts/v11_external_user_ready_status.py
