@@ -230,6 +230,11 @@ def run_context_harness(
     source_checks = checks or []
     artifacts = write_context_report(ctx, script_name, step_results, source_checks, design_note)
     status = "passed" if all(s["ok"] for s in step_results) and all(c["ok"] for c in source_checks) else "failed"
+    failures = [
+        item
+        for item in [*step_results, *source_checks]
+        if not item["ok"]
+    ]
     print(
         json.dumps(
             {
@@ -239,6 +244,18 @@ def run_context_harness(
                 "total": len(step_results) + len(source_checks),
                 "fixture_root": str(ctx.root_dir),
                 "artifacts": artifacts,
+                "failures": [
+                    {
+                        "name": item["name"],
+                        "exit_code": item.get("exit_code"),
+                        "timed_out": item.get("timed_out"),
+                        "expected_ok": item.get("expected_ok"),
+                        "missing": item.get("missing"),
+                        "stdout_excerpt": item.get("stdout_excerpt"),
+                        "stderr_excerpt": item.get("stderr_excerpt"),
+                    }
+                    for item in failures
+                ],
                 "design_note": design_note,
             },
             indent=2,

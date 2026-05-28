@@ -15,47 +15,11 @@ from harness_rust_context import Step, cargo_test, run_context_harness, source_c
 def main() -> int:
     steps = [
         Step(
-            name="doctor_guides_when_model_profile_is_missing",
+            name="doctor_common_config_diagnostics",
             command=cargo_test(
                 "-p",
                 "mossen-cli",
-                "slash_command_doctor_guides_when_model_profile_is_missing",
-            ),
-            timeout_secs=240,
-        ),
-        Step(
-            name="doctor_warns_when_active_profile_is_missing",
-            command=cargo_test(
-                "-p",
-                "mossen-cli",
-                "slash_command_doctor_warns_when_active_profile_is_missing",
-            ),
-            timeout_secs=240,
-        ),
-        Step(
-            name="doctor_reports_invalid_model_profiles",
-            command=cargo_test(
-                "-p",
-                "mossen-cli",
-                "slash_command_doctor_reports_invalid_model_profiles",
-            ),
-            timeout_secs=240,
-        ),
-        Step(
-            name="doctor_reports_partial_custom_backend_env",
-            command=cargo_test(
-                "-p",
-                "mossen-cli",
-                "slash_command_doctor_reports_partial_custom_backend_env",
-            ),
-            timeout_secs=240,
-        ),
-        Step(
-            name="doctor_redacts_configured_model_profile_secrets",
-            command=cargo_test(
-                "-p",
-                "mossen-cli",
-                "slash_command_doctor_redacts_configured_model_profile_secrets",
+                "slash_command_doctor",
             ),
             timeout_secs=240,
         ),
