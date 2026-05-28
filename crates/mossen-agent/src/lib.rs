@@ -102,13 +102,20 @@ pub mod types;
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::sync::OnceLock;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     pub(crate) async fn env_lock_async() -> tokio::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
             .lock()
             .await
+    }
+
+    pub(crate) fn config_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("config test lock poisoned")
     }
 }
 

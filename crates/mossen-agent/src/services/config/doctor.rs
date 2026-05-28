@@ -231,3 +231,223 @@ pub fn model_config_doctor_snapshot() -> ModelConfigDoctorSnapshot {
         api_keys_redacted: true,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::model_config_doctor_snapshot;
+    use crate::services::config::facade::{reset_facade_for_testing, set_mossen_config_override};
+    use crate::services::config::types::ConfigOverrideScope;
+    use serde_json::{json, Value};
+
+    const PROFILE_RUNTIME_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_AUTH_TOKEN",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
+
+    fn config_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::config_lock()
+    }
+
+    fn save_profile_runtime_env_vars() -> Vec<(&'static str, Option<String>)> {
+        PROFILE_RUNTIME_ENV_KEYS
+            .iter()
+            .map(|key| (*key, std::env::var(key).ok()))
+            .collect::<Vec<_>>()
+    }
+
+    fn restore_profile_runtime_env_vars(previous: Vec<(&'static str, Option<String>)>) {
+        for (key, value) in previous {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    fn clear_profile_runtime_env_vars() {
+        for key in PROFILE_RUNTIME_ENV_KEYS {
+            std::env::remove_var(key);
+        }
+    }
+
+    fn reset_profile_config_for_test(profiles: Value, active_profile: Value) {
+        reset_facade_for_testing();
+        set_mossen_config_override("mossen.profiles", profiles, ConfigOverrideScope::Override);
+        set_mossen_config_override(
+            "mossen.activeProfile",
+            active_profile,
+            ConfigOverrideScope::Override,
+        );
+    }
+
+    #[test]
+    fn model_config_doctor_guides_when_model_profile_is_missing() {
+        let _guard = config_test_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        reset_profile_config_for_test(Value::Null, Value::Null);
+
+        let snapshot = model_config_doctor_snapshot();
+
+        assert_eq!(snapshot.status, "missing");
+        assert_eq!(snapshot.issues[0], "no_model_profile");
+        assert_eq!(
+            snapshot.next_commands[0],
+            "mossen --add-model-profile my-model --provider openai-compatible --baseURL https://api.example.com/v1 --model your-model-name --apiKey \"$YOUR_API_KEY\""
+        );
+        assert!(!snapshot.raw_config_included);
+        assert!(snapshot.base_urls_redacted);
+        assert!(snapshot.api_keys_redacted);
+
+        reset_facade_for_testing();
+        restore_profile_runtime_env_vars(previous_env);
+    }
+
+    #[test]
+    fn model_config_doctor_warns_when_active_profile_is_missing() {
+        let _guard = config_test_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        reset_profile_config_for_test(
+            json!({
+                "example": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-example-secret-value"
+                }
+            }),
+            Value::String("missing".to_string()),
+        );
+
+        let snapshot = model_config_doctor_snapshot();
+
+        assert_eq!(snapshot.status, "warning");
+        assert!(snapshot
+            .issues
+            .iter()
+            .any(|issue| issue == "active_profile_not_found"));
+        assert!(!snapshot.raw_active_profile_valid);
+        assert_eq!(snapshot.visible_profile_count, 1);
+        assert_eq!(snapshot.next_commands[0], "mossen --list-model-profiles");
+
+        reset_facade_for_testing();
+        restore_profile_runtime_env_vars(previous_env);
+    }
+
+    #[test]
+    fn model_config_doctor_reports_invalid_model_profiles() {
+        let _guard = config_test_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        reset_profile_config_for_test(
+            json!({
+                "broken": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://invalid-provider.example/v1",
+                    "model": ""
+                }
+            }),
+            Value::String("broken".to_string()),
+        );
+
+        let snapshot = model_config_doctor_snapshot();
+
+        assert_eq!(snapshot.status, "missing");
+        assert!(snapshot
+            .issues
+            .iter()
+            .any(|issue| issue == "no_valid_settings_profiles"));
+        assert!(snapshot
+            .issues
+            .iter()
+            .any(|issue| issue == "no_model_profile"));
+        assert_eq!(snapshot.raw_profile_entry_count, 1);
+        assert_eq!(snapshot.invalid_settings_profile_count, 1);
+        let serialized = serde_json::to_string(&snapshot).expect("serialize snapshot");
+        assert!(!serialized.contains("https://invalid-provider.example/v1"));
+
+        reset_facade_for_testing();
+        restore_profile_runtime_env_vars(previous_env);
+    }
+
+    #[test]
+    fn model_config_doctor_reports_partial_custom_backend_env() {
+        let _guard = config_test_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        reset_profile_config_for_test(Value::Null, Value::Null);
+        std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+        std::env::set_var(
+            "MOSSEN_CODE_CUSTOM_BASE_URL",
+            "https://partial-provider.example/v1",
+        );
+
+        let snapshot = model_config_doctor_snapshot();
+
+        assert_eq!(snapshot.status, "missing");
+        assert!(snapshot
+            .issues
+            .iter()
+            .any(|issue| issue == "no_model_profile"));
+        assert!(snapshot
+            .issues
+            .iter()
+            .any(|issue| issue == "custom_backend_env_incomplete"));
+        assert!(snapshot.fallback_env_partial);
+        assert!(snapshot.env.custom_backend_enabled);
+        assert!(snapshot.env.base_url_present);
+        assert!(!snapshot.env.model_present);
+        assert!(!snapshot.env.api_key_present);
+        assert!(snapshot.env.values_redacted);
+        let serialized = serde_json::to_string(&snapshot).expect("serialize snapshot");
+        assert!(!serialized.contains("https://partial-provider.example/v1"));
+
+        reset_facade_for_testing();
+        restore_profile_runtime_env_vars(previous_env);
+    }
+
+    #[test]
+    fn model_config_doctor_redacts_configured_model_profile_secrets() {
+        let _guard = config_test_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        reset_profile_config_for_test(
+            json!({
+                "private": {
+                    "provider": "openai-responses",
+                    "baseURL": "https://private-provider.example/v1",
+                    "model": "private-model",
+                    "apiKey": "sk-test-private-secret-value"
+                }
+            }),
+            Value::String("private".to_string()),
+        );
+
+        let snapshot = model_config_doctor_snapshot();
+        let current = snapshot.current_profile.as_ref().expect("current profile");
+
+        assert_eq!(snapshot.status, "configured");
+        assert_eq!(current.name, "private");
+        assert_eq!(current.provider.as_str(), "openai-responses");
+        assert_eq!(current.model, "private-model");
+        assert!(current.base_url_present);
+        assert!(current.base_url_redacted);
+        assert!(current.api_key_present);
+        assert!(current.api_key_redacted);
+        let serialized = serde_json::to_string(&snapshot).expect("serialize snapshot");
+        assert!(!serialized.contains("https://private-provider.example/v1"));
+        assert!(!serialized.contains("sk-test-private-secret-value"));
+
+        reset_facade_for_testing();
+        restore_profile_runtime_env_vars(previous_env);
+    }
+}

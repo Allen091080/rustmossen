@@ -13,18 +13,18 @@ from harness_rust_context import Step, cargo_test, run_context_harness, source_c
 
 
 DOCTOR_MODEL_CONFIG_TESTS = [
-    "structured_io::tests::slash_command_doctor_guides_when_model_profile_is_missing",
-    "structured_io::tests::slash_command_doctor_warns_when_active_profile_is_missing",
-    "structured_io::tests::slash_command_doctor_reports_invalid_model_profiles",
-    "structured_io::tests::slash_command_doctor_reports_partial_custom_backend_env",
-    "structured_io::tests::slash_command_doctor_redacts_configured_model_profile_secrets",
+    "services::config::doctor::tests::model_config_doctor_guides_when_model_profile_is_missing",
+    "services::config::doctor::tests::model_config_doctor_warns_when_active_profile_is_missing",
+    "services::config::doctor::tests::model_config_doctor_reports_invalid_model_profiles",
+    "services::config::doctor::tests::model_config_doctor_reports_partial_custom_backend_env",
+    "services::config::doctor::tests::model_config_doctor_redacts_configured_model_profile_secrets",
 ]
 
 
 def doctor_cargo_test(test_name: str) -> list[str]:
     command = cargo_test(
         "-p",
-        "mossen-cli",
+        "mossen-agent",
         test_name,
     )
     command.append("--exact")
@@ -57,14 +57,23 @@ def main() -> int:
             ],
         ),
         source_check(
-            "structured_doctor_tests_cover_common_model_config_failures",
+            "model_config_doctor_tests_cover_common_model_config_failures",
+            "crates/mossen-agent/src/services/config/doctor.rs",
+            [
+                "model_config_doctor_guides_when_model_profile_is_missing",
+                "model_config_doctor_warns_when_active_profile_is_missing",
+                "model_config_doctor_reports_invalid_model_profiles",
+                "model_config_doctor_reports_partial_custom_backend_env",
+                "model_config_doctor_redacts_configured_model_profile_secrets",
+            ],
+        ),
+        source_check(
+            "structured_slash_doctor_uses_shared_model_config_snapshot",
             "crates/mossen-cli/src/structured_io.rs",
             [
-                "slash_command_doctor_guides_when_model_profile_is_missing",
-                "slash_command_doctor_warns_when_active_profile_is_missing",
-                "slash_command_doctor_reports_invalid_model_profiles",
-                "slash_command_doctor_reports_partial_custom_backend_env",
-                "slash_command_doctor_redacts_configured_model_profile_secrets",
+                "slash_doctor_response",
+                "config_doctor::model_config_doctor_snapshot()",
+                '"modelConfig": model_config',
             ],
         ),
     ]

@@ -744,13 +744,9 @@ mod tests {
     use crate::services::config::facade::{reset_facade_for_testing, set_mossen_config_override};
     use crate::services::config::types::ConfigOverrideScope;
     use serde_json::json;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    fn config_test_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("profile config test lock poisoned")
+    fn config_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::config_lock()
     }
 
     fn reset_profile_config_for_test() {
