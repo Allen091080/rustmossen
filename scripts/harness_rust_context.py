@@ -27,7 +27,30 @@ class Step:
 
 
 def cargo_test(*args: str) -> list[str]:
-    return ["cargo", "test", "-q", *args, "--", "--nocapture"]
+    cargo_args = list(args)
+    has_target = any(
+        arg in {
+            "--all-targets",
+            "--bin",
+            "--bins",
+            "--example",
+            "--examples",
+            "--lib",
+            "--test",
+            "--tests",
+        }
+        for arg in cargo_args
+    )
+    if not has_target:
+        package = None
+        if "-p" in cargo_args:
+            package_index = cargo_args.index("-p")
+            if package_index + 1 < len(cargo_args):
+                package = cargo_args[package_index + 1]
+        target_args = ["--bin", "mossen"] if package == "mossen-cli" else ["--lib"]
+        insert_at = cargo_args.index("-p") + 2 if "-p" in cargo_args else 0
+        cargo_args[insert_at:insert_at] = target_args
+    return ["cargo", "test", "-q", *cargo_args, "--", "--nocapture"]
 
 
 def context_env(ctx: Any) -> dict[str, str]:
