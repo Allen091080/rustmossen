@@ -17,7 +17,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y lld pkg-config
+          sudo apt-get install -y lld pkg-config ripgrep
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
