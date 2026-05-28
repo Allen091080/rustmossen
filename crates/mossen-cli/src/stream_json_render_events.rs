@@ -8628,7 +8628,7 @@ mod tests {
         let model = "terminal-metadata-stable-model";
 
         assert!(emitter.seed_terminal_session_model(model));
-        let _ = emitter.emit_terminal_status_heartbeat_draw_plan_items_at(unix_timestamp_millis());
+        let _ = emitter.emit_terminal_status_heartbeat_draw_plan_items_at(1_000);
         let items =
             emitter.emit_terminal_draw_plan_items_for_sdk_message(&SdkMessage::SystemInit {
                 session_id: "sess-metadata-stable".to_string(),
