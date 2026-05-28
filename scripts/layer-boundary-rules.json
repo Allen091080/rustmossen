@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 2,
+  "sourceExtensions": [".rs"],
+  "ignoreDirs": [
+    ".git",
+    ".mossen",
+    ".mossensrc",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "coverage"
+  ],
+  "rules": [
+    {
+      "id": "render-input-no-terminal-widgets",
+      "from": [
+        "crates/mossen-tui/src/message_model.rs",
+        "crates/mossen-tui/src/render_lifecycle.rs",
+        "crates/mossen-tui/src/render_model.rs"
+      ],
+      "to": [
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
+      ],
+      "reason": "Semantic render input and transcript shaping must not depend on terminal widget or app-state modules."
+    },
+    {
+      "id": "render-profile-no-surface-imports",
+      "from": [
+        "crates/mossen-tui/src/render_profile.rs"
+      ],
+      "to": [
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**",
+        "crates/mossen-tui/src/render_model.rs",
+        "crates/mossen-tui/src/render_lifecycle.rs"
+      ],
+      "reason": "Responsive profile selection must stay pure and independent from semantic records and terminal drawing."
+    },
+    {
+      "id": "render-cache-no-terminal-widgets",
+      "from": [
+        "crates/mossen-tui/src/render_cache.rs"
+      ],
+      "to": [
+        "crates/mossen-tui/src/widgets/**",
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
+      ],
+      "reason": "Layout caches may key off semantic render data, but should not import drawing surfaces."
+    },
+    {
+      "id": "widgets-no-app-loop-imports",
+      "from": [
+        "crates/mossen-tui/src/widgets/**"
+      ],
+      "to": [
+        "crates/mossen-tui/src/app.rs",
+        "crates/mossen-tui/src/app_services.rs",
+        "crates/mossen-tui/src/hooks/**"
+      ],
+      "reason": "Terminal widgets should render passed models and must not reach into the app loop or hook state."
+    }
+  ],
+  "allowlist": []
+}

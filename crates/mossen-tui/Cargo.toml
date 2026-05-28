@@ -1,0 +1,60 @@
+[package]
+name = "mossen-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen TUI 层 — 基于 ratatui 的终端用户界面"
+
+[lib]
+name = "mossen_tui"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+mossen-utils.workspace = true
+mossen-agent.workspace = true
+mossen-commands.workspace = true
+mossen-skills.workspace = true
+mossen-tools.workspace = true
+
+# TUI
+ratatui.workspace = true
+crossterm.workspace = true
+
+# 核心
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+
+# 文本处理
+syntect.workspace = true
+console.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+textwrap.workspace = true
+strip-ansi-escapes.workspace = true
+pulldown-cmark.workspace = true
+similar.workspace = true
+
+# 工具
+chrono.workspace = true
+uuid.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+dirs.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
+criterion = "0.5"
+
+[[bench]]
+name = "markdown_streaming"
+harness = false

@@ -1,0 +1,1 @@
+# Current baseline intentionally empty after terminal renderer cleanup.

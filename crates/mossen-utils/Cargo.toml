@@ -1,0 +1,94 @@
+[package]
+name = "mossen-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mossen 工具库 — 文件、Git、进程、加密、网络等通用函数"
+
+[lib]
+name = "mossen_utils"
+path = "src/lib.rs"
+
+[dependencies]
+mossen-types.workspace = true
+
+# 核心
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+once_cell.workspace = true
+
+# 异步工具
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# 文件系统
+walkdir.workspace = true
+globset.workspace = true
+ignore.workspace = true
+notify.workspace = true
+tempfile.workspace = true
+dirs = "5.0"
+dunce = "1.0"
+pathdiff = "0.2"
+
+# 文本处理
+regex.workspace = true
+unicode-width.workspace = true
+strip-ansi-escapes.workspace = true
+similar.workspace = true
+pulldown-cmark.workspace = true
+unicode-segmentation = "1.10"
+unicode-normalization = "0.1"
+
+# 进程与系统
+nix.workspace = true
+signal-hook.workspace = true
+filetime = "0.2"
+which.workspace = true
+
+# 网络
+reqwest.workspace = true
+url.workspace = true
+
+# 安全
+sha2.workspace = true
+base64.workspace = true
+hex = "0.4"
+
+# 数据
+chrono.workspace = true
+uuid.workspace = true
+rand.workspace = true
+lru.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+indexmap.workspace = true
+
+# 序列化
+toml.workspace = true
+serde_yaml.workspace = true
+dotenvy.workspace = true
+
+# 压缩
+flate2.workspace = true
+zip = "0.6"
+
+# 路径展开
+shellexpand = "3.1"
+
+# bash parser
+lazy_static = "1.4"
+
+# 系统
+libc = "0.2"
+crossterm.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
