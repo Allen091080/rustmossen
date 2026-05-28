@@ -15,7 +15,7 @@ const FILE_READ_TOOL_NAME: &str = "Read";
 const FILE_WRITE_TOOL_NAME: &str = "Write";
 const GLOB_TOOL_NAME: &str = "Glob";
 const GREP_TOOL_NAME: &str = "Grep";
-const SEND_MESSAGE_TOOL_NAME: &str = "SendMessage";
+const TASK_OUTPUT_TOOL_NAME: &str = "TaskOutput";
 
 /// Check if embedded search tools are available.
 fn has_embedded_search_tools() -> bool {
@@ -207,12 +207,6 @@ pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinato
         String::new()
     };
 
-    let resume_note = if fork_enabled {
-        "Each fresh Agent invocation with a subagent_type starts without context — provide a complete task description."
-    } else {
-        "Each Agent invocation starts fresh — provide a complete task description."
-    };
-
     format!(
         "{shared}\n\
          {when_not_to_use}\n\
@@ -222,8 +216,12 @@ pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinato
          - When the agent is done, it will return a single message back to you. The result \
            returned by the agent is not visible to the user. To show the user the result, you \
            should send a text message back to the user with a concise summary of the result.\n\
-         - To continue a previously spawned agent, use {send_msg} with the agent's ID or name \
-           as the `to` field. The agent resumes with its full context preserved. {resume_note}\n\
+         - If the agent runs in the background, use the returned `task_id` with {task_output}; \
+           treat the work as complete only after {task_output} returns a ready completed result.\n\
+         - If {task_output} returns `retrieval_status: \"not_ready\"`, the agent is still running; \
+           call {task_output} again with the same `task_id` instead of treating the launch as failed \
+           or duplicating the work yourself.\n\
+         - Each Agent invocation starts fresh — provide a complete task description.\n\
          - The agent's outputs should generally be trusted\n\
          - Clearly tell the agent whether you expect it to write code or just to do research \
            (search, file reads, web fetches, etc.)\n\
@@ -237,9 +235,26 @@ pub fn get_agent_tool_prompt(effective_agents: &[AgentDefinition], is_coordinato
         shared = shared,
         when_not_to_use = when_not_to_use,
         background_note = background_note,
-        send_msg = SEND_MESSAGE_TOOL_NAME,
-        resume_note = resume_note,
+        task_output = TASK_OUTPUT_TOOL_NAME,
         tool = AGENT_TOOL_NAME,
         teammate_note = teammate_note,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn personal_agent_prompt_points_background_results_to_taskoutput() {
+        let prompt = get_agent_tool_prompt(&[], false);
+
+        assert!(prompt.contains(TASK_OUTPUT_TOOL_NAME), "{prompt}");
+        assert!(prompt.contains("not_ready"), "{prompt}");
+        assert!(prompt.contains("duplicating the work yourself"), "{prompt}");
+        assert!(
+            !prompt.contains("SendMessage"),
+            "personal Agent prompt must not advertise unwired continuation tools:\n{prompt}"
+        );
+    }
 }

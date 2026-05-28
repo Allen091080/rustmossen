@@ -32,6 +32,31 @@ pub struct HaltSignalOutput {
     pub command: Option<String>,
 }
 
+fn parse_input(input: Value) -> Result<HaltSignalInput, String> {
+    match input {
+        Value::Null => Err(
+            "TaskStop requires a JSON object with `task_id` or `shell_id`; received null."
+                .to_string(),
+        ),
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!("TaskStop received invalid input: {error}. Expected object: {{\"task_id\":\"...\"}}.")
+        }),
+        other => Err(format!(
+            "TaskStop requires a JSON object with `task_id` or `shell_id`; received {}.",
+            other
+        )),
+    }
+}
+
+fn error_output(task_id: impl Into<String>, message: impl Into<String>) -> HaltSignalOutput {
+    HaltSignalOutput {
+        message: message.into(),
+        task_id: task_id.into(),
+        task_type: "unknown".to_string(),
+        command: None,
+    }
+}
+
 fn build_input_schema() -> ToolInputSchema {
     let mut properties = HashMap::new();
     properties.insert(
@@ -78,11 +103,30 @@ impl Tool for HaltSignal {
     }
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: HaltSignalInput = serde_json::from_value(input)?;
-        let id = inp
-            .task_id
-            .or(inp.shell_id)
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: task_id"))?;
+        let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => {
+                return Ok(ToolResult {
+                    output: serde_json::to_string(&error_output("", message))?,
+                    is_error: true,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    metadata: HashMap::new(),
+                })
+            }
+        };
+        let id = inp.task_id.or(inp.shell_id).unwrap_or_default();
+        if id.trim().is_empty() {
+            return Ok(ToolResult {
+                output: serde_json::to_string(&error_output(
+                    "",
+                    "TaskStop requires a non-empty `task_id` string.",
+                ))?,
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        }
 
         match crate::task_store::stop_background_task(&id) {
             Some(record) => {
@@ -106,7 +150,7 @@ impl Tool for HaltSignal {
                 Ok(ToolResult {
                     output: serde_json::to_string(&output)?,
                     is_error: false,
-                    duration_ms: 0,
+                    duration_ms: start.elapsed().as_millis() as u64,
                     metadata: HashMap::new(),
                 })
             }
@@ -120,10 +164,56 @@ impl Tool for HaltSignal {
                 Ok(ToolResult {
                     output: serde_json::to_string(&output)?,
                     is_error: true,
-                    duration_ms: 0,
+                    duration_ms: start.elapsed().as_millis() as u64,
                     metadata: HashMap::new(),
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HaltSignal;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use serde_json::Value;
+
+    fn context() -> ToolUseContext {
+        ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn task_stop_null_input_returns_structured_tool_error() {
+        let result = HaltSignal
+            .execute(Value::Null, &context())
+            .await
+            .expect("TaskStop result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("task_id"));
+    }
+
+    #[tokio::test]
+    async fn task_stop_missing_id_returns_structured_tool_error() {
+        let result = HaltSignal
+            .execute(serde_json::json!({}), &context())
+            .await
+            .expect("TaskStop result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("non-empty"));
     }
 }

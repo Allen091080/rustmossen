@@ -1,144 +1,108 @@
 #!/usr/bin/env python3
 """
-M8.1 — 101 个/真注册 45 个 slash command 入口清单 (W4 修正后).
+M8.1 - current Rust slash command inventory smoke.
 
-按 harness全链路测试.md §C.1 + §C.3 契约:
-  matrix `harness_slash_command_matrix.json` 列出 45 个真注册命令 (从 commands.ts
-  getCommands() 调用得到, 已过滤 hosted/console-only). M8.1 验 runtime 真实
-  registry 与 matrix 完全一致 (count+names), 防漂移.
-
-观察点 (强契约):
-  1. bun -e 调 getCommands() 返回 commands array
-  2. 数量 == matrix['total'] (45)
-  3. set([cmd.name for cmd in registered]) == set([entry['command'] for entry in matrix])
-
-反测信号: 改 src/commands.ts 注释一个 register 行 → name set 不匹配 → fail
+This smoke uses package tests that exercise the real visible directive list,
+aliases, and representative index directives from the `mossen-commands`
+registry.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
-RUN_BUN = str(ROOT / "run-bun-featured.sh")
-MATRIX_FILE = ROOT / "harness_slash_command_matrix.json"
+REAL_HOME = Path.home()
+
+CHECKS = [
+    (
+        "help_resolves_every_visible_command_and_alias",
+        ["cargo", "test", "-p", "mossen-commands", "help_resolves_every_visible_command_and_alias"],
+    ),
+    (
+        "representative_index_directives_execute_real_commands",
+        [
+            "cargo",
+            "test",
+            "-p",
+            "mossen-commands",
+            "representative_index_directives_execute_real_commands",
+        ],
+    ),
+    (
+        "help_for_specific_command_uses_registered_metadata",
+        ["cargo", "test", "-p", "mossen-commands", "help_for_specific_command_uses_registered_metadata"],
+    ),
+]
 
 
-def case_command_inventory_matches_matrix() -> dict:
-    ctx = make_fixture("M8.1")
-
-    matrix = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
-    expected_count = matrix["total"]
-    expected_names = sorted(e["command"] for e in matrix["entries"])
-
-    snippet = (
-        "import { enableConfigs } from './utils/config.ts';"
-        "enableConfigs();"
-        "const { getCommands } = await import('./commands.ts');"
-        "const cmds = await getCommands();"
-        "process.stdout.write(JSON.stringify({"
-        "  count: cmds.length,"
-        "  names: cmds.map(c => c.name).sort()"
-        "}) + '\\n');"
-    )
-
-    env = ctx.env.copy()
-    env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
-
+def run_check(ctx, name: str, command: list[str]) -> dict[str, Any]:
+    env = dict(ctx.env)
+    env.setdefault("CARGO_HOME", str(REAL_HOME / ".cargo"))
+    env.setdefault("RUSTUP_HOME", str(REAL_HOME / ".rustup"))
     proc = subprocess.run(
-        [RUN_BUN, "-e", snippet],
+        command,
         cwd=str(ROOT),
+        env=env,
         text=True,
         capture_output=True,
-        timeout=120,
-        env=env,
+        timeout=180,
     )
-
-    write_command_log(ctx, [RUN_BUN, "-e", "<getCommands>"], proc.stdout, proc.stderr, proc.returncode)
-
-    parsed = None
-    for line in reversed((proc.stdout or "").splitlines()):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                parsed = json.loads(line)
-                break
-            except json.JSONDecodeError:
-                continue
-
-    if not parsed:
-        return {
-            "name": "command_inventory_matches_matrix",
-            "ok": False,
-            "exit_code": proc.returncode,
-            "stderr_excerpt": proc.stderr[:500],
-            "stdout_excerpt": proc.stdout[:500],
-            "_ctx": ctx,
-        }
-
-    runtime_count = parsed.get("count", 0)
-    runtime_names = sorted(parsed.get("names") or [])
-
-    count_match = runtime_count == expected_count
-    names_match = runtime_names == expected_names
-    missing = sorted(set(expected_names) - set(runtime_names))
-    extra = sorted(set(runtime_names) - set(expected_names))
-
     return {
-        "name": "command_inventory_matches_matrix",
-        "ok": (proc.returncode == 0 and count_match and names_match),
+        "name": name,
+        "ok": proc.returncode == 0 and "test result: ok." in (proc.stdout + proc.stderr),
         "exit_code": proc.returncode,
-        "expected_count": expected_count,
-        "runtime_count": runtime_count,
-        "missing_in_runtime": missing,
-        "extra_in_runtime": extra,
-        "fixture_root": str(ctx.root_dir),
-        "_ctx": ctx,
+        "command": command,
+        "stdout_excerpt": proc.stdout[:1000],
+        "stderr_excerpt": proc.stderr[:1000],
     }
 
 
 def main() -> int:
-    res = case_command_inventory_matches_matrix()
-    ctx = res.pop("_ctx")
-    results = [res]
-
+    ctx = make_fixture("M8.1_command_inventory_current_rust")
+    results = [run_check(ctx, name, command) for name, command in CHECKS]
+    stdout = "\n\n".join(f"## {r['name']}\n{r['stdout_excerpt']}" for r in results)
+    stderr = "\n\n".join(f"## {r['name']}\n{r['stderr_excerpt']}" for r in results)
+    write_command_log(
+        ctx,
+        [" && ".join(" ".join(r["command"]) for r in results)],
+        stdout,
+        stderr,
+        0 if all(r["ok"] for r in results) else 1,
+    )
     write_assertions(
         ctx,
-        status="passed" if all(r.get("ok") for r in results) else "failed",
+        status="passed" if all(r["ok"] for r in results) else "failed",
         assertions=[
             {
                 "name": r["name"],
                 "expected": True,
-                "actual": r.get("ok"),
-                "passed": r.get("ok"),
-                "evidence": (
-                    f"expected={r.get('expected_count')} runtime={r.get('runtime_count')} "
-                    f"missing={r.get('missing_in_runtime')} extra={r.get('extra_in_runtime')}"
-                ),
+                "actual": r["ok"],
+                "passed": r["ok"],
+                "evidence": f"exit={r['exit_code']} command={' '.join(r['command'])}",
             }
             for r in results
         ],
     )
-
     summary = {
-        "results": results,
-        "passed": sum(1 for r in results if r.get("ok")),
+        "test_id": ctx.test_id,
+        "status": "passed" if all(r["ok"] for r in results) else "failed",
+        "passed": sum(1 for r in results if r["ok"]),
         "total": len(results),
         "fixture_root": str(ctx.root_dir),
-        "design_note": (
-            "M8.1: matrix `harness_slash_command_matrix.json` 与 runtime "
-            "`getCommands()` 必须完全一致 (count+name set)。防 mossen 注册漂移。"
-        ),
+        "design_note": "M8.1 validates the current Rust slash command inventory and index directives.",
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
-    return 0 if all(r.get("ok") for r in results) else 1
+    return 0 if all(r["ok"] for r in results) else 1
 
 
 if __name__ == "__main__":

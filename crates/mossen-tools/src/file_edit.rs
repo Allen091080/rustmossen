@@ -4,7 +4,7 @@
 //! stale 检测、原子读-改-写。
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,41 @@ fn expand_path(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+fn resolve_tool_path(path: &str, cwd: &str) -> String {
+    let expanded = expand_path(path);
+    let path = PathBuf::from(expanded);
+    if path.is_absolute() {
+        path.to_string_lossy().to_string()
+    } else {
+        PathBuf::from(cwd).join(path).to_string_lossy().to_string()
+    }
+}
+
+fn tool_error(message: impl Into<String>, duration_ms: u64) -> ToolResult {
+    ToolResult {
+        output: message.into(),
+        is_error: true,
+        duration_ms,
+        metadata: HashMap::new(),
+    }
+}
+
+fn parse_input(input: Value) -> Result<SourcePatcherInput, String> {
+    match input {
+        Value::Null => Err(
+            "Edit requires a JSON object with `file_path`, `old_string`, and `new_string`; received null."
+                .to_string(),
+        ),
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!("Edit received invalid input: {error}. Expected object: {{\"file_path\":\"...\",\"old_string\":\"...\",\"new_string\":\"...\"}}.")
+        }),
+        other => Err(format!(
+            "Edit requires a JSON object with `file_path`, `old_string`, and `new_string`; received {}.",
+            other
+        )),
+    }
 }
 
 fn build_input_schema() -> ToolInputSchema {
@@ -149,35 +184,40 @@ impl Tool for SourcePatcher {
     }
 
     async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: SourcePatcherInput = serde_json::from_value(input)?;
+        let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => return Ok(tool_error(message, start.elapsed().as_millis() as u64)),
+        };
+        if inp.file_path.trim().is_empty() {
+            return Ok(tool_error(
+                "Edit requires a non-empty `file_path` string.",
+                start.elapsed().as_millis() as u64,
+            ));
+        }
         let observed_file_path = inp.file_path.clone();
-        let full_path = expand_path(&inp.file_path);
+        let full_path = resolve_tool_path(&inp.file_path, &context.cwd);
 
         // 1. 校验：old_string == new_string → 无变更。
         if inp.old_string == inp.new_string {
-            return Ok(ToolResult {
-                output: "No changes to make: old_string and new_string are exactly the same."
-                    .to_string(),
-                is_error: true,
-                duration_ms: 0,
-                metadata: HashMap::new(),
-            });
+            return Ok(tool_error(
+                "No changes to make: old_string and new_string are exactly the same.",
+                start.elapsed().as_millis() as u64,
+            ));
         }
 
         // 2. 检查文件大小限制。
         match tokio::fs::metadata(&full_path).await {
             Ok(meta) => {
                 if meta.len() > MAX_EDIT_FILE_SIZE {
-                    return Ok(ToolResult {
-                        output: format!(
+                    return Ok(tool_error(
+                        format!(
                             "File is too large to edit ({} bytes). Maximum: {} bytes.",
                             meta.len(),
                             MAX_EDIT_FILE_SIZE
                         ),
-                        is_error: true,
-                        duration_ms: 0,
-                        metadata: HashMap::new(),
-                    });
+                        start.elapsed().as_millis() as u64,
+                    ));
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -186,11 +226,17 @@ impl Tool for SourcePatcher {
                     if let Some(result) = team_memory_secret_error(&full_path, &inp.new_string) {
                         return Ok(result);
                     }
-                    atomic_write(&full_path, &inp.new_string).await?;
+                    if let Err(error) = atomic_write(&full_path, &inp.new_string).await {
+                        return Ok(tool_error(
+                            format!("Cannot write file {}: {error}", inp.file_path),
+                            start.elapsed().as_millis() as u64,
+                        ));
+                    }
                     mossen_agent::services::team_memory_sync::notify_team_memory_file_write(
                         &full_path,
                     )
                     .await;
+                    crate::task_hooks::file_changed(context, &full_path, "add").await;
                     info!(path = %full_path, "SourcePatcher: created new file");
                     let output = SourcePatcherOutput {
                         file_path: inp.file_path,
@@ -207,22 +253,33 @@ impl Tool for SourcePatcher {
                     return Ok(ToolResult {
                         output: serde_json::to_string(&output)?,
                         is_error: false,
-                        duration_ms: 0,
+                        duration_ms: start.elapsed().as_millis() as u64,
                         metadata,
                     });
                 }
-                return Ok(ToolResult {
-                    output: format!("File does not exist: {}", inp.file_path),
-                    is_error: true,
-                    duration_ms: 0,
-                    metadata: HashMap::new(),
-                });
+                return Ok(tool_error(
+                    format!("File does not exist: {}", inp.file_path),
+                    start.elapsed().as_millis() as u64,
+                ));
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                return Ok(tool_error(
+                    format!("Cannot inspect file {}: {e}", inp.file_path),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
         }
 
         // 3. 读取文件内容。
-        let content = tokio::fs::read_to_string(&full_path).await?;
+        let content = match tokio::fs::read_to_string(&full_path).await {
+            Ok(content) => content,
+            Err(error) => {
+                return Ok(tool_error(
+                    format!("Cannot read file {} for edit: {error}", inp.file_path),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
+        };
 
         // 4. 空 old_string + 非空文件 → 错误。
         if inp.old_string.is_empty() {
@@ -231,9 +288,15 @@ impl Tool for SourcePatcher {
                 if let Some(result) = team_memory_secret_error(&full_path, &inp.new_string) {
                     return Ok(result);
                 }
-                atomic_write(&full_path, &inp.new_string).await?;
+                if let Err(error) = atomic_write(&full_path, &inp.new_string).await {
+                    return Ok(tool_error(
+                        format!("Cannot write file {}: {error}", inp.file_path),
+                        start.elapsed().as_millis() as u64,
+                    ));
+                }
                 mossen_agent::services::team_memory_sync::notify_team_memory_file_write(&full_path)
                     .await;
+                crate::task_hooks::file_changed(context, &full_path, "change").await;
                 let output = SourcePatcherOutput {
                     file_path: inp.file_path,
                     old_string: None,
@@ -249,43 +312,37 @@ impl Tool for SourcePatcher {
                 return Ok(ToolResult {
                     output: serde_json::to_string(&output)?,
                     is_error: false,
-                    duration_ms: 0,
+                    duration_ms: start.elapsed().as_millis() as u64,
                     metadata,
                 });
             }
-            return Ok(ToolResult {
-                output: "Cannot create new file - file already exists with content.".to_string(),
-                is_error: true,
-                duration_ms: 0,
-                metadata: HashMap::new(),
-            });
+            return Ok(tool_error(
+                "Cannot create new file - file already exists with content.",
+                start.elapsed().as_millis() as u64,
+            ));
         }
 
         // 5. 查找匹配项。
         let match_count = content.matches(&inp.old_string).count();
         if match_count == 0 {
-            return Ok(ToolResult {
-                output: format!(
+            return Ok(tool_error(
+                format!(
                     "String to replace not found in file.\nString: {}",
                     inp.old_string
                 ),
-                is_error: true,
-                duration_ms: 0,
-                metadata: HashMap::new(),
-            });
+                start.elapsed().as_millis() as u64,
+            ));
         }
 
         // 6. 多匹配但 replace_all 为 false → 错误。
         if match_count > 1 && !inp.replace_all {
-            return Ok(ToolResult {
-                output: format!(
+            return Ok(tool_error(
+                format!(
                     "Found {} matches but replace_all is false. Set replace_all to true or provide more context.",
                     match_count
                 ),
-                is_error: true,
-                duration_ms: 0,
-                metadata: HashMap::new(),
-            });
+                start.elapsed().as_millis() as u64,
+            ));
         }
 
         // 7. 执行替换。
@@ -299,8 +356,14 @@ impl Tool for SourcePatcher {
         }
 
         // 8. 原子写入。
-        atomic_write(&full_path, &updated).await?;
+        if let Err(error) = atomic_write(&full_path, &updated).await {
+            return Ok(tool_error(
+                format!("Cannot write edited file {}: {error}", inp.file_path),
+                start.elapsed().as_millis() as u64,
+            ));
+        }
         mossen_agent::services::team_memory_sync::notify_team_memory_file_write(&full_path).await;
+        crate::task_hooks::file_changed(context, &full_path, "change").await;
 
         info!(
             path = %full_path,
@@ -325,8 +388,62 @@ impl Tool for SourcePatcher {
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
-            duration_ms: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
             metadata,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourcePatcher;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    fn context(cwd: &std::path::Path) -> ToolUseContext {
+        ToolUseContext {
+            cwd: cwd.to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn edit_null_input_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let result = SourcePatcher
+            .execute(Value::Null, &context(temp.path()))
+            .await
+            .expect("edit result");
+
+        assert!(result.is_error);
+        assert!(result.output.contains("file_path"), "{}", result.output);
+        assert!(result.output.contains("null"), "{}", result.output);
+    }
+
+    #[tokio::test]
+    async fn edit_relative_path_resolves_against_tool_context_cwd() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file = temp.path().join("edit.txt");
+        std::fs::write(&file, "before\n").expect("write fixture");
+
+        let result = SourcePatcher
+            .execute(
+                serde_json::json!({
+                    "file_path": "edit.txt",
+                    "old_string": "before",
+                    "new_string": "after"
+                }),
+                &context(temp.path()),
+            )
+            .await
+            .expect("edit result");
+
+        assert!(!result.is_error, "{}", result.output);
+        let edited = std::fs::read_to_string(file).expect("edited file");
+        assert_eq!(edited, "after\n");
     }
 }

@@ -1714,7 +1714,7 @@ def run_statusline_surface_consistency_smoke() -> dict[str, object]:
 
             const settings = getInitialSettings()
             const snapshot = getCustomBackendObservabilitySnapshot(settings)
-            const model = snapshot.customModel || 'qwen3.6-plus'
+            const model = snapshot.customModel || 'example-large'
             const payload = {
               session_id: 'personal-acceptance-statusline-consistency',
               transcript_path: '/tmp/personal-acceptance-statusline-consistency.jsonl',
@@ -1801,7 +1801,7 @@ def run_worktree_status_surface_consistency_smoke() -> dict[str, object]:
                 "MOSSEN_CODE_USE_OPENAI_COMPATIBLE": "1",
                 "MOSSEN_CODE_OPENAI_BASE_URL": "http://127.0.0.1:18080/v1",
                 "MOSSEN_CODE_OPENAI_AUTH_TOKEN": "acceptance-token",
-                "MOSSEN_CODE_OPENAI_MODEL": "qwen3.6-plus",
+                "MOSSEN_CODE_OPENAI_MODEL": "example-large",
             },
         )
 
@@ -1827,7 +1827,7 @@ def run_worktree_status_surface_consistency_smoke() -> dict[str, object]:
 
             const settings = getInitialSettings()
             const snapshot = getCustomBackendObservabilitySnapshot(settings)
-            const model = snapshot.customModel || 'qwen3.6-plus'
+            const model = snapshot.customModel || 'example-large'
             const properties = buildAPIProviderProperties()
             const statusline = buildStatusLineObservabilityInput(
               [],
@@ -3510,10 +3510,10 @@ def run_model_set_command_smoke() -> dict[str, object]:
     proc, fd = smoke.spawn_cli()
     try:
         wait_for_cli_ready(fd, 30)
-        smoke.write_line(fd, "/model qwen3.6-plus\n")
+        smoke.write_line(fd, "/model example-large\n")
         _data, model_match = wait_for_cli_patterns(
             fd,
-            "/model qwen3.6-plus",
+            "/model example-large",
             [
                 "Set model to",
                 "Current model:",
@@ -3536,10 +3536,10 @@ def run_model_surface_consistency_smoke() -> dict[str, object]:
     proc, fd = smoke.spawn_cli()
     try:
         startup = wait_for_cli_ready(fd, 30)
-        smoke.write_line(fd, "/model qwen3.6-plus\n")
+        smoke.write_line(fd, "/model example-large\n")
         _set_data, set_match = wait_for_cli_patterns(
             fd,
-            "/model qwen3.6-plus",
+            "/model example-large",
             [
                 "Set model to",
                 "Current model:",
@@ -3556,11 +3556,11 @@ def run_model_surface_consistency_smoke() -> dict[str, object]:
         )
         normalized_current = smoke.normalize_output(current_data).lower()
         if (
-            "qwen3.6-plus" not in normalized_current
-            and "qwen 3.6 plus" not in normalized_current
+            "example-large" not in normalized_current
+            and "sample 3.6 plus" not in normalized_current
         ):
             raise RuntimeError(
-                "model current did not reflect qwen3.6-plus session override\n"
+                "model current did not reflect example-large session override\n"
                 "--- output ---\n"
                 + current_data[:2400]
             )
@@ -3577,7 +3577,7 @@ def run_model_surface_consistency_smoke() -> dict[str, object]:
         )
         compact_status = compact_text(status_data).lower()
         status_required = [
-            "model:qwen3.6-plus",
+            "model:example-large",
             "modeltier:cloud",
         ]
         status_missing = [
@@ -4851,7 +4851,7 @@ def run_statusline_runtime_surface_smoke() -> dict[str, object]:
               effortLevel: 'high',
             } as const
 
-            const model = 'qwen3.6-plus'
+            const model = 'example-large'
             const observability = buildStatusLineObservabilityInput([], model, 'high', settings, {
               autoCompactEnabled: false,
               modelTier: 'cloud',
@@ -5117,7 +5117,7 @@ def run_statusline_runtime_surface_compact_smoke() -> dict[str, object]:
               effortLevel: 'high',
             } as const
 
-            const model = 'qwen3.6-plus'
+            const model = 'example-large'
             const messages = [
               {
                 type: 'system',

@@ -314,7 +314,7 @@ fn seed_many_file_change_results(app: &mut App, count: usize) {
 fn seed_render_timeline(app: &mut App) {
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "timeline-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: Vec::new(),
         task_id: None,
     });
@@ -576,7 +576,7 @@ fn seed_process_status(app: &mut App) {
 }
 
 fn seed_status_overview(app: &mut App) {
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.engine_config.api_base_url = Some("http://localhost:8000/v1".to_string());
     app.engine_config.api_key = Some("redacted-test-key".to_string());
     app.engine_config.output_style = Some("Concise".to_string());
@@ -1339,7 +1339,7 @@ fn builtin_slash_commands_open_expected_ui() {
     assert!(status.contains("Turn"), "{status}");
     assert!(status.contains("Policy"), "{status}");
     assert!(status.contains("Workspace"), "{status}");
-    assert!(status.contains("MiniMax-M2.7"), "{status}");
+    assert!(status.contains("example-fast"), "{status}");
     assert!(status.contains("running command"), "{status}");
     assert!(status.contains("API Key"), "{status}");
     assert!(status.contains("configured"), "{status}");

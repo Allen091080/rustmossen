@@ -24,7 +24,7 @@
         stderr="...",
         exit_code=0,
         expected={
-            "model": "qwen3.6-plus",
+            "model": "example-large",
             "permission_mode": "default",
             "expected_exit_code": 0,
             # tool_pairing 必查 (S2/S3/S5 类场景)
@@ -39,7 +39,7 @@ CLI 接口:
         --stdout-file /tmp/stdout.txt \
         --stderr-file /tmp/stderr.txt \
         --exit-code 0 \
-        --expected-model qwen3.6-plus \
+        --expected-model example-large \
         --output /tmp/validation_result.json
 """
 

@@ -8,6 +8,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use mossen_agent::services::config::facade::{
+    clear_mossen_config_overrides, get_all_mossen_config_values, resolve_mossen_config,
+    set_mossen_config_override,
+};
+use mossen_agent::services::config::types::ConfigOverrideScope;
 use mossen_agent::tool_registry::{Tool, ToolResult, ToolType};
 use mossen_types::{ToolDefinition, ToolInputSchema, ToolUseContext};
 
@@ -38,6 +43,8 @@ pub struct SettingsTunerOutput {
     pub new_value: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 fn build_input_schema() -> ToolInputSchema {
@@ -90,25 +97,125 @@ impl Tool for SettingsTuner {
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
         let inp: SettingsTunerInput = serde_json::from_value(input)?;
-        let is_get = inp.value.is_none();
-        let output = SettingsTunerOutput {
-            success: false,
-            operation: Some(if is_get {
-                "get".to_string()
+        let start = std::time::Instant::now();
+        let setting = inp.setting.trim().to_string();
+        let output = if setting == "*" || setting.eq_ignore_ascii_case("all") {
+            SettingsTunerOutput {
+                success: true,
+                operation: Some("list".to_string()),
+                setting: None,
+                value: Some(serde_json::to_value(get_all_mossen_config_values())?),
+                previous_value: None,
+                new_value: None,
+                error: None,
+                source: Some("resolved".to_string()),
+            }
+        } else if let Some(value) = inp.value {
+            let previous = resolve_mossen_config(&setting, Value::Null);
+            if value.is_null() {
+                clear_mossen_config_overrides(ConfigOverrideScope::Override, Some(&setting));
+                let resolved = resolve_mossen_config(&setting, Value::Null);
+                SettingsTunerOutput {
+                    success: true,
+                    operation: Some("clear".to_string()),
+                    setting: Some(setting),
+                    value: Some(resolved.value),
+                    previous_value: Some(previous.value),
+                    new_value: None,
+                    error: None,
+                    source: Some(format!("{:?}", resolved.source).to_ascii_lowercase()),
+                }
             } else {
-                "set".to_string()
-            }),
-            setting: Some(inp.setting),
-            value: None,
-            previous_value: None,
-            new_value: inp.value,
-            error: Some("Config tool is a stub in this build.".to_string()),
+                set_mossen_config_override(&setting, value.clone(), ConfigOverrideScope::Override);
+                let resolved = resolve_mossen_config(&setting, Value::Null);
+                SettingsTunerOutput {
+                    success: true,
+                    operation: Some("set".to_string()),
+                    setting: Some(setting),
+                    value: Some(resolved.value),
+                    previous_value: Some(previous.value),
+                    new_value: Some(value),
+                    error: None,
+                    source: Some(format!("{:?}", resolved.source).to_ascii_lowercase()),
+                }
+            }
+        } else {
+            let resolved = resolve_mossen_config(&setting, Value::Null);
+            SettingsTunerOutput {
+                success: true,
+                operation: Some("get".to_string()),
+                setting: Some(setting),
+                value: Some(resolved.value),
+                previous_value: None,
+                new_value: None,
+                error: None,
+                source: Some(format!("{:?}", resolved.source).to_ascii_lowercase()),
+            }
         };
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
-            is_error: true,
-            duration_ms: 0,
+            is_error: !output.success,
+            duration_ms: start.elapsed().as_millis() as u64,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SettingsTuner;
+    use mossen_agent::services::config::facade::reset_facade_for_testing;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    fn context() -> ToolUseContext {
+        ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_tool_sets_gets_and_clears_runtime_override() {
+        reset_facade_for_testing();
+        let tool = SettingsTuner;
+        let set = tool
+            .execute(
+                serde_json::json!({
+                    "setting": "mossen.tool.autoBackgroundAgentsEnabled",
+                    "value": true
+                }),
+                &context(),
+            )
+            .await
+            .expect("set");
+        assert!(!set.is_error);
+        let get = tool
+            .execute(
+                serde_json::json!({
+                    "setting": "mossen.tool.autoBackgroundAgentsEnabled"
+                }),
+                &context(),
+            )
+            .await
+            .expect("get");
+        let output: Value = serde_json::from_str(&get.output).expect("json");
+        assert_eq!(output["value"], true);
+        assert_eq!(output["source"], "override");
+
+        let clear = tool
+            .execute(
+                serde_json::json!({
+                    "setting": "mossen.tool.autoBackgroundAgentsEnabled",
+                    "value": null
+                }),
+                &context(),
+            )
+            .await
+            .expect("clear");
+        assert!(!clear.is_error);
     }
 }

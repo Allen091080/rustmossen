@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-M9.6 — 7 个多 profile CLI flag 真启 mossen 走 fast-path (S1-09c P0).
+M9.6 — multi-profile CLI flags on the current Rust entrypoint (S1-09c P0).
 
 按 Allen D-S09-2=Z + Stage1 §11.6 契约:
-  对外 7 flag 必须在 entrypoints/cli.tsx fast-path 处理 (不进 mossen 主流程):
+  对外 profile flags 必须在当前 Rust CLI fast-path 处理 (不进 mossen 主流程):
     --list-model-profiles
     --get-model-profile [<name>]
     --set-model-profile <name>
@@ -14,18 +14,18 @@ M9.6 — 7 个多 profile CLI flag 真启 mossen 走 fast-path (S1-09c P0).
 
   关键 case (链式 9 步):
     1. --list (空) → exit 0, count=0
-    2. --add qwen → exit 0, profile in settings.json
-    3. --add minimax → exit 0, count=2
+    2. --add sample → exit 0, profile in settings.json
+    3. --add fast → exit 0, count=2
     4. --list → 2 profiles, apiKey 真脱敏 (前 6 ... 后 4)
-    5. --set qwen → activeProfile=qwen
-    6. --get (无参 = active) → 返回 qwen 脱敏
-    7. --update qwen --model new-model → model 真换
-    8. --set-model-profile-key qwen new-key → apiKey 真换
-    9. --delete qwen → 1 剩, activeProfile cleared
+    5. --set sample → activeProfile=sample
+    6. --get (无参 = active) → 返回 sample 脱敏
+    7. --update sample --model new-model → model 真换
+    8. --set-model-profile-key sample new-key → apiKey 真换
+    9. --delete sample → 1 剩, activeProfile cleared
 
   反测信号:
-    a) 删 entrypoints/cli.tsx fast-path 注册 → flag 进主流程, exit 非 0 (mossen 不识别)
-    b) profileCli.ts 不调 desensitizeProfile → list 输出含 apiKey 字面 (非脱敏)
+    a) 删 Rust CLI fast-path 注册 → flag 进主流程, exit 非 0 (mossen 不识别)
+    b) profile_cli.rs 不调 desensitize_profile → list/get 输出含 apiKey 字面
     c) --add 不查 getProfileByName(name) → 重复 add 不报错 → fail
     d) --delete cascade clear active 失败 → activeProfileCleared=false → fail
 """
@@ -42,11 +42,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
-RUN_MOSSEN = str(ROOT / "run-mossen.sh")
+RUN_MOSSEN = str(ROOT / "scripts" / "start-mossen.sh")
 
-QWEN_KEY_INIT = "sk-test-qwen-AAAAAAAAAAAAAAAA"
-QWEN_KEY_NEW = "sk-test-qwen-NEWKEY-XXXXXXXXX"
-MINIMAX_KEY = "sk-test-minimax-BBBBBBBBBBBBBBB"
+SAMPLE_KEY_INIT = "sk-test-sample-AAAAAAAAAAAAAAAA"
+SAMPLE_KEY_NEW = "sk-test-sample-NEWKEY-XXXXXXXXX"
+MINIMAX_KEY = "sk-test-fast-BBBBBBBBBBBBBBB"
 
 
 def _run_mossen(env: dict, args: list[str]) -> tuple[int, str, str]:
@@ -120,32 +120,29 @@ def case_full_lifecycle() -> dict:
         if not (s1["parsed"].get("count") == 0 and s1["parsed"].get("activeProfile") is None):
             overall_ok = False
 
-    # Step 2: add qwen
-    s2 = step("add_qwen", [
-        "--add-model-profile", "qwen",
+    # Step 2: add sample
+    s2 = step("add_sample", [
+        "--add-model-profile", "sample",
         "--provider", "openai-compatible",
-        "--baseURL", "https://example.com/qwen/v1",
-        "--model", "qwen-test-1",
-        "--apiKey", QWEN_KEY_INIT,
+        "--baseURL", "https://example.com/sample/v1",
+        "--model", "sample-test-1",
+        "--apiKey", SAMPLE_KEY_INIT,
         "--name", "Test Qwen",
     ])
     if s2["parsed"]:
-        prof = s2["parsed"].get("profile") or {}
         if not (
             s2["parsed"].get("ok") is True
             and s2["parsed"].get("action") == "add"
-            and prof.get("model") == "qwen-test-1"
-            and prof.get("apiKey") != QWEN_KEY_INIT  # 必脱敏
-            and prof.get("apiKey", "").startswith(QWEN_KEY_INIT[:6])
+            and s2["parsed"].get("name") == "sample"
         ):
             overall_ok = False
 
-    # Step 3: add minimax
-    s3 = step("add_minimax", [
-        "--add-model-profile", "minimax",
+    # Step 3: add fast
+    s3 = step("add_fast", [
+        "--add-model-profile", "fast",
         "--provider", "openai-compatible",
-        "--baseURL", "https://example.com/minimax/v1",
-        "--model", "minimax-test",
+        "--baseURL", "https://example.com/fast/v1",
+        "--model", "fast-test",
         "--apiKey", MINIMAX_KEY,
     ])
 
@@ -153,23 +150,23 @@ def case_full_lifecycle() -> dict:
     s4 = step("list_two", ["--list-model-profiles"])
     if s4["parsed"]:
         profiles = s4["parsed"].get("profiles") or {}
-        qwen_d = profiles.get("qwen") or {}
-        minimax_d = profiles.get("minimax") or {}
+        sample_d = profiles.get("sample") or {}
+        fast_d = profiles.get("fast") or {}
         if not (
             s4["parsed"].get("count") == 2
-            and "qwen" in profiles
-            and "minimax" in profiles
-            and qwen_d.get("apiKey", "").startswith(QWEN_KEY_INIT[:6])
-            and qwen_d.get("apiKey") != QWEN_KEY_INIT  # 强契约: 脱敏后不等于原 key
-            and minimax_d.get("apiKey") != MINIMAX_KEY
-            and "..." in qwen_d.get("apiKey", "")
+            and "sample" in profiles
+            and "fast" in profiles
+            and sample_d.get("apiKey", "").startswith(SAMPLE_KEY_INIT[:6])
+            and sample_d.get("apiKey") != SAMPLE_KEY_INIT  # 强契约: 脱敏后不等于原 key
+            and fast_d.get("apiKey") != MINIMAX_KEY
+            and "..." in sample_d.get("apiKey", "")
         ):
             overall_ok = False
 
-    # Step 5: set active = qwen
-    s5 = step("set_active_qwen", ["--set-model-profile", "qwen"])
+    # Step 5: set active = sample
+    s5 = step("set_active_sample", ["--set-model-profile", "sample"])
     if s5["parsed"]:
-        if s5["parsed"].get("activeProfile") != "qwen":
+        if s5["parsed"].get("activeProfile") != "sample":
             overall_ok = False
 
     # Step 6: get (no name = active)
@@ -177,46 +174,65 @@ def case_full_lifecycle() -> dict:
     if s6["parsed"]:
         prof = s6["parsed"].get("profile") or {}
         if not (
-            s6["parsed"].get("name") == "qwen"
-            and prof.get("model") == "qwen-test-1"
-            and prof.get("apiKey", "").startswith(QWEN_KEY_INIT[:6])
+            s6["parsed"].get("name") == "sample"
+            and prof.get("model") == "sample-test-1"
+            and prof.get("apiKey", "").startswith(SAMPLE_KEY_INIT[:6])
         ):
             overall_ok = False
 
-    # Step 7: update qwen --model new-model
-    s7 = step("update_qwen_model", [
-        "--update-model-profile", "qwen",
-        "--model", "qwen-test-2",
+    # Step 7: update sample --model new-model
+    s7 = step("update_sample_model", [
+        "--update-model-profile", "sample",
+        "--model", "sample-test-2",
     ])
     if s7["parsed"]:
-        prof = s7["parsed"].get("profile") or {}
         if not (
             s7["parsed"].get("action") == "update"
-            and prof.get("model") == "qwen-test-2"
-            and prof.get("baseURL") == "https://example.com/qwen/v1"  # 未指定的字段保留
+            and s7["parsed"].get("name") == "sample"
         ):
             overall_ok = False
 
-    # Step 8: set-key qwen new-key
-    s8 = step("set_key_qwen", [
-        "--set-model-profile-key", "qwen", QWEN_KEY_NEW,
+    s7_get = step("get_sample_after_update", ["--get-model-profile", "sample"])
+    if s7_get["parsed"]:
+        prof = s7_get["parsed"].get("profile") or {}
+        if not (
+            s7_get["parsed"].get("name") == "sample"
+            and prof.get("model") == "sample-test-2"
+            and prof.get("baseURL") == "https://example.com/sample/v1"  # 未指定的字段保留
+            and SAMPLE_KEY_INIT not in json.dumps(s7_get["parsed"])
+        ):
+            overall_ok = False
+
+    # Step 8: set-key sample new-key
+    s8 = step("set_key_sample", [
+        "--set-model-profile-key", "sample", SAMPLE_KEY_NEW,
     ])
     if s8["parsed"]:
-        prof = s8["parsed"].get("profile") or {}
         if not (
             s8["parsed"].get("action") == "set-key"
-            and prof.get("apiKey", "").startswith(QWEN_KEY_NEW[:6])
-            and prof.get("model") == "qwen-test-2"  # 其他字段保留
+            and s8["parsed"].get("name") == "sample"
         ):
             overall_ok = False
 
-    # Step 9: delete qwen
-    s9 = step("delete_qwen", ["--delete-model-profile", "qwen"])
+    s8_get = step("get_sample_after_set_key", ["--get-model-profile", "sample"])
+    if s8_get["parsed"]:
+        prof = s8_get["parsed"].get("profile") or {}
+        if not (
+            prof.get("apiKey", "").startswith(SAMPLE_KEY_NEW[:6])
+            and "..." in prof.get("apiKey", "")
+            and prof.get("apiKey") != SAMPLE_KEY_NEW
+            and prof.get("model") == "sample-test-2"  # 其他字段保留
+            and SAMPLE_KEY_NEW not in json.dumps(s8_get["parsed"])
+        ):
+            overall_ok = False
+
+    # Step 9: delete sample
+    s9 = step("delete_sample", ["--delete-model-profile", "sample"])
     if s9["parsed"]:
         if not (
             s9["parsed"].get("deleted") is True
             and s9["parsed"].get("activeProfileCleared") is True
-            and s9["parsed"].get("remainingProfiles") == ["minimax"]
+            and s9["parsed"].get("remainingProfiles") == ["fast"]
         ):
             overall_ok = False
 
@@ -225,8 +241,8 @@ def case_full_lifecycle() -> dict:
     persisted_profiles = persisted.get("mossen.profiles") or {}
     persisted_active = persisted.get("mossen.activeProfile")
     if not (
-        list(persisted_profiles.keys()) == ["minimax"]
-        and persisted_profiles["minimax"]["apiKey"] == MINIMAX_KEY  # 真值持久化, 没在文件被脱敏
+        sorted(persisted_profiles.keys()) == ["fast"]
+        and persisted_profiles["fast"]["apiKey"] == MINIMAX_KEY  # 真值持久化, 没在文件被脱敏
         and persisted_active in (None, "")
     ):
         overall_ok = False
@@ -244,9 +260,9 @@ def case_full_lifecycle() -> dict:
         "ok": overall_ok,
         "step_count": len(trace),
         "step_summary": [{"step": t["step"], "exit": t["exit_code"], "ok": t["ok"]} for t in trace],
-        "persisted_profiles": list(persisted_profiles.keys()),
+        "persisted_profiles": sorted(persisted_profiles.keys()),
         "persisted_active": persisted_active,
-        "persisted_minimax_key_intact": persisted_profiles.get("minimax", {}).get("apiKey") == MINIMAX_KEY,
+        "persisted_fast_key_intact": persisted_profiles.get("fast", {}).get("apiKey") == MINIMAX_KEY,
         "_ctx": ctx,
     }
 

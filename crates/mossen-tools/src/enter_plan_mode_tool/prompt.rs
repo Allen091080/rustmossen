@@ -2,8 +2,6 @@
 //!
 //! Translated from tools/EnterPlanModeTool/prompt.ts
 
-use crate::ask_user_tool::prompt::ASK_USER_QUESTION_TOOL_NAME;
-
 const WHAT_HAPPENS_SECTION: &str = r#"## What Happens in Plan Mode
 
 In plan mode, you'll:
@@ -11,7 +9,7 @@ In plan mode, you'll:
 2. Understand existing patterns and architecture
 3. Design an implementation approach
 4. Present your plan to the user for approval
-5. Use AskUserQuestion if you need to clarify approaches
+5. Ask a concise follow-up question if you need to clarify approaches
 6. Exit plan mode with ExitPlanMode when ready to implement
 
 "#;
@@ -63,7 +61,7 @@ fn get_enter_plan_mode_tool_prompt_external() -> String {
    - Example: "Fix the bug in checkout" - need to investigate root cause
 
 7. **User Preferences Matter**: The implementation could reasonably go multiple ways
-   - If you would use {ask_user} to clarify the approach, use EnterPlanMode instead
+   - If you would need to ask the user to clarify the approach, use EnterPlanMode instead
    - Plan mode lets you explore first, then present options with context
 
 ## When NOT to Use This Tool
@@ -110,7 +108,6 @@ User: "What files handle routing?"
 - If unsure whether to use it, err on the side of planning - it's better to get alignment upfront than to redo work
 - Users appreciate being consulted before significant changes are made to their codebase
 "#,
-        ask_user = ASK_USER_QUESTION_TOOL_NAME,
         what_happens = what_happens
     )
 }
@@ -152,7 +149,7 @@ Skip plan mode when you can reasonably infer the right approach:
 - The user says something like "can we work on X" or "let's do X" — just get started
 - The user has enabled bypass permissions or explicitly told you to continue/implement — do not switch them into plan mode.
 
-When in doubt, prefer starting work and using {ask_user} for specific questions over entering a full planning phase.
+When in doubt, prefer starting work and asking concise specific questions over entering a full planning phase.
 
 {what_happens}## Examples
 
@@ -181,7 +178,6 @@ User: "Fix the typo in the README"
 - This tool REQUIRES user approval - they must consent to entering plan mode
 - Never use this tool to override bypass permissions mode. Bypass means the user wants implementation to continue without a planning gate.
 "#,
-        ask_user = ASK_USER_QUESTION_TOOL_NAME,
         what_happens = what_happens
     )
 }

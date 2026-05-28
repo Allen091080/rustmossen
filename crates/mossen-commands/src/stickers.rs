@@ -1,48 +1,11 @@
-//! `/stickers` — View and manage sticker reactions.
-//!
-//! Allows users to react to messages with stickers/emoji, view
-//! reaction history, and manage their sticker collection.
+//! `/stickers` — Experimental sticker reaction metadata.
 
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Attempt to open a URL in the default browser.
-fn open_browser(url: &str) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open").arg(url).spawn().is_ok()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .is_ok()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", url])
-            .spawn()
-            .is_ok()
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        let _ = url;
-        false
-    }
-}
-
-/// Stickers command — emoji reaction management.
-///
-/// Subcommands:
-/// - (no args): Show sticker picker widget
-/// - `list`: List available sticker packs
-/// - `add <emoji>`: React to the last message
-/// - `remove`: Remove your reaction
-/// - `history`: Show reaction history
+/// Stickers command metadata.
 pub struct StickersDirective;
 
 /// Available sticker categories.
@@ -71,9 +34,7 @@ impl Directive for StickersDirective {
     }
 
     fn is_enabled(&self, ctx: &CommandContext) -> bool {
-        // Only enabled when deferred slash commands feature allows it
-        // (mirrors: isDeferredSlashCommandEnabled('stickers'))
-        !ctx.is_non_interactive
+        ctx.is_env_truthy("MOSSEN_ENABLE_STICKERS")
     }
 
     fn supports_non_interactive(&self) -> bool {
@@ -82,26 +43,10 @@ impl Directive for StickersDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         if args.is_empty() {
-            if ctx.is_non_interactive {
-                return Ok(CommandResult::Text(
-                    "Stickers: Use /stickers add <emoji> to react.".to_string(),
-                ));
-            }
-            // Interactive mode: open browser to sticker ordering page
-            // (translated from stickers.ts: openBrowser(url))
-            let url = "https://www.stickermule.com/mossencode";
-            // Attempt to open browser (platform-dependent)
-            let opened = open_browser(url);
-            if opened {
-                return Ok(CommandResult::Text(
-                    "Opening sticker page in browser…".to_string(),
-                ));
-            } else {
-                return Ok(CommandResult::Text(format!(
-                    "Failed to open browser. Visit: {}",
-                    url
-                )));
-            }
+            return Ok(CommandResult::Text(
+                "Sticker reactions are not wired into this personal build. Set MOSSEN_ENABLE_STICKERS only after adding a live reaction store."
+                    .to_string(),
+            ));
         }
 
         let subcommand = args[0].to_lowercase();
@@ -113,22 +58,25 @@ impl Directive for StickersDirective {
                         "Usage: /stickers add <emoji>".to_string(),
                     ));
                 }
-                Ok(CommandResult::System(format!("Reacted with: {}", emoji)))
+                Ok(CommandResult::Error(format!(
+                    "Cannot react with {} from this command runner. No live reaction store is attached.",
+                    emoji
+                )))
             }
             "list" => {
                 let cats = STICKER_CATEGORIES.join(", ");
                 Ok(CommandResult::Text(format!(
-                    "Sticker categories: {}\n\nUse /stickers to open the picker.", cats
+                    "Sticker categories: {}\n\nNo live reaction store is attached to this command runner.",
+                    cats
                 )))
             }
-            "remove" => {
-                Ok(CommandResult::System("Reaction removed.".to_string()))
-            }
-            "history" => {
-                Ok(CommandResult::Text(
-                    "Reaction history: (none)".to_string(),
-                ))
-            }
+            "remove" => Ok(CommandResult::Error(
+                "Cannot remove reaction from this command runner. No live reaction store is attached."
+                    .to_string(),
+            )),
+            "history" => Ok(CommandResult::Text(
+                "Reaction history is not attached to this command runner.".to_string(),
+            )),
             "help" | "-h" | "--help" => {
                 Ok(CommandResult::Text(
                     "Usage: /stickers [subcommand]\n\n                     Subcommands:\n                       add <emoji>    React to the last message\n                       list           List sticker categories\n                       remove         Remove your reaction\n                       history        Show reaction history"
@@ -141,5 +89,47 @@ impl Directive for StickersDirective {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn stickers_hidden_by_default_in_personal_build() {
+        assert!(!StickersDirective.is_enabled(&test_context()));
+    }
+
+    #[test]
+    fn stickers_does_not_claim_reaction_without_store() {
+        let output =
+            tokio_test::block_on(StickersDirective.execute(&["add", "ok"], &test_context()))
+                .expect("stickers command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("stickers should fail closed without reaction store");
+        };
+        assert!(text.contains("Cannot react"), "{text}");
+        assert!(!text.contains("Reacted with"), "{text}");
     }
 }

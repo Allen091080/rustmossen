@@ -5,12 +5,14 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crossterm::cursor;
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
     Event, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
@@ -19,7 +21,9 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
+use ratatui::buffer::Cell;
+use ratatui::layout::{Position, Size};
 use ratatui::Terminal;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
@@ -27,8 +31,8 @@ use tracing::{info, warn};
 
 use mossen_agent::engine::{submit_prompt, SessionOrchestrator};
 use mossen_agent::types::{
-    InteractiveGate, OrchestratorConfig, OriginTag, PermissionDecision, PermissionGate,
-    PermissionMode, PermissionRequest, PromptParams, SdkMessage, SubmitOptions,
+    EffortLevel, InteractiveGate, OrchestratorConfig, OriginTag, PermissionDecision,
+    PermissionGate, PermissionMode, PermissionRequest, PromptParams, SdkMessage, SubmitOptions,
 };
 use mossen_mcp::config::{ConfigScope, ScopedMcpServerConfig};
 use mossen_mcp::protocol::Implementation;
@@ -46,7 +50,112 @@ use crate::stream_json_terminal_renderer::{
 use crate::structured_io::{ndjson_safe_stringify, StdoutMessage, StructuredIO};
 use crate::tools_registry::InstrumentRegistry;
 
+fn parse_env_bool(name: &str) -> Option<bool> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "on" | "yes" | "enable" | "enabled" => Some(true),
+            "0" | "false" | "off" | "no" | "disable" | "disabled" => Some(false),
+            _ => None,
+        })
+}
+
+fn parse_effort_level(value: &str) -> Option<EffortLevel> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "low" => Some(EffortLevel::Low),
+        "medium" => Some(EffortLevel::Medium),
+        "high" => Some(EffortLevel::High),
+        "max" => Some(EffortLevel::Max),
+        _ => None,
+    }
+}
+
+fn normalize_subagent_type(agent_type: &str) -> String {
+    let normalized = agent_type
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['_', ' '], "-");
+    match normalized.as_str() {
+        "general-purpose" | "generalpurpose" => "general".to_string(),
+        _ => normalized,
+    }
+}
+
+fn resolve_builtin_subagent_definition(
+    agent_type: Option<&str>,
+) -> Option<mossen_tools::agent_tool::load_agents_dir::AgentDefinition> {
+    let requested = agent_type?.trim();
+    if requested.is_empty() {
+        return None;
+    }
+    let normalized = normalize_subagent_type(requested);
+    mossen_tools::agent_tool::built_in_agents::get_built_in_agents()
+        .into_iter()
+        .find(|agent| {
+            agent.agent_type.eq_ignore_ascii_case(requested)
+                || agent.agent_type.eq_ignore_ascii_case(&normalized)
+        })
+}
+
+fn subagent_system_prompt_block(
+    agent: &mossen_tools::agent_tool::load_agents_dir::AgentDefinition,
+) -> mossen_agent::types::SystemBlock {
+    let role_text = agent
+        .system_prompt
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or(agent.when_to_use.as_str());
+    mossen_agent::types::SystemBlock {
+        text: format!(
+            "# Subagent role\nYou are running as the `{}` subagent.\n\n{}",
+            agent.agent_type,
+            role_text.trim()
+        ),
+        cache_control: None,
+    }
+}
+
+fn filter_tool_definitions_for_subagent(
+    tools: Vec<ToolDefinition>,
+    agent: &mossen_tools::agent_tool::load_agents_dir::AgentDefinition,
+    is_async_agent: bool,
+) -> Vec<ToolDefinition> {
+    let tool_names: Vec<String> = tools.iter().map(|tool| tool.name.clone()).collect();
+    let resolved = mossen_tools::agent_tool::utils::resolve_agent_tools(
+        &tool_names,
+        agent.tools.as_deref(),
+        agent.disallowed_tools.as_deref(),
+        agent.source == "built-in",
+        is_async_agent,
+        agent.permission_mode.as_ref(),
+    );
+    let allowed: HashSet<String> = resolved.resolved_tool_names.into_iter().collect();
+    tools
+        .into_iter()
+        .filter(|tool| allowed.contains(&tool.name))
+        .collect()
+}
+
+fn convert_subagent_permission_mode(
+    mode: Option<&mossen_tools::agent_tool::utils::PermissionMode>,
+) -> Option<PermissionMode> {
+    match mode {
+        Some(mossen_tools::agent_tool::utils::PermissionMode::AcceptEdits) => {
+            Some(PermissionMode::AcceptEdits)
+        }
+        Some(mossen_tools::agent_tool::utils::PermissionMode::DontAsk) => {
+            Some(PermissionMode::DontAsk)
+        }
+        Some(mossen_tools::agent_tool::utils::PermissionMode::Plan) => Some(PermissionMode::Plan),
+        Some(mossen_tools::agent_tool::utils::PermissionMode::Bubble) => {
+            Some(PermissionMode::Default)
+        }
+        None => None,
+    }
+}
+
 /// REPL 配置。
+#[derive(Clone)]
 pub struct ReplConfig {
     /// 初始提示（从 --continue 或 --restore 恢复的消息）。
     pub initial_prompt: Option<String>,
@@ -64,8 +173,72 @@ pub struct ReplConfig {
     pub extra_prompt: Option<String>,
     /// 模型覆盖。
     pub model_override: Option<String>,
+    /// 单次执行最大轮次限制。
+    pub max_turns: Option<u32>,
+    /// 仅允许的内置工具名；空列表表示不过滤。
+    pub allowed_instruments: Vec<String>,
+    /// 禁用的内置工具名。
+    pub disabled_instruments: Vec<String>,
     /// 关闭信号标志。
     pub shutdown_flag: Arc<AtomicBool>,
+}
+
+struct ShutdownCancelBridge {
+    token: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl ShutdownCancelBridge {
+    fn new(shutdown_flag: Arc<AtomicBool>) -> Self {
+        let token = CancellationToken::new();
+        if shutdown_flag.load(Ordering::SeqCst) {
+            token.cancel();
+        }
+
+        let bridge_token = token.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                if shutdown_flag.load(Ordering::SeqCst) {
+                    bridge_token.cancel();
+                    break;
+                }
+                if bridge_token.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        });
+
+        Self { token, task }
+    }
+
+    fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+}
+
+impl Drop for ShutdownCancelBridge {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+fn instrument_name_matches(list: &[String], name: &str) -> bool {
+    list.iter().any(|item| item.eq_ignore_ascii_case(name))
+}
+
+fn filtered_builtin_tools(
+    options: mossen_tools::ToolRuntimeOptions,
+    config: &ReplConfig,
+) -> Vec<Box<dyn mossen_agent::tool_registry::Tool>> {
+    let mut tools = mossen_tools::all_tools_for_runtime(options);
+    if !config.allowed_instruments.is_empty() {
+        tools.retain(|tool| instrument_name_matches(&config.allowed_instruments, tool.name()));
+    }
+    if !config.disabled_instruments.is_empty() {
+        tools.retain(|tool| !instrument_name_matches(&config.disabled_instruments, tool.name()));
+    }
+    tools
 }
 
 /// 返回 oneshot / exec 路径的默认 model id。
@@ -211,6 +384,9 @@ pub async fn launch_repl(
         let cwd = s.cwd.to_string_lossy().to_string();
         (model, cwd, cwd_path, config.system_prompt.clone())
     };
+    let builtin_tool_options = mossen_tools::ToolRuntimeOptions {
+        mcp_resources: config.mcp_enabled,
+    };
 
     let session_start_source = if config.restore_mode {
         mossen_utils::session_start::SessionStartSource::Resume
@@ -262,6 +438,20 @@ pub async fn launch_repl(
         );
     }
 
+    let compact_hook_context = match crate::session_hooks::build_hooks_context(&state, false) {
+        Ok(context) => Some(Arc::new(context)),
+        Err(err) => {
+            warn!(
+                target: "mossen_agent::hooks",
+                error = %err,
+                "Hook context unavailable; REPL hooks will continue disabled"
+            );
+            None
+        }
+    };
+    let _config_change_hook_listener =
+        crate::session_hooks::install_config_change_hook_listener(compact_hook_context.clone());
+
     // Assemble the layered system prompt once per session. If the caller
     // supplied a `--system-prompt` override on `ReplConfig` we honour that
     // verbatim (escape hatch for tests / overrides); otherwise we run the
@@ -282,32 +472,28 @@ pub async fn launch_repl(
             mossen_tools::skill_tool::prompt::format_commands_within_budget(&skill_commands, None);
         // Read project + user memory now (one-shot per session) so the
         // composer has the full instruction surface to inject.
-        let memory_text = crate::system_prompt::gather_memory_text(&cwd_path).await;
+        let memory_text = crate::system_prompt::gather_memory_text_with_hooks(
+            &cwd_path,
+            compact_hook_context.as_deref(),
+        )
+        .await;
+        let enabled_tools = mossen_tools::all_tool_names_for_runtime(builtin_tool_options);
         let inputs = crate::system_prompt::SystemPromptInputs {
             cwd: &cwd,
             model: &model,
             model_marketing_name: None,
             is_non_interactive: false,
+            is_fork_subagent: false,
             is_custom_backend: is_custom,
             is_internal: std::env::var("USER_TYPE").ok().as_deref() == Some("internal"),
             is_git_repo: is_git,
             product_name: "Mossen",
-            enabled_tools: &[
-                "Bash".into(),
-                "Read".into(),
-                "Edit".into(),
-                "Write".into(),
-                "Glob".into(),
-                "Grep".into(),
-                "WebFetch".into(),
-                "WebSearch".into(),
-                "TodoWrite".into(),
-                "TaskCreate".into(),
-                "AskUserQuestion".into(),
-                "Skill".into(),
-            ],
+            enabled_tools: &enabled_tools,
             skill_commands_count: skill_commands.len(),
             skill_commands_text: &skill_commands_text,
+            are_explore_plan_agents:
+                mossen_tools::agent_tool::built_in_agents::are_explore_plan_agents_enabled(),
+            explore_agent_type: "explore",
             language_preference: Some("Chinese"),
             memory_text: &memory_text,
         };
@@ -318,18 +504,6 @@ pub async fn launch_repl(
         "launch_repl: system prompt assembled"
     );
 
-    let compact_hook_context = match crate::session_hooks::build_hooks_context(&state, false) {
-        Ok(context) => Some(Arc::new(context)),
-        Err(err) => {
-            warn!(
-                target: "mossen_agent::hooks",
-                error = %err,
-                "Compact hook context unavailable; /compact will continue without hooks"
-            );
-            None
-        }
-    };
-
     // 2. 创建 TUI App（内部管理事件总线 + Agent 引擎 + 命令注册表）
     let engine_config = mossen_tui::app::EngineConfig {
         model,
@@ -339,6 +513,10 @@ pub async fn launch_repl(
         api_key: std::env::var("MOSSEN_API_KEY").ok(),
         origin_tag: OriginTag::Repl,
         max_turns: None,
+        fast_mode: parse_env_bool("MOSSEN_FAST_MODE"),
+        effort: std::env::var("MOSSEN_CODE_EFFORT_LEVEL")
+            .ok()
+            .and_then(|value| parse_effort_level(&value)),
         extra_body: Default::default(),
         output_style: None,
         compact_hook_context,
@@ -370,23 +548,59 @@ pub async fn launch_repl(
     //   3. Future MCP tools can be merged into the same registry so
     //      tool lookup remains a single code path.
     let mut tool_registry = mossen_agent::tool_registry::ToolRegistry::new();
-    tool_registry.register_all(mossen_tools::all_tools());
+    tool_registry.register_all(filtered_builtin_tools(builtin_tool_options, &config));
     let tool_registry = Arc::new(tool_registry);
     info!(
         tool_count = tool_registry.len(),
-        "launch_repl: tool registry built from mossen_tools::all_tools()"
+        "launch_repl: tool registry built from runtime-gated mossen tools"
     );
     let app = app.with_tool_registry(tool_registry);
 
-    // Hook the live TaskStore into the TUI so Ctrl+T can dump current
-    // tasks without mossen-tui having to depend on mossen-tools (which
-    // would form a workspace cycle).
-    let mut app = app.with_task_snapshot_provider(std::sync::Arc::new(|| {
-        mossen_tools::task_store::list_tasks()
-            .into_iter()
-            .map(|t| (t.status, t.id, t.subject))
-            .collect()
-    }));
+    let app = if config.mcp_enabled {
+        let mcp_reload_config = config.clone();
+        let mcp_reload_cwd = cwd_path.clone();
+        let mcp_reload_callback: mossen_tui::app::McpReloadCallback = Arc::new(move || {
+            let config = mcp_reload_config.clone();
+            let cwd = mcp_reload_cwd.clone();
+            Box::pin(async move {
+                if let Some(manager) = crate::repl_mcp::get_manager() {
+                    manager.disconnect_all().await;
+                }
+                crate::repl_mcp::clear_manager();
+                mossen_mcp::server::clear_global_manager();
+
+                if let Some((mcp_manager, tool_definitions, server_count)) =
+                    initialize_mcp_manager_for_session(&config, &cwd, "reload-plugins").await
+                {
+                    let connected_count = mcp_manager.connected_count();
+                    crate::repl_mcp::set_manager(mcp_manager.clone());
+                    mossen_mcp::server::set_global_manager(mcp_manager);
+                    Ok(mossen_tui::app::McpRuntimeReloadResult {
+                        tool_definitions,
+                        server_count,
+                        connected_count,
+                    })
+                } else {
+                    Ok(mossen_tui::app::McpRuntimeReloadResult::default())
+                }
+            }) as mossen_tui::app::McpReloadFuture
+        });
+        app.with_mcp_reload_callback(mcp_reload_callback)
+    } else {
+        app
+    };
+
+    // Hook the live TaskStore into the TUI with lightweight snapshots so
+    // process/status rendering never clones completed task output.
+    let task_notification_rx = mossen_tools::task_store::subscribe_task_events();
+    let mut app = app
+        .with_task_snapshot_provider(std::sync::Arc::new(|| {
+            mossen_tools::task_store::list_task_snapshots()
+                .into_iter()
+                .map(|t| (t.status, t.id, t.subject))
+                .collect()
+        }))
+        .with_task_notification_receiver(task_notification_rx);
 
     // 4. 初始化 MCP 服务器管理器（如果配置了）
     if config.mcp_enabled {
@@ -448,8 +662,10 @@ pub async fn run_oneshot(
     let _span = tracing::info_span!("oneshot").entered();
     info!("run_oneshot: executing single prompt");
 
-    let (prompt_params, prompt) =
+    let (mut prompt_params, prompt) =
         build_oneshot_prompt_params(state.clone(), prompt, &config).await?;
+    let shutdown_cancel_bridge = ShutdownCancelBridge::new(config.shutdown_flag.clone());
+    prompt_params.cancel_token = Some(shutdown_cancel_bridge.token());
     let transcript_history = prompt_params.history_messages.clone();
     let transcript_model = prompt_params.model.clone();
     info!(
@@ -513,7 +729,9 @@ pub async fn run_oneshot_stream_json(
     let _span = tracing::info_span!("oneshot_stream_json").entered();
     info!("run_oneshot_stream_json: executing single prompt");
 
-    let (prompt_params, prompt) = build_oneshot_prompt_params(state, prompt, &config).await?;
+    let (mut prompt_params, prompt) = build_oneshot_prompt_params(state, prompt, &config).await?;
+    let shutdown_cancel_bridge = ShutdownCancelBridge::new(config.shutdown_flag.clone());
+    prompt_params.cancel_token = Some(shutdown_cancel_bridge.token());
     let render_event_emitter =
         Arc::new(tokio::sync::Mutex::new(StreamJsonRenderEventEmitter::new()));
     let io = Arc::new(StructuredIO::new_with_render_event_emitter(
@@ -700,7 +918,8 @@ pub async fn run_oneshot_terminal_render(
         prompt_len = prompt.len(),
         "run_oneshot_terminal_render: dispatching to agent"
     );
-    let terminal_cancel_token = CancellationToken::new();
+    let shutdown_cancel_bridge = ShutdownCancelBridge::new(config.shutdown_flag.clone());
+    let terminal_cancel_token = shutdown_cancel_bridge.token();
     prompt_params.cancel_token = Some(terminal_cancel_token.clone());
     render_event_emitter.seed_terminal_session_model(&prompt_params.model);
     terminal_render_submit_status_heartbeat(
@@ -1095,6 +1314,77 @@ struct TerminalRenderInputCaptureGuard {
     raw_mode_enabled: bool,
     bracketed_paste_enabled: bool,
     mouse_capture_enabled: bool,
+}
+
+struct NoFullscreenClearBackend<B> {
+    inner: B,
+}
+
+impl<B> NoFullscreenClearBackend<B> {
+    fn new(inner: B) -> Self {
+        Self { inner }
+    }
+}
+
+impl<B> Backend for NoFullscreenClearBackend<B>
+where
+    B: Backend,
+{
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+    where
+        I: Iterator<Item = (u16, u16, &'a Cell)>,
+    {
+        self.inner.draw(content)
+    }
+
+    fn append_lines(&mut self, n: u16) -> io::Result<()> {
+        self.inner.append_lines(n)
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        self.inner.hide_cursor()
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        self.inner.show_cursor()
+    }
+
+    fn get_cursor_position(&mut self) -> io::Result<Position> {
+        self.inner.get_cursor_position()
+    }
+
+    fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+        self.inner.set_cursor_position(position)
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        self.clear_region(ClearType::All)
+    }
+
+    fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+        if clear_type != ClearType::All {
+            return self.inner.clear_region(clear_type);
+        }
+
+        let Size { height, .. } = self.inner.size()?;
+        for row in 0..height {
+            self.inner.set_cursor_position(Position { x: 0, y: row })?;
+            self.inner.clear_region(ClearType::CurrentLine)?;
+        }
+        self.inner.set_cursor_position(Position { x: 0, y: 0 })
+    }
+
+    fn size(&self) -> io::Result<Size> {
+        self.inner.size()
+    }
+
+    fn window_size(&mut self) -> io::Result<WindowSize> {
+        self.inner.window_size()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 impl Drop for TerminalRenderInputCaptureGuard {
@@ -2488,7 +2778,7 @@ async fn build_oneshot_prompt_params(
     config: &ReplConfig,
 ) -> Result<(PromptParams, String)> {
     // 标记为非交互式，并捕获 model/cwd
-    let (mut model, cwd) = {
+    let (mut model, cwd, main_agent_type) = {
         let mut s = state
             .write()
             .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
@@ -2500,8 +2790,14 @@ async fn build_oneshot_prompt_params(
             .model_override
             .clone()
             .unwrap_or_else(default_model_for_unset_cli);
-        (m, s.cwd.to_string_lossy().to_string())
+        (
+            m,
+            s.cwd.to_string_lossy().to_string(),
+            s.main_agent_type.clone(),
+        )
     };
+    let subagent_definition = resolve_builtin_subagent_definition(main_agent_type.as_deref());
+    let is_agent_subprocess = std::env::var("MOSSEN_AGENT_SUBPROCESS_DEPTH").is_ok();
 
     let restore_history = load_restore_history(config, &cwd, &model, &state).await?;
     if let Ok(state) = state.read() {
@@ -2566,7 +2862,10 @@ async fn build_oneshot_prompt_params(
     // this the model is forced to fall back to writing bash inside markdown
     // code blocks (or worse, hallucinating XML-style `<tool_call>` tags).
     let mut oneshot_registry = mossen_agent::tool_registry::ToolRegistry::new();
-    oneshot_registry.register_all(mossen_tools::all_tools());
+    let builtin_tool_options = mossen_tools::ToolRuntimeOptions {
+        mcp_resources: config.mcp_enabled,
+    };
+    oneshot_registry.register_all(filtered_builtin_tools(builtin_tool_options, config));
     let oneshot_registry = Arc::new(oneshot_registry);
     let mut oneshot_tools = oneshot_registry.definitions();
     if config.mcp_enabled {
@@ -2579,12 +2878,16 @@ async fn build_oneshot_prompt_params(
             mossen_mcp::server::set_global_manager(mcp_manager);
         }
     }
+    if let Some(agent) = subagent_definition.as_ref() {
+        oneshot_tools =
+            filter_tool_definitions_for_subagent(oneshot_tools, agent, is_agent_subprocess);
+    }
     let oneshot_tool_names: Vec<String> = oneshot_tools.iter().map(|t| t.name.clone()).collect();
 
     // Compose the same layered system prompt the REPL uses; without it,
     // oneshot calls go to the model with zero identity / env context and
     // the assistant treats them like raw chat completions.
-    let system_prompt_blocks = if let Some(text) = config.system_prompt.clone() {
+    let mut system_prompt_blocks = if let Some(text) = config.system_prompt.clone() {
         vec![mossen_agent::types::SystemBlock {
             text,
             cache_control: None,
@@ -2620,12 +2923,17 @@ async fn build_oneshot_prompt_params(
         let skill_commands = mossen_tools::skill_tool::prompt::get_loaded_skill_tool_commands();
         let skill_commands_text =
             mossen_tools::skill_tool::prompt::format_commands_within_budget(&skill_commands, None);
-        let memory_text = crate::system_prompt::gather_memory_text(&cwd_path).await;
+        let memory_text =
+            crate::system_prompt::gather_memory_text_with_hooks(&cwd_path, hook_context.as_deref())
+                .await;
         let inputs = crate::system_prompt::SystemPromptInputs {
             cwd: &cwd,
             model: &model,
             model_marketing_name: None,
             is_non_interactive: true,
+            is_fork_subagent: std::env::var("MOSSEN_AGENT_SUBPROCESS_TYPE")
+                .ok()
+                .is_some_and(|value| value.eq_ignore_ascii_case("fork")),
             is_custom_backend: is_custom,
             is_internal: std::env::var("USER_TYPE").ok().as_deref() == Some("internal"),
             is_git_repo: crate::system_prompt::detect_git_repo(&cwd_path),
@@ -2633,11 +2941,18 @@ async fn build_oneshot_prompt_params(
             enabled_tools: &oneshot_tool_names,
             skill_commands_count: skill_commands.len(),
             skill_commands_text: &skill_commands_text,
+            are_explore_plan_agents:
+                mossen_tools::agent_tool::built_in_agents::are_explore_plan_agents_enabled(),
+            explore_agent_type: "explore",
             language_preference: None,
             memory_text: &memory_text,
         };
         crate::system_prompt::assemble(&inputs)
     };
+    if let Some(agent) = subagent_definition.as_ref() {
+        let insert_at = usize::from(!system_prompt_blocks.is_empty());
+        system_prompt_blocks.insert(insert_at, subagent_system_prompt_block(agent));
+    }
 
     // 构造 PromptParams 并通过 mossen-agent submit_prompt 执行真实查询
     let prompt_params = PromptParams {
@@ -2653,18 +2968,21 @@ async fn build_oneshot_prompt_params(
             extra: Default::default(),
         },
         origin_tag: OriginTag::Sdk,
-        // Allow the full tool/response round-trip. With max_turns=1 the loop
-        // exits the instant the model emits its first tool_use, so the user
-        // never sees the assistant's follow-up summary or the tool result.
-        // Setting a low double-digit cap keeps unbounded loops safe while
-        // letting real multi-tool flows complete (read → think → edit →
-        // verify, etc.).
-        max_turns: Some(12),
+        // Allow the full tool/response round-trip while keeping unattended
+        // oneshot runs bounded. CLI --turn-limit overrides the default cap.
+        max_turns: Some(config.max_turns.unwrap_or(12)),
         cancel_token: None,
         api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
         api_key: std::env::var("MOSSEN_API_KEY").ok(),
         extra_body: Default::default(),
-        permission_mode: session_permission_mode_from_env(),
+        fast_mode: None,
+        effort: None,
+        permission_mode: convert_subagent_permission_mode(
+            subagent_definition
+                .as_ref()
+                .and_then(|agent| agent.permission_mode.as_ref()),
+        )
+        .unwrap_or_else(session_permission_mode_from_env),
         // Oneshot mode is unattended — there's nothing to prompt the user
         // with — so leave the gate open.
         permission_gate: None,
@@ -2809,7 +3127,7 @@ async fn run_event_loop(
     }
 
     // 2. 构建 ratatui Terminal
-    let backend = CrosstermBackend::new(stdout);
+    let backend = NoFullscreenClearBackend::new(CrosstermBackend::new(stdout));
     let terminal =
         Terminal::new(backend).map_err(|e| anyhow::anyhow!("failed to create terminal: {}", e))?;
 
@@ -2837,10 +3155,12 @@ async fn run_event_loop(
 
     // 5. 恢复终端状态（即使主循环报错也要执行）
     let _ = disable_raw_mode();
+    let mut cleanup_stdout = io::stdout();
     if mouse_capture_enabled {
-        let _ = execute!(io::stdout(), DisableMouseCapture);
+        let _ = execute!(cleanup_stdout, DisableMouseCapture);
     }
-    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    let _ = execute!(cleanup_stdout, LeaveAlternateScreen, cursor::Show);
+    let _ = cleanup_stdout.flush();
 
     // 6. 同步会话统计回 BootstrapState
     if let Ok(mut s) = state.write() {
@@ -2881,6 +3201,7 @@ pub async fn submit_once(
         max_output_tokens: None,
         origin_tag: OriginTag::Sdk,
         fast_mode: None,
+        effort: None,
         api_base_url: std::env::var("MOSSEN_API_BASE_URL").ok(),
         api_key: std::env::var("MOSSEN_API_KEY").ok(),
         skip_stop_hooks: true,
@@ -2945,6 +3266,76 @@ mod terminal_render_frontend_event_tests {
         }
     }
 
+    #[derive(Debug)]
+    struct RecordingBackend {
+        size: Size,
+        clear_regions: Vec<ClearType>,
+        cursor_positions: Vec<Position>,
+    }
+
+    impl RecordingBackend {
+        fn new(width: u16, height: u16) -> Self {
+            Self {
+                size: Size { width, height },
+                clear_regions: Vec::new(),
+                cursor_positions: Vec::new(),
+            }
+        }
+    }
+
+    impl Backend for RecordingBackend {
+        fn draw<'a, I>(&mut self, _content: I) -> io::Result<()>
+        where
+            I: Iterator<Item = (u16, u16, &'a Cell)>,
+        {
+            Ok(())
+        }
+
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn get_cursor_position(&mut self) -> io::Result<Position> {
+            Ok(Position { x: 0, y: 0 })
+        }
+
+        fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+            self.cursor_positions.push(position.into());
+            Ok(())
+        }
+
+        fn clear(&mut self) -> io::Result<()> {
+            self.clear_region(ClearType::All)
+        }
+
+        fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+            self.clear_regions.push(clear_type);
+            Ok(())
+        }
+
+        fn size(&self) -> io::Result<Size> {
+            Ok(self.size)
+        }
+
+        fn window_size(&mut self) -> io::Result<WindowSize> {
+            Ok(WindowSize {
+                columns_rows: self.size,
+                pixels: Size {
+                    width: 0,
+                    height: 0,
+                },
+            })
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     const RESTORE_ENV_KEYS: &[&str] = &[
         "HOME",
         "MOSSEN_CONFIG_HOME",
@@ -2953,6 +3344,8 @@ mod terminal_render_frontend_event_tests {
         "MOSSEN_CODE_DISABLE_AUTO_MEMORY",
         "MOSSEN_CODE_DISABLE_TEAM_MEMORY",
         "MOSSEN_COWORK_MEMORY_PATH_OVERRIDE",
+        "MOSSEN_AGENT_SUBPROCESS_DEPTH",
+        "MOSSEN_FEATURE_BUILTIN_EXPLORE_PLAN_AGENTS",
     ];
 
     struct RestoreEnvGuard(Vec<(&'static str, Option<String>)>);
@@ -2988,6 +3381,33 @@ mod terminal_render_frontend_event_tests {
         guard
     }
 
+    #[test]
+    fn tui_backend_expands_fullscreen_clear_to_line_clears() {
+        let recording = RecordingBackend::new(80, 3);
+        let mut backend = NoFullscreenClearBackend::new(recording);
+
+        backend
+            .clear_region(ClearType::All)
+            .expect("soft clear should succeed");
+
+        assert_eq!(
+            backend.inner.clear_regions,
+            vec![
+                ClearType::CurrentLine,
+                ClearType::CurrentLine,
+                ClearType::CurrentLine
+            ]
+        );
+        assert!(
+            !backend.inner.clear_regions.contains(&ClearType::All),
+            "interactive TUI must not emit terminal fullscreen clear sequences"
+        );
+        assert_eq!(
+            backend.inner.cursor_positions.last(),
+            Some(&Position { x: 0, y: 0 })
+        );
+    }
+
     fn test_repl_config(restore_mode: bool, restore_session_id: Option<String>) -> ReplConfig {
         ReplConfig {
             initial_prompt: None,
@@ -2998,8 +3418,107 @@ mod terminal_render_frontend_event_tests {
             system_prompt: Some("test system prompt".to_string()),
             extra_prompt: None,
             model_override: Some("mossen-balanced-4".to_string()),
+            max_turns: None,
+            allowed_instruments: Vec::new(),
+            disabled_instruments: Vec::new(),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    #[test]
+    fn cli_instrument_filters_apply_to_builtin_tool_registry() {
+        let mut config = test_repl_config(false, None);
+        config.disabled_instruments = vec!["bash".to_string()];
+        let names = filtered_builtin_tools(mossen_tools::ToolRuntimeOptions::default(), &config)
+            .into_iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<_>>();
+        assert!(!names.iter().any(|name| name == "Bash"));
+        assert!(names.iter().any(|name| name == "Glob"));
+
+        config.allowed_instruments = vec!["glob".to_string(), "read".to_string()];
+        config.disabled_instruments = Vec::new();
+        let mut names =
+            filtered_builtin_tools(mossen_tools::ToolRuntimeOptions::default(), &config)
+                .into_iter()
+                .map(|tool| tool.name().to_string())
+                .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["Glob", "Read"]);
+    }
+
+    #[test]
+    fn normalizes_legacy_and_prompted_subagent_type_names() {
+        assert_eq!(normalize_subagent_type("Explore"), "explore");
+        assert_eq!(normalize_subagent_type("general-purpose"), "general");
+        assert_eq!(normalize_subagent_type("general purpose"), "general");
+    }
+
+    #[tokio::test]
+    async fn oneshot_agent_type_reaches_child_prompt_and_tool_surface() {
+        let _lock = restore_history_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        std::env::set_var("MOSSEN_FEATURE_BUILTIN_EXPLORE_PLAN_AGENTS", "1");
+        std::env::set_var("MOSSEN_AGENT_SUBPROCESS_DEPTH", "1");
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let state = crate::bootstrap::new_shared_state(cwd);
+        {
+            let mut state = state.write().expect("state write");
+            state.main_agent_type = Some("Explore".to_string());
+        }
+        let config = ReplConfig {
+            system_prompt: None,
+            ..test_repl_config(false, None)
+        };
+
+        let (params, _) =
+            build_oneshot_prompt_params(state, "scan the codebase".to_string(), &config)
+                .await
+                .expect("prompt params");
+        let system_prompt = params
+            .system_prompt
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let tool_names: HashSet<String> =
+            params.tools.iter().map(|tool| tool.name.clone()).collect();
+
+        assert!(
+            system_prompt.contains("`explore` subagent"),
+            "{system_prompt}"
+        );
+        assert!(
+            !system_prompt.contains("subagent_type=Explore"),
+            "{system_prompt}"
+        );
+        for allowed in ["Bash", "Glob", "Grep", "Read"] {
+            assert!(tool_names.contains(allowed), "{tool_names:?}");
+        }
+        for hidden in ["Agent", "Edit", "Write", "TodoWrite"] {
+            assert!(!tool_names.contains(hidden), "{tool_names:?}");
+        }
+        assert_eq!(params.permission_mode, PermissionMode::DontAsk);
+    }
+
+    #[tokio::test]
+    async fn oneshot_turn_limit_reaches_prompt_params() {
+        let _lock = restore_history_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_restore_history_env(temp.path());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir");
+        let state = crate::bootstrap::new_shared_state(cwd);
+        let mut config = test_repl_config(false, None);
+        config.max_turns = Some(32);
+
+        let (params, _) = build_oneshot_prompt_params(state, "use more turns".to_string(), &config)
+            .await
+            .expect("prompt params");
+
+        assert_eq!(params.max_turns, Some(32));
     }
 
     #[tokio::test]

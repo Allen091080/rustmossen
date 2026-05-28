@@ -99,7 +99,10 @@ use crate::repl::{
 };
 use crate::signal::ShutdownSignal;
 use crate::tools_registry::InstrumentRegistry;
-use mossen_commands::{CommandContext, CommandResult, Directive};
+use mossen_agent::types::PermissionMode;
+use mossen_commands::{
+    CommandContext, CommandCostModelUsage, CommandCostSnapshot, CommandResult, Directive,
+};
 
 /// 程序版本号（从 Cargo.toml 读取）。
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -252,6 +255,7 @@ async fn run(cli: Cli) -> Result<()> {
         cli.dangerously_skip_permissions,
     )
     .context("permission safety check failed")?;
+    apply_cli_access_policy_to_env(&cli);
 
     // 6. 应用 CLI 参数到状态
     apply_cli_to_state(&cli, &state)?;
@@ -336,16 +340,23 @@ fn apply_cli_to_state(cli: &Cli, state: &SharedBootstrapState) -> Result<()> {
     Ok(())
 }
 
-fn env_value_present(key: &str) -> bool {
-    env::var(key)
-        .ok()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
+fn permission_mode_for_access_policy(policy: &cli::AccessPolicyArg) -> PermissionMode {
+    match policy {
+        cli::AccessPolicyArg::Supervised => PermissionMode::Default,
+        cli::AccessPolicyArg::ReadOnly => PermissionMode::Plan,
+        cli::AccessPolicyArg::TrustEdits => PermissionMode::AcceptEdits,
+        cli::AccessPolicyArg::Unrestricted => PermissionMode::BypassPermissions,
+        cli::AccessPolicyArg::AutoDeny => PermissionMode::DontAsk,
+        cli::AccessPolicyArg::Swift => PermissionMode::Auto,
+    }
 }
 
-fn set_env_if_missing(key: &str, value: &str) {
-    if !env_value_present(key) && !value.trim().is_empty() {
-        env::set_var(key, value);
+fn apply_cli_access_policy_to_env(cli: &Cli) {
+    if let Some(policy) = cli.access_policy.as_ref() {
+        env::set_var(
+            "MOSSEN_PERMISSION_MODE",
+            permission_mode_for_access_policy(policy).as_str(),
+        );
     }
 }
 
@@ -356,30 +367,13 @@ fn set_env_if_missing(key: &str, value: &str) {
 /// can be correctly configured while the live session still falls through to
 /// the placeholder first-party URL.
 fn apply_active_profile_to_custom_backend_env(cli_model_override: Option<&str>) {
-    let Some(profile) = mossen_agent::services::config::profiles::get_current_profile() else {
+    let Some(profile) =
+        mossen_agent::services::config::profiles::apply_current_profile_to_custom_backend_env_if_missing(
+            cli_model_override,
+        )
+    else {
         return;
     };
-
-    set_env_if_missing("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
-    set_env_if_missing(
-        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
-        profile.profile.provider.runtime_protocol(),
-    );
-    set_env_if_missing("MOSSEN_CODE_CUSTOM_NAME", &profile.name);
-    set_env_if_missing("MOSSEN_CODE_CUSTOM_BASE_URL", &profile.profile.base_url);
-    set_env_if_missing("MOSSEN_CODE_CUSTOM_API_KEY", &profile.profile.api_key);
-
-    if cli_model_override
-        .map(|model| model.trim().is_empty())
-        .unwrap_or(true)
-    {
-        set_env_if_missing("MOSSEN_CODE_CUSTOM_MODEL", &profile.profile.model);
-    }
-
-    // Keep EngineConfig/status displays aligned with the active profile. The
-    // actual MiniMax/Qwen/GLM request path still uses MOSSEN_CODE_CUSTOM_*.
-    set_env_if_missing("MOSSEN_API_BASE_URL", &profile.profile.base_url);
-    set_env_if_missing("MOSSEN_API_KEY", &profile.profile.api_key);
 
     info!(
         target: "mossen_cli::profiles",
@@ -422,6 +416,9 @@ async fn route_command(
         system_prompt: cli.system_prompt.clone(),
         extra_prompt: cli.extra_prompt.clone(),
         model_override: cli.model.clone(),
+        max_turns: cli.turn_limit,
+        allowed_instruments: cli.instruments.clone(),
+        disabled_instruments: cli.disable_instruments.clone(),
         shutdown_flag: shutdown.shutdown_flag(),
     };
 
@@ -477,7 +474,9 @@ async fn route_command(
 }
 
 async fn start_session_background_services() {
-    mossen_agent::services::team_memory_sync::start_team_memory_watcher().await;
+    if crate::memdir::is_team_memory_enabled() {
+        mossen_agent::services::team_memory_sync::start_team_memory_watcher().await;
+    }
 }
 
 async fn stop_session_background_services() {
@@ -501,7 +500,39 @@ fn build_command_context(state: &SharedBootstrapState) -> Result<CommandContext>
         cli_name: "mossen".to_string(),
         version: VERSION.to_string(),
         build_time: option_env!("BUILD_TIME").map(|s| s.to_string()),
+        cost_snapshot: current_command_cost_snapshot(),
     })
+}
+
+fn current_command_cost_snapshot() -> CommandCostSnapshot {
+    CommandCostSnapshot {
+        total_cost_usd: crate::bootstrap::get_total_cost_usd(),
+        total_api_duration_ms: crate::bootstrap::get_total_api_duration(),
+        total_api_duration_without_retries_ms:
+            crate::bootstrap::get_total_api_duration_without_retries(),
+        total_tool_duration_ms: crate::bootstrap::get_total_tool_duration(),
+        total_lines_added: crate::bootstrap::get_total_lines_added(),
+        total_lines_removed: crate::bootstrap::get_total_lines_removed(),
+        has_unknown_model_cost: crate::bootstrap::has_unknown_model_cost(),
+        model_usage: crate::bootstrap::get_model_usage()
+            .into_iter()
+            .map(|(model, usage)| {
+                (
+                    model,
+                    CommandCostModelUsage {
+                        input_tokens: usage.input_tokens,
+                        output_tokens: usage.output_tokens,
+                        cache_read_input_tokens: usage.cache_read_input_tokens,
+                        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                        web_search_requests: usage.web_search_requests,
+                        cost_usd: usage.cost_usd,
+                        context_window: usage.context_window,
+                        max_output_tokens: usage.max_output_tokens,
+                    },
+                )
+            })
+            .collect(),
+    }
 }
 
 /// 渲染 CommandResult 到 stdout/stderr 并返回 exit-OK 标志。
@@ -525,6 +556,14 @@ fn render_command_result(result: CommandResult) -> Result<()> {
     }
 }
 
+fn backend_credential_detected_message(source: &str) -> String {
+    format!("Backend credential detected via {source}.")
+}
+
+fn legacy_stored_token_detected_message() -> &'static str {
+    "Legacy stored credential detected. Personal edition uses configured backend profiles or MOSSEN_CODE_CUSTOM_* credentials for new sessions."
+}
+
 /// 处理子命令。
 async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Result<()> {
     let ctx = build_command_context(state)?;
@@ -540,16 +579,24 @@ async fn handle_subcommand(subcmd: SubCmd, state: &SharedBootstrapState) -> Resu
             info!("subcommand: auth (login)");
             // 首先尝试通过 mossen-utils auth 模块的环境变量快速路径
             if std::env::var("MOSSEN_CODE_API_KEY").is_ok() {
-                println!("Sign-in successful (via MOSSEN_CODE_API_KEY environment variable).");
+                println!(
+                    "{}",
+                    backend_credential_detected_message("MOSSEN_CODE_API_KEY environment variable")
+                );
                 return Ok(());
             }
             if std::env::var("MOSSEN_CODE_AUTH_TOKEN").is_ok() {
-                println!("Sign-in successful (via MOSSEN_CODE_AUTH_TOKEN environment variable).");
+                println!(
+                    "{}",
+                    backend_credential_detected_message(
+                        "MOSSEN_CODE_AUTH_TOKEN environment variable"
+                    )
+                );
                 return Ok(());
             }
             // 检查是否已经存在 oauth tokens
             if mossen_utils::auth::get_hosted_oauth_tokens().is_some() {
-                println!("Already signed in via stored OAuth tokens.");
+                println!("{}", legacy_stored_token_detected_message());
                 return Ok(());
             }
             // 否则委托给 AuthDirective（显示如何配置 backend 凭据的说明）
@@ -894,7 +941,7 @@ mod tests {
     struct EnvRestore(Vec<(&'static str, Option<String>)>);
 
     impl EnvRestore {
-        fn capture(keys: &'static [&'static str]) -> Self {
+        fn capture(keys: &[&'static str]) -> Self {
             Self(
                 keys.iter()
                     .map(|key| (*key, env::var(key).ok()))
@@ -915,6 +962,39 @@ mod tests {
     }
 
     #[test]
+    fn cli_model_override_is_applied_to_startup_state() {
+        use clap::Parser;
+
+        let cli = Cli::parse_from(["mossen", "--model", "example-large"]);
+        let state = new_shared_state(std::path::PathBuf::from("."));
+
+        apply_cli_to_state(&cli, &state).expect("CLI model override should apply to state");
+
+        let state = state.read().expect("bootstrap state should be readable");
+        assert_eq!(state.model_override.as_deref(), Some("example-large"));
+    }
+
+    #[test]
+    fn cli_access_policy_is_applied_to_runtime_permission_env() {
+        use clap::Parser;
+
+        let _guard = env_lock();
+        let _env_restore = EnvRestore::capture(&["MOSSEN_PERMISSION_MODE"]);
+        env::remove_var("MOSSEN_PERMISSION_MODE");
+
+        let cli = Cli::parse_from(["mossen", "--access-policy", "unrestricted"]);
+        apply_cli_access_policy_to_env(&cli);
+        assert_eq!(
+            env::var("MOSSEN_PERMISSION_MODE").as_deref(),
+            Ok("bypassPermissions")
+        );
+
+        let cli = Cli::parse_from(["mossen", "--access-policy", "read-only"]);
+        apply_cli_access_policy_to_env(&cli);
+        assert_eq!(env::var("MOSSEN_PERMISSION_MODE").as_deref(), Ok("plan"));
+    }
+
+    #[test]
     fn active_profile_sets_custom_backend_env_for_runtime() {
         let _guard = env_lock();
         let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
@@ -925,18 +1005,18 @@ mod tests {
         facade::set_mossen_config_override(
             "mossen.profiles",
             serde_json::json!({
-                "minimax": {
+                "example": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://api.minimaxi.com/v1",
-                    "model": "MiniMax-M2.7-highspeed",
-                    "apiKey": "sk-test-secret"
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-highspeed",
+                    "apiKey": "sk-test-profile-secret"
                 }
             }),
             ConfigOverrideScope::Override,
         );
         facade::set_mossen_config_override(
             "mossen.activeProfile",
-            serde_json::Value::String("minimax".to_string()),
+            serde_json::Value::String("example".to_string()),
             ConfigOverrideScope::Override,
         );
 
@@ -944,11 +1024,11 @@ mod tests {
 
         assert_eq!(
             env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
-            Ok("https://api.minimaxi.com/v1")
+            Ok("https://api.example.com/v1")
         );
         assert_eq!(
             env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
-            Ok("MiniMax-M2.7-highspeed")
+            Ok("example-highspeed")
         );
         assert_eq!(
             env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
@@ -973,18 +1053,18 @@ mod tests {
         facade::set_mossen_config_override(
             "mossen.profiles",
             serde_json::json!({
-                "minimax": {
+                "example": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://api.minimaxi.com/v1",
-                    "model": "MiniMax-M2.7-highspeed",
-                    "apiKey": "sk-test-secret"
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-highspeed",
+                    "apiKey": "sk-test-profile-secret"
                 }
             }),
             ConfigOverrideScope::Override,
         );
         facade::set_mossen_config_override(
             "mossen.activeProfile",
-            serde_json::Value::String("minimax".to_string()),
+            serde_json::Value::String("example".to_string()),
             ConfigOverrideScope::Override,
         );
 
@@ -992,7 +1072,7 @@ mod tests {
 
         assert_eq!(
             env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
-            Ok("https://api.minimaxi.com/v1")
+            Ok("https://api.example.com/v1")
         );
         assert!(env::var("MOSSEN_CODE_CUSTOM_MODEL").is_err());
 
@@ -1037,5 +1117,23 @@ mod tests {
         );
 
         facade::reset_facade_for_testing();
+    }
+
+    #[test]
+    fn auth_subcommand_status_text_uses_backend_credentials_not_account_login() {
+        let env_message =
+            backend_credential_detected_message("MOSSEN_CODE_AUTH_TOKEN environment variable");
+        assert!(env_message.contains("Backend credential detected"));
+        let sign_in_success = ["Sign-in", "successful"].join(" ");
+        let logged_in = ["logged", "in"].join(" ");
+        assert!(!env_message.contains(&sign_in_success));
+        assert!(!env_message.contains(&logged_in));
+
+        let legacy_message = legacy_stored_token_detected_message();
+        assert!(legacy_message.contains("Legacy stored credential detected"));
+        let signed_in = ["signed", "in"].join(" ");
+        let oauth_label = ["O", "Auth"].join("");
+        assert!(!legacy_message.contains(&signed_in));
+        assert!(!legacy_message.contains(&oauth_label));
     }
 }

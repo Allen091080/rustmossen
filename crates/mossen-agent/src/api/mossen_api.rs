@@ -381,8 +381,9 @@ fn resolve_base_url() -> String {
 /// Decide which headers to apply for auth.
 ///
 /// Mirrors `services/api/client.ts` `getMossenClient` and `configureApiKeyHeaders`:
-/// - Custom backend: send `Authorization: Bearer <authToken>` if present,
-///   else `x-api-key: <apiKey>`.
+/// - Custom backend: delegate to `mossen_utils::custom_backend` so auth header
+///   style follows the selected protocol and explicit user headers keep
+///   precedence.
 /// - Hosted/first-party: send `Authorization: Bearer <MOSSEN_CODE_AUTH_TOKEN>`
 ///   if present (OAuth path), else `x-api-key: <MOSSEN_CODE_API_KEY>`.
 fn apply_auth_headers(headers: &mut ReqHeaderMap) {
@@ -398,13 +399,7 @@ fn apply_auth_headers(headers: &mut ReqHeaderMap) {
     };
 
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
-        if let Some(token) = mossen_utils::custom_backend::get_custom_backend_auth_token() {
-            insert_header(headers, "Authorization", format!("Bearer {}", token));
-        } else if let Some(key) = mossen_utils::custom_backend::get_custom_backend_api_key() {
-            insert_header(headers, "x-api-key", key);
-        }
-        // Merge static custom-backend headers (e.g. proxy auth, custom keys).
-        for (k, v) in mossen_utils::custom_backend::get_custom_backend_headers() {
+        for (k, v) in mossen_utils::custom_backend::get_custom_backend_auth_headers() {
             insert_header(headers, &k, v);
         }
         return;
@@ -708,14 +703,22 @@ async fn collect_stream_to_final_message(
 async fn make_api_request(params: &Value) -> Result<Value, ApiError> {
     let base_url = resolve_base_url();
 
-    // ─── Route through OpenAI-compatible adapter when custom backend is enabled ───
-    // Custom backends (MiniMax / Qwen / GLM / etc.) typically expose only the
-    // OpenAI-format `/chat/completions` endpoint, not Provider's `/v1/messages`.
-    // We use the existing OpenAI compat client to convert Provider-style
-    // `params` → OpenAI body, hit `/chat/completions`, and convert the response
-    // back to `MossenBetaMessage` JSON shape so downstream code is unchanged.
+    // Route custom backends by their configured protocol. This legacy API path
+    // is still used by hooks, fast queries, and non-streaming fallbacks, so it
+    // must mirror the dialogue streaming client instead of assuming every
+    // custom backend is OpenAI chat-completions compatible.
     if mossen_utils::custom_backend::is_custom_backend_enabled() {
-        return openai_compat_make_api_request(params, &base_url).await;
+        match mossen_utils::custom_backend::get_custom_backend_protocol() {
+            mossen_utils::custom_backend::CustomBackendProtocol::OpenaiCompatible => {
+                return openai_compat_make_api_request(params, &base_url).await;
+            }
+            mossen_utils::custom_backend::CustomBackendProtocol::OpenaiResponses
+            | mossen_utils::custom_backend::CustomBackendProtocol::Anthropic => {
+                return custom_backend_streaming_make_api_request(params, &base_url).await;
+            }
+            mossen_utils::custom_backend::CustomBackendProtocol::MossenCompatible
+            | mossen_utils::custom_backend::CustomBackendProtocol::Private => {}
+        }
     }
 
     let url = format!("{}/v1/messages", base_url);
@@ -2113,7 +2116,414 @@ pub async fn execute_non_streaming_request(
     Ok((message, system_messages))
 }
 
-/// OpenAI-compatible route for custom backends (MiniMax / Qwen / GLM / etc.).
+fn params_to_custom_backend_stream_request(params: &Value) -> crate::types::StreamRequestParams {
+    use crate::types::{ApiMetadata, StreamRequestParams};
+
+    let model = mossen_utils::custom_backend::get_custom_backend_model()
+        .or_else(|| {
+            params
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "custom-backend".to_string());
+    let max_tokens = params
+        .get("max_tokens")
+        .or_else(|| params.get("max_output_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(CAPPED_DEFAULT_MAX_TOKENS)
+        .min(u32::MAX as u64) as u32;
+    let messages = params
+        .get("messages")
+        .and_then(Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .filter_map(message_param_from_value)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let system = system_blocks_from_value(params.get("system"));
+    let tools = params
+        .get("tools")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    let thinking = thinking_config_from_value(params.get("thinking"));
+    let tool_choice = params
+        .get("tool_choice")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok());
+    let metadata = params
+        .get("metadata")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<ApiMetadata>(value).ok())
+        .unwrap_or(ApiMetadata { user_id: None });
+    let effort = effort_level_from_params(params);
+
+    StreamRequestParams {
+        model,
+        max_tokens,
+        messages,
+        system,
+        tools,
+        thinking,
+        tool_choice,
+        stream: true,
+        metadata,
+        extra_body: protocol_extra_body_from_params(params),
+        effort,
+    }
+}
+
+fn message_param_from_value(value: &Value) -> Option<crate::types::MessageParam> {
+    let object = value.as_object()?;
+    let role = object
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user")
+        .to_string();
+    let content = content_blocks_from_value(object.get("content"))?;
+    Some(crate::types::MessageParam { role, content })
+}
+
+fn content_blocks_from_value(value: Option<&Value>) -> Option<Vec<mossen_types::ContentBlock>> {
+    let value = value?;
+    match value {
+        Value::String(text) => Some(vec![mossen_types::ContentBlock::Text(
+            mossen_types::TextBlock { text: text.clone() },
+        )]),
+        Value::Array(items) => {
+            if let Ok(blocks) = serde_json::from_value::<Vec<mossen_types::ContentBlock>>(
+                Value::Array(items.clone()),
+            ) {
+                return Some(blocks);
+            }
+            let blocks = items
+                .iter()
+                .filter_map(content_block_from_value)
+                .collect::<Vec<_>>();
+            Some(blocks)
+        }
+        Value::Object(_) => content_block_from_value(value).map(|block| vec![block]),
+        _ => Some(Vec::new()),
+    }
+}
+
+fn content_block_from_value(value: &Value) -> Option<mossen_types::ContentBlock> {
+    if let Ok(block) = serde_json::from_value::<mossen_types::ContentBlock>(value.clone()) {
+        return Some(block);
+    }
+    value
+        .get("text")
+        .and_then(Value::as_str)
+        .map(|text| {
+            mossen_types::ContentBlock::Text(mossen_types::TextBlock {
+                text: text.to_string(),
+            })
+        })
+        .or_else(|| {
+            value.as_str().map(|text| {
+                mossen_types::ContentBlock::Text(mossen_types::TextBlock {
+                    text: text.to_string(),
+                })
+            })
+        })
+}
+
+fn system_blocks_from_value(value: Option<&Value>) -> Vec<crate::types::SystemBlock> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match value {
+        Value::String(text) => vec![crate::types::SystemBlock {
+            text: text.clone(),
+            cache_control: None,
+        }],
+        Value::Array(items) => items
+            .iter()
+            .filter_map(system_block_from_value)
+            .collect::<Vec<_>>(),
+        Value::Object(_) => system_block_from_value(value).into_iter().collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn system_block_from_value(value: &Value) -> Option<crate::types::SystemBlock> {
+    if let Ok(block) = serde_json::from_value::<crate::types::SystemBlock>(value.clone()) {
+        return Some(block);
+    }
+    value
+        .get("text")
+        .and_then(Value::as_str)
+        .map(|text| crate::types::SystemBlock {
+            text: text.to_string(),
+            cache_control: None,
+        })
+        .or_else(|| {
+            value.as_str().map(|text| crate::types::SystemBlock {
+                text: text.to_string(),
+                cache_control: None,
+            })
+        })
+}
+
+fn thinking_config_from_value(value: Option<&Value>) -> Option<crate::types::ThinkingConfig> {
+    let value = value?;
+    if let Ok(thinking) = serde_json::from_value::<crate::types::ThinkingConfig>(value.clone()) {
+        return Some(thinking);
+    }
+    let object = value.as_object()?;
+    match object.get("type").and_then(Value::as_str) {
+        Some("enabled") => Some(crate::types::ThinkingConfig {
+            enabled: true,
+            budget_tokens: object
+                .get("budget_tokens")
+                .and_then(Value::as_u64)
+                .map(|value| value.min(u32::MAX as u64) as u32),
+        }),
+        _ => None,
+    }
+}
+
+fn effort_level_from_params(params: &Value) -> Option<crate::types::EffortLevel> {
+    let raw = params
+        .get("effort")
+        .or_else(|| params.pointer("/output_config/effort"))
+        .and_then(Value::as_str)?;
+    match raw {
+        "low" => Some(crate::types::EffortLevel::Low),
+        "medium" => Some(crate::types::EffortLevel::Medium),
+        "high" => Some(crate::types::EffortLevel::High),
+        "max" => Some(crate::types::EffortLevel::Max),
+        _ => None,
+    }
+}
+
+fn protocol_extra_body_from_params(params: &Value) -> HashMap<String, Value> {
+    const KNOWN_KEYS: &[&str] = &[
+        "betas",
+        "effort",
+        "max_output_tokens",
+        "max_tokens",
+        "messages",
+        "metadata",
+        "model",
+        "output_config",
+        "stream",
+        "system",
+        "thinking",
+        "tool_choice",
+        "tools",
+    ];
+    let Some(object) = params.as_object() else {
+        return HashMap::new();
+    };
+    object
+        .iter()
+        .filter(|(key, _)| !KNOWN_KEYS.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+async fn custom_backend_streaming_make_api_request(
+    params: &Value,
+    base_url: &str,
+) -> Result<Value, ApiError> {
+    let stream_params = params_to_custom_backend_stream_request(params);
+    let config = crate::api_client::ApiClientConfig::new(String::new(), Some(base_url.to_string()));
+    let stream =
+        crate::api_client::call_streaming(&config, &stream_params, CancellationToken::new())
+            .await
+            .map_err(map_api_client_error)?;
+
+    collect_api_client_stream_to_final_message(stream).await
+}
+
+async fn collect_api_client_stream_to_final_message(
+    mut stream: std::pin::Pin<
+        Box<
+            dyn futures::Stream<
+                    Item = Result<crate::streaming::StreamEvent, crate::api_client::ApiError>,
+                > + Send,
+        >,
+    >,
+) -> Result<Value, ApiError> {
+    use crate::streaming::{ContentBlockInfo, StreamEvent as ApiClientStreamEvent};
+    use crate::types::ContentDelta;
+
+    let mut message: Option<Value> = None;
+    let mut blocks: Vec<Value> = Vec::new();
+    let mut partial_json: HashMap<usize, String> = HashMap::new();
+
+    while let Some(item) = stream.next().await {
+        match item.map_err(map_api_client_error)? {
+            ApiClientStreamEvent::MessageStart { message: start } => {
+                message = Some(json!({
+                    "id": start.id,
+                    "type": start.message_type,
+                    "role": start.role,
+                    "model": start.model,
+                    "content": [],
+                    "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": start.usage.unwrap_or_default(),
+                }));
+                blocks.clear();
+            }
+            ApiClientStreamEvent::ContentBlockStart {
+                index,
+                content_block,
+            } => {
+                while blocks.len() <= index {
+                    blocks.push(json!({}));
+                }
+                blocks[index] = match content_block {
+                    ContentBlockInfo::Text { text } => json!({
+                        "type": "text",
+                        "text": text,
+                    }),
+                    ContentBlockInfo::ToolUse { id, name } => json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": {},
+                    }),
+                    ContentBlockInfo::Thinking { thinking } => json!({
+                        "type": "thinking",
+                        "thinking": thinking,
+                    }),
+                };
+                partial_json.remove(&index);
+            }
+            ApiClientStreamEvent::ContentBlockDelta { index, delta } => {
+                while blocks.len() <= index {
+                    blocks.push(json!({}));
+                }
+                let block = &mut blocks[index];
+                match delta {
+                    ContentDelta::TextDelta { text } => {
+                        let existing = block
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        block["text"] = Value::String(existing + &text);
+                    }
+                    ContentDelta::ThinkingDelta { thinking } => {
+                        let existing = block
+                            .get("thinking")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        block["thinking"] = Value::String(existing + &thinking);
+                    }
+                    ContentDelta::InputJsonDelta { partial_json: part } => {
+                        partial_json.entry(index).or_default().push_str(&part);
+                    }
+                }
+            }
+            ApiClientStreamEvent::ContentBlockStop { index } => {
+                if let Some(buf) = partial_json.remove(&index) {
+                    if blocks.len() > index {
+                        let parsed = serde_json::from_str::<Value>(&buf).unwrap_or(json!({}));
+                        blocks[index]["input"] = parsed;
+                    }
+                }
+            }
+            ApiClientStreamEvent::MessageDelta { delta, usage } => {
+                if let Some(msg) = message.as_mut() {
+                    if let Some(stop_reason) = delta.stop_reason {
+                        msg["stop_reason"] = Value::String(stop_reason);
+                    }
+                    if let Some(stop_sequence) = delta.stop_sequence {
+                        msg["stop_sequence"] = Value::String(stop_sequence);
+                    }
+                    if let Some(usage) = usage {
+                        msg["usage"] = serde_json::to_value(usage).unwrap_or_else(|_| json!({}));
+                    }
+                }
+            }
+            ApiClientStreamEvent::MessageStop | ApiClientStreamEvent::Ping => {}
+            ApiClientStreamEvent::Error { error } => {
+                let body = json!({
+                    "type": error.error_type,
+                    "message": error.message,
+                });
+                return Err(ApiError::Api(MossenAPIError::new(
+                    400,
+                    body,
+                    Some(error.message),
+                    ReqHeaderMap::new(),
+                )));
+            }
+        }
+    }
+
+    let mut final_msg = message.unwrap_or_else(|| {
+        json!({
+            "id": Uuid::new_v4().to_string(),
+            "type": "message",
+            "role": "assistant",
+            "model": "",
+            "content": [],
+            "stop_reason": null,
+            "stop_sequence": null,
+            "usage": {},
+        })
+    });
+    final_msg["content"] = Value::Array(blocks);
+    Ok(final_msg)
+}
+
+fn map_api_client_error(error: crate::api_client::ApiError) -> ApiError {
+    match error {
+        crate::api_client::ApiError::Auth { status, message }
+        | crate::api_client::ApiError::Http { status, message } => {
+            ApiError::Api(MossenAPIError::new(
+                status,
+                json!({"error": {"message": message.clone()}}),
+                Some(message),
+                ReqHeaderMap::new(),
+            ))
+        }
+        crate::api_client::ApiError::RateLimited { retry_after_ms } => {
+            let message = format!("Rate limited; retry after {}ms", retry_after_ms);
+            ApiError::Api(MossenAPIError::new(
+                429,
+                json!({"error": {"message": message.clone()}}),
+                Some(message),
+                ReqHeaderMap::new(),
+            ))
+        }
+        crate::api_client::ApiError::Overloaded { message } => ApiError::Api(MossenAPIError::new(
+            529,
+            json!({"error": {"message": message.clone()}}),
+            Some(message),
+            ReqHeaderMap::new(),
+        )),
+        crate::api_client::ApiError::Connection { message }
+        | crate::api_client::ApiError::Network(message) => {
+            ApiError::Connection(MossenAPIConnectionError::new(Some(message)))
+        }
+        crate::api_client::ApiError::StreamTimeout => {
+            ApiError::ConnectionTimeout(MossenAPIConnectionTimeoutError::new(Some(
+                "Streaming custom backend request timed out".to_string(),
+            )))
+        }
+        crate::api_client::ApiError::Cancelled => ApiError::UserAbort(MossenAPIUserAbortError),
+        crate::api_client::ApiError::ContextOverflow {
+            input_tokens,
+            limit,
+        } => ApiError::Other(format!(
+            "Context window overflow: input={}, limit={}",
+            input_tokens, limit
+        )),
+        crate::api_client::ApiError::StreamParse(message) => ApiError::Other(message),
+    }
+}
+
+/// OpenAI-compatible route for custom backends (ExampleProvider / Qwen / provider / etc.).
 ///
 /// Reuses the existing OpenAI adapter:
 ///   1. Override `model` field with `MOSSEN_CODE_CUSTOM_MODEL` if set.
@@ -2142,16 +2552,8 @@ async fn openai_compat_make_api_request(params: &Value, base_url: &str) -> Resul
         obj.remove("betas");
     }
 
-    // Build auth headers (mirror `apply_auth_headers` custom-backend branch).
-    let mut default_headers: HashMap<String, String> = HashMap::new();
-    if let Some(token) = mossen_utils::custom_backend::get_custom_backend_auth_token() {
-        default_headers.insert("Authorization".to_string(), format!("Bearer {}", token));
-    } else if let Some(key) = mossen_utils::custom_backend::get_custom_backend_api_key() {
-        default_headers.insert("x-api-key".to_string(), key);
-    }
-    for (k, v) in mossen_utils::custom_backend::get_custom_backend_headers() {
-        default_headers.insert(k, v);
-    }
+    let default_headers: HashMap<String, String> =
+        mossen_utils::custom_backend::get_custom_backend_auth_headers();
 
     let timeout_ms = env::var("API_TIMEOUT_MS")
         .ok()
@@ -2183,4 +2585,345 @@ async fn openai_compat_make_api_request(params: &Value, base_url: &str) -> Resul
             e
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn custom_backend_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock_async().await
+    }
+
+    struct EnvRestore {
+        vars: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvRestore {
+        fn set_custom_backend(base_url: &str, protocol: &str) -> Self {
+            const KEYS: &[&str] = &[
+                "MOSSEN_CODE_CUSTOM_API_KEY",
+                "MOSSEN_CODE_CUSTOM_AUTH_TOKEN",
+                "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+                "MOSSEN_CODE_CUSTOM_BASE_URL",
+                "MOSSEN_CODE_CUSTOM_HEADERS",
+                "MOSSEN_CODE_CUSTOM_MODEL",
+                "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS",
+                "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS",
+                "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+            ];
+            let vars = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect();
+            std::env::set_var("MOSSEN_CODE_CUSTOM_API_KEY", "sk-test");
+            std::env::remove_var("MOSSEN_CODE_CUSTOM_AUTH_TOKEN");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL", protocol);
+            std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", base_url);
+            std::env::remove_var("MOSSEN_CODE_CUSTOM_HEADERS");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", "harness-test");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS", "5");
+            std::env::set_var("MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS", "5");
+            std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+            Self { vars }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.vars.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
+    fn sse_event(event: &str, data: serde_json::Value) -> String {
+        format!("event: {event}\ndata: {data}\n\n")
+    }
+
+    fn http_sse_response(body: String) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    fn openai_chat_response(text: &str) -> String {
+        let body = json!({
+            "id": "chatcmpl_legacy",
+            "object": "chat.completion",
+            "model": "harness-test",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": text,
+                },
+                "finish_reason": "stop",
+            }],
+            "usage": {
+                "prompt_tokens": 3,
+                "completion_tokens": 4,
+                "total_tokens": 7,
+            },
+        })
+        .to_string();
+        format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+    }
+
+    fn openai_responses_text_response(text: &str) -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "response.output_text.delta",
+            json!({
+                "type": "response.output_text.delta",
+                "delta": text,
+            }),
+        ));
+        body.push_str(&sse_event(
+            "response.completed",
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 4,
+                    },
+                },
+            }),
+        ));
+        http_sse_response(body)
+    }
+
+    fn anthropic_text_response(text: &str) -> String {
+        let mut body = String::new();
+        body.push_str(&sse_event(
+            "message_start",
+            json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_legacy",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "harness-test",
+                    "content": [],
+                    "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 0,
+                    },
+                },
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_start",
+            json!({
+                "index": 0,
+                "content_block": {
+                    "type": "text",
+                    "text": "",
+                },
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_delta",
+            json!({
+                "index": 0,
+                "delta": {
+                    "type": "text_delta",
+                    "text": text,
+                },
+            }),
+        ));
+        body.push_str(&sse_event(
+            "content_block_stop",
+            json!({
+                "index": 0,
+            }),
+        ));
+        body.push_str(&sse_event(
+            "message_delta",
+            json!({
+                "delta": {
+                    "stop_reason": "end_turn",
+                    "stop_sequence": null,
+                },
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 5,
+                },
+            }),
+        ));
+        body.push_str(&sse_event("message_stop", json!({})));
+        http_sse_response(body)
+    }
+
+    fn find_header_end(bytes: &[u8]) -> Option<usize> {
+        bytes.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    async fn read_http_request(stream: &mut tokio::net::TcpStream) -> (String, String) {
+        let mut buf = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let header_end = loop {
+            let n = stream.read(&mut chunk).await.expect("read request");
+            assert!(n > 0, "connection closed before request headers");
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = find_header_end(&buf) {
+                break pos + 4;
+            }
+        };
+        let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().expect("content length"))
+            })
+            .unwrap_or(0);
+        while buf.len() < header_end + content_length {
+            let n = stream.read(&mut chunk).await.expect("read body");
+            assert!(n > 0, "connection closed before request body");
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        (
+            headers,
+            String::from_utf8_lossy(&buf[header_end..header_end + content_length]).to_string(),
+        )
+    }
+
+    async fn spawn_capture_server(
+        response: String,
+    ) -> (String, tokio::task::JoinHandle<(String, String)>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind harness server");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept request");
+            let request = read_http_request(&mut stream).await;
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            request
+        });
+        (base_url, handle)
+    }
+
+    fn legacy_params() -> Value {
+        json!({
+            "model": "ignored-model",
+            "messages": [{
+                "role": "user",
+                "content": "hello",
+            }],
+            "system": [{
+                "type": "text",
+                "text": "be brief",
+            }],
+            "max_tokens": 12,
+            "temperature": 0.2,
+            "stream": false,
+        })
+    }
+
+    #[tokio::test]
+    async fn custom_backend_non_streaming_routes_openai_compatible_uses_bearer_auth() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_capture_server(openai_chat_response("legacy openai ok")).await;
+        let _env = EnvRestore::set_custom_backend(&base_url, "openai-compatible");
+
+        let response = make_api_request(&legacy_params())
+            .await
+            .expect("OpenAI-compatible custom backend should complete");
+
+        assert_eq!(response["content"][0]["text"], "legacy openai ok");
+        assert_eq!(response["model"], "harness-test");
+        assert_eq!(response["stop_reason"], "end_turn");
+        let (headers, body) = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        assert!(headers.starts_with("POST /chat/completions "));
+        assert!(headers.contains("authorization: Bearer sk-test"));
+        assert!(!headers.to_ascii_lowercase().contains("x-api-key"));
+        let body: Value = serde_json::from_str(&body).expect("request body should be JSON");
+        assert_eq!(body["model"], "harness-test");
+        assert_eq!(body["stream"], false);
+        assert!(body.get("messages").is_some());
+    }
+
+    #[tokio::test]
+    async fn custom_backend_non_streaming_routes_openai_responses_protocol() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_capture_server(openai_responses_text_response("legacy responses ok")).await;
+        let _env = EnvRestore::set_custom_backend(&base_url, "openai-responses");
+
+        let response = make_api_request(&legacy_params())
+            .await
+            .expect("OpenAI Responses custom backend should complete");
+
+        assert_eq!(response["content"][0]["text"], "legacy responses ok");
+        assert_eq!(response["model"], "harness-test");
+        assert_eq!(response["stop_reason"], "end_turn");
+        let (headers, body) = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        assert!(headers.starts_with("POST /v1/responses "));
+        assert!(headers.contains("authorization: Bearer sk-test"));
+        let body: Value = serde_json::from_str(&body).expect("request body should be JSON");
+        assert_eq!(body["model"], "harness-test");
+        assert_eq!(body["max_output_tokens"], 12);
+        assert_eq!(body["stream"], true);
+        assert!(body.get("input").is_some());
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["temperature"], 0.2);
+    }
+
+    #[tokio::test]
+    async fn custom_backend_non_streaming_routes_anthropic_protocol() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_capture_server(anthropic_text_response("legacy anthropic ok")).await;
+        let _env = EnvRestore::set_custom_backend(&base_url, "anthropic");
+
+        let response = make_api_request(&legacy_params())
+            .await
+            .expect("Anthropic custom backend should complete");
+
+        assert_eq!(response["content"][0]["text"], "legacy anthropic ok");
+        assert_eq!(response["model"], "harness-test");
+        assert_eq!(response["stop_reason"], "end_turn");
+        let (headers, body) = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        assert!(headers.starts_with("POST /v1/messages "));
+        assert!(headers.contains("x-api-key: sk-test"));
+        assert!(headers.contains("anthropic-version: 2023-06-01"));
+        let body: Value = serde_json::from_str(&body).expect("request body should be JSON");
+        assert_eq!(body["model"], "harness-test");
+        assert_eq!(body["max_tokens"], 12);
+        assert_eq!(body["stream"], true);
+        assert!(body.get("messages").is_some());
+        assert!(body.get("input").is_none());
+        assert_eq!(body["temperature"], 0.2);
+    }
 }

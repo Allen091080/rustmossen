@@ -1732,6 +1732,8 @@ pub async fn query_async(prompt: &str, options: Value) -> Result<Value, String> 
         api_base_url,
         api_key,
         extra_body: HashMap::new(),
+        fast_mode: None,
+        effort: None,
         permission_mode,
         // SDK callers run non-interactively; gate stays open by default.
         permission_gate: None,

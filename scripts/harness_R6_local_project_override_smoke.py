@@ -48,6 +48,7 @@ SECONDARY_VAL = 9999
 def _make_env(ctx) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     env.pop("MOSSEN_CONFIG_OVERRIDES", None)
     env.pop("MOSSEN_INTERNAL_FC_OVERRIDES", None)
     return env
@@ -55,7 +56,7 @@ def _make_env(ctx) -> dict:
 
 def _run_mossen(env: dict, proj_dir: Path, *args: str) -> tuple[int, str, str]:
     proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), *args],
+        [str(ROOT / "scripts" / "start-mossen.sh"), *args],
         env=env,
         capture_output=True,
         text=True,

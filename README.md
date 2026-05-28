@@ -1,206 +1,217 @@
 # Mossen
 
-Mossen 是基于这套源码持续打磨出来的**个人单机版软件工程 AI CLI**。
-这套仓库当前目标不是重写官方产品，而是尽量在**个人可用、可控后端、可持续维护**的前提下，把用户可见体验和核心行为语义逐步对齐到官方水平。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 当前状态
+[![CI](https://github.com/Allen091080/rustmossen/actions/workflows/ci.yml/badge.svg)](https://github.com/Allen091080/rustmossen/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](rust-toolchain.toml)
 
-- 品牌名：`Mossen`
-- CLI 命令：`mossen`
-- 当前默认自定义后端：`Qwen 3.6 Plus`
-- 运行方式：可在源码目录外直接全局调用
-- 主要交互语言：支持**按用户对话语言动态切换**中英运行态提示
+Mossen is a local-first, Rust-native terminal coding agent for developers who want a Claude Code-style workflow with their own model providers.
 
-## 快速启动
+It implements conversational coding, file editing, shell execution with permissions, slash commands, context management, MCP integration, sub-agents, and terminal rendering in one Rust workspace.
+
+Mossen is not affiliated with Anthropic or Claude Code. The goal is to provide an open Rust implementation of the same class of developer experience, with user-controlled model providers and credentials.
+
+## Why Mossen
+
+- Rust implementation: the agent runtime, TUI, command system, tool execution, provider bridge, and harnesses live in one Rust workspace.
+- Provider flexibility: use OpenAI-compatible Chat Completions, OpenAI Responses-compatible endpoints, or Anthropic-compatible endpoints.
+- Local-first configuration: model keys are stored in the user's local Mossen config, not in the repository.
+- Terminal-native workflow: interactive TUI, streaming output, permissions, slash commands, history, compaction, and task feedback are first-class.
+- Engineering-agent surface: built-in tools for reading, editing, searching, shell execution, planning, MCP, and sub-agent task orchestration.
+- Testable release path: harness scripts and smoke tests cover core runtime behavior instead of relying only on manual demos.
+
+## Status
+
+Current public release: **V1.0.0**. Current development target: **V1.1 External User Ready**.
+
+This version is the first public source release. Packaging and installer polish can evolve after the source release; the priority for V1.0 is that the core coding-agent workflow is usable and configurable from source.
+
+See [docs/RELEASE_NOTES_V1.0.0.md](docs/RELEASE_NOTES_V1.0.0.md) for the V1.0 release notes and [docs/LAUNCH.md](docs/LAUNCH.md) for copy-ready launch material.
+
+## Requirements
+
+- Rust 1.80 or newer
+- macOS or Linux
+- Git
+- Recommended: `rg` for fast repository search
+
+## 5-Minute Quick Start
+
+Clone and install the `mossen` binary from source:
 
 ```bash
-npm install
-npm link
+git clone https://github.com/Allen091080/rustmossen.git
+cd rustmossen
+cargo install --path crates/mossen-cli --bin mossen --locked
+```
+
+Add your first model profile. Use your own endpoint, model name, and API key:
+
+```bash
+mossen --add-model-profile my-model \
+  --provider openai-compatible \
+  --baseURL https://api.example.com/v1 \
+  --model your-model-name \
+  --apiKey "$YOUR_API_KEY"
+```
+
+Activate and test it:
+
+```bash
+mossen --set-model-profile my-model
+mossen --test-model-profile my-model --timeout 30000
+```
+
+Start Mossen in your project:
+
+```bash
+mossen --cwd /path/to/project
+```
+
+Inside the TUI, run `/doctor` if the model is not configured or a provider call fails. `/doctor` reports missing profiles, invalid active profiles, partial custom-backend environment variables, and the next command to run without printing raw API keys or base URLs.
+
+## Build
+
+```bash
+cargo build --release -p mossen-cli --bin mossen
+```
+
+Run the release binary:
+
+```bash
+./target/release/mossen
+```
+
+For development, use the repository launcher:
+
+```bash
+scripts/start-mossen.sh
+```
+
+The launcher rebuilds automatically when Rust sources changed. To skip the build when a debug binary already exists:
+
+```bash
+MOSSEN_START_BUILD=never scripts/start-mossen.sh
+```
+
+Install locally from the checkout:
+
+```bash
+cargo install --path crates/mossen-cli --bin mossen --locked
+```
+
+## Quick Use
+
+Interactive mode:
+
+```bash
 mossen
 ```
 
-常用验证命令：
+One-shot mode:
 
 ```bash
-python3 scripts/smoke_check.py
-python3 scripts/personal_acceptance_check.py
-python3 scripts/personal_acceptance_check.py --with-extended-real-tasks
+mossen --oneshot "Explain the current repository structure"
 ```
 
-## 这轮主要改了什么
+Stream JSON output:
 
-### 1. 品牌升级
+```bash
+mossen --oneshot "List the test commands for this project" --emit stream-json
+```
 
-- 将高频用户可见品牌统一为 `Mossen / 🍃`
-- 欢迎页、Logo、Header、状态说明、命令帮助、OAuth/MCP/IDE/插件/权限等大量用户面文案已收口
-- 旧品牌、通用 coding assistant 文案和 Max marketing 已大幅清理
-- spinner 已改成绿色品牌风格，并使用叶子动画帧序列：
-  - `🍃 → 🌿 → ☘️ → 🍀 → ☘️ → 🌿`
+Use a specific working directory:
 
-### 2. 个人版能力收口
+```bash
+mossen --cwd /path/to/project
+```
 
-- 构建了个人单机版 acceptance/smoke 主闸门
-- 核心能力已稳定验证：
-  - slash 命令链
-  - tool use
-  - 多轮任务/真实 coding task
-  - permissions 模式
-  - resume / rewind / branch / model / compact / context
-  - local/cloud model tier
-  - profile / effort / execution / reasoning
+Inside the TUI, use `/help` to inspect available slash commands.
 
-### 3. 与官方行为语义对齐
+## Configure LLM Providers
 
-- 不再只做“协议兼容层”，而是继续推进“官方语义等价层”
-- 已补齐或增强的关键语义：
-  - thinking / text 分层
-  - tool use / tool result roundtrip
-  - continuation / stop / fallback
-  - provider parity
-  - context window / 1M gating 真值驱动
+Mossen stores model profiles in:
 
-### 4. 语言体验
+```text
+~/.mossen/settings.json
+```
 
-- 运行态提示不再只靠系统语言，而是尽量跟随用户当前问话语言
-- 中文环境下，大量原本固定英文的提示已切到动态中英
-- 已覆盖大量高频和低频用户面，包括：
-  - `/help`
-  - `/doctor`
-  - `/status`
-  - `/context`
-  - `/ide`
-  - `/hooks`
-  - `/memory`
-  - `/resume`
-  - `/session`
-  - `/usage`
-  - `/mcp`
-  - permissions 相关弹层
+Do not commit this file. It can contain API keys.
 
-### 5. 打包和启动方式
+Create a profile:
 
-- 已支持在**非源码目录**下直接用 `mossen` 启动
-- 当前采用的是全局 launcher/link 方案，不是独立二进制发布
-- 优点是：源码更新后，`mossen` 立即生效
+```bash
+mossen --add-model-profile my-model \
+  --provider openai-compatible \
+  --baseURL https://api.example.com/v1 \
+  --model your-model-name \
+  --apiKey "$YOUR_API_KEY"
+```
 
-## 这轮解决过的关键问题
+Activate it:
 
-### 1. `-p` 模式挂住
+```bash
+mossen --set-model-profile my-model
+```
 
-问题：
-- 普通 `-p` 会卡住，但 `--output-format stream-json` 能正常完成
+Check configured profiles:
 
-定位：
-- 挂点在 `executeStopHooks()` 这条链
+```bash
+mossen --list-model-profiles
+```
 
-处理：
-- 对 `sdk + custom-backend` 会话绕过不安全的 stop hook 路径
+Test a profile:
 
-### 2. spinner 假转圈 / 任务已完成但还在转
+```bash
+mossen --test-model-profile my-model --timeout 30000
+```
 
-问题：
-- 主任务已经结束，但 spinner 仍继续旋转
+Supported provider values:
 
-定位：
-- 主 spinner 之前看的是整条命令队列，子代理内部队列也会误计入
+- `openai-compatible`
+- `openai-responses`
+- `anthropic`
 
-处理：
-- 改成只看主线程可处理队列
-- 顺手切换到绿色叶子品牌 spinner
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration guide and an example settings file. A Chinese version is available at [docs/CONFIGURATION.zh-CN.md](docs/CONFIGURATION.zh-CN.md).
 
-### 3. checklist 残留
+## Security
 
-问题：
-- 上一轮任务完成后，旧 checklist 仍挂在下一轮任务中
+- Never commit `~/.mossen/settings.json`, project `.mossen/`, `.env`, or files containing real API keys.
+- Public examples must use placeholders such as `<your-api-key>`.
+- Before publishing, run the sensitive-data scan in [docs/OPEN_SOURCE_CHECKLIST.md](docs/OPEN_SOURCE_CHECKLIST.md).
+- If you use project-scoped config with `--scope project`, make sure the project `.mossen/` directory remains ignored.
 
-处理：
-- 收紧 checklist 完成态和清理逻辑
-- 强化 task update prompt，要求边做边更新而不是最后一次性结算
+## Development Checks
 
-### 4. LSP 报错
+```bash
+cargo fmt --all -- --check
+cargo check --workspace
+cargo test --workspace
+git diff --check
+```
 
-问题：
-- `LSP for typescript-lsp failed`
+Targeted harness scripts live under `scripts/harness_*.py`. Run the narrow harness for the subsystem you changed before sending a PR.
 
-定位：
-- 缺少 `typescript-language-server` / `typescript`
+## Repository Layout
 
-处理：
-- 补全依赖
-- LSP manager 增加二进制缺失保护：缺依赖时跳过 server，而不是拖垮整条初始化链
+```text
+crates/mossen-cli       CLI entrypoint, TUI launch, stream rendering
+crates/mossen-agent     agent runtime, provider bridge, context, hooks
+crates/mossen-tools     built-in tools and sub-agent task tools
+crates/mossen-commands  slash command implementations
+crates/mossen-tui       terminal UI and rendering model
+crates/mossen-mcp       MCP integration
+crates/mossen-utils     shared config, auth, filesystem and runtime helpers
+scripts/                smoke tests, harnesses, release checks
+docs/                   public user and maintainer documentation
+examples/               non-secret configuration examples
+```
 
-### 5. 1M 上下文假开
+## Scope
 
-问题：
-- 前端如果写死 `[1m]`，会给用户错误预期
+Mossen is a local CLI project. Hosted service features, team sync, remote attach, and account-managed workflows are not required for the V1.0 source release unless they are wired to a real public implementation.
 
-处理：
-- 改为**以后端能力真值为准**
-- 只有显式声明 `MOSSEN_CODE_CUSTOM_MAX_INPUT_TOKENS>=1000000` 才开放 1M
-- `auth status --text` 和 `/status` 现已显示真实 `Context window`
+## License
 
-### 6. 运行态中英文不一致
-
-问题：
-- fresh session、spinner、帮助页、低频弹层中仍残留大量英文
-
-处理：
-- 大规模把固定英文用户面切到动态中英
-- 保证中文对话下，除代码/命令/模型名等特殊词外，用户面尽量中文
-
-## 当前验证结果
-
-最近一轮明确跑过并通过的主验证包括：
-
-- `python3 scripts/smoke_check.py`
-- `python3 scripts/personal_acceptance_check.py`
-- `python3 scripts/personal_acceptance_check.py --with-extended-real-tasks`
-- 多项 targeted audits：
-  - provider parity
-  - mcp command audit
-  - LSP binary guard
-  - language/runtime audits
-
-## 还剩哪些问题
-
-### 1. 第二层残留仍可能有零散漏网
-
-虽然高频用户面已经基本收口，但低频路径里仍可能还有少量旧品牌、老命令名或旧 hosted/remote 产品面残留。
-这类问题一旦进入当前用户可见输出，就应继续清理，不再作为单机版边界说明保留。
-
-### 2. 语言体验仍需要继续真实使用中观察
-
-虽然动态中英切换已经铺开，但最终标准仍然是：
-
-- 用户用中文对话：运行态尽量中文
-- 用户用英文对话：运行态尽量英文
-
-这个需要继续靠真实使用把边角漏口收完。
-
-### 3. 底层 legacy 命名迁移已切到专门分支推进
-
-这条线现在已经不再和 `main` 主线混做。
-高风险命名迁移被隔离到专门分支上单独推进，用来集中处理底层路径、说明文件和环境变量真值的整体替换。
-
-## 后续建议
-
-如果以后继续推进，我建议按这个顺序：
-
-1. 继续清理第二层品牌残留
-2. 继续用真实项目压语言切换和 spinner/checklist 稳定性
-3. 继续在专门迁移分支上验证底层 legacy 命名到 Mossen 真值的整体替换
-4. 如需分发给其他机器，再做真正的独立发布包，而不是仅用 `npm link`
-
-## 备注
-
-- 本仓库当前是**个人单机版 Mossen 主线**
-- 目标是“尽量对齐官方的核心行为语义和用户可见体验”
-- 但这**不等于**不同底模（例如 Qwen/GPT/DeepSeek）的智力水平会天然等于任何特定闭源模型
-
-如果你后面再回来维护这套仓库，建议先看：
-
-1. 本 README
-2. `PLAN_PRODUCTION.md`（生产化路线图）
-3. `scripts/smoke_check.py`
-4. `scripts/personal_acceptance_check.py`
-5. `AGENTS.md`
+MIT. See [LICENSE](LICENSE).

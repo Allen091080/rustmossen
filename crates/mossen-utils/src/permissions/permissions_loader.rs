@@ -284,3 +284,86 @@ pub fn add_permission_rules_to_settings(
 
 /// 对应 TS `PermissionRuleFromEditableSettings`：从可编辑 settings 解析的权限规则 JSON 别名。
 pub type PermissionRuleFromEditableSettings = serde_json::Value;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn settings_map() -> HashMap<&'static str, serde_json::Value> {
+        HashMap::from([
+            (
+                "userSettings",
+                json!({"permissions": {"allow": ["Bash(cargo test)"]}}),
+            ),
+            (
+                "projectSettings",
+                json!({"permissions": {"deny": ["Bash(cargo test)"]}}),
+            ),
+            (
+                "localSettings",
+                json!({"permissions": {"deny": ["Write(src/generated/)"]}}),
+            ),
+        ])
+    }
+
+    #[test]
+    fn load_all_permission_rules_preserves_user_project_local_sources() {
+        let settings = settings_map();
+        let rules = load_all_permission_rules_from_disk(
+            |source| settings.get(source).cloned(),
+            || vec!["userSettings", "projectSettings", "localSettings"],
+        );
+
+        assert_eq!(rules.len(), 3);
+        assert!(rules.iter().any(|rule| {
+            rule.source == PermissionRuleSource::UserSettings
+                && rule.rule_behavior == PermissionBehavior::Allow
+                && rule.rule_value.tool_name == "Bash"
+                && rule.rule_value.rule_content.as_deref() == Some("cargo test")
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.source == PermissionRuleSource::ProjectSettings
+                && rule.rule_behavior == PermissionBehavior::Deny
+                && rule.rule_value.tool_name == "Bash"
+                && rule.rule_value.rule_content.as_deref() == Some("cargo test")
+        }));
+        assert!(rules.iter().any(|rule| {
+            rule.source == PermissionRuleSource::LocalSettings
+                && rule.rule_behavior == PermissionBehavior::Deny
+                && rule.rule_value.tool_name == "Write"
+                && rule.rule_value.rule_content.as_deref() == Some("src/generated/")
+        }));
+    }
+
+    #[test]
+    fn managed_only_permission_rules_ignore_editable_sources() {
+        let mut settings = settings_map();
+        settings.insert(
+            "policySettings",
+            json!({
+                "allowManagedPermissionRulesOnly": true,
+                "permissions": {"deny": ["Bash(deploy)"]}
+            }),
+        );
+
+        let rules = load_all_permission_rules_from_disk(
+            |source| settings.get(source).cloned(),
+            || {
+                vec![
+                    "userSettings",
+                    "projectSettings",
+                    "localSettings",
+                    "policySettings",
+                ]
+            },
+        );
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].source, PermissionRuleSource::PolicySettings);
+        assert_eq!(rules[0].rule_behavior, PermissionBehavior::Deny);
+        assert_eq!(rules[0].rule_value.tool_name, "Bash");
+        assert_eq!(rules[0].rule_value.rule_content.as_deref(), Some("deploy"));
+    }
+}

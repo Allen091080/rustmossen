@@ -10,8 +10,11 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -106,9 +109,13 @@ const MAX_ACTIVE_RENDER_FRAME_INTERVAL: Duration = Duration::from_millis(250);
 const MOUSE_WHEEL_SCROLL_ROWS: usize = 3;
 const PERMISSION_MODE_ENV: &str = "MOSSEN_PERMISSION_MODE";
 use mossen_agent::types::ContentDelta;
-use mossen_agent::types::{OriginTag, PermissionMode, PromptParams, SdkMessage, StreamEventData};
+use mossen_agent::types::{
+    EffortLevel, OriginTag, PermissionMode, PromptParams, SdkMessage, StreamEventData,
+};
 use mossen_commands::access::{PERMISSION_ALLOW_RULES_ENV, PERMISSION_DENY_RULES_ENV};
-use mossen_commands::{find_directive, BoxedDirective, CommandContext, CommandResult};
+use mossen_commands::{
+    find_directive, BoxedDirective, CommandContext, CommandCostSnapshot, CommandResult,
+};
 use mossen_tools::todo::TaskNotePadInput;
 use mossen_types::{ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolUseContext};
 use unicode_segmentation::UnicodeSegmentation;
@@ -118,11 +125,22 @@ use unicode_width::UnicodeWidthStr;
 // Engine integration config
 // ---------------------------------------------------------------------------
 
+pub type McpReloadFuture =
+    Pin<Box<dyn Future<Output = Result<McpRuntimeReloadResult, String>> + Send>>;
+pub type McpReloadCallback = Arc<dyn Fn() -> McpReloadFuture + Send + Sync>;
+
+#[derive(Debug, Clone, Default)]
+pub struct McpRuntimeReloadResult {
+    pub tool_definitions: Vec<ToolDefinition>,
+    pub server_count: usize,
+    pub connected_count: usize,
+}
+
 /// Static engine configuration the App needs to build `PromptParams` for each
 /// turn. Built once by the launcher and threaded through `App::with_engine`.
 #[derive(Clone)]
 pub struct EngineConfig {
-    /// Default model id (e.g. "MiniMax-M2" in tests).
+    /// Default model id (for example, "example-fast" in tests).
     pub model: String,
     /// Pre-assembled system prompt blocks. Built once by the launcher
     /// (`mossen_cli::system_prompt::assemble`) and reused across every turn
@@ -138,6 +156,10 @@ pub struct EngineConfig {
     pub origin_tag: OriginTag,
     /// Max conversation turns per dispatch (None = engine default).
     pub max_turns: Option<u32>,
+    /// Live fast-mode override forwarded into the engine request path.
+    pub fast_mode: Option<bool>,
+    /// Live effort override forwarded into provider-specific request fields.
+    pub effort: Option<EffortLevel>,
     /// Extra request body fields passed verbatim to the backend.
     pub extra_body: HashMap<String, serde_json::Value>,
     /// Output style selected via `/output-style` picker. `None` = the
@@ -162,6 +184,8 @@ impl std::fmt::Debug for EngineConfig {
             .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
             .field("origin_tag", &self.origin_tag)
             .field("max_turns", &self.max_turns)
+            .field("fast_mode", &self.fast_mode)
+            .field("effort", &self.effort)
             .field("extra_body", &self.extra_body)
             .field("output_style", &self.output_style)
             .field(
@@ -187,9 +211,35 @@ struct CompactTaskResult {
     result: mossen_agent::services::compact::compact::CompactConversationResult,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TranscriptExportFormat {
+    Markdown,
+    Json,
+    Text,
+}
+
+impl TranscriptExportFormat {
+    fn from_arg(arg: &str) -> Option<Self> {
+        match arg.trim().to_ascii_lowercase().as_str() {
+            "md" | "markdown" => Some(Self::Markdown),
+            "json" => Some(Self::Json),
+            "txt" | "text" => Some(Self::Text),
+            _ => None,
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Markdown => "md",
+            Self::Json => "json",
+            Self::Text => "txt",
+        }
+    }
+}
+
 impl EngineConfig {
     /// Build a sensible default suitable for the TUI: model from env or
-    /// hardcoded test value, MiniMax base URL if present, etc.
+    /// hardcoded test value, custom backend base URL if present, etc.
     pub fn from_env(default_model: &str) -> Self {
         Self {
             model: std::env::var("MOSSEN_MODEL")
@@ -204,10 +254,38 @@ impl EngineConfig {
             api_key: std::env::var("MOSSEN_API_KEY").ok(),
             origin_tag: OriginTag::Repl,
             max_turns: None,
+            fast_mode: parse_env_bool("MOSSEN_FAST_MODE"),
+            effort: std::env::var("MOSSEN_CODE_EFFORT_LEVEL")
+                .ok()
+                .and_then(|value| parse_effort_level(&value)),
             extra_body: HashMap::new(),
             output_style: None,
             compact_hook_context: None,
         }
+    }
+}
+
+fn parse_env_bool(name: &str) -> Option<bool> {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| parse_bool_arg(&value))
+}
+
+fn parse_bool_arg(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" | "enable" | "enabled" => Some(true),
+        "0" | "false" | "off" | "no" | "disable" | "disabled" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_effort_level(value: &str) -> Option<EffortLevel> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "low" => Some(EffortLevel::Low),
+        "medium" => Some(EffortLevel::Medium),
+        "high" => Some(EffortLevel::High),
+        "max" => Some(EffortLevel::Max),
+        _ => None,
     }
 }
 
@@ -1794,7 +1872,7 @@ pub struct App {
     additional_working_directories: Vec<String>,
 
     /// Executable tool registry, shared with the agent. The CLI builds this
-    /// from `mossen_tools::all_tools()` and injects via
+    /// from the runtime-gated mossen tool registry and injects via
     /// [`App::with_tool_registry`]. When `Some`, `handle_submit` extracts
     /// `ToolDefinition`s for the request body and clones the `Arc` into
     /// `PromptParams::tool_registry` so the dialogue loop can actually
@@ -1804,6 +1882,10 @@ pub struct App {
     /// the built-in tool registry. MCP tools use this path: dialogue.rs
     /// recognizes `mcp__...` names and routes them to the live MCP manager.
     pub extra_tool_definitions: Vec<ToolDefinition>,
+    /// Host-provided hook that reconnects the live MCP runtime after
+    /// `/reload-plugins`. Kept as a callback so mossen-tui does not depend on
+    /// mossen-cli or own the MCP manager lifecycle.
+    pub mcp_reload_callback: Option<McpReloadCallback>,
 
     /// Ctrl+E toggle — when true, every assistant message's thinking
     /// block stays rendered regardless of the 30s auto-fade timer.
@@ -1815,6 +1897,7 @@ pub struct App {
     /// `(status, id, subject)`.
     pub task_snapshot_provider:
         Option<std::sync::Arc<dyn Fn() -> Vec<(String, String, String)> + Send + Sync>>,
+    pub task_notification_rx: Option<std_mpsc::Receiver<mossen_tools::task_store::TaskStoreEvent>>,
 
     /// Indices of `ToolUse` messages whose following `ToolResult` is
     /// currently collapsed (hidden from view). Press Space/Enter while a
@@ -1890,6 +1973,7 @@ impl App {
             cli_name: "mossen".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         };
         let permission_rules = permission_rules_from_env(&command_context.env_vars);
         let (external_statusline_result_tx, external_statusline_result_rx) =
@@ -1935,7 +2019,7 @@ impl App {
             started_at: Instant::now(),
             should_quit: false,
             fullscreen: true,
-            engine_config: EngineConfig::from_env("MiniMax-M2"),
+            engine_config: EngineConfig::from_env("example-default"),
             engine_rx: None,
             engine_session_id: None,
             engine_history: Vec::new(),
@@ -1962,8 +2046,10 @@ impl App {
             additional_working_directories: Vec::new(),
             tool_registry: None,
             extra_tool_definitions: Vec::new(),
+            mcp_reload_callback: None,
             show_all_thinking: false,
             task_snapshot_provider: None,
+            task_notification_rx: None,
             collapsed_tool_groups: std::collections::HashSet::new(),
             focused_message_idx: None,
             pending_images: Vec::new(),
@@ -2001,6 +2087,14 @@ impl App {
         self
     }
 
+    pub fn with_task_notification_receiver(
+        mut self,
+        receiver: std_mpsc::Receiver<mossen_tools::task_store::TaskStoreEvent>,
+    ) -> Self {
+        self.task_notification_rx = Some(receiver);
+        self
+    }
+
     pub fn with_glyphs(mut self, glyphs: RenderGlyphs) -> Self {
         self.glyphs = glyphs;
         self
@@ -2011,7 +2105,7 @@ impl App {
     /// stays decoupled from `mossen-tools`.
     fn snapshot_task_list(&self) -> String {
         let Some(provider) = &self.task_snapshot_provider else {
-            return "(task provider not wired)".to_string();
+            return "(task provider unavailable)".to_string();
         };
         let tasks = provider();
         if tasks.is_empty() {
@@ -2022,6 +2116,53 @@ impl App {
             out.push_str(&format!(" • [{}] {} — {}\n", status, id, subject));
         }
         out
+    }
+
+    fn poll_task_notifications(&mut self) {
+        let mut notifications = Vec::new();
+        if let Some(rx) = self.task_notification_rx.as_ref() {
+            while let Ok(notification) = rx.try_recv() {
+                notifications.push(notification);
+                if notifications.len() >= 16 {
+                    break;
+                }
+            }
+        }
+
+        for notification in notifications {
+            self.push_task_completion_notification(notification);
+        }
+    }
+
+    fn push_task_completion_notification(
+        &mut self,
+        notification: mossen_tools::task_store::TaskStoreEvent,
+    ) {
+        let status = notification.status.as_str();
+        let action = match status {
+            "completed" => "completed",
+            "failed" => "failed",
+            "cancelled" | "canceled" => "cancelled",
+            "deleted" => "deleted",
+            _ => return,
+        };
+        let title = if notification.task_type.as_deref() == Some("background_agent") {
+            "Agent"
+        } else {
+            "Background task"
+        };
+        let mut content = format!(
+            "{title} {action}: {}\nTask: {}\nUse /agents logs {} to inspect output.",
+            compact_task_subject(&notification.subject),
+            notification.id,
+            notification.id
+        );
+        if let Some(code) = notification.exit_code {
+            if status != "completed" || code != 0 {
+                content.push_str(&format!("\nExit code: {code}"));
+            }
+        }
+        self.push_system_message(content, status == "failed");
     }
 
     /// Ctrl+S helper — append the stash payload to a per-user file so it
@@ -2139,6 +2280,24 @@ impl App {
             .map(|area| area.height as usize)
             .filter(|rows| *rows > 0)
             .unwrap_or_else(|| self.scroll.visible_count.max(1))
+    }
+
+    fn refresh_transcript_scroll_metrics_for_input(&mut self) {
+        let Some(area) = self.message_content_area else {
+            return;
+        };
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+
+        let surface = self.render_surface_model();
+        if surface.transcript.is_empty() {
+            return;
+        }
+
+        self.scroll.set_viewport_height(area.height);
+        let total_rows = self.message_total_rows(&surface, area.width);
+        self.scroll.set_total_items(total_rows);
     }
 
     /// True when row `i` would be rendered — i.e. it isn't a
@@ -2264,6 +2423,36 @@ impl App {
     pub fn with_extra_tool_definitions(mut self, tools: Vec<ToolDefinition>) -> Self {
         self.extra_tool_definitions = tools;
         self
+    }
+
+    pub fn with_mcp_reload_callback(mut self, callback: McpReloadCallback) -> Self {
+        self.mcp_reload_callback = Some(callback);
+        self
+    }
+
+    fn rebuild_tool_registry_for_mcp_resources(&mut self, enabled: bool) {
+        let mut registry = mossen_agent::tool_registry::ToolRegistry::new();
+        registry.register_all(mossen_tools::all_tools_for_runtime(
+            mossen_tools::ToolRuntimeOptions {
+                mcp_resources: enabled,
+            },
+        ));
+        self.tool_registry = Some(Arc::new(registry));
+    }
+
+    fn reload_mcp_runtime_after_plugin_reload(
+        &mut self,
+    ) -> Option<Result<McpRuntimeReloadResult, String>> {
+        let callback = self.mcp_reload_callback.as_ref()?.clone();
+        let result = block_on_current_runtime((callback)());
+        if let Ok(outcome) = &result {
+            self.extra_tool_definitions = outcome.tool_definitions.clone();
+            if outcome.server_count > 0 {
+                self.rebuild_tool_registry_for_mcp_resources(true);
+            }
+            self.refresh_mcp_statuses();
+        }
+        Some(result)
     }
 
     /// Attach startup hook output to the first submitted prompt and surface
@@ -4991,11 +5180,16 @@ impl App {
 
     fn reasoning_status_label(&self) -> Option<String> {
         self.engine_config
-            .extra_body
-            .get("effort")
-            .or_else(|| self.engine_config.extra_body.get("reasoning_effort"))
-            .or_else(|| self.engine_config.extra_body.get("reasoningEffort"))
-            .and_then(json_string_value)
+            .effort
+            .map(|level| level.as_str().to_string())
+            .or_else(|| {
+                self.engine_config
+                    .extra_body
+                    .get("effort")
+                    .or_else(|| self.engine_config.extra_body.get("reasoning_effort"))
+                    .or_else(|| self.engine_config.extra_body.get("reasoningEffort"))
+                    .and_then(json_string_value)
+            })
             .or_else(|| std::env::var("MOSSEN_CODE_EFFORT_LEVEL").ok())
             .map(|value| value.trim().to_ascii_lowercase())
             .filter(|value| !value.is_empty())
@@ -6458,6 +6652,7 @@ impl App {
                 }
             }
             AppEvent::Mouse(mouse) => {
+                self.services.note_interaction();
                 if self.handle_mouse(mouse) {
                     self.mark_render_dirty();
                 }
@@ -6510,6 +6705,7 @@ impl App {
                 self.poll_mcp_channel_approval();
                 self.launch_pending_compact_task();
                 self.poll_compact_result();
+                self.poll_task_notifications();
                 self.refresh_slash_catalog_with_notice(true);
                 if self.render_tick_fingerprint() != before {
                     self.mark_render_dirty();
@@ -6691,10 +6887,12 @@ impl App {
         if prompt_empty && !self.prompt.show_suggestions {
             match key.code {
                 KeyCode::Up if key.modifiers.is_empty() => {
+                    self.refresh_transcript_scroll_metrics_for_input();
                     self.scroll.scroll_up(1);
                     return;
                 }
                 KeyCode::Down if key.modifiers.is_empty() => {
+                    self.refresh_transcript_scroll_metrics_for_input();
                     self.scroll.scroll_down(1);
                     return;
                 }
@@ -6731,6 +6929,7 @@ impl App {
                     // the virtual scroll to the tail so a user pinned
                     // mid-history can re-anchor on the latest message.
                     'l' => {
+                        self.refresh_transcript_scroll_metrics_for_input();
                         self.scroll.scroll_to_bottom();
                         return;
                     }
@@ -6810,7 +7009,7 @@ impl App {
                     }
                 }
                 InputAction::Submit => {
-                    if self.prompt.show_suggestions {
+                    if self.prompt.show_suggestions && !self.prompt_input_is_exact_slash_command() {
                         self.prompt.accept_suggestion();
                         self.update_suggestions();
                         return;
@@ -6844,6 +7043,7 @@ impl App {
                 }
                 InputAction::Home => {
                     if self.prompt.input.value.is_empty() && !self.prompt.show_suggestions {
+                        self.refresh_transcript_scroll_metrics_for_input();
                         self.scroll.scroll_to_top();
                     } else {
                         self.prompt.input.move_home();
@@ -6852,6 +7052,7 @@ impl App {
                 }
                 InputAction::End => {
                     if self.prompt.input.value.is_empty() && !self.prompt.show_suggestions {
+                        self.refresh_transcript_scroll_metrics_for_input();
                         self.scroll.scroll_to_bottom();
                     } else {
                         self.prompt.input.move_end();
@@ -6894,6 +7095,7 @@ impl App {
                     if self.prompt.show_suggestions {
                         self.prompt.suggestion_page_up(5);
                     } else {
+                        self.refresh_transcript_scroll_metrics_for_input();
                         self.scroll.scroll_up(self.transcript_page_scroll_rows());
                     }
                 }
@@ -6901,6 +7103,7 @@ impl App {
                     if self.prompt.show_suggestions {
                         self.prompt.suggestion_page_down(5);
                     } else {
+                        self.refresh_transcript_scroll_metrics_for_input();
                         self.scroll.scroll_down(self.transcript_page_scroll_rows());
                     }
                 }
@@ -7652,18 +7855,12 @@ impl App {
     fn apply_picker_choice(&mut self, kind: PickerKind, choice: &str) {
         match kind {
             PickerKind::Theme => {
-                let name = match choice {
-                    "Dark" => crate::theme::ThemeName::Dark,
-                    "Light" => crate::theme::ThemeName::Light,
-                    "Dark (high contrast)" => crate::theme::ThemeName::DarkHighContrast,
-                    "Light (high contrast)" => crate::theme::ThemeName::LightHighContrast,
-                    _ => return,
+                let Some((name, display)) = parse_theme_choice(choice) else {
+                    return;
                 };
-                self.state.theme = name;
-                self.theme =
-                    crate::theme::Theme::for_name_with_color_mode(name, self.theme.color_mode);
+                self.apply_theme_name(name);
                 self.messages.push(system_transcript_message(
-                    format!("Theme set to: {}", choice),
+                    format!("Theme set to: {}", display),
                     false,
                 ));
                 self.note_transcript_changed();
@@ -7677,43 +7874,61 @@ impl App {
                 self.apply_permission_mode_choice(choice);
             }
             PickerKind::OutputStyle => {
-                // Persist the choice on EngineConfig and append the
-                // matching guidance block to the system prompt so the
-                // next turn's API request actually reflects it.
-                self.engine_config.output_style = Some(choice.to_string());
-                let guidance = match choice {
-                    "Concise" => Some(
-                        "# Output style: Concise\n\nKeep responses tight: one sentence per idea, no preamble, no \"Sure!\" or \"Of course!\" lead-ins. If the answer is one line, the response is one line.",
-                    ),
-                    "Explanatory" => Some(
-                        "# Output style: Explanatory\n\nWalk the user through your reasoning. State assumptions, explain why one approach beats another, and call out edge cases. Bias toward depth over brevity, but stay focused.",
-                    ),
-                    "Code-first" => Some(
-                        "# Output style: Code-first\n\nLead with the code that solves the problem. Place explanatory prose *after* the code block. If the answer is purely conceptual (no code), say so up front and skip the empty code fence.",
-                    ),
-                    "Default" => None,
-                    _ => None,
+                let Some(display) = self.apply_output_style_choice(choice) else {
+                    return;
                 };
-                // Drop any previous output-style block (recognised by the
-                // `# Output style:` header), then append the new one.
-                self.engine_config
-                    .system_prompt
-                    .retain(|b| !b.text.starts_with("# Output style:"));
-                if let Some(text) = guidance {
-                    self.engine_config
-                        .system_prompt
-                        .push(mossen_agent::types::SystemBlock {
-                            text: text.to_string(),
-                            cache_control: None,
-                        });
-                }
                 self.messages.push(system_transcript_message(
-                    format!("Output style set to: {}", choice),
+                    format!("Output style set to: {}", display),
                     false,
                 ));
                 self.note_transcript_changed();
             }
         }
+    }
+
+    fn apply_theme_name(&mut self, name: crate::theme::ThemeName) {
+        self.state.theme = name;
+        self.theme = crate::theme::Theme::for_name_with_color_mode(name, self.theme.color_mode);
+        self.mark_render_dirty();
+    }
+
+    fn apply_output_style_choice(&mut self, raw: &str) -> Option<&'static str> {
+        let (id, display, guidance) = output_style_choice(raw)?;
+        self.engine_config.output_style = if id == "default" {
+            None
+        } else {
+            Some(display.to_string())
+        };
+        self.engine_config
+            .system_prompt
+            .retain(|b| !b.text.starts_with("# Output style:"));
+        if let Some(text) = guidance {
+            self.engine_config
+                .system_prompt
+                .push(mossen_agent::types::SystemBlock {
+                    text: text.to_string(),
+                    cache_control: None,
+                });
+        }
+        Some(display)
+    }
+
+    fn apply_proactive_mode(&mut self, enabled: bool) {
+        self.engine_config
+            .system_prompt
+            .retain(|b| !b.text.starts_with("# Proactive mode:"));
+        if enabled {
+            self.engine_config
+                .system_prompt
+                .push(mossen_agent::types::SystemBlock {
+                    text: "# Proactive mode: Enabled\n\nWhen it is relevant and low-noise, point out likely bugs, missing tests, risky assumptions, or follow-up improvements without waiting for a separate prompt.".to_string(),
+                    cache_control: None,
+                });
+        }
+        self.command_context.env_vars.insert(
+            "MOSSEN_PROACTIVE".to_string(),
+            if enabled { "1" } else { "0" }.to_string(),
+        );
     }
 
     /// Handle submitted input.
@@ -7780,7 +7995,7 @@ impl App {
         // attached via `with_tool_registry`. Falling back to `Vec::new()`
         // keeps the empty-registry test path working; production runs
         // always carry the full built-in tool list so the model knows what
-        // it can actually call (without this, MiniMax falls back to
+        // it can actually call (without this, some models fall back to
         // emitting bash commands inside markdown code blocks).
         let mut tools = self
             .tool_registry
@@ -7811,6 +8026,8 @@ impl App {
             api_base_url: cfg.api_base_url.clone(),
             api_key: cfg.api_key.clone(),
             extra_body: cfg.extra_body.clone(),
+            fast_mode: cfg.fast_mode,
+            effort: cfg.effort,
             permission_mode: PermissionMode::parse(self.current_permission_mode_code()),
             permission_gate: Some(gate),
             tool_registry: self.tool_registry.clone(),
@@ -8319,36 +8536,15 @@ impl App {
     }
 
     fn handle_copy_command(&mut self, args_raw: &str) {
-        let age = match copy_response_index(args_raw) {
-            Ok(age) => age,
+        let (text, label) = match self.copy_command_payload(args_raw) {
+            Ok(payload) => payload,
             Err(message) => {
                 self.push_command_output("copy", message, true);
                 return;
             }
         };
-        let Some(message) = self
-            .messages
-            .iter()
-            .rev()
-            .filter(|message| {
-                message.message_type == MessageType::Assistant && !message.content.trim().is_empty()
-            })
-            .nth(age)
-        else {
-            self.push_command_output("copy", "No assistant message to copy.", true);
-            return;
-        };
-        let text = message
-            .full_content
-            .as_deref()
-            .unwrap_or(message.content.as_str());
-        match write_clipboard_text(text) {
+        match write_clipboard_text(&text) {
             Ok(()) => {
-                let label = if age == 0 {
-                    "latest assistant response".to_string()
-                } else {
-                    format!("assistant response #{}", age + 1)
-                };
                 self.push_command_output("copy", format!("Copied {label} to clipboard."), false);
             }
             Err(error) => {
@@ -8359,6 +8555,222 @@ impl App {
                 );
             }
         }
+    }
+
+    fn copy_command_payload(&self, args_raw: &str) -> Result<(String, String), String> {
+        let trimmed = args_raw.trim();
+        if matches!(trimmed, "help" | "-h" | "--help") {
+            return Err(
+                "Usage: /copy [N|transcript|all]\nN copies an assistant response; transcript/all copies the current conversation as text."
+                    .to_string(),
+            );
+        }
+        if matches!(trimmed, "transcript" | "all") {
+            let body = self.export_transcript_text();
+            if body.trim().is_empty() {
+                return Err("No transcript content to copy.".to_string());
+            }
+            return Ok((body, "conversation transcript".to_string()));
+        }
+
+        let age = match copy_response_index(args_raw) {
+            Ok(age) => age,
+            Err(message) => return Err(message),
+        };
+        let Some(message) = self
+            .messages
+            .iter()
+            .rev()
+            .filter(|message| {
+                message.message_type == MessageType::Assistant && !message.content.trim().is_empty()
+            })
+            .nth(age)
+        else {
+            return Err("No assistant message to copy.".to_string());
+        };
+        let text = message
+            .full_content
+            .as_deref()
+            .unwrap_or(message.content.as_str());
+        let label = if age == 0 {
+            "latest assistant response".to_string()
+        } else {
+            format!("assistant response #{}", age + 1)
+        };
+        Ok((text.to_string(), label))
+    }
+
+    fn handle_export_command(&mut self, args_raw: &str) {
+        let trimmed = args_raw.trim();
+        if matches!(trimmed, "help" | "-h" | "--help") {
+            self.push_command_output(
+                "export",
+                "Usage: /export [md|json|txt] [path]\nDefault: /export md conversation-export.md",
+                false,
+            );
+            return;
+        }
+
+        let (format, raw_path) = parse_export_request(trimmed);
+        let path = self.resolve_export_path(raw_path.as_deref(), format);
+        let body = match self.export_transcript_body(format) {
+            Ok(body) => body,
+            Err(error) => {
+                self.push_command_output(
+                    "export",
+                    format!("Failed to render export: {error}"),
+                    true,
+                );
+                return;
+            }
+        };
+
+        if let Some(parent) = path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                self.push_command_output(
+                    "export",
+                    format!(
+                        "Failed to create export directory {}: {error}",
+                        parent.display()
+                    ),
+                    true,
+                );
+                return;
+            }
+        }
+
+        match std::fs::write(&path, body) {
+            Ok(()) => self.push_command_output(
+                "export",
+                format!("Exported conversation transcript to {}", path.display()),
+                false,
+            ),
+            Err(error) => self.push_command_output(
+                "export",
+                format!("Failed to write export {}: {error}", path.display()),
+                true,
+            ),
+        }
+    }
+
+    fn resolve_export_path(
+        &self,
+        raw_path: Option<&str>,
+        format: TranscriptExportFormat,
+    ) -> PathBuf {
+        let path = raw_path
+            .filter(|path| !path.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(format!("conversation-export.{}", format.extension()))
+            });
+        let path = if path.is_absolute() {
+            path
+        } else {
+            PathBuf::from(&self.engine_config.cwd).join(path)
+        };
+        if path.extension().is_some() {
+            path
+        } else {
+            path.with_extension(format.extension())
+        }
+    }
+
+    fn export_transcript_body(
+        &self,
+        format: TranscriptExportFormat,
+    ) -> Result<String, serde_json::Error> {
+        match format {
+            TranscriptExportFormat::Markdown => Ok(self.export_transcript_markdown()),
+            TranscriptExportFormat::Text => Ok(self.export_transcript_text()),
+            TranscriptExportFormat::Json => self.export_transcript_json(),
+        }
+    }
+
+    fn export_transcript_markdown(&self) -> String {
+        let mut out = String::new();
+        out.push_str("# Mossen Conversation Export\n\n");
+        out.push_str(&format!("Messages: {}\n\n", self.messages.len()));
+        for message in &self.messages {
+            out.push_str("## ");
+            out.push_str(export_message_label(message));
+            out.push_str("\n\n");
+            out.push_str(export_message_content(message));
+            out.push_str("\n\n");
+        }
+        out
+    }
+
+    fn export_transcript_text(&self) -> String {
+        let mut out = String::new();
+        for message in &self.messages {
+            out.push_str(export_message_label(message));
+            out.push_str(":\n");
+            out.push_str(export_message_content(message));
+            out.push_str("\n\n");
+        }
+        out
+    }
+
+    fn export_transcript_json(&self) -> Result<String, serde_json::Error> {
+        let messages = self
+            .messages
+            .iter()
+            .enumerate()
+            .map(|(index, message)| {
+                serde_json::json!({
+                    "index": index,
+                    "type": export_message_type(message),
+                    "isError": message.is_error,
+                    "isStreaming": message.is_streaming,
+                    "toolName": message.tool_name,
+                    "content": export_message_content(message),
+                    "thinking": message.thinking,
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 1,
+            "messageCount": self.messages.len(),
+            "messages": messages,
+        }))
+    }
+
+    fn handle_context_command(&mut self) {
+        let context = self.context_usage_render_model();
+        let mut lines = Vec::new();
+        lines.push("Context Usage".to_string());
+        lines.push(format!("Model: {}", self.engine_config.model));
+        if let Some(context) = context {
+            lines.push(format!(
+                "Estimated tokens: {} / {} ({})",
+                context.used_tokens,
+                context.window_tokens,
+                context.label()
+            ));
+        } else {
+            lines.push("Estimated tokens: unavailable".to_string());
+        }
+        lines.push(format!(
+            "Engine history messages: {}",
+            self.engine_history.len()
+        ));
+        lines.push(format!(
+            "Visible transcript messages: {}",
+            self.messages.len()
+        ));
+        lines.push(format!(
+            "Compact: {}",
+            if self.state.compact_in_progress {
+                self.state
+                    .compact_progress
+                    .as_deref()
+                    .unwrap_or("in progress")
+            } else {
+                "idle"
+            }
+        ));
+        self.push_command_output("context", lines.join("\n"), false);
     }
 
     fn open_widget_command(&mut self, command: &str, args_raw: &str) -> bool {
@@ -9014,9 +9426,9 @@ impl App {
                             "{} known / registry {}",
                             self.known_skill_names.len(),
                             if self.skill_registry.is_some() {
-                                "wired"
+                                "configured"
                             } else {
-                                "not wired"
+                                "unavailable"
                             }
                         ),
                         StatusRowLevel::Info,
@@ -9024,9 +9436,9 @@ impl App {
                     .row(
                         "Tool Registry",
                         if self.tool_registry.is_some() {
-                            "wired"
+                            "configured"
                         } else {
-                            "not wired"
+                            "unavailable"
                         },
                         StatusRowLevel::Info,
                     )
@@ -9469,8 +9881,258 @@ impl App {
         );
     }
 
+    fn handle_theme_command(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            self.active_modal = ActiveModal::Picker {
+                kind: PickerKind::Theme,
+                title: "Select theme".to_string(),
+                items: theme_picker_items(),
+                selected: 0,
+            };
+            return;
+        }
+
+        let requested = args[0];
+        if matches!(requested, "help" | "-h" | "--help") {
+            self.push_command_output(
+                "theme",
+                "Usage: /theme [dark|light|dark-high-contrast|light-high-contrast]",
+                false,
+            );
+            return;
+        }
+
+        let Some((name, display)) = parse_theme_choice(requested) else {
+            self.push_command_output(
+                "theme",
+                format!(
+                    "Unknown theme: \"{}\". Available themes: dark, light, dark-high-contrast, light-high-contrast",
+                    requested
+                ),
+                true,
+            );
+            return;
+        };
+
+        self.apply_theme_name(name);
+        self.push_command_output("theme", format!("Theme set to: {}", display), false);
+    }
+
+    fn handle_fast_command(&mut self, args: &[&str]) {
+        let first = args.first().copied().unwrap_or("");
+        if matches!(first, "help" | "-h" | "--help") {
+            self.push_command_output("fast", "Usage: /fast [on|off|status]", false);
+            return;
+        }
+
+        if matches!(first, "status" | "current" | "show") {
+            let enabled = self.engine_config.fast_mode.unwrap_or(self.state.fast_mode);
+            self.push_command_output(
+                "fast",
+                format!(
+                    "Fast mode: {}",
+                    if enabled { "enabled" } else { "disabled" }
+                ),
+                false,
+            );
+            return;
+        }
+
+        let next = if first.is_empty() {
+            !self.engine_config.fast_mode.unwrap_or(self.state.fast_mode)
+        } else if let Some(value) = parse_bool_arg(first) {
+            value
+        } else {
+            self.push_command_output(
+                "fast",
+                format!("Invalid value: \"{}\". Use on/off/status.", first),
+                true,
+            );
+            return;
+        };
+
+        self.engine_config.fast_mode = Some(next);
+        self.state.fast_mode = next;
+        self.command_context.env_vars.insert(
+            "MOSSEN_FAST_MODE".to_string(),
+            if next { "1" } else { "0" }.to_string(),
+        );
+        self.push_command_output(
+            "fast",
+            format!(
+                "Fast mode: {}. The next model request will use this mode.",
+                if next { "enabled" } else { "disabled" }
+            ),
+            false,
+        );
+    }
+
+    fn handle_effort_command(&mut self, args: &[&str]) {
+        let first = args.first().copied().unwrap_or("");
+        if matches!(first, "help" | "-h" | "--help") {
+            self.push_command_output(
+                "effort",
+                "Usage: /effort [low|medium|high|max|auto|status]",
+                false,
+            );
+            return;
+        }
+
+        if first.is_empty() || matches!(first, "status" | "current" | "show") {
+            let label = self
+                .engine_config
+                .effort
+                .map(|level| level.as_str().to_string())
+                .or_else(|| std::env::var("MOSSEN_CODE_EFFORT_LEVEL").ok())
+                .unwrap_or_else(|| "auto".to_string());
+            self.push_command_output("effort", format!("Effort level: {}", label), false);
+            return;
+        }
+
+        if matches!(first, "auto" | "unset" | "reset" | "default") {
+            self.engine_config.effort = None;
+            self.command_context
+                .env_vars
+                .remove("MOSSEN_CODE_EFFORT_LEVEL");
+            self.push_command_output(
+                "effort",
+                "Effort level reset to auto. The next model request will use the backend default.",
+                false,
+            );
+            return;
+        }
+
+        let Some(level) = parse_effort_level(first) else {
+            self.push_command_output(
+                "effort",
+                format!(
+                    "Invalid argument: {}. Valid options are: low, medium, high, max, auto",
+                    first
+                ),
+                true,
+            );
+            return;
+        };
+
+        self.engine_config.effort = Some(level);
+        self.command_context.env_vars.insert(
+            "MOSSEN_CODE_EFFORT_LEVEL".to_string(),
+            level.as_str().to_string(),
+        );
+        self.push_command_output(
+            "effort",
+            format!(
+                "Effort level set to: {}. The next model request will carry the provider-specific reasoning control.",
+                level.as_str()
+            ),
+            false,
+        );
+    }
+
+    fn handle_output_style_command(&mut self, args: &[&str]) {
+        let first = args.first().copied().unwrap_or("");
+        if first.is_empty() {
+            self.active_modal = ActiveModal::Picker {
+                kind: PickerKind::OutputStyle,
+                title: "Select output style".to_string(),
+                items: output_style_picker_items(),
+                selected: 0,
+            };
+            return;
+        }
+
+        if matches!(first, "help" | "-h" | "--help") {
+            self.push_command_output(
+                "output-style",
+                "Usage: /output-style [default|concise|explanatory|code-first]",
+                false,
+            );
+            return;
+        }
+
+        if matches!(first, "list" | "status" | "current" | "show") {
+            let label = self
+                .engine_config
+                .output_style
+                .as_deref()
+                .unwrap_or("Default");
+            self.push_command_output("output-style", format!("Output style: {}", label), false);
+            return;
+        }
+
+        let Some(display) = self.apply_output_style_choice(first) else {
+            self.push_command_output(
+                "output-style",
+                format!(
+                    "Unknown output style: \"{}\". Available: default, concise, explanatory, code-first",
+                    first
+                ),
+                true,
+            );
+            return;
+        };
+
+        self.push_command_output(
+            "output-style",
+            format!("Output style set to: {}", display),
+            false,
+        );
+    }
+
+    fn handle_proactive_command(&mut self, args: &[&str]) {
+        let first = args.first().copied().unwrap_or("");
+        if matches!(first, "help" | "-h" | "--help") {
+            self.push_command_output("proactive", "Usage: /proactive [on|off|status]", false);
+            return;
+        }
+
+        if first.is_empty() || matches!(first, "status" | "current" | "show") {
+            let enabled = self
+                .command_context
+                .env_vars
+                .get("MOSSEN_PROACTIVE")
+                .and_then(|value| parse_bool_arg(value))
+                .unwrap_or(false);
+            self.push_command_output(
+                "proactive",
+                format!(
+                    "Proactive suggestions: {}",
+                    if enabled { "enabled" } else { "disabled" }
+                ),
+                false,
+            );
+            return;
+        }
+
+        let Some(next) = parse_bool_arg(first) else {
+            self.push_command_output(
+                "proactive",
+                format!("Invalid value: \"{}\". Use on/off/status.", first),
+                true,
+            );
+            return;
+        };
+
+        self.apply_proactive_mode(next);
+        self.push_command_output(
+            "proactive",
+            format!(
+                "Proactive suggestions: {}. The next model request will include this instruction.",
+                if next { "enabled" } else { "disabled" }
+            ),
+            false,
+        );
+    }
+
     fn open_help_dialog(&mut self, query: &str) {
         self.active_modal = ActiveModal::HelpDialog(HelpDialogState::new(query.trim()));
+    }
+
+    fn command_cost_snapshot(&self) -> CommandCostSnapshot {
+        CommandCostSnapshot {
+            total_cost_usd: self.total_cost_usd,
+            ..Default::default()
+        }
     }
 
     /// Handle slash commands.
@@ -9545,6 +10207,14 @@ impl App {
             }
             "copy" => {
                 self.handle_copy_command(args_raw);
+                return;
+            }
+            "export" => {
+                self.handle_export_command(args_raw);
+                return;
+            }
+            "context" | "ctx" => {
+                self.handle_context_command();
                 return;
             }
             "rewind" | "undo" | "checkpoint" => {
@@ -9766,31 +10436,23 @@ impl App {
                 return;
             }
             "theme" => {
-                self.active_modal = ActiveModal::Picker {
-                    kind: PickerKind::Theme,
-                    title: "Select theme".to_string(),
-                    items: vec![
-                        "Dark".to_string(),
-                        "Light".to_string(),
-                        "Dark (high contrast)".to_string(),
-                        "Light (high contrast)".to_string(),
-                    ],
-                    selected: 0,
-                };
+                self.handle_theme_command(&args);
+                return;
+            }
+            "fast" | "turbo" => {
+                self.handle_fast_command(&args);
+                return;
+            }
+            "effort" => {
+                self.handle_effort_command(&args);
+                return;
+            }
+            "proactive" => {
+                self.handle_proactive_command(&args);
                 return;
             }
             "output-style" | "output_style" => {
-                self.active_modal = ActiveModal::Picker {
-                    kind: PickerKind::OutputStyle,
-                    title: "Select output style".to_string(),
-                    items: vec![
-                        "Default".to_string(),
-                        "Concise".to_string(),
-                        "Explanatory".to_string(),
-                        "Code-first".to_string(),
-                    ],
-                    selected: 0,
-                };
+                self.handle_output_style_command(&args);
                 return;
             }
             _ => {}
@@ -9808,6 +10470,16 @@ impl App {
         if let Some(reg) = self.directives.clone() {
             if let Some(directive) = find_directive(reg.as_slice(), command) {
                 let name = directive.name().to_string();
+                let mut ctx = self.command_context.clone();
+                ctx.cost_snapshot = self.command_cost_snapshot();
+                if !directive.is_enabled(&ctx) || directive.is_hidden() {
+                    self.push_command_output(
+                        &name,
+                        format!("/{name} is not available in this session."),
+                        true,
+                    );
+                    return;
+                }
                 if name == "permissions"
                     && args
                         .first()
@@ -9816,7 +10488,6 @@ impl App {
                 {
                     self.apply_permission_rule_command_side_effect(&args);
                 }
-                let ctx = self.command_context.clone();
                 let dtype = directive.directive_type();
                 let result =
                     block_on_current_runtime(async { directive.execute(&args, &ctx).await });
@@ -9867,7 +10538,7 @@ impl App {
                 }
 
                 let mut opened_widget = false;
-                let (msg, is_error) = match result {
+                let (mut msg, mut is_error) = match result {
                     Ok(CommandResult::Text(t)) => (t, false),
                     Ok(CommandResult::System(t)) => (t, false),
                     Ok(CommandResult::Empty) => {
@@ -9911,6 +10582,25 @@ impl App {
                     self.state.compact_progress = Some(msg.clone());
                     self.state.compact_notice_until =
                         Some(std::time::Instant::now() + std::time::Duration::from_secs(6));
+                }
+                if name == "reload-plugins" {
+                    self.refresh_slash_catalog_with_notice(true);
+                    if let Some(result) = self.reload_mcp_runtime_after_plugin_reload() {
+                        match result {
+                            Ok(outcome) => {
+                                msg.push_str(&format!(
+                                    "\nMCP runtime: {}/{} server(s), {} tool(s) visible next turn.",
+                                    outcome.connected_count,
+                                    outcome.server_count,
+                                    outcome.tool_definitions.len()
+                                ));
+                            }
+                            Err(error) => {
+                                is_error = true;
+                                msg.push_str(&format!("\nMCP runtime reload failed: {error}"));
+                            }
+                        }
+                    }
                 }
 
                 self.push_command_output(&name, msg, is_error);
@@ -10033,6 +10723,24 @@ impl App {
         }
     }
 
+    fn prompt_input_is_exact_slash_command(&self) -> bool {
+        let input = self.prompt.input.value.trim();
+        let Some(command) = input.strip_prefix('/') else {
+            return false;
+        };
+        if command.is_empty() || command.chars().any(char::is_whitespace) {
+            return false;
+        }
+
+        self.state.all_slash_commands.iter().any(|entry| {
+            entry.name.eq_ignore_ascii_case(command)
+                || entry
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(command))
+        })
+    }
+
     fn filtered_slash_suggestions(&self, query: &str) -> Vec<Suggestion> {
         let q = query.trim_start_matches('/').to_lowercase();
         let mut scored: Vec<(i32, Suggestion)> = self
@@ -10093,6 +10801,11 @@ impl App {
     }
 
     fn handle_mouse_wheel_scroll(&mut self, down: bool) -> bool {
+        if matches!(self.active_modal, ActiveModal::IdleReturn(_)) {
+            self.services.idle_return_state = None;
+            self.active_modal = ActiveModal::None;
+        }
+
         if self.prompt.show_suggestions {
             if down {
                 return self.prompt.suggestion_page_down(MOUSE_WHEEL_SCROLL_ROWS);
@@ -10106,11 +10819,30 @@ impl App {
         }
 
         let before = (self.scroll.offset, self.scroll.sticky);
+        let before_total = self.scroll.total_items;
+        let before_visible = self.scroll.visible_count;
+        self.refresh_transcript_scroll_metrics_for_input();
+        let refreshed_total = self.scroll.total_items;
+        let refreshed_visible = self.scroll.visible_count;
         if down {
             self.scroll.scroll_down(MOUSE_WHEEL_SCROLL_ROWS);
         } else {
             self.scroll.scroll_up(MOUSE_WHEEL_SCROLL_ROWS);
         }
+        append_tui_scroll_log_line(format!(
+            "transcript_wheel down={down} before_offset={} before_sticky={} before_total={} before_visible={} refreshed_total={} refreshed_visible={} after_offset={} after_sticky={} active_modal_key={} messages={} streaming={}",
+            before.0,
+            before.1,
+            before_total,
+            before_visible,
+            refreshed_total,
+            refreshed_visible,
+            self.scroll.offset,
+            self.scroll.sticky,
+            active_modal_shape_key(&self.active_modal),
+            self.messages.len(),
+            self.state.is_streaming
+        ));
         before != (self.scroll.offset, self.scroll.sticky)
     }
 
@@ -11129,7 +11861,7 @@ impl App {
                     // from the whole buffer (rather than tracking incremental
                     // open/close state) makes us robust against `<think>`
                     // / `</think>` tags arriving split across chunk
-                    // boundaries — which MiniMax routinely does.
+                    // boundaries, which streaming model providers can do.
                     if self.pending_assistant_idx.is_none() {
                         self.begin_pending_assistant_message();
                     }
@@ -12476,12 +13208,7 @@ fn final_summary_model_from_messages(
 }
 
 fn final_summary_should_record(model: &FinalSummaryModel) -> bool {
-    !model.success
-        || !model.changed_files.is_empty()
-        || !model.commands.is_empty()
-        || !model.verification_results.is_empty()
-        || !model.residual_risks.is_empty()
-        || !model.notes.is_empty()
+    model.needs_attention() || !model.changed_files.is_empty()
 }
 
 fn verification_summaries_from_commands(
@@ -12586,6 +13313,19 @@ fn env_flag_enabled(name: &str) -> bool {
         .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
 }
 
+fn append_tui_scroll_log_line(line: String) {
+    let Some(path) = std::env::var_os("MOSSEN_TUI_EVENT_LOG_PATH") else {
+        return;
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
 fn tui_mouse_capture_enabled() -> bool {
     env_flag_enabled("MOSSEN_TERMINAL_RENDER_CAPTURE_MOUSE")
 }
@@ -12602,7 +13342,7 @@ fn copy_response_index(args_raw: &str) -> Result<usize, String> {
     match trimmed.parse::<usize>() {
         Ok(value) if value >= 1 => Ok(value - 1),
         _ => Err(format!(
-            "Usage: /copy [N] where N is 1 for the latest assistant response. Got: {trimmed}"
+            "Usage: /copy [N|transcript|all] where N is 1 for the latest assistant response. Got: {trimmed}"
         )),
     }
 }
@@ -12710,6 +13450,15 @@ fn read_clipboard_image_bytes() -> Option<Vec<u8>> {
 
 fn truncate(s: &str, max: usize) -> String {
     mossen_utils::string_utils::truncate_chars(s, max)
+}
+
+fn compact_task_subject(subject: &str) -> String {
+    let subject = subject.trim().replace(['\r', '\n'], " ");
+    if subject.is_empty() {
+        "(untitled task)".to_string()
+    } else {
+        truncate(&subject, 120)
+    }
 }
 
 fn render_session_snapshot_file_stem(value: Option<&str>) -> String {
@@ -13077,6 +13826,138 @@ fn available_commands() -> Vec<Suggestion> {
             kind: SuggestionKind::Command,
         })
         .collect()
+}
+
+fn theme_picker_items() -> Vec<String> {
+    [
+        "Dark",
+        "Light",
+        "Dark (high contrast)",
+        "Light (high contrast)",
+    ]
+    .iter()
+    .map(|item| (*item).to_string())
+    .collect()
+}
+
+fn parse_theme_choice(raw: &str) -> Option<(crate::theme::ThemeName, &'static str)> {
+    let normalized = raw.trim().to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        "dark" => Some((crate::theme::ThemeName::Dark, "dark")),
+        "light" => Some((crate::theme::ThemeName::Light, "light")),
+        "dark-high-contrast" | "dark-highcontrast" | "dark-contrast" => Some((
+            crate::theme::ThemeName::DarkHighContrast,
+            "dark-high-contrast",
+        )),
+        "light-high-contrast" | "light-highcontrast" | "light-contrast" => Some((
+            crate::theme::ThemeName::LightHighContrast,
+            "light-high-contrast",
+        )),
+        "dark (high contrast)" => Some((
+            crate::theme::ThemeName::DarkHighContrast,
+            "dark-high-contrast",
+        )),
+        "light (high contrast)" => Some((
+            crate::theme::ThemeName::LightHighContrast,
+            "light-high-contrast",
+        )),
+        _ => None,
+    }
+}
+
+fn output_style_picker_items() -> Vec<String> {
+    ["Default", "Concise", "Explanatory", "Code-first"]
+        .iter()
+        .map(|item| (*item).to_string())
+        .collect()
+}
+
+fn output_style_choice(raw: &str) -> Option<(&'static str, &'static str, Option<&'static str>)> {
+    let normalized = raw.trim().to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        "default" | "markdown" | "plain" => Some(("default", "Default", None)),
+        "concise" | "short" => Some((
+            "concise",
+            "Concise",
+            Some(
+                "# Output style: Concise\n\nKeep responses tight: one sentence per idea, no preamble, no \"Sure!\" or \"Of course!\" lead-ins. If the answer is one line, the response is one line.",
+            ),
+        )),
+        "explanatory" | "detailed" | "detail" => Some((
+            "explanatory",
+            "Explanatory",
+            Some(
+                "# Output style: Explanatory\n\nWalk the user through your reasoning. State assumptions, explain why one approach beats another, and call out edge cases. Bias toward depth over brevity, but stay focused.",
+            ),
+        )),
+        "code-first" | "code-only" | "code" => Some((
+            "code-first",
+            "Code-first",
+            Some(
+                "# Output style: Code-first\n\nLead with the code that solves the problem. Place explanatory prose *after* the code block. If the answer is purely conceptual (no code), say so up front and skip the empty code fence.",
+            ),
+        )),
+        _ => None,
+    }
+}
+
+fn parse_export_request(args_raw: &str) -> (TranscriptExportFormat, Option<String>) {
+    let args = args_raw.split_whitespace().collect::<Vec<_>>();
+    let Some(first) = args.first().copied() else {
+        return (TranscriptExportFormat::Markdown, None);
+    };
+
+    if let Some(format) = TranscriptExportFormat::from_arg(first) {
+        let path = if args.len() > 1 {
+            Some(args[1..].join(" "))
+        } else {
+            None
+        };
+        return (format, path);
+    }
+
+    let path = args.join(" ");
+    let format = Path::new(&path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .and_then(TranscriptExportFormat::from_arg)
+        .unwrap_or(TranscriptExportFormat::Markdown);
+    (format, Some(path))
+}
+
+fn export_message_type(message: &MessageData) -> &'static str {
+    match message.message_type {
+        MessageType::User => "user",
+        MessageType::Assistant => "assistant",
+        MessageType::System => "system",
+        MessageType::CommandOutput => "command_output",
+        MessageType::Progress => "progress",
+        MessageType::Attachment => "attachment",
+        MessageType::ToolUse => "tool_use",
+        MessageType::ToolResult => "tool_result",
+        MessageType::SkillInvocation => "skill_invocation",
+    }
+}
+
+fn export_message_label(message: &MessageData) -> &'static str {
+    match message.message_type {
+        MessageType::User => "User",
+        MessageType::Assistant => "Assistant",
+        MessageType::System => "System",
+        MessageType::CommandOutput => "Command Output",
+        MessageType::Progress => "Progress",
+        MessageType::Attachment => "Attachment",
+        MessageType::ToolUse => "Tool Use",
+        MessageType::ToolResult => "Tool Result",
+        MessageType::SkillInvocation => "Skill Invocation",
+    }
+}
+
+fn export_message_content(message: &MessageData) -> &str {
+    message
+        .full_content
+        .as_deref()
+        .unwrap_or(message.content.as_str())
 }
 
 fn collect_directive_suggestions(
@@ -13833,7 +14714,15 @@ fn shift_render_record_overrides(overrides: &mut HashMap<usize, String>, removed
 }
 
 fn block_on_current_runtime<F: std::future::Future>(future: F) -> F::Output {
-    futures::executor::block_on(future)
+    if tokio::runtime::Handle::try_current().is_ok() {
+        futures::executor::block_on(future)
+    } else {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("create fallback tokio runtime for TUI command")
+            .block_on(future)
+    }
 }
 
 // Provide a small modal smoke-test entry point that exercises the
@@ -13907,9 +14796,9 @@ pub fn split_thinking_and_content(buf: &str) -> (Option<String>, String) {
 mod engine_stream_tests {
     use super::{
         block_on_current_runtime, copy_response_index, ActiveModal, App,
-        FooterConfigPersistenceStatus, HelpDialogState, RenderSessionSnapshot,
-        RenderSnapshotStartupRestoreStatus, SessionPermissionGate, SessionPermissionRules,
-        RENDER_SESSION_SNAPSHOT_DIR, RENDER_STATUSLINE_CONFIG_PATH,
+        FooterConfigPersistenceStatus, HelpDialogState, McpRuntimeReloadResult, PickerKind,
+        RenderSessionSnapshot, RenderSnapshotStartupRestoreStatus, SessionPermissionGate,
+        SessionPermissionRules, RENDER_SESSION_SNAPSHOT_DIR, RENDER_STATUSLINE_CONFIG_PATH,
     };
     use crate::approval_state::{PermissionKind, PermissionPromptState, ToolUseConfirm};
     use crate::event::{AppEvent, EventBus};
@@ -13926,6 +14815,7 @@ mod engine_stream_tests {
     use crate::widgets::idle_return::IdleReturnDialogState;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
     use mossen_agent::services::config::{facade, types::ConfigOverrideScope};
+    use mossen_agent::types::EffortLevel;
     use mossen_agent::types::{ContentDelta, PermissionRequest, SdkMessage, StreamEventData};
     use mossen_types::{
         AssistantMessage, ContentBlock, Message, Role, TextBlock, ToolDefinition, ToolInputSchema,
@@ -13973,6 +14863,13 @@ mod engine_stream_tests {
             .expect("model config lock")
     }
 
+    fn skill_reload_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("skill reload lock")
+    }
+
     fn isolate_model_env() -> EnvGuard {
         let guard = EnvGuard(
             MODEL_ENV_KEYS
@@ -13991,24 +14888,24 @@ mod engine_stream_tests {
         facade::set_mossen_config_override(
             "mossen.profiles",
             serde_json::json!({
-                "minimax": {
+                "fast": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://api.minimaxi.com/v1",
-                    "model": "MiniMax-M2.7-highspeed",
-                    "apiKey": "sk-minimax-secret"
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-fast",
+                    "apiKey": "sk-test-fast-secret"
                 },
-                "qwen": {
+                "large": {
                     "provider": "openai-responses",
-                    "baseURL": "https://qwen.example.com/v1",
-                    "model": "qwen3.6-plus",
-                    "apiKey": "sk-qwen-secret"
+                    "baseURL": "https://responses.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-large-secret"
                 }
             }),
             ConfigOverrideScope::Override,
         );
         facade::set_mossen_config_override(
             "mossen.activeProfile",
-            serde_json::Value::String("qwen".to_string()),
+            serde_json::Value::String("large".to_string()),
             ConfigOverrideScope::Override,
         );
     }
@@ -14120,6 +15017,60 @@ mod engine_stream_tests {
         assert!(
             params.tools.iter().any(|tool| tool.name == mcp_tool.name),
             "MCP definitions should be model-visible even though execution bypasses the built-in registry"
+        );
+    }
+
+    #[test]
+    fn reload_plugins_refreshes_mcp_tool_definitions_for_next_turn() {
+        let mcp_tool = ToolDefinition {
+            name: "mcp__dev__ping".to_string(),
+            description: "Ping dev MCP server".to_string(),
+            input_schema: ToolInputSchema {
+                schema_type: "object".to_string(),
+                properties: None,
+                required: None,
+                extra: HashMap::new(),
+            },
+            cache_control: None,
+        };
+        let callback_tool = mcp_tool.clone();
+        let mut app = App::new().with_mcp_reload_callback(Arc::new(move || {
+            let callback_tool = callback_tool.clone();
+            Box::pin(async move {
+                Ok(McpRuntimeReloadResult {
+                    tool_definitions: vec![callback_tool],
+                    server_count: 1,
+                    connected_count: 1,
+                })
+            })
+        }));
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+
+        app.handle_command("reload-plugins");
+
+        assert!(app
+            .extra_tool_definitions
+            .iter()
+            .any(|tool| tool.name == mcp_tool.name));
+        app.handle_submit("call MCP".to_string());
+        let params = app
+            .pending_submit
+            .as_ref()
+            .expect("submit should create engine params");
+        assert!(params.tools.iter().any(|tool| tool.name == mcp_tool.name));
+        assert!(params
+            .tools
+            .iter()
+            .any(|tool| tool.name == "ListMcpResources"));
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("MCP runtime: 1/1 server(s), 1 tool(s) visible next turn."),
+            "{transcript}"
         );
     }
 
@@ -14731,6 +15682,96 @@ mod engine_stream_tests {
     }
 
     #[test]
+    fn mouse_wheel_down_refreshes_stale_transcript_height_after_manual_hold() {
+        let mut app = App::new();
+        app.message_content_area = Some(ratatui::layout::Rect::new(0, 0, 80, 10));
+        app.messages.push(MessageData {
+            message_type: MessageType::Assistant,
+            content: (0..80)
+                .map(|index| {
+                    format!(
+                        "matrix-row-{index:04}: long manual-scroll hold output keeps growing.\n"
+                    )
+                })
+                .collect(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: None,
+            expanded: false,
+        });
+        let surface = app.render_surface_model();
+        let latest_total = app.message_total_rows(&surface, 80);
+        assert!(
+            latest_total > 20,
+            "fixture must outgrow the stale scroll total"
+        );
+        app.scroll.set_viewport_height(10);
+        app.scroll.set_total_items(20);
+        app.scroll.sticky = false;
+        app.scroll.offset = 10;
+        app.note_render_frame_drawn();
+
+        app.handle_event(AppEvent::Mouse(mouse_event(MouseEventKind::ScrollDown)));
+
+        assert_eq!(
+            app.scroll.total_items, latest_total,
+            "wheel input should refresh transcript height from the latest model before scrolling"
+        );
+        assert!(
+            app.scroll.offset > 10,
+            "wheel down must be able to leave the stale old max offset"
+        );
+        assert!(
+            app.render_frame_scheduler_stats().dirty,
+            "refresh plus scroll movement must schedule a redraw"
+        );
+    }
+
+    #[test]
+    fn mouse_wheel_dismisses_idle_return_and_scrolls_transcript() {
+        let mut app = App::new();
+        app.message_content_area = Some(ratatui::layout::Rect::new(0, 0, 80, 10));
+        app.messages.push(MessageData {
+            message_type: MessageType::Assistant,
+            content: (0..80)
+                .map(|index| format!("idle-return-row-{index:04}: scroll should pass through.\n"))
+                .collect(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: None,
+            expanded: false,
+        });
+        let surface = app.render_surface_model();
+        let total_rows = app.message_total_rows(&surface, 80);
+        app.scroll.set_viewport_height(10);
+        app.scroll.set_total_items(total_rows);
+        app.scroll.sticky = false;
+        app.scroll.offset = 20;
+        app.active_modal = ActiveModal::IdleReturn("away 20m".to_string());
+        app.services.idle_return_state =
+            Some(IdleReturnDialogState::new(Duration::from_secs(20 * 60)));
+        app.note_render_frame_drawn();
+
+        app.handle_event(AppEvent::Mouse(mouse_event(MouseEventKind::ScrollDown)));
+
+        assert!(matches!(app.active_modal, ActiveModal::None));
+        assert!(app.services.idle_return_state.is_none());
+        assert_eq!(app.scroll.offset, 23);
+        assert!(
+            app.render_frame_scheduler_stats().dirty,
+            "dismissing idle return and scrolling transcript must redraw"
+        );
+    }
+
+    #[test]
     fn debug_config_scroll_clamps_to_rendered_viewport() {
         let model = DebugConfigRenderModel::new("renderer diagnostics").section((0..12).fold(
             StatusSectionRenderModel::new("Renderer"),
@@ -15323,11 +16364,11 @@ mod engine_stream_tests {
     #[test]
     fn slash_model_status_does_not_set_literal_status_model() {
         let mut app = App::new();
-        app.engine_config.model = "MiniMax-M2.7-highspeed".to_string();
+        app.engine_config.model = "example-fast-highspeed".to_string();
 
         app.handle_command("model status");
 
-        assert_eq!(app.engine_config.model, "MiniMax-M2.7-highspeed");
+        assert_eq!(app.engine_config.model, "example-fast-highspeed");
         let ActiveModal::CommandOutput {
             title,
             body,
@@ -15338,7 +16379,185 @@ mod engine_stream_tests {
         };
         assert_eq!(title, "Model");
         assert!(!*is_error);
-        assert!(body.contains("Current model: MiniMax-M2.7-highspeed"));
+        assert!(body.contains("Current model: example-fast-highspeed"));
+    }
+
+    #[test]
+    fn exact_slash_command_enter_submits_instead_of_accepting_suggestion() {
+        let mut app = App::new();
+        app.state.all_slash_commands = vec![
+            SlashCommandInfo {
+                name: "exit".to_string(),
+                description: "Exit".to_string(),
+                category: "Session".to_string(),
+                aliases: Vec::new(),
+                argument_hint: String::new(),
+                kind: SlashCommandKind::Command,
+            },
+            SlashCommandInfo {
+                name: "quit".to_string(),
+                description: "Exit".to_string(),
+                category: "Session".to_string(),
+                aliases: Vec::new(),
+                argument_hint: String::new(),
+                kind: SlashCommandKind::Command,
+            },
+        ];
+        app.prompt.input.insert_str("/quit");
+        app.update_suggestions();
+
+        assert!(app.prompt.show_suggestions);
+        app.dispatch_key_for_test(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(app.should_quit);
+        assert!(!app.prompt.show_suggestions);
+    }
+
+    #[test]
+    fn partial_slash_command_enter_still_accepts_suggestion() {
+        let mut app = App::new();
+        app.state.all_slash_commands = vec![SlashCommandInfo {
+            name: "quit".to_string(),
+            description: "Exit".to_string(),
+            category: "Session".to_string(),
+            aliases: Vec::new(),
+            argument_hint: String::new(),
+            kind: SlashCommandKind::Command,
+        }];
+        app.prompt.input.insert_str("/qui");
+        app.update_suggestions();
+
+        assert!(app.prompt.show_suggestions);
+        app.dispatch_key_for_test(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(!app.should_quit);
+        assert_eq!(app.prompt.input.value, "/quit ");
+        assert!(!app.prompt.show_suggestions);
+    }
+
+    #[test]
+    fn slash_rename_updates_live_tui_title_state() {
+        let mut app = App::new();
+
+        app.handle_command("rename project audit");
+
+        assert_eq!(app.services.manual_title.as_deref(), Some("project audit"));
+        assert!(app.services.visible_title().contains("project audit"));
+        let ActiveModal::TitleConfig(state) = &app.active_modal else {
+            panic!("rename should open title config modal");
+        };
+        assert_eq!(state.notice, "saved");
+        assert_eq!(state.draft, "project audit");
+    }
+
+    #[test]
+    fn slash_cost_uses_live_tui_cost_snapshot() {
+        let mut app = App::new();
+        app.total_cost_usd = 0.42;
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+
+        app.handle_command("cost");
+
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("Total cost:       $0.42"),
+            "{transcript}"
+        );
+        assert!(
+            !transcript.contains("No token usage has been recorded"),
+            "{transcript}"
+        );
+    }
+
+    #[test]
+    fn slash_export_writes_live_transcript_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut app = App::new();
+        app.engine_config.cwd = temp.path().to_string_lossy().to_string();
+        app.messages.push(MessageData {
+            message_type: MessageType::User,
+            content: "please audit this".to_string(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: None,
+            expanded: false,
+        });
+        app.messages.push(MessageData {
+            message_type: MessageType::Assistant,
+            content: "audit result".to_string(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: None,
+            expanded: false,
+        });
+
+        app.handle_command("export md transcript");
+
+        let path = temp.path().join("transcript.md");
+        let exported = std::fs::read_to_string(&path).expect("export should write markdown");
+        assert!(
+            exported.contains("# Mossen Conversation Export"),
+            "{exported}"
+        );
+        assert!(exported.contains("## User"), "{exported}");
+        assert!(exported.contains("please audit this"), "{exported}");
+        assert!(exported.contains("audit result"), "{exported}");
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("Exported conversation transcript"),
+            "{transcript}"
+        );
+    }
+
+    #[test]
+    fn slash_context_uses_live_tui_context_snapshot() {
+        let mut app = App::new();
+        app.engine_config.model = "example-fast-highspeed".to_string();
+        app.engine_history.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text(TextBlock {
+                text: "current live context".to_string(),
+            })],
+            uuid: None,
+            is_meta: None,
+            origin: None,
+            timestamp: None,
+            extra: HashMap::new(),
+        });
+
+        app.handle_command("context");
+
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(transcript.contains("Context Usage"), "{transcript}");
+        assert!(transcript.contains("Estimated tokens:"), "{transcript}");
+        assert!(
+            transcript.contains("Engine history messages: 1"),
+            "{transcript}"
+        );
+        assert!(!transcript.contains("not attached"), "{transcript}");
     }
 
     #[test]
@@ -15353,9 +16572,9 @@ mod engine_stream_tests {
         let ActiveModal::ModelPicker(state) = &app.active_modal else {
             panic!("model list should open picker");
         };
-        assert!(state.models.iter().any(|model| model.id == "minimax"
-            && model.name == "MiniMax-M2.7-highspeed"
-            && model.provider == "profile: minimax"));
+        assert!(state.models.iter().any(|model| model.id == "fast"
+            && model.name == "example-fast"
+            && model.provider == "profile: fast"));
         facade::reset_facade_for_testing();
     }
 
@@ -15366,28 +16585,28 @@ mod engine_stream_tests {
         seed_model_profiles();
         let mut app = App::new();
 
-        app.handle_command("model MiniMax-M2.7-highspeed");
+        app.handle_command("model example-fast");
 
-        assert_eq!(app.engine_config.model, "MiniMax-M2.7-highspeed");
+        assert_eq!(app.engine_config.model, "example-fast");
         assert_eq!(
             app.engine_config.api_base_url.as_deref(),
-            Some("https://api.minimaxi.com/v1")
+            Some("https://api.example.com/v1")
         );
         assert_eq!(
             std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
-            Ok("https://api.minimaxi.com/v1")
+            Ok("https://api.example.com/v1")
         );
         assert_eq!(
             std::env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
-            Ok("MiniMax-M2.7-highspeed")
+            Ok("example-fast")
         );
         assert_eq!(
             mossen_agent::services::config::profiles::get_active_profile_name().as_deref(),
-            Some("minimax")
+            Some("fast")
         );
         assert!(!app.messages.iter().any(|message| {
-            message.content.contains("sk-minimax-secret")
-                || message.content.contains("sk-qwen-secret")
+            message.content.contains("sk-test-fast-secret")
+                || message.content.contains("sk-test-large-secret")
         }));
         facade::reset_facade_for_testing();
     }
@@ -15399,16 +16618,16 @@ mod engine_stream_tests {
         seed_model_profiles();
         let mut app = App::new();
 
-        app.handle_command("model qwen");
+        app.handle_command("model large");
 
-        assert_eq!(app.engine_config.model, "qwen3.6-plus");
+        assert_eq!(app.engine_config.model, "example-large");
         assert_eq!(
             std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
             Ok("openai-responses")
         );
         assert_eq!(
             std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
-            Ok("https://qwen.example.com/v1")
+            Ok("https://responses.example.com/v1")
         );
         facade::reset_facade_for_testing();
     }
@@ -15438,6 +16657,173 @@ mod engine_stream_tests {
             message.message_type == MessageType::CommandOutput
                 && message.content.contains("PR number: 123")
         }));
+    }
+
+    #[test]
+    fn slash_theme_arg_updates_live_renderer_theme() {
+        let mut app = App::new();
+
+        app.handle_command("theme light-high-contrast");
+
+        assert_eq!(app.state.theme, crate::theme::ThemeName::LightHighContrast);
+        assert_eq!(app.theme.name, crate::theme::ThemeName::LightHighContrast);
+        assert!(matches!(app.active_modal, ActiveModal::None));
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("Theme set to: light-high-contrast"),
+            "{transcript}"
+        );
+    }
+
+    #[test]
+    fn slash_theme_without_arg_still_opens_picker() {
+        let mut app = App::new();
+
+        app.handle_command("theme");
+
+        assert!(matches!(
+            app.active_modal,
+            ActiveModal::Picker {
+                kind: PickerKind::Theme,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn slash_fast_arg_updates_next_engine_request() {
+        let mut app = App::new();
+
+        app.handle_command("fast on");
+        app.handle_submit("hello".to_string());
+
+        assert_eq!(app.engine_config.fast_mode, Some(true));
+        assert!(app.state.fast_mode);
+        assert_eq!(
+            app.pending_submit
+                .as_ref()
+                .and_then(|params| params.fast_mode),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn slash_effort_arg_updates_next_engine_request() {
+        let mut app = App::new();
+
+        app.handle_command("effort high");
+        app.handle_submit("hello".to_string());
+
+        assert_eq!(app.engine_config.effort, Some(EffortLevel::High));
+        assert_eq!(
+            app.pending_submit.as_ref().and_then(|params| params.effort),
+            Some(EffortLevel::High)
+        );
+        assert_eq!(app.reasoning_status_label().as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn slash_output_style_arg_updates_live_engine_prompt() {
+        let mut app = App::new();
+
+        app.handle_command("output-style concise");
+
+        assert_eq!(app.engine_config.output_style.as_deref(), Some("Concise"));
+        assert!(app
+            .engine_config
+            .system_prompt
+            .iter()
+            .any(|block| block.text.starts_with("# Output style: Concise")));
+        assert!(matches!(app.active_modal, ActiveModal::None));
+    }
+
+    #[test]
+    fn slash_output_style_without_arg_still_opens_picker() {
+        let mut app = App::new();
+
+        app.handle_command("output-style");
+
+        assert!(matches!(
+            app.active_modal,
+            ActiveModal::Picker {
+                kind: PickerKind::OutputStyle,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn slash_proactive_arg_updates_live_engine_prompt() {
+        let mut app = App::new();
+
+        app.handle_command("proactive on");
+
+        assert_eq!(
+            app.command_context
+                .env_vars
+                .get("MOSSEN_PROACTIVE")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert!(app
+            .engine_config
+            .system_prompt
+            .iter()
+            .any(|block| block.text.starts_with("# Proactive mode: Enabled")));
+        assert!(matches!(app.active_modal, ActiveModal::None));
+    }
+
+    #[test]
+    fn slash_reload_plugins_refreshes_skill_catalog() {
+        let _lock = skill_reload_lock();
+        mossen_skills::clear_dynamic_skills();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp
+            .path()
+            .join(".mossen")
+            .join("skills")
+            .join("live-tui-skill");
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: Live TUI reload skill\n---\nUse this skill after reload.\n",
+        )
+        .expect("write skill");
+
+        let mut app = App::new();
+        app.command_context.cwd = temp.path().to_path_buf();
+        app.engine_config.cwd = temp.path().to_string_lossy().to_string();
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+        app.refresh_slash_catalog();
+        assert!(!app
+            .state
+            .all_slash_commands
+            .iter()
+            .any(|entry| entry.name == "live-tui-skill"));
+
+        app.handle_command("reload-plugins");
+
+        assert!(mossen_skills::get_dynamic_skills()
+            .iter()
+            .any(|skill| skill.name() == "live-tui-skill"));
+        assert!(app
+            .state
+            .all_slash_commands
+            .iter()
+            .any(|entry| entry.name == "live-tui-skill"));
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(transcript.contains("runtime reloaded"), "{transcript}");
+        mossen_skills::clear_dynamic_skills();
     }
 
     #[test]
@@ -15491,6 +16877,99 @@ mod engine_stream_tests {
     }
 
     #[test]
+    fn tui_slash_router_blocks_disabled_directives_before_execute() {
+        let mut app = App::new();
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+        app.refresh_slash_catalog();
+
+        app.handle_command("remote-env help");
+
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("/remote-env is not available in this session."),
+            "{transcript}"
+        );
+        assert!(
+            !transcript.contains("Variables forwarded to remote sessions"),
+            "{transcript}"
+        );
+        assert!(
+            !transcript.contains("Manage remote environment variables"),
+            "{transcript}"
+        );
+    }
+
+    #[test]
+    fn tui_slash_router_blocks_hidden_directives_before_execute() {
+        let mut app = App::new();
+        app.directives = Some(Arc::new(mossen_commands::all_directives()));
+        app.refresh_slash_catalog();
+
+        app.handle_command("color blue");
+
+        let transcript = app
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            transcript.contains("/color is not available in this session."),
+            "{transcript}"
+        );
+        assert!(!transcript.contains("not wired"), "{transcript}");
+        assert!(
+            !transcript.contains("Cannot set session color"),
+            "{transcript}"
+        );
+    }
+
+    #[test]
+    fn built_in_tui_debug_surfaces_do_not_expose_unfinished_wiring_text() {
+        let mut app = App::new();
+
+        app.handle_command("debug-config");
+
+        let ActiveModal::DebugConfig(state) = &app.active_modal else {
+            panic!("debug-config should open the debug config modal");
+        };
+        let mut text = state.model.summary.clone();
+        for section in &state.model.sections {
+            text.push('\n');
+            text.push_str(&section.title);
+            for row in &section.rows {
+                text.push('\n');
+                text.push_str(&row.label);
+                text.push_str(": ");
+                text.push_str(&row.value);
+            }
+        }
+        text.push('\n');
+        text.push_str(&app.snapshot_task_list());
+        let lowered = text.to_ascii_lowercase();
+
+        for forbidden in [
+            "not wired",
+            "placeholder",
+            "stub",
+            "not implemented",
+            "unimplemented",
+            "phase 5",
+        ] {
+            assert!(
+                !lowered.contains(forbidden),
+                "built-in TUI diagnostics surfaced unfinished text `{forbidden}`:\n{text}"
+            );
+        }
+        assert!(lowered.contains("unavailable"), "{text}");
+    }
+
+    #[test]
     fn slash_add_dir_updates_future_tool_context() {
         let dir = tempfile::tempdir().expect("tempdir should be created");
         let cwd = dir.path().join("cwd");
@@ -15523,6 +17002,55 @@ mod engine_stream_tests {
         assert_eq!(copy_response_index("3").unwrap(), 2);
         assert!(copy_response_index("latest").is_err());
         assert!(copy_response_index("0").is_err());
+    }
+
+    #[test]
+    fn copy_command_payload_supports_latest_response_and_full_transcript() {
+        let mut app = App::new();
+        app.messages.push(MessageData {
+            message_type: MessageType::User,
+            content: "hello".to_string(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: None,
+            expanded: false,
+        });
+        app.messages.push(MessageData {
+            message_type: MessageType::Assistant,
+            content: "short preview".to_string(),
+            timestamp: None,
+            is_streaming: false,
+            tool_name: None,
+            is_error: false,
+            thinking: None,
+            thinking_completed_at: None,
+            full_content: Some("full assistant response".to_string()),
+            expanded: false,
+        });
+
+        let (latest, latest_label) = app
+            .copy_command_payload("")
+            .expect("latest assistant response");
+        assert_eq!(latest, "full assistant response");
+        assert_eq!(latest_label, "latest assistant response");
+
+        let (transcript, transcript_label) = app
+            .copy_command_payload("transcript")
+            .expect("full transcript");
+        assert_eq!(transcript_label, "conversation transcript");
+        assert!(transcript.contains("User:\nhello"), "{transcript}");
+        assert!(
+            transcript.contains("Assistant:\nfull assistant response"),
+            "{transcript}"
+        );
+
+        let (all, all_label) = app.copy_command_payload("all").expect("all transcript");
+        assert_eq!(all_label, "conversation transcript");
+        assert_eq!(all, transcript);
     }
 
     fn tui_smoke_args(name: &str) -> &'static [&'static str] {
@@ -15692,9 +17220,33 @@ mod engine_stream_tests {
     }
 
     #[test]
+    fn task_completion_notification_tick_adds_transcript_feedback() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new().with_task_notification_receiver(rx);
+
+        tx.send(mossen_tools::task_store::TaskStoreEvent {
+            id: "agent-1".to_string(),
+            subject: "scan repo".to_string(),
+            status: "completed".to_string(),
+            task_type: Some("background_agent".to_string()),
+            completed_at: Some(1),
+            exit_code: Some(0),
+        })
+        .expect("send task event");
+
+        app.dispatch_tick_for_test();
+
+        let message = app.messages.last().expect("notification message");
+        assert_eq!(message.message_type, MessageType::System);
+        assert!(message.content.contains("Agent completed: scan repo"));
+        assert!(message.content.contains("Task: agent-1"));
+        assert!(message.content.contains("/agents logs agent-1"));
+    }
+
+    #[test]
     fn render_surface_carries_top_status_from_footer_facts() {
         let mut app = App::new();
-        app.engine_config.model = "MiniMax-M2.7".to_string();
+        app.engine_config.model = "example-fast".to_string();
         app.engine_config
             .extra_body
             .insert("effort".to_string(), serde_json::json!("high"));
@@ -15713,7 +17265,7 @@ mod engine_stream_tests {
             surface.top_status.activity.as_deref(),
             Some("cmd: cargo test")
         );
-        assert_eq!(surface.top_status.model.as_deref(), Some("MiniMax-M2.7"));
+        assert_eq!(surface.top_status.model.as_deref(), Some("example-fast"));
         assert_eq!(surface.top_status.reasoning.as_deref(), Some("high"));
         assert_eq!(surface.top_status.blocking, surface.blocking);
     }
@@ -15932,6 +17484,124 @@ mod engine_stream_tests {
     }
 
     #[test]
+    fn successful_command_only_result_skips_default_final_summary_noise() {
+        let mut app = App::new();
+        app.handle_engine_message(SdkMessage::Assistant {
+            message: AssistantMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse(ToolUseBlock {
+                    id: "toolu-bash".to_string(),
+                    name: "Bash".to_string(),
+                    input: serde_json::json!({ "command": "cargo test", "cwd": "/repo" }),
+                })],
+                uuid: Some("assistant-bash".to_string()),
+                model: None,
+                stop_reason: Some("tool_use".to_string()),
+                extra: HashMap::new(),
+            },
+            usage: None,
+            task_id: None,
+        });
+        app.handle_engine_message(SdkMessage::ToolUseSummary {
+            tool_name: "Bash".to_string(),
+            tool_use_id: Some("toolu-bash".to_string()),
+            summary: serde_json::json!({
+                "stdout": "ok",
+                "stderr": "",
+                "exit_code": 0,
+                "duration_ms": 42
+            })
+            .to_string(),
+            full_content: None,
+            task_id: None,
+        });
+        app.handle_engine_message(SdkMessage::Result {
+            terminal: "Completed".to_string(),
+            cost_usd: None,
+            duration_ms: None,
+            usage: None,
+            task_id: None,
+        });
+
+        let surface = app.render_surface_model();
+        assert!(
+            !surface
+                .transcript
+                .blocks
+                .iter()
+                .any(|block| block.kind == RenderBlockKind::FinalSummary),
+            "successful command-only turns should not add a default Final Summary block"
+        );
+    }
+
+    #[test]
+    fn completed_result_with_failed_verification_is_attention() {
+        let mut app = App::new();
+        app.handle_engine_message(SdkMessage::Assistant {
+            message: AssistantMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse(ToolUseBlock {
+                    id: "toolu-bash".to_string(),
+                    name: "Bash".to_string(),
+                    input: serde_json::json!({ "command": "cargo check --workspace", "cwd": "/repo" }),
+                })],
+                uuid: Some("assistant-bash".to_string()),
+                model: None,
+                stop_reason: Some("tool_use".to_string()),
+                extra: HashMap::new(),
+            },
+            usage: None,
+            task_id: None,
+        });
+        app.handle_engine_message(SdkMessage::ToolUseSummary {
+            tool_name: "Bash".to_string(),
+            tool_use_id: Some("toolu-bash".to_string()),
+            summary: serde_json::json!({
+                "stdout": "",
+                "stderr": "compile failed",
+                "exit_code": 1,
+                "duration_ms": 42
+            })
+            .to_string(),
+            full_content: None,
+            task_id: None,
+        });
+        app.handle_engine_message(SdkMessage::Result {
+            terminal: "Completed".to_string(),
+            cost_usd: None,
+            duration_ms: None,
+            usage: None,
+            task_id: None,
+        });
+
+        let surface = app.render_surface_model();
+        let summary = surface
+            .transcript
+            .blocks
+            .iter()
+            .find(|block| block.kind == RenderBlockKind::FinalSummary)
+            .and_then(|block| {
+                block.nodes.iter().find_map(|node| match node {
+                    RenderNode::FinalSummary(summary) => Some(summary),
+                    _ => None,
+                })
+            })
+            .expect("failed verification should record a final summary");
+
+        assert!(summary.success, "terminal result is still Completed");
+        assert!(summary.needs_attention());
+        assert_eq!(summary.title(), "Final Summary · Attention");
+        assert!(
+            summary
+                .residual_risks
+                .iter()
+                .any(|risk| risk.contains("non-zero")),
+            "{:?}",
+            summary.residual_risks
+        );
+    }
+
+    #[test]
     fn footer_state_reports_inline_approval() {
         let mut app = App::new();
         app.active_modal = ActiveModal::PermissionRequest(PermissionPromptState::new(
@@ -15947,7 +17617,7 @@ mod engine_stream_tests {
     #[test]
     fn footer_render_model_uses_same_blocking_state_as_approval_surface() {
         let mut app = App::new();
-        app.engine_config.model = "MiniMax-M2.7".to_string();
+        app.engine_config.model = "example-fast".to_string();
         app.engine_config
             .extra_body
             .insert("effort".to_string(), serde_json::json!("high"));
@@ -15964,7 +17634,7 @@ mod engine_stream_tests {
         let footer = app.footer_render_model();
 
         assert_eq!(approval.detail, "cargo test");
-        assert_eq!(footer.model.as_deref(), Some("MiniMax-M2.7"));
+        assert_eq!(footer.model.as_deref(), Some("example-fast"));
         assert_eq!(footer.reasoning.as_deref(), Some("high"));
         assert_eq!(footer.turn_state.as_deref(), Some("waiting approval"));
         assert_eq!(

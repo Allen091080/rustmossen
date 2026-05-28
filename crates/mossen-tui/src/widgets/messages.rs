@@ -2,7 +2,13 @@
 //!
 //! Manages the row-based virtual scroll of transcript entries.
 
-use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line, widgets::Widget};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::Line,
+    widgets::{Paragraph, Widget, Wrap},
+};
 use std::collections::HashSet;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -786,6 +792,293 @@ fn render_tall_text_block_slice(
         return false;
     }
 
+    if !block.nodes.iter().all(supports_scrolled_text_node_slice) {
+        return render_virtual_text_block_slice(
+            block,
+            theme,
+            show_all_thinking,
+            area,
+            dest_y,
+            skip,
+            visible_height,
+            add_margin,
+            focused,
+            glyphs,
+            buf,
+        );
+    }
+
+    let focus_bar_width = u16::from(focused);
+    let prefix_x = area.x.saturating_add(focus_bar_width);
+    let content_x = prefix_x.saturating_add(3);
+    let content_width = area
+        .right()
+        .saturating_sub(content_x)
+        .min(area.width.saturating_sub(3 + focus_bar_width));
+    if content_width == 0 || visible_height == 0 {
+        return false;
+    }
+
+    let max_paragraph_scroll = (u16::MAX as usize)
+        .saturating_sub(visible_height as usize)
+        .saturating_sub(1);
+    if skip > max_paragraph_scroll {
+        return render_virtual_text_block_slice(
+            block,
+            theme,
+            show_all_thinking,
+            area,
+            dest_y,
+            skip,
+            visible_height,
+            add_margin,
+            focused,
+            glyphs,
+            buf,
+        );
+    }
+
+    let mut state = TallTextSliceState {
+        skip,
+        dst_y: dest_y,
+        remaining: visible_height as usize,
+        prefix_on_first_content_row: false,
+        prefix_drawn: false,
+    };
+
+    if add_margin {
+        if state.skip > 0 {
+            state.skip -= 1;
+        } else {
+            state.dst_y = state.dst_y.saturating_add(1);
+            state.remaining = state.remaining.saturating_sub(1);
+        }
+    }
+    state.prefix_on_first_content_row = state.skip == 0;
+
+    let chrome = TallTextChrome {
+        area,
+        prefix_x,
+        content_x,
+        content_width,
+        focused,
+        block_kind: block.kind,
+        glyphs,
+    };
+
+    for node in &block.nodes {
+        if state.remaining == 0 || state.dst_y >= area.bottom() {
+            break;
+        }
+
+        match node {
+            RenderNode::Thinking(text) => {
+                if show_all_thinking || block.state.streaming {
+                    let body = format!("{} {text}", glyphs.thinking);
+                    let node_height =
+                        crate::widgets::markdown::wrapped_line_count_for_text(&body, content_width);
+                    draw_tall_paragraph_node_slice(
+                        Paragraph::new(body).style(
+                            Style::default()
+                                .fg(theme.text_dim)
+                                .add_modifier(Modifier::ITALIC),
+                        ),
+                        node_height,
+                        &mut state,
+                        chrome,
+                        theme,
+                        buf,
+                    );
+                }
+            }
+            RenderNode::Markdown(text) => {
+                let widget = crate::widgets::markdown::MarkdownWidget::new(text)
+                    .theme(theme)
+                    .base_style(Style::default().fg(theme.text))
+                    .glyphs(glyphs)
+                    .max_width(content_width);
+                let lines = widget.parse_to_lines();
+                let node_height =
+                    crate::widgets::markdown::wrapped_line_count_for_lines(&lines, content_width);
+                draw_tall_paragraph_node_slice(
+                    Paragraph::new(lines).wrap(Wrap { trim: false }),
+                    node_height,
+                    &mut state,
+                    chrome,
+                    theme,
+                    buf,
+                );
+            }
+            RenderNode::PlainText(text) => {
+                let node_height =
+                    crate::widgets::markdown::wrapped_line_count_for_text(text, content_width);
+                draw_tall_paragraph_node_slice(
+                    Paragraph::new(text.as_str())
+                        .style(Style::default().fg(theme.text))
+                        .wrap(Wrap { trim: false }),
+                    node_height,
+                    &mut state,
+                    chrome,
+                    theme,
+                    buf,
+                );
+            }
+            RenderNode::ApprovalDecision(decision) => {
+                let line = decision.line();
+                let node_height =
+                    crate::widgets::markdown::wrapped_line_count_for_text(&line, content_width);
+                draw_tall_paragraph_node_slice(
+                    Paragraph::new(line)
+                        .style(Style::default().fg(theme.text))
+                        .wrap(Wrap { trim: false }),
+                    node_height,
+                    &mut state,
+                    chrome,
+                    theme,
+                    buf,
+                );
+            }
+            RenderNode::Error(_)
+            | RenderNode::FileChangeSummary(_)
+            | RenderNode::FinalSummary(_)
+            | RenderNode::ToolCard(_) => {}
+        }
+    }
+
+    true
+}
+
+fn supports_scrolled_text_node_slice(node: &RenderNode) -> bool {
+    matches!(
+        node,
+        RenderNode::Thinking(_)
+            | RenderNode::Markdown(_)
+            | RenderNode::PlainText(_)
+            | RenderNode::ApprovalDecision(_)
+    )
+}
+
+#[derive(Clone, Copy)]
+struct TallTextChrome {
+    area: Rect,
+    prefix_x: u16,
+    content_x: u16,
+    content_width: u16,
+    focused: bool,
+    block_kind: RenderBlockKind,
+    glyphs: RenderGlyphs,
+}
+
+struct TallTextSliceState {
+    skip: usize,
+    dst_y: u16,
+    remaining: usize,
+    prefix_on_first_content_row: bool,
+    prefix_drawn: bool,
+}
+
+fn draw_tall_paragraph_node_slice<'a>(
+    paragraph: Paragraph<'a>,
+    node_height: usize,
+    state: &mut TallTextSliceState,
+    chrome: TallTextChrome,
+    theme: &Theme,
+    buf: &mut Buffer,
+) {
+    if node_height == 0 || state.remaining == 0 || state.dst_y >= chrome.area.bottom() {
+        return;
+    }
+    if state.skip >= node_height {
+        state.skip -= node_height;
+        return;
+    }
+
+    let node_skip = state.skip;
+    state.skip = 0;
+
+    let available_height = state
+        .remaining
+        .min(node_height.saturating_sub(node_skip))
+        .min(chrome.area.bottom().saturating_sub(state.dst_y) as usize);
+    if available_height == 0 {
+        return;
+    }
+
+    let draw_height = available_height.min(u16::MAX as usize) as u16;
+    paint_tall_text_chrome(state, chrome, theme, buf, draw_height);
+    paragraph
+        .scroll((node_skip.min(u16::MAX as usize) as u16, 0))
+        .wrap(Wrap { trim: false })
+        .render(
+            Rect::new(
+                chrome.content_x,
+                state.dst_y,
+                chrome.content_width,
+                draw_height,
+            ),
+            buf,
+        );
+
+    state.dst_y = state.dst_y.saturating_add(draw_height);
+    state.remaining = state.remaining.saturating_sub(draw_height as usize);
+}
+
+fn paint_tall_text_chrome(
+    state: &mut TallTextSliceState,
+    chrome: TallTextChrome,
+    theme: &Theme,
+    buf: &mut Buffer,
+    height: u16,
+) {
+    let gutter_width = chrome.content_x.saturating_sub(chrome.area.x);
+    let gutter = " ".repeat(gutter_width as usize);
+    let gutter_style = if chrome.focused {
+        Style::default().bg(theme.warning)
+    } else {
+        Style::default()
+    };
+
+    for dy in 0..height {
+        let y = state.dst_y.saturating_add(dy);
+        if y >= chrome.area.bottom() {
+            break;
+        }
+        if gutter_width > 0 {
+            buf.set_stringn(
+                chrome.area.x,
+                y,
+                &gutter,
+                gutter_width as usize,
+                gutter_style,
+            );
+        }
+    }
+
+    if state.prefix_on_first_content_row && !state.prefix_drawn {
+        buf.set_string(
+            chrome.prefix_x,
+            state.dst_y,
+            virtual_prefix_for_block(chrome.block_kind, chrome.glyphs),
+            Style::default().fg(theme.text_dim),
+        );
+        state.prefix_drawn = true;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_virtual_text_block_slice(
+    block: &RenderBlock,
+    theme: &Theme,
+    show_all_thinking: bool,
+    area: Rect,
+    dest_y: u16,
+    skip: usize,
+    visible_height: u16,
+    add_margin: bool,
+    focused: bool,
+    glyphs: RenderGlyphs,
+    buf: &mut Buffer,
+) -> bool {
     let rows = virtual_text_block_rows(
         block,
         show_all_thinking,
@@ -921,10 +1214,10 @@ fn virtual_text_block_rows(
                 }
             }
             RenderNode::FinalSummary(summary) => {
-                let status = if summary.success {
-                    "Completed"
-                } else {
+                let status = if summary.needs_attention() {
                     "Needs attention"
+                } else {
+                    "Completed"
                 };
                 push_wrapped_virtual_rows(
                     &mut content_rows,
@@ -1056,33 +1349,51 @@ fn line_plain_text(line: &Line<'_>) -> String {
 fn push_wrapped_virtual_rows(rows: &mut Vec<String>, text: &str, width: usize) {
     let width = width.max(1);
     for segment in text.split('\n') {
-        let start_len = rows.len();
         if segment.is_empty() {
             rows.push(String::new());
         } else {
-            let mut row = String::new();
-            let mut used = 0usize;
-            for grapheme in segment.graphemes(true) {
-                let grapheme_width = UnicodeWidthStr::width(grapheme);
-                if grapheme_width > width {
-                    continue;
-                }
-                if used > 0 && used.saturating_add(grapheme_width) > width {
-                    rows.push(std::mem::take(&mut row));
-                    used = 0;
-                }
-                row.push_str(grapheme);
-                used = used.saturating_add(grapheme_width);
+            let expected =
+                crate::widgets::markdown::wrapped_line_count_for_text(segment, width as u16);
+            if expected > u16::MAX as usize || width > u16::MAX as usize {
+                push_hard_wrapped_virtual_rows(rows, segment, width);
+                continue;
             }
-            rows.push(row);
-        }
-
-        let expected = crate::widgets::markdown::wrapped_line_count_for_text(segment, width as u16);
-        let actual = rows.len().saturating_sub(start_len);
-        for _ in actual..expected {
-            rows.push(String::new());
+            let area = Rect::new(0, 0, width as u16, expected as u16);
+            let mut scratch = Buffer::empty(area);
+            Paragraph::new(segment.to_string())
+                .wrap(Wrap { trim: false })
+                .render(area, &mut scratch);
+            for y in 0..area.height {
+                rows.push(buffer_row_string(&scratch, y, area.width));
+            }
         }
     }
+}
+
+fn push_hard_wrapped_virtual_rows(rows: &mut Vec<String>, segment: &str, width: usize) {
+    let mut row = String::new();
+    let mut used = 0usize;
+    for grapheme in segment.graphemes(true) {
+        let grapheme_width = UnicodeWidthStr::width(grapheme);
+        if grapheme_width > width {
+            continue;
+        }
+        if used > 0 && used.saturating_add(grapheme_width) > width {
+            rows.push(std::mem::take(&mut row));
+            used = 0;
+        }
+        row.push_str(grapheme);
+        used = used.saturating_add(grapheme_width);
+    }
+    rows.push(row);
+}
+
+fn buffer_row_string(buf: &Buffer, y: u16, width: u16) -> String {
+    let mut row = String::new();
+    for x in 0..width {
+        row.push_str(buf[(x, y)].symbol());
+    }
+    row.trim_end().to_string()
 }
 
 fn truncate_virtual_row(text: &str, max_width: usize) -> String {
@@ -1413,6 +1724,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn sticky_bottom_reaches_tail_of_long_markdown_stream() {
+        let theme = Theme::default();
+        let mut content = String::from("PTY_LONG_MATRIX_HEAD_W107\n");
+        for index in 0..903 {
+            content.push_str(&format!(
+                "matrix-row-{index:04}: long external PTY soak keeps streaming, resize, and scroll stable.\n"
+            ));
+        }
+        content.push_str("PTY_LONG_MATRIX_TAIL_W107\n");
+        let messages = vec![assistant_message(content)];
+        let width = 96;
+        let height = 24;
+        let total_rows = MessagesWidget::required_content_height(
+            &messages,
+            &theme,
+            width,
+            false,
+            &HashSet::new(),
+        );
+        let mut scroll = VirtualScroll::new(height);
+        scroll.set_total_items(total_rows);
+        scroll.scroll_to_bottom();
+        let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
+
+        MessagesWidget::new(&messages, &theme, &scroll).render(buf.area, &mut buf);
+
+        let rendered = buffer_text(&buf);
+        assert!(
+            rendered.contains("PTY_LONG_MATRIX_TAIL_W107"),
+            "sticky bottom must render the real tail, not stop above it\n{rendered}"
+        );
     }
 
     #[test]

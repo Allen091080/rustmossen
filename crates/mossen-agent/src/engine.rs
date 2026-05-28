@@ -16,6 +16,75 @@ use crate::stop_hooks::StopHookManager;
 use crate::tool_registry::ToolRegistry;
 use crate::types::*;
 use mossen_types::{ContentBlock, Message, Role, TextBlock};
+use mossen_utils::hooks_utils::{
+    execute_user_prompt_submit_hooks, get_user_prompt_submit_hook_blocking_message,
+    AggregatedHookResult,
+};
+
+fn collect_user_prompt_hook_contexts(results: &[AggregatedHookResult]) -> Vec<String> {
+    results
+        .iter()
+        .filter_map(|result| result.additional_contexts.as_ref())
+        .flat_map(|contexts| contexts.iter())
+        .filter_map(|context| {
+            let trimmed = context.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .collect()
+}
+
+fn user_prompt_submit_blocking_message(
+    results: &[AggregatedHookResult],
+    prompt: &str,
+) -> Option<String> {
+    results.iter().find_map(|result| {
+        result.blocking_error.as_ref().map(|blocking_error| {
+            format!(
+                "{}\n\nOriginal prompt: {}",
+                get_user_prompt_submit_hook_blocking_message(blocking_error),
+                prompt
+            )
+        })
+    })
+}
+
+fn user_prompt_submit_prevent_message(results: &[AggregatedHookResult]) -> Option<String> {
+    results
+        .iter()
+        .find(|result| result.prevent_continuation == Some(true))
+        .map(|result| match result.stop_reason.as_deref() {
+            Some(reason) if !reason.trim().is_empty() => {
+                format!("Operation stopped by UserPromptSubmit hook: {reason}")
+            }
+            _ => "Operation stopped by UserPromptSubmit hook".to_string(),
+        })
+}
+
+async fn send_user_prompt_hook_stop(tx: &mpsc::Sender<SdkMessage>, text: String) {
+    let _ = tx
+        .send(SdkMessage::Assistant {
+            message: mossen_types::AssistantMessage {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text(TextBlock { text })],
+                uuid: Some(uuid::Uuid::new_v4().to_string()),
+                model: None,
+                stop_reason: Some("hook_stopped".to_string()),
+                extra: HashMap::new(),
+            },
+            usage: None,
+            task_id: None,
+        })
+        .await;
+    let _ = tx
+        .send(SdkMessage::Result {
+            terminal: format!("{:?}", TerminalReason::HookStopped),
+            cost_usd: None,
+            duration_ms: None,
+            usage: None,
+            task_id: None,
+        })
+        .await;
+}
 
 // ---------------------------------------------------------------------------
 // SessionOrchestrator
@@ -112,11 +181,53 @@ impl SessionOrchestrator {
             self.messages.push(msg);
         }
 
+        // 创建新的取消令牌，或复用调用方提供的 turn-scoped token。
+        self.cancel = options
+            .cancel_token
+            .clone()
+            .unwrap_or_else(CancellationToken::new);
+
+        let user_prompt_hook_results = if let Some(ctx) = self.config.hook_context.as_deref() {
+            execute_user_prompt_submit_hooks(
+                ctx,
+                prompt,
+                self.config.permission_mode.as_str(),
+                Some(&self.cancel),
+            )
+            .await
+        } else {
+            Vec::new()
+        };
+
+        if let Some(message) =
+            user_prompt_submit_blocking_message(&user_prompt_hook_results, prompt)
+        {
+            send_user_prompt_hook_stop(&tx, message).await;
+            return rx;
+        }
+
+        if let Some(message) = user_prompt_submit_prevent_message(&user_prompt_hook_results) {
+            send_user_prompt_hook_stop(&tx, message).await;
+            return rx;
+        }
+
         // 构建用户消息：text block + 任何附加 block（图片等）。
-        let mut user_content: Vec<ContentBlock> = vec![ContentBlock::Text(TextBlock {
+        let mut visible_user_content: Vec<ContentBlock> = vec![ContentBlock::Text(TextBlock {
             text: prompt.to_string(),
         })];
-        user_content.extend(options.additional_user_blocks.clone());
+        visible_user_content.extend(options.additional_user_blocks.clone());
+
+        let mut user_content = visible_user_content.clone();
+        let additional_contexts = collect_user_prompt_hook_contexts(&user_prompt_hook_results);
+        if !additional_contexts.is_empty() {
+            user_content.push(ContentBlock::Text(TextBlock {
+                text: format!(
+                    "UserPromptSubmit hook additional context:\n{}",
+                    additional_contexts.join("\n")
+                ),
+            }));
+        }
+
         let user_message = Message {
             role: Role::User,
             content: user_content,
@@ -132,7 +243,7 @@ impl SessionOrchestrator {
             .send(SdkMessage::User {
                 message: mossen_types::UserMessage {
                     role: Role::User,
-                    content: user_message.content.clone(),
+                    content: visible_user_content,
                     uuid: user_message.uuid.clone(),
                     is_meta: None,
                     origin: None,
@@ -143,12 +254,6 @@ impl SessionOrchestrator {
             .await;
 
         self.messages.push(user_message);
-
-        // 创建新的取消令牌，或复用调用方提供的 turn-scoped token。
-        self.cancel = options
-            .cancel_token
-            .clone()
-            .unwrap_or_else(CancellationToken::new);
 
         // 构建对话规格
         let spec = DialogueSpec {
@@ -171,7 +276,7 @@ impl SessionOrchestrator {
             cancel: self.cancel.clone(),
             chain_trace: None,
             skip_stop_hooks: self.config.skip_stop_hooks,
-            effort: None,
+            effort: self.config.effort,
             auto_mode: self.config.auto_mode,
             pre_approved_permissions: Vec::new(),
             permission_mode: self.config.permission_mode,
@@ -282,10 +387,11 @@ pub async fn submit_prompt(params: PromptParams) -> mpsc::Receiver<SdkMessage> {
         user_specified_model: None,
         max_output_tokens: None,
         origin_tag: params.origin_tag,
-        fast_mode: None,
+        fast_mode: params.fast_mode,
+        effort: params.effort,
         api_base_url: params.api_base_url,
         api_key: params.api_key,
-        skip_stop_hooks: true,
+        skip_stop_hooks: false,
         auto_mode: false,
         extra_body: params.extra_body,
         permission_mode: params.permission_mode,
@@ -316,4 +422,237 @@ pub async fn submit_prompt(params: PromptParams) -> mpsc::Receiver<SdkMessage> {
             }),
         )
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mossen_types::ToolUseContext;
+    use mossen_utils::hooks_utils::{HookMatcher, HooksContext};
+
+    fn test_hooks_context(
+        cwd: &std::path::Path,
+        registered_hooks: HashMap<String, Vec<HookMatcher>>,
+    ) -> HooksContext {
+        HooksContext {
+            session_id: "engine-test-session".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: Arc::new(|session_id| format!("/tmp/{session_id}.jsonl")),
+            get_agent_transcript_path: Arc::new(|agent_id| format!("/tmp/agent-{agent_id}.jsonl")),
+            log_debug: Arc::new(|_| {}),
+            log_error: Arc::new(|_| {}),
+            log_event: Arc::new(|_, _| {}),
+            get_settings: Arc::new(|| None),
+            get_settings_for_source: Arc::new(|_| None),
+            invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: None,
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
+        }
+    }
+
+    fn command_hook(command: String) -> HookMatcher {
+        HookMatcher {
+            matcher: None,
+            hooks: vec![serde_json::json!({
+                "type": "command",
+                "command": command,
+                "timeout": 1
+            })],
+            plugin_root: None,
+            plugin_id: None,
+            plugin_name: None,
+            skill_root: None,
+            skill_name: None,
+        }
+    }
+
+    fn test_config(
+        cwd: &std::path::Path,
+        hook_context: Option<Arc<HooksContext>>,
+    ) -> OrchestratorConfig {
+        OrchestratorConfig {
+            system_prompt: Vec::new(),
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "engine-hook-test".to_string(),
+            user_specified_model: None,
+            max_output_tokens: None,
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            effort: None,
+            api_base_url: Some("http://127.0.0.1:9".to_string()),
+            api_key: Some("sk-test".to_string()),
+            skip_stop_hooks: true,
+            auto_mode: false,
+            extra_body: HashMap::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Some(Arc::new(AllowAllGate)),
+            tool_registry: Some(Arc::new(ToolRegistry::new())),
+            hook_context,
+        }
+    }
+
+    async fn drain_messages(rx: &mut mpsc::Receiver<SdkMessage>) -> Vec<SdkMessage> {
+        let mut messages = Vec::new();
+        while let Some(message) = rx.recv().await {
+            messages.push(message);
+        }
+        messages
+    }
+
+    fn assistant_texts(messages: &[SdkMessage]) -> String {
+        messages
+            .iter()
+            .flat_map(|message| match message {
+                SdkMessage::Assistant { message, .. } => message
+                    .content
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Text(text) => Some(text.text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn result_terminals(messages: &[SdkMessage]) -> Vec<&str> {
+        messages
+            .iter()
+            .filter_map(|message| match message {
+                SdkMessage::Result { terminal, .. } => Some(terminal.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn user_prompt_submit_blocking_hook_stops_before_dialogue() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "UserPromptSubmit".to_string(),
+            vec![command_hook(
+                "printf 'blocked by user prompt hook' >&2; exit 2".to_string(),
+            )],
+        );
+        let hook_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut orchestrator =
+            SessionOrchestrator::new(test_config(cwd.path(), Some(hook_context)));
+
+        let mut rx = orchestrator
+            .dispatch_turn(
+                "scan the repo",
+                Some(SubmitOptions {
+                    max_turns: Some(1),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        let messages = drain_messages(&mut rx).await;
+
+        let text = assistant_texts(&messages);
+        assert!(
+            text.contains("UserPromptSubmit operation blocked by hook"),
+            "assistant text should explain hook block: {text}"
+        );
+        assert!(
+            text.contains("Original prompt: scan the repo"),
+            "assistant text should include the blocked prompt: {text}"
+        );
+        assert!(
+            result_terminals(&messages)
+                .iter()
+                .any(|terminal| terminal.contains("HookStopped")),
+            "result should report hook stop: {messages:?}"
+        );
+        assert!(
+            orchestrator.get_messages().is_empty(),
+            "blocked prompt should not enter dialogue history"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_prompt_submit_prevent_hook_stops_before_dialogue() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "UserPromptSubmit".to_string(),
+            vec![command_hook(
+                "printf '%s\n' '{\"continue\":false,\"stopReason\":\"policy gate\"}'".to_string(),
+            )],
+        );
+        let hook_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut orchestrator =
+            SessionOrchestrator::new(test_config(cwd.path(), Some(hook_context)));
+
+        let mut rx = orchestrator
+            .dispatch_turn(
+                "continue check",
+                Some(SubmitOptions {
+                    max_turns: Some(1),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        let messages = drain_messages(&mut rx).await;
+
+        let text = assistant_texts(&messages);
+        assert!(
+            text.contains("Operation stopped by UserPromptSubmit hook: policy gate"),
+            "assistant text should explain hook prevent-continuation: {text}"
+        );
+        assert!(
+            result_terminals(&messages)
+                .iter()
+                .any(|terminal| terminal.contains("HookStopped")),
+            "result should report hook stop: {messages:?}"
+        );
+        assert!(
+            orchestrator.get_messages().is_empty(),
+            "prevented prompt should not enter dialogue history"
+        );
+    }
+
+    #[test]
+    fn user_prompt_submit_contexts_are_collected_for_model_context() {
+        let results = vec![
+            AggregatedHookResult {
+                additional_contexts: Some(vec![
+                    "  repo policy context  ".to_string(),
+                    "".to_string(),
+                ]),
+                ..Default::default()
+            },
+            AggregatedHookResult {
+                additional_contexts: Some(vec!["second context".to_string()]),
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(
+            collect_user_prompt_hook_contexts(&results),
+            vec![
+                "repo policy context".to_string(),
+                "second context".to_string()
+            ]
+        );
+    }
 }

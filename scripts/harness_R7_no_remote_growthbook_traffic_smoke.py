@@ -13,7 +13,7 @@ R7 — 远程 GrowthBook 0 流量的安全网测试 (G2-2c, weak mode).
   - 只重定向 MOSSEN_CODE_GB_BASE_URL → mock
   - 不重定向 MOSSEN_CODE_PLATFORM_BASE_URL (growthbook.ts 已优先读 GB_BASE_URL)
   - 强制开 trust dialog (绕守卫让代码真试图访问 GB)
-  - 模型 backend env 不动 (custom backend / dashscope 走真 API)
+  - 模型 backend env 不动 (custom backend / external provider 走真 API)
 
 2 user_type case:
   - default (USER_TYPE unset, 非 internal) — 标准路径, 必须 exit 0 + session 落盘
@@ -45,6 +45,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 from lib.mock_http_capture import MockCaptureServer, alloc_port
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 
 GB_PATH_PREFIXES = ("/api/features/", "/api/eval/", "/sub/")
@@ -61,6 +62,7 @@ def _is_gb_request(req: dict) -> bool:
 def _make_env(ctx, mock_port: int, *, user_type_internal: bool) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
 
     # 强制开 trust dialog → 让 GB 初始化路径真跑
     env["MOSSEN_CODE_TRUST_DIALOG_ACCEPTED"] = "1"
@@ -80,8 +82,13 @@ def _make_env(ctx, mock_port: int, *, user_type_internal: bool) -> dict:
 
 def _find_session_logs(home: Path) -> list[Path]:
     found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in found:
                 found.append(p)
@@ -100,18 +107,28 @@ def case_no_gb_traffic(*, user_type_internal: bool) -> dict:
 
         prompt = "请把以下字符串原样回复给我: R7_GB_TEST_OK"
 
-        proc = subprocess.run(
-            [str(ROOT / "run-mossen.sh"), "-p"],
-            input=prompt,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=str(fake_proj),
-        )
+        model = f"r7-gb-{label}-model"
+        with mock_openai_provider(model=model) as (base_url, provider):
+            apply_mock_provider_env(
+                env,
+                base_url,
+                model=model,
+                name=f"R7 GB {label} Mock",
+            )
+            ctx.env.update(env)
+            proc = subprocess.run(
+                [str(ROOT / "scripts" / "start-mossen.sh"), "--stdin"],
+                input=prompt,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                cwd=str(fake_proj),
+            )
+            provider_snapshot = provider.snapshot()
         write_command_log(
             ctx,
-            ["mossen", "-p", f"(mock_gb_port={server.port}, user_type={label})"],
+            ["mossen", "--stdin", f"(mock_gb_port={server.port}, user_type={label})"],
             proc.stdout, proc.stderr, proc.returncode,
         )
 
@@ -159,6 +176,8 @@ def case_no_gb_traffic(*, user_type_internal: bool) -> dict:
         "other_request_excerpt": other_requests[:3],
         "session_landed": session_landed,
         "session_log_count": len(session_logs),
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_paths": provider_snapshot["paths"],
         "stdout_excerpt": proc.stdout[:300],
         "stderr_excerpt": proc.stderr[:300],
         "fixture_root": str(ctx.root_dir),
@@ -194,7 +213,8 @@ def main() -> int:
                 f"exit={res_default.get('exit_code')} "
                 f"gb_req={res_default.get('gb_request_count')} "
                 f"session_landed={res_default.get('session_landed')} "
-                f"weak_mode={res_default.get('weak_mode')}"
+                f"weak_mode={res_default.get('weak_mode')} "
+                f"provider_req={res_default.get('provider_request_count')}"
             ),
         }],
     )
@@ -214,7 +234,8 @@ def main() -> int:
                 f"exit={res_ant.get('exit_code')} "
                 f"gb_req={res_ant.get('gb_request_count')} "
                 f"session_landed={res_ant.get('session_landed')} "
-                f"weak_mode={res_ant.get('weak_mode')}"
+                f"weak_mode={res_ant.get('weak_mode')} "
+                f"provider_req={res_ant.get('provider_request_count')}"
             ),
         }],
     )

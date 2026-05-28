@@ -34,6 +34,11 @@ impl Directive for KeybindingsDirective {
         DirectiveType::Local
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.is_env_truthy("MOSSEN_ENABLE_KEYBINDING_CUSTOMIZATION")
+            && !ctx.is_env_truthy("DISABLE_KEYBINDING_CUSTOMIZATION")
+    }
+
     fn is_immediate(&self) -> bool {
         true
     }
@@ -65,14 +70,45 @@ impl Directive for KeybindingsDirective {
             ));
         }
 
-        // In full implementation:
-        // 1. Get keybindings path (~/.config/mossen/keybindings.json)
-        // 2. mkdir -p for parent directory
-        // 3. Write template with 'wx' flag if file doesn't exist
-        // 4. Open file in editor (editFileInEditor)
-
-        Ok(CommandResult::System(
-            "Opening keybindings configuration in your editor...".to_string(),
+        Ok(CommandResult::Error(
+            "Cannot open keybindings from this command runner; editor launch is not wired here."
+                .to_string(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn keybindings_directive_does_not_claim_editor_open() {
+        let output = tokio_test::block_on(KeybindingsDirective.execute(&[], &test_context()))
+            .expect("keybindings command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("keybindings should not claim editor launch when not wired");
+        };
+        assert!(text.contains("Cannot open keybindings"), "{text}");
+        assert!(!text.contains("Opening keybindings"), "{text}");
     }
 }

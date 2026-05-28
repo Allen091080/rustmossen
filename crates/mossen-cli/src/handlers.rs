@@ -194,10 +194,10 @@ pub async fn install_oauth_tokens(tokens: &OAuthTokens) -> Result<()> {
 
 /// Auth login 处理器 — 对应 TS 的 authLogin()。
 pub async fn auth_login(
-    email: Option<&str>,
-    sso: bool,
-    use_console: bool,
-    hosted: bool,
+    _email: Option<&str>,
+    _sso: bool,
+    _use_console: bool,
+    _hosted: bool,
 ) -> Result<()> {
     if is_custom_backend_enabled() {
         eprintln!(
@@ -206,13 +206,8 @@ pub async fn auth_login(
         std::process::exit(1);
     }
 
-    if use_console && hosted {
-        eprintln!("Error: --console and --hosted cannot be used together.");
-        std::process::exit(1);
-    }
-
     // 检查环境变量中的 refresh token（快速路径）
-    if let Ok(env_refresh_token) = std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN") {
+    if std::env::var("MOSSEN_CODE_AUTH_REFRESH_TOKEN").is_ok() {
         let env_scopes = std::env::var("MOSSEN_CODE_AUTH_SCOPES").ok();
         if env_scopes.is_none() {
             eprintln!(
@@ -223,16 +218,12 @@ pub async fn auth_login(
 
         // Token 刷新流程
         info!("auth_login: using environment refresh token");
-        println!("Sign-in successful (via environment token).");
+        println!("Backend credential detected via environment refresh token.");
         std::process::exit(0);
     }
 
-    // 标准 OAuth 浏览器流程
-    info!("auth_login: starting OAuth browser flow");
-    println!("Opening browser to sign in…");
-    println!("If the browser didn't open, visit the authorization URL.");
-
-    // 委托给 mossen-utils auth 模块 — 检查是否已存在有效的 hosted OAuth token
+    // Legacy token cache check. Personal edition does not start a browser
+    // account flow from this handler.
     match mossen_utils::auth::get_hosted_oauth_tokens_async().await {
         Some(tokens) => {
             // 已经有现成的 token，尝试刷新（如果过期）
@@ -243,15 +234,11 @@ pub async fn auth_login(
             if let Some(warn) = save_result.warning {
                 eprintln!("Warning: {}", warn);
             }
-            if let Some(ref email) = tokens.subscription_type {
-                println!("Sign-in successful (subscription: {}).", email);
-            } else {
-                println!("Sign-in successful.");
-            }
+            println!("Legacy stored credential detected.");
         }
         None => {
             eprintln!(
-                "No OAuth token available. Configure MOSSEN_CODE_AUTH_TOKEN or run hosted sign-in flow."
+                "No backend credential is configured. Configure a model profile or set MOSSEN_CODE_CUSTOM_BASE_URL plus MOSSEN_CODE_CUSTOM_API_KEY."
             );
             std::process::exit(1);
         }
@@ -264,7 +251,7 @@ pub async fn auth_status(json_output: bool, text_output: bool) -> Result<()> {
     if is_custom_backend_enabled() {
         let credentials_configured = has_custom_backend_auth();
         if text_output {
-            println!("Login method: custom backend");
+            println!("Credential method: custom backend");
             println!(
                 "Credential state: {}",
                 if credentials_configured {
@@ -290,8 +277,8 @@ pub async fn auth_status(json_output: bool, text_output: bool) -> Result<()> {
 
     if text_output {
         if logged_in {
-            println!("Auth method: {}", auth_method);
-            println!("Status: authenticated");
+            println!("Credential method: {}", auth_method);
+            println!("Credential state: configured");
         } else {
             println!("Not configured. Set MOSSEN_CODE_API_KEY or configure apiKeyHelper.");
         }
@@ -393,7 +380,7 @@ fn get_default_auto_mode_rules() -> AutoModeRules {
         allow: vec![
             "Read files in the project directory".to_string(),
             "List directory contents".to_string(),
-            "Search code with grep/ripgrep".to_string(),
+            "Search code with the Grep tool".to_string(),
         ],
         soft_deny: vec![
             "Delete files outside the project".to_string(),

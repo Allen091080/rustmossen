@@ -3,6 +3,7 @@
 //! 对应 TS `TodoWriteTool`。管理会话级 todo 列表。
 
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,13 @@ pub struct TaskNotePadInput {
 pub struct TaskNotePadOutput {
     pub old_todos: Vec<TodoItem>,
     pub new_todos: Vec<TodoItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+fn todo_store() -> &'static Mutex<Vec<TodoItem>> {
+    static STORE: OnceLock<Mutex<Vec<TodoItem>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn build_input_schema() -> ToolInputSchema {
@@ -70,6 +78,37 @@ fn build_input_schema() -> ToolInputSchema {
     }
 }
 
+fn parse_input(input: Value) -> Result<TaskNotePadInput, String> {
+    match input {
+        Value::Null => {
+            Err("TodoWrite requires a JSON object with a `todos` array; received null.".to_string())
+        }
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!(
+                "TodoWrite received invalid input: {error}. Expected object: {{\"todos\":[...]}}."
+            )
+        }),
+        other => Err(format!(
+            "TodoWrite requires a JSON object with a `todos` array; received {}.",
+            other
+        )),
+    }
+}
+
+fn error_result(message: impl Into<String>) -> anyhow::Result<ToolResult> {
+    let output = TaskNotePadOutput {
+        old_todos: todo_store().lock().unwrap().clone(),
+        new_todos: Vec::new(),
+        error: Some(message.into()),
+    };
+    Ok(ToolResult {
+        output: serde_json::to_string(&output)?,
+        is_error: true,
+        duration_ms: 0,
+        metadata: HashMap::new(),
+    })
+}
+
 #[async_trait]
 impl Tool for TaskNotePad {
     fn name(&self) -> &str {
@@ -98,13 +137,35 @@ impl Tool for TaskNotePad {
     }
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: TaskNotePadInput = serde_json::from_value(input)?;
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => return error_result(message),
+        };
+        for todo in &inp.todos {
+            if todo.id.trim().is_empty() {
+                return error_result("TodoWrite requires each todo to have a non-empty `id`.");
+            }
+            if todo.content.trim().is_empty() {
+                return error_result("TodoWrite requires each todo to have non-empty `content`.");
+            }
+            if !matches!(
+                todo.status.as_str(),
+                "pending" | "in_progress" | "completed"
+            ) {
+                return error_result(format!(
+                    "Invalid todo status for {}: {}",
+                    todo.id, todo.status
+                ));
+            }
+        }
 
-        // 当前实现：将输入 todos 直接返回为新列表。
-        // 实际运行时需要与 AppState 交互（由上层编排处理）。
+        let mut store = todo_store().lock().unwrap();
+        let old_todos = store.clone();
+        *store = inp.todos;
         let output = TaskNotePadOutput {
-            old_todos: Vec::new(),
-            new_todos: inp.todos,
+            old_todos,
+            new_todos: store.clone(),
+            error: None,
         };
 
         Ok(ToolResult {
@@ -113,5 +174,125 @@ impl Tool for TaskNotePad {
             duration_ms: 0,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_todos_for_test() {
+    todo_store().lock().unwrap().clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn todo_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("todo test lock poisoned")
+    }
+
+    #[tokio::test]
+    async fn todo_write_preserves_previous_todos_between_calls() {
+        let _lock = todo_test_lock();
+        clear_todos_for_test();
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let first = TaskNotePad
+            .execute(
+                serde_json::json!({
+                    "todos": [
+                        {"id": "1", "content": "inspect", "status": "pending"}
+                    ]
+                }),
+                &context,
+            )
+            .await
+            .expect("first todo write");
+        assert!(!first.is_error);
+        let first_output: serde_json::Value =
+            serde_json::from_str(&first.output).expect("first json");
+        assert_eq!(first_output["old_todos"].as_array().unwrap().len(), 0);
+
+        let second = TaskNotePad
+            .execute(
+                serde_json::json!({
+                    "todos": [
+                        {"id": "1", "content": "inspect", "status": "completed"}
+                    ]
+                }),
+                &context,
+            )
+            .await
+            .expect("second todo write");
+        assert!(!second.is_error);
+        let second_output: serde_json::Value =
+            serde_json::from_str(&second.output).expect("second json");
+        assert_eq!(second_output["old_todos"][0]["status"], "pending");
+        assert_eq!(second_output["new_todos"][0]["status"], "completed");
+
+        clear_todos_for_test();
+    }
+
+    #[tokio::test]
+    async fn todo_write_null_input_returns_structured_tool_error() {
+        let _lock = todo_test_lock();
+        clear_todos_for_test();
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = TaskNotePad
+            .execute(serde_json::Value::Null, &context)
+            .await
+            .expect("todo write");
+        let output: serde_json::Value = serde_json::from_str(&result.output).expect("json");
+
+        assert!(result.is_error);
+        assert!(output["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("todos"));
+        assert_eq!(output["new_todos"].as_array().unwrap().len(), 0);
+        clear_todos_for_test();
+    }
+
+    #[tokio::test]
+    async fn todo_write_empty_content_returns_structured_tool_error() {
+        let _lock = todo_test_lock();
+        clear_todos_for_test();
+        let context = ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = TaskNotePad
+            .execute(
+                serde_json::json!({
+                    "todos": [
+                        {"id": "1", "content": "", "status": "pending"}
+                    ]
+                }),
+                &context,
+            )
+            .await
+            .expect("todo write");
+        let output: serde_json::Value = serde_json::from_str(&result.output).expect("json");
+
+        assert!(result.is_error);
+        assert!(output["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("content"));
+        clear_todos_for_test();
     }
 }

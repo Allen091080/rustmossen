@@ -143,8 +143,8 @@ impl Directive for AdvisorDirective {
             let prev = ctx.env_vars.get("ADVISOR_MODEL");
             match prev {
                 Some(prev_model) if !prev_model.is_empty() => {
-                    return Ok(CommandResult::Text(format!(
-                        "Advisor disabled (was {}).",
+                    return Ok(CommandResult::Error(format!(
+                        "Cannot clear advisor model from this command runner. Current environment snapshot has {}, but no live advisor config writer is attached.",
                         prev_model
                     )));
                 }
@@ -173,15 +173,54 @@ impl Directive for AdvisorDirective {
         }
 
         if !model_supports_advisor(&base_model) {
-            return Ok(CommandResult::Text(format!(
-                "Advisor set to {}.\nNote: Your current model ({}) does not support advisors. Switch to a supported model to use the advisor.",
+            return Ok(CommandResult::Error(format!(
+                "Cannot set advisor to {} from this command runner. The live advisor config writer is not attached, and the current model ({}) does not support advisors.",
                 normalized_model, base_model
             )));
         }
 
-        Ok(CommandResult::Text(format!(
-            "Advisor set to {}.",
+        Ok(CommandResult::Error(format!(
+            "Cannot set advisor to {} from this command runner. No live advisor config writer is attached.",
             normalized_model
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("MOSSEN_CODE_ENABLE_ADVISOR".to_string(), "1".to_string());
+        env_vars.insert("MAIN_LOOP_MODEL".to_string(), "gpt-4".to_string());
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars,
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn advisor_directive_does_not_claim_live_config_update() {
+        let output = tokio_test::block_on(AdvisorDirective.execute(&["o3"], &test_context()))
+            .expect("advisor command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("advisor should fail closed without config writer");
+        };
+        assert!(text.contains("Cannot set advisor"), "{text}");
+        assert!(!text.contains("Advisor set to"), "{text}");
     }
 }

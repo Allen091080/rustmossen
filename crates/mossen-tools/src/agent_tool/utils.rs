@@ -28,12 +28,10 @@ const ASYNC_AGENT_ALLOWED_TOOLS: &[&str] = &[
     "Edit",
     "Glob",
     "Grep",
-    "LSP",
     "NotebookEdit",
     "WebFetch",
     "WebSearch",
     "Agent",
-    "SendMessage",
     "Skill",
 ];
 
@@ -45,7 +43,6 @@ const IN_PROCESS_TEAMMATE_ALLOWED_TOOLS: &[&str] = &[
     "Edit",
     "Glob",
     "Grep",
-    "LSP",
     "NotebookEdit",
     "WebFetch",
     "WebSearch",

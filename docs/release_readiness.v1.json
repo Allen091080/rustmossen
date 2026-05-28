@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "decision_rule": "A release is ready only when every required gate is passed with current evidence.",
+  "gates": [
+    {
+      "id": "deterministic_harness_matrix",
+      "kind": "automated",
+      "required": true,
+      "command": "python3 scripts/harness_assertions_aggregator.py && python3 scripts/harness_capability_matrix.py",
+      "evidence": [
+        "harness-final-report.json",
+        "harness-capability-report.json"
+      ],
+      "pass_criteria": [
+        "All deterministic harness assertions pass.",
+        "The capability matrix has no fail, missing, stale, partial, unmapped, or multi-mapped script rows."
+      ]
+    },
+    {
+      "id": "rust_workspace_tests",
+      "kind": "automated",
+      "required": true,
+      "command": "cargo test --workspace --lib --bins | tee /tmp/mossen-release-readiness/cargo-test-workspace.log",
+      "evidence": [
+        "/tmp/mossen-release-readiness/cargo-test-workspace.log"
+      ],
+      "pass_criteria": [
+        "The workspace cargo test log contains successful test result summaries.",
+        "The evidence is newer than the Rust source tree."
+      ]
+    },
+    {
+      "id": "warnings_as_errors",
+      "kind": "automated",
+      "required": true,
+      "command": "mkdir -p /tmp/mossen-release-readiness && RUSTFLAGS='-D warnings' cargo check --workspace 2>&1 | tee /tmp/mossen-release-readiness/warnings-as-errors.log",
+      "evidence": [
+        "/tmp/mossen-release-readiness/warnings-as-errors.json",
+        "/tmp/mossen-release-readiness/warnings-as-errors.log"
+      ],
+      "pass_criteria": [
+        "The warnings-as-errors command exits zero.",
+        "The log contains no warnings or errors and is current for the Rust source tree."
+      ]
+    },
+    {
+      "id": "package_install_smoke",
+      "kind": "automated",
+      "required": true,
+      "command": "python3 scripts/harness_R11_2_package_install_smoke.py",
+      "evidence": [
+        "/tmp/mossen-harness/R11.2_package_install_smoke/artifacts/assertions.json"
+      ],
+      "pass_criteria": [
+        "The release build can be installed from source.",
+        "The installed binary is resolved from PATH.",
+        "The binary runs outside the source repo.",
+        "The first launch profile query exits successfully.",
+        "startup latency is bounded.",
+        "profile migration is exercised.",
+        "Artifacts redact sensitive values."
+      ]
+    },
+    {
+      "id": "external_provider_openai_compatible_long_soak",
+      "kind": "credentialed",
+      "required": true,
+      "protocol": "openai-compatible",
+      "reference_profile": "example-fast-highspeed",
+      "minimum_duration_minutes": 30,
+      "required_scenarios": [
+        "streaming",
+        "tool_call",
+        "retry",
+        "cancel",
+        "compact",
+        "subagent",
+        "resume"
+      ],
+      "command": "python3 scripts/release_provider_long_soak.py --profile example-fast-highspeed --minutes 30",
+      "evidence": [
+        "/tmp/mossen-release-readiness/openai-compatible/soak-report.json"
+      ],
+      "pass_criteria": [
+        "The configured openai-compatible provider completes all runtime scenarios.",
+        "The soak runs for at least 30 minutes with no secret leakage in artifacts."
+      ]
+    },
+    {
+      "id": "external_provider_anthropic_long_soak",
+      "kind": "credentialed",
+      "required": true,
+      "protocol": "anthropic",
+      "minimum_duration_minutes": 30,
+      "required_scenarios": [
+        "streaming",
+        "tool_call",
+        "retry",
+        "cancel",
+        "compact",
+        "subagent",
+        "resume"
+      ],
+      "command": "python3 scripts/release_provider_long_soak.py --profile anthropic-release --minutes 30",
+      "evidence": [
+        "/tmp/mossen-release-readiness/anthropic/soak-report.json"
+      ],
+      "pass_criteria": [
+        "The configured anthropic provider completes all runtime scenarios.",
+        "The soak runs for at least 30 minutes with no secret leakage in artifacts."
+      ]
+    },
+    {
+      "id": "external_provider_openai_responses_long_soak",
+      "kind": "credentialed",
+      "required": true,
+      "protocol": "openai-responses",
+      "minimum_duration_minutes": 30,
+      "required_scenarios": [
+        "streaming",
+        "tool_call",
+        "retry",
+        "cancel",
+        "compact",
+        "subagent",
+        "resume"
+      ],
+      "command": "python3 scripts/release_provider_long_soak.py --profile openai-responses-release --minutes 30",
+      "evidence": [
+        "/tmp/mossen-release-readiness/openai-responses/soak-report.json"
+      ],
+      "pass_criteria": [
+        "The configured openai-responses provider completes all runtime scenarios.",
+        "The soak runs for at least 30 minutes with no secret leakage in artifacts."
+      ]
+    },
+    {
+      "id": "pty_30_min_soak",
+      "kind": "automated",
+      "required": true,
+      "minimum_duration_minutes": 30,
+      "command": "python3 scripts/wave_w107_render_pty_long_matrix_soak.py --duration-secs 1800",
+      "evidence": [
+        "/tmp/mossen-harness/W107_render_pty_long_matrix_soak/artifacts/assertions.json"
+      ],
+      "pass_criteria": [
+        "The PTY soak runs for at least 30 minutes.",
+        "The long render matrix completes without panic, deadlock, or repeated full-screen clear."
+      ]
+    },
+    {
+      "id": "manual_tty_30_min_bake",
+      "kind": "interactive",
+      "required": true,
+      "minimum_duration_minutes": 30,
+      "required_checks": [
+        "input_responsive",
+        "selection_copy_works",
+        "scroll_returns_to_bottom",
+        "subagent_completion_feedback",
+        "ctrl_c_safe",
+        "no_panic_or_deadlock",
+        "no_render_tearing"
+      ],
+      "command": "python3 scripts/release_manual_tty_bake.py --record && python3 scripts/release_manual_tty_bake.py",
+      "evidence": [
+        "/tmp/mossen-release-readiness/manual-tty-bake/evidence.json"
+      ],
+      "pass_criteria": [
+        "A real host terminal session validates selection and copy, scroll return to bottom, and background Agent completion.",
+        "Ctrl+C is safe and does not corrupt the session.",
+        "The evidence is recorded without API keys or secrets."
+      ]
+    },
+    {
+      "id": "one_hour_coding_sprint",
+      "kind": "interactive",
+      "required": true,
+      "minimum_duration_minutes": 60,
+      "minimum_tasks": 5,
+      "required_checks": [
+        "background_agent_used",
+        "taskoutput_retrieved",
+        "file_edit_performed",
+        "bash_command_run",
+        "interrupt_or_resume_exercised",
+        "final_summary_recorded",
+        "tasks_finished_without_turn_limit",
+        "per_task_validation_bash_succeeded",
+        "input_responsive_during_agent_work",
+        "input_responsiveness_evidence_recorded",
+        "background_agent_completion_surfaced",
+        "final_summary_matches_activity"
+      ],
+      "command": "python3 scripts/release_coding_sprint_runner.py --minutes 60 --min-tasks 5 && python3 scripts/release_coding_sprint_audit.py",
+      "evidence": [
+        "/tmp/mossen-release-readiness/coding-sprint/transcript.jsonl",
+        "/tmp/mossen-release-readiness/coding-sprint/summary.json"
+      ],
+      "pass_criteria": [
+        "The release_coding_sprint_runner.py completes at least five real coding tasks over one hour.",
+        "The release_coding_sprint_audit.py verifies Agent, TaskOutput, file edit, Bash validation, interrupt or resume, input responsiveness, and Final Summary accuracy."
+      ]
+    }
+  ]
+}

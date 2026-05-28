@@ -662,10 +662,10 @@ fn final_summary_lines(
     let text = Style::default().fg(theme.text);
     let dim = Style::default().fg(theme.text_dim);
     let mut lines = Vec::new();
-    let status = if summary.success {
-        "Completed"
-    } else {
+    let status = if summary.needs_attention() {
         "Needs attention"
+    } else {
+        "Completed"
     };
     lines.push(Line::from(vec![
         Span::styled("Status: ", label),

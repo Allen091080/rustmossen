@@ -948,7 +948,7 @@ index 1111111..2222222 100644\n\
 
 fn apply_common_product_state(app: &mut App) {
     app.fullscreen = true;
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.total_cost_usd = 0.15;
     app.state.turn_state = TurnState::Streaming;
     app.state.is_streaming = true;
@@ -1092,7 +1092,7 @@ fn app_render_contract_survives_product_state_matrix() {
                 assert_contains_all(&name, &rendered, scenario.semantic_needles);
             } else if width >= 40 && height >= 10 {
                 let mut fallback_needles = scenario.semantic_needles.to_vec();
-                fallback_needles.extend(["mossen", "MiniMax-M2.7", "msgs", "Ask anything"]);
+                fallback_needles.extend(["mossen", "example-fast", "msgs", "Ask anything"]);
                 assert_contains_any(&name, &rendered, &fallback_needles);
             }
         }
@@ -1272,7 +1272,7 @@ fn app_render_contract_raw_modal_includes_raw_engine_event_journal() {
 
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "raw-contract-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: vec!["Bash".to_string()],
         task_id: None,
     });
@@ -1319,7 +1319,7 @@ fn app_render_contract_timeline_modal_uses_structured_render_events() {
     app.messages = vec![msg(MessageType::User, "检查渲染事件时间线")];
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "timeline-contract-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: Vec::new(),
         task_id: None,
     });
@@ -1386,7 +1386,7 @@ fn app_render_contract_timeline_modal_shows_plan_progress_counts() {
     app.messages = vec![msg(MessageType::User, "检查计划事件时间线")];
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "timeline-plan-contract-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: Vec::new(),
         task_id: None,
     });
@@ -1615,7 +1615,7 @@ fn app_render_contract_status_modal_uses_semantic_session_state() {
             "Turn",
             "Policy",
             "Workspace",
-            "MiniMax-M2.7",
+            "example-fast",
             "running command",
             "reasoning:high",
             "API Key",
@@ -1639,7 +1639,7 @@ fn app_render_contract_debug_config_modal_is_redacted_and_semantic() {
         msg(MessageType::User, "检查 debug config"),
         msg(MessageType::Assistant, "Debug config fixture"),
     ];
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.engine_config.api_base_url = Some("http://localhost:8000/v1".to_string());
     app.engine_config.api_key = Some("redacted-debug-config-key".to_string());
     app.engine_config.max_turns = Some(8);
@@ -1672,7 +1672,7 @@ fn app_render_contract_debug_config_modal_is_redacted_and_semantic() {
             "Engine",
             "Policy",
             "Renderer",
-            "MiniMax-M2.7",
+            "example-fast",
             "API Key",
             "configured",
             "Extra Body",
@@ -2148,7 +2148,7 @@ fn app_render_contract_statusline_presets_are_visible_and_codex_focused() {
         "statusline focused preset",
         &focused,
         &[
-            "MiniMax-M2.7",
+            "example-fast",
             "Supervised",
             "reasoning:high",
             "running command",
@@ -2159,7 +2159,7 @@ fn app_render_contract_statusline_presets_are_visible_and_codex_focused() {
         .lines()
         .rev()
         .find(|line| {
-            line.contains("MiniMax-M2.7")
+            line.contains("example-fast")
                 && line.contains("ctx 0/200k")
                 && !line.contains("status:")
         })
@@ -2290,12 +2290,12 @@ fn app_render_contract_keeps_status_footer_visible_with_transcript() {
         &rendered,
         &[
             "running command",
-            "MiniMax-M2.7",
+            "example-fast",
             "Supervised",
             "reasoning:high",
         ],
     );
-    let status_y = first_line_index(&rendered, "MiniMax-M2.7").expect("status should render");
+    let status_y = first_line_index(&rendered, "example-fast").expect("status should render");
     let transcript_y =
         first_line_index(&rendered, "完整渲染合同").expect("transcript should render");
     let prompt_y = first_line_index(&rendered, "Ask anything").expect("prompt should render");
@@ -2417,14 +2417,14 @@ fn app_render_contract_keeps_approval_inline_and_footer_alive() {
             "Always",
             "Deny",
             "approval required",
-            "MiniMax-M2.7",
+            "example-fast",
             "msgs",
         ],
     );
 
     let approval_y =
         first_line_index(&rendered, "Shell Command").expect("approval title should render");
-    let footer_y = last_line_index(&rendered, &["MiniMax-M2.7", "msgs"])
+    let footer_y = last_line_index(&rendered, &["example-fast", "msgs"])
         .expect("footer should remain visible");
     assert!(
         approval_y < footer_y,
@@ -2473,7 +2473,7 @@ fn app_render_contract_survives_resize_storm_and_pathological_content() {
                     "Shell Command",
                     "malformed input",
                     "最后一行仍然要可见",
-                    "MiniMax-M2.7",
+                    "example-fast",
                 ],
             );
         }
@@ -3293,7 +3293,7 @@ fn app_render_contract_renders_rich_markdown_code_table_and_diff() {
                     "rich-content-tail-anchor",
                     "diff --git",
                     "rich_contract",
-                    "MiniMax-M2.7",
+                    "example-fast",
                 ],
             );
         }

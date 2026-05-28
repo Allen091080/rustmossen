@@ -28,7 +28,6 @@ def require_script(script_name: str, failures: list[str]) -> None:
 def main() -> None:
     structured = (ROOT / "crates/mossen-cli/src/structured_io.rs").read_text()
     run_all = (ROOT / "scripts/run_all_smoke.sh").read_text()
-    phase = (ROOT / "phases/03g-rendering-product-grade-plan.md").read_text()
 
     failures: list[str] = []
     for script_name in [
@@ -56,13 +55,6 @@ def main() -> None:
         "run_all registration",
         failures,
     )
-    require(
-        phase,
-        "2026-05-24 Terminal-render PTY cleanup balance contract",
-        "phase note",
-        failures,
-    )
-
     if failures:
         print("=== W278 terminal cleanup balance PTY contract smoke ===")
         for failure in failures:

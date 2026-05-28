@@ -43,7 +43,6 @@ unicode-width.workspace = true
 strip-ansi-escapes.workspace = true
 similar.workspace = true
 pulldown-cmark.workspace = true
-syntect.workspace = true
 unicode-segmentation = "1.10"
 unicode-normalization = "0.1"
 

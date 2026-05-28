@@ -1804,7 +1804,7 @@ pub async fn get_team_memory_runtime_snapshot() -> crate::platform::TeamMemoryRu
     let rollout_enabled = crate::memdir::is_team_memory_rollout_enabled();
     let enabled = crate::memdir::is_team_memory_enabled();
     let sync_available = mossen_agent::services::team_memory_sync::is_team_memory_sync_available();
-    let path = if auto_memory_enabled {
+    let path = if enabled {
         Some(
             crate::memdir::get_team_mem_path(&project_root)
                 .display()
@@ -1813,7 +1813,7 @@ pub async fn get_team_memory_runtime_snapshot() -> crate::platform::TeamMemoryRu
     } else {
         None
     };
-    let entrypoint = if auto_memory_enabled {
+    let entrypoint = if enabled {
         Some(
             crate::memdir::get_team_mem_entrypoint(&project_root)
                 .display()
@@ -1822,18 +1822,16 @@ pub async fn get_team_memory_runtime_snapshot() -> crate::platform::TeamMemoryRu
     } else {
         None
     };
-    let status_reason = if !auto_memory_enabled {
+    let status_reason = if !auto_memory_enabled && rollout_enabled {
         Some("auto memory disabled".to_string())
-    } else if !rollout_enabled {
-        Some("team memory disabled".to_string())
     } else if !sync_available {
-        Some("team memory sync unavailable".to_string())
+        None
     } else {
         None
     };
 
     crate::platform::TeamMemoryRuntimeSnapshot {
-        build_enabled: true,
+        build_enabled: rollout_enabled,
         enabled,
         sync_available,
         auto_memory_enabled,

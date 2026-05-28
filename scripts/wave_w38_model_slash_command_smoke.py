@@ -98,7 +98,7 @@ def check_model_success_path(failures: list[str]) -> None:
     if "getModelOptions" not in branch:
         fail(failures, "model 分支必须使用 getModelOptions")
     if "listAllProfiles" not in branch:
-        fail(failures, "model 分支必须使用 listAllProfiles 以暴露 qwen/minimax/glm 等 profile")
+        fail(failures, "model 分支必须使用 listAllProfiles 以暴露 sample/fast/provider 等 profile")
     if "desensitizeProfile" not in branch:
         fail(failures, "model 分支必须使用 desensitizeProfile，禁止泄漏 apiKey")
     if "setSessionActiveProfile" not in branch:

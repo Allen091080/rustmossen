@@ -37,19 +37,9 @@ async fn execute_btw_flow(args: &[&str], ctx: &CommandContext) -> Result<String>
         return Ok("Usage: /btw <your question>".to_string());
     }
 
-    // In the full implementation, this would:
-    // 1. Save btwUseCount to global config
-    // 2. Build CacheSafeParams for the fork
-    // 3. Run the side question through the model
-    // 4. Stream the response with scroll support
-    //
-    // For now, acknowledge the question and explain this is a side channel
     let system_prompt = build_side_question_system_prompt(ctx);
     Ok(format!(
-        "Side question received: \"{}\"\n\n\
-         [This would invoke the model with a forked context to answer without \
-         disrupting the main conversation thread.]\n\n\
-         System prompt: {}",
+        "Cannot run side question \"{}\" from this command runner. No side-channel model runner or forked context store is attached.\nSystem prompt preview: {}",
         question,
         &system_prompt[..system_prompt.len().min(100)]
     ))
@@ -83,6 +73,47 @@ impl Directive for BtwDirective {
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let result = execute_btw_flow(args, ctx).await?;
-        Ok(CommandResult::Text(result))
+        if args.is_empty() {
+            Ok(CommandResult::Text(result))
+        } else {
+            Ok(CommandResult::Error(result))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn btw_directive_does_not_claim_side_channel_without_runner() {
+        let output =
+            tokio_test::block_on(BtwDirective.execute(&["what", "changed"], &test_context()))
+                .expect("btw command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("btw should fail closed without side-channel runner");
+        };
+        assert!(text.contains("Cannot run side question"), "{text}");
+        assert!(!text.contains("This would invoke"), "{text}");
     }
 }

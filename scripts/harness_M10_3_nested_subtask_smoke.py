@@ -24,15 +24,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
 REAL_HOME = Path.home()
-DEBUG_MOSSEN = ROOT / "target" / "debug" / "mossen"
 AGENT_TOOL_NAME = "Agent"
 PARENT_MARKER = "PARENT_OK_M10_3"
 AGENT_RESULT_MARKER = "Agent completed task"
+CHILD_MARKER = "child_marker_M10_3"
 
 
 def mossen_runner() -> str:
-    if DEBUG_MOSSEN.exists() and DEBUG_MOSSEN.is_file():
-        return str(DEBUG_MOSSEN)
     return str(ROOT / "scripts" / "start-mossen.sh")
 
 
@@ -41,18 +39,22 @@ class MockOpenAIState:
         self.lock = threading.Lock()
         self.requests: list[dict[str, Any]] = []
         self.agent_result_seen = False
+        self.child_request_seen = False
 
-    def record(self, path: str, body: bytes) -> int:
+    def record(self, path: str, body: bytes) -> tuple[int, bool]:
         try:
             parsed = json.loads(body.decode("utf-8")) if body else {}
         except json.JSONDecodeError:
             parsed = {"_decode_error": body.decode("utf-8", "replace")}
         body_text = json.dumps(parsed, ensure_ascii=False)
+        is_child_request = "Mossen sub-agent launched by a parent session" in body_text
         with self.lock:
             self.requests.append({"path": path, "body": parsed})
+            if is_child_request:
+                self.child_request_seen = True
             if AGENT_RESULT_MARKER in body_text:
                 self.agent_result_seen = True
-            return len(self.requests)
+            return len(self.requests), is_child_request
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -60,6 +62,8 @@ class MockOpenAIState:
                 "request_count": len(self.requests),
                 "paths": [req["path"] for req in self.requests],
                 "agent_result_seen": self.agent_result_seen,
+                "child_request_seen": self.child_request_seen,
+                "requests": self.requests,
             }
 
 
@@ -83,7 +87,7 @@ def make_handler(state: MockOpenAIState):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0") or "0")
             body = self.rfile.read(length) if length else b""
-            request_index = state.record(self.path, body)
+            request_index, is_child_request = state.record(self.path, body)
             if not self.path.endswith("/chat/completions"):
                 self.send_response(404)
                 self.end_headers()
@@ -96,6 +100,8 @@ def make_handler(state: MockOpenAIState):
             try:
                 if request_index == 1:
                     self._write_agent_call()
+                elif is_child_request:
+                    self._write_child_result()
                 elif state.snapshot()["agent_result_seen"]:
                     self._write_final()
                 else:
@@ -145,6 +151,33 @@ def make_handler(state: MockOpenAIState):
                     "object": "chat.completion.chunk",
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
                     "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+                },
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def _write_child_result(self) -> None:
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-agent-child",
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": f"{AGENT_RESULT_MARKER}: {CHILD_MARKER}"},
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+            )
+            write_sse(
+                self.wfile,
+                {
+                    "id": "m10-agent-child",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 5},
                 },
             )
             self.wfile.write(b"data: [DONE]\n\n")
@@ -266,15 +299,19 @@ def case_nested_subtask_completes() -> dict:
         server_snapshot = model_state.snapshot()
 
     write_command_log(ctx, command, proc.stdout, proc.stderr, proc.returncode)
+    requests_path = ctx.artifacts_dir / "model_requests.json"
+    requests_path.write_text(json.dumps(server_snapshot["requests"], indent=2, ensure_ascii=False))
 
     parent_marker_in_stdout = PARENT_MARKER in proc.stdout
     agent_result_seen_by_model = bool(server_snapshot["agent_result_seen"])
+    child_request_seen = bool(server_snapshot["child_request_seen"])
     request_count_ok = server_snapshot["request_count"] >= 2
 
     ok = (
         proc.returncode == 0
         and parent_marker_in_stdout
         and agent_result_seen_by_model
+        and child_request_seen
         and request_count_ok
     )
 
@@ -283,12 +320,14 @@ def case_nested_subtask_completes() -> dict:
         "ok": ok,
         "exit_code": proc.returncode,
         "agent_result_seen_by_model": agent_result_seen_by_model,
+        "child_request_seen": child_request_seen,
         "parent_marker_in_stdout": parent_marker_in_stdout,
         "model_request_count": server_snapshot["request_count"],
         "model_request_paths": server_snapshot["paths"],
         "stdout_excerpt": proc.stdout[:500],
         "stderr_excerpt": proc.stderr[:500],
         "fixture_root": str(ctx.root_dir),
+        "model_requests": str(requests_path),
         "_ctx": ctx,
     }
 
@@ -310,11 +349,13 @@ def main() -> int:
                 "evidence": (
                     f"requests={r.get('model_request_count')} "
                     f"agent_result_seen={r.get('agent_result_seen_by_model')} "
+                    f"child_request_seen={r.get('child_request_seen')} "
                     f"parent_marker={r.get('parent_marker_in_stdout')}"
                 ),
             }
             for r in results
         ],
+        extra_artifacts={"model_requests": str(ctx.artifacts_dir / "model_requests.json")},
     )
 
     summary = {

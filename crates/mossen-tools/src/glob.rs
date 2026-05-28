@@ -28,6 +28,29 @@ pub struct PathDiscovererInput {
     pub path: Option<String>,
 }
 
+fn tool_error(message: impl Into<String>, duration_ms: u64) -> ToolResult {
+    ToolResult {
+        output: message.into(),
+        is_error: true,
+        duration_ms,
+        metadata: HashMap::new(),
+    }
+}
+
+fn parse_input(input: Value) -> Result<PathDiscovererInput, String> {
+    match input {
+        Value::Null => Err("Glob requires a JSON object with a `pattern` string; received null."
+            .to_string()),
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!("Glob received invalid input: {error}. Expected object: {{\"pattern\":\"...\",\"path\":\"optional directory\"}}.")
+        }),
+        other => Err(format!(
+            "Glob requires a JSON object with a `pattern` string; received {}.",
+            other
+        )),
+    }
+}
+
 fn build_input_schema() -> ToolInputSchema {
     let mut properties = HashMap::new();
     properties.insert(
@@ -81,8 +104,11 @@ impl Tool for PathDiscoverer {
     }
 
     async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: PathDiscovererInput = serde_json::from_value(input)?;
         let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => return Ok(tool_error(message, start.elapsed().as_millis() as u64)),
+        };
 
         let base = inp
             .path
@@ -91,7 +117,15 @@ impl Tool for PathDiscoverer {
 
         info!(pattern = %inp.pattern, base = %base, "PathDiscoverer: searching");
 
-        let matcher = globset::Glob::new(&inp.pattern)?.compile_matcher();
+        let matcher = match globset::Glob::new(&inp.pattern) {
+            Ok(glob) => glob.compile_matcher(),
+            Err(error) => {
+                return Ok(tool_error(
+                    format!("Glob pattern is invalid: {error}"),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
+        };
         let mut files = Vec::new();
         let mut truncated = false;
 
@@ -131,18 +165,55 @@ impl Tool for PathDiscoverer {
             parts.join("\n")
         };
 
-        let output = serde_json::json!({
-            "filenames": files,
-            "numFiles": num_files,
-            "durationMs": elapsed,
-            "truncated": truncated,
-        });
-
         Ok(ToolResult {
             output: content,
             is_error: false,
             duration_ms: elapsed,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PathDiscoverer;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use std::collections::HashMap;
+
+    fn context(cwd: &std::path::Path) -> ToolUseContext {
+        ToolUseContext {
+            cwd: cwd.to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn glob_null_input_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let result = PathDiscoverer
+            .execute(serde_json::Value::Null, &context(temp.path()))
+            .await
+            .expect("glob result");
+
+        assert!(result.is_error);
+        assert!(result.output.contains("pattern"), "{}", result.output);
+        assert!(result.output.contains("null"), "{}", result.output);
+    }
+
+    #[tokio::test]
+    async fn glob_missing_pattern_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let result = PathDiscoverer
+            .execute(serde_json::json!({}), &context(temp.path()))
+            .await
+            .expect("glob result");
+
+        assert!(result.is_error);
+        assert!(result.output.contains("invalid input"), "{}", result.output);
+        assert!(result.output.contains("pattern"), "{}", result.output);
     }
 }

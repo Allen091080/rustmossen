@@ -1279,11 +1279,24 @@ pub struct FinalSummaryModel {
 }
 
 impl FinalSummaryModel {
+    pub fn needs_attention(&self) -> bool {
+        !self.success
+            || !self.residual_risks.is_empty()
+            || self
+                .verification_results
+                .iter()
+                .any(|result| !result.passed)
+            || self
+                .commands
+                .iter()
+                .any(|command| command.exit_code.is_some_and(|code| code != 0))
+    }
+
     pub fn title(&self) -> &'static str {
-        if self.success {
-            "Final Summary"
-        } else {
+        if self.needs_attention() {
             "Final Summary · Attention"
+        } else {
+            "Final Summary"
         }
     }
 }

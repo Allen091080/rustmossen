@@ -14,7 +14,8 @@ use tracing::debug;
 
 use crate::streaming::{parse_sse_event, RawSseEvent, StreamEvent, StreamParseError};
 use crate::types::{
-    ApiMetadata, MessageParam, StreamRequestParams, SystemBlock, ThinkingConfig, ToolChoice,
+    ApiMetadata, EffortLevel, MessageParam, StreamRequestParams, SystemBlock, ThinkingConfig,
+    ToolChoice,
 };
 use mossen_types::ToolDefinition;
 use mossen_utils::custom_backend::CustomBackendProtocol;
@@ -25,6 +26,12 @@ use mossen_utils::custom_backend::CustomBackendProtocol;
 
 /// 默认 API 基础 URL。
 const DEFAULT_API_BASE_URL: &str = "https://api.mossen.invalid/v1";
+const MISSING_BACKEND_CONFIGURATION_MESSAGE: &str = concat!(
+    "No Mossen backend is configured. For personal edition, set ",
+    "MOSSEN_CODE_CUSTOM_BASE_URL and MOSSEN_CODE_CUSTOM_API_KEY ",
+    "(or MOSSEN_CODE_CUSTOM_AUTH_TOKEN), configure mossen.activeProfile, ",
+    "or set MOSSEN_API_BASE_URL/MOSSEN_CODE_API_BASE_URL for an explicit hosted adapter."
+);
 /// 默认流式超时（秒）。
 const STREAM_TIMEOUT_SECS: u64 = 90;
 /// 默认 OpenAI-compatible 流式无语义进展超时（秒）。
@@ -55,6 +62,17 @@ fn openai_compat_request_timeout() -> Duration {
         "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS",
         OPENAI_COMPAT_REQUEST_TIMEOUT_SECS,
     )
+}
+
+fn is_placeholder_backend_url(base_url: &str) -> bool {
+    base_url.trim_end_matches('/') == DEFAULT_API_BASE_URL.trim_end_matches('/')
+}
+
+fn missing_backend_configuration_error() -> ApiError {
+    ApiError::Auth {
+        status: 401,
+        message: MISSING_BACKEND_CONFIGURATION_MESSAGE.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +217,10 @@ pub async fn call_streaming(
         };
     }
 
+    if is_placeholder_backend_url(&config.base_url) {
+        return Err(missing_backend_configuration_error());
+    }
+
     call_streaming_messages(config, params, cancel, MessageApiFlavor::Mossen).await
 }
 
@@ -261,13 +283,17 @@ async fn call_streaming_messages(
         }
     }
 
-    let response = request
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ApiError::Connection {
-            message: e.to_string(),
-        })?;
+    let response = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            return Err(ApiError::Cancelled);
+        }
+        response = request.json(&body).send() => {
+            response.map_err(|e| ApiError::Connection {
+                message: e.to_string(),
+            })?
+        }
+    };
 
     let status = response.status();
     if !status.is_success() {
@@ -436,6 +462,7 @@ pub fn build_stream_request(
     tools: &[ToolDefinition],
     thinking: Option<&ThinkingConfig>,
     tool_choice: Option<&ToolChoice>,
+    effort: Option<EffortLevel>,
     extra_body: &HashMap<String, serde_json::Value>,
     metadata: &ApiMetadata,
 ) -> StreamRequestParams {
@@ -452,6 +479,7 @@ pub fn build_stream_request(
         stream: true,
         metadata: metadata.clone(),
         extra_body: extra_body.clone(),
+        effort,
     }
 }
 
@@ -462,6 +490,72 @@ fn merge_extra_body(body: &mut serde_json::Value, extra_body: &HashMap<String, s
     for (key, value) in extra_body {
         object.insert(key.clone(), value.clone());
     }
+}
+
+fn openai_reasoning_effort(level: EffortLevel) -> &'static str {
+    match level {
+        EffortLevel::Low => "low",
+        EffortLevel::Medium => "medium",
+        EffortLevel::High | EffortLevel::Max => "high",
+    }
+}
+
+fn anthropic_thinking_budget(level: EffortLevel, max_tokens: u32) -> u32 {
+    let requested = match level {
+        EffortLevel::Low => 1024,
+        EffortLevel::Medium => 4096,
+        EffortLevel::High => 8192,
+        EffortLevel::Max => 12_000,
+    };
+    let ceiling = max_tokens.saturating_sub(1).max(1);
+    requested.min(ceiling)
+}
+
+fn apply_openai_chat_effort(body: &mut serde_json::Value, effort: Option<EffortLevel>) {
+    let Some(level) = effort else {
+        return;
+    };
+    if let Some(object) = body.as_object_mut() {
+        object
+            .entry("reasoning_effort".to_string())
+            .or_insert_with(|| serde_json::json!(openai_reasoning_effort(level)));
+    }
+}
+
+fn apply_openai_responses_effort(body: &mut serde_json::Value, effort: Option<EffortLevel>) {
+    let Some(level) = effort else {
+        return;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    let reasoning = object
+        .entry("reasoning".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(reasoning_object) = reasoning.as_object_mut() {
+        reasoning_object
+            .entry("effort".to_string())
+            .or_insert_with(|| serde_json::json!(openai_reasoning_effort(level)));
+    }
+}
+
+fn apply_anthropic_effort(
+    body: &mut serde_json::Value,
+    effort: Option<EffortLevel>,
+    max_tokens: u32,
+) {
+    let Some(level) = effort else {
+        return;
+    };
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    object.entry("thinking".to_string()).or_insert_with(|| {
+        serde_json::json!({
+            "type": "enabled",
+            "budget_tokens": anthropic_thinking_budget(level, max_tokens),
+        })
+    });
 }
 
 fn anthropic_messages_url(base_url: &str) -> String {
@@ -530,6 +624,9 @@ fn build_anthropic_messages_body(params: &StreamRequestParams) -> serde_json::Va
     if let Some(tool_choice) = &params.tool_choice {
         body["tool_choice"] = serde_json::to_value(tool_choice).unwrap_or_else(|_| json!(null));
     }
+    if params.thinking.is_none() {
+        apply_anthropic_effort(&mut body, params.effort, params.max_tokens);
+    }
     if params.metadata.user_id.is_some() {
         body["metadata"] = serde_json::to_value(&params.metadata).unwrap_or_else(|_| json!({}));
     }
@@ -538,7 +635,7 @@ fn build_anthropic_messages_body(params: &StreamRequestParams) -> serde_json::Va
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI-compatible custom backend route (MiniMax / Qwen / GLM …)
+// OpenAI-compatible custom backend route (ExampleProvider / Qwen / provider …)
 // ---------------------------------------------------------------------------
 //
 // 这些后端没有 Provider `/v1/messages` 兼容端点，只支持 OpenAI
@@ -549,7 +646,7 @@ fn build_anthropic_messages_body(params: &StreamRequestParams) -> serde_json::Va
 //   4. 把每个 SSE chunk 实时转成 StreamEvent 发回 UI，让"打字机"
 //      效果真正逐 token 显示而不是等响应完整再一次性渲染。
 //
-// `<think>...</think>` 块由 MiniMax 直接嵌在 content 文本里，作为
+// `<think>...</think>` 块由 ExampleProvider 直接嵌在 content 文本里，作为
 // 普通 TextDelta 经过——前端可自由决定渲染样式（dim、折叠等）。
 
 async fn call_streaming_openai_compat(
@@ -601,6 +698,7 @@ async fn call_streaming_openai_compat(
     if let Some(tc) = openai_tool_choice {
         body["tool_choice"] = tc;
     }
+    apply_openai_chat_effort(&mut body, params.effort);
     merge_extra_body(&mut body, &params.extra_body);
 
     let request_timeout = openai_compat_request_timeout();
@@ -630,17 +728,24 @@ async fn call_streaming_openai_compat(
         "OpenAI-compat request dispatch",
     );
 
-    let response = tokio::time::timeout(request_timeout, req.send())
-        .await
-        .map_err(|_| ApiError::Connection {
-            message: format!(
-                "OpenAI-compatible backend did not return stream headers within {}s",
-                request_timeout.as_secs()
-            ),
-        })?
-        .map_err(|e| ApiError::Connection {
-            message: e.to_string(),
-        })?;
+    let response = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            return Err(ApiError::Cancelled);
+        }
+        response = tokio::time::timeout(request_timeout, req.send()) => {
+            response
+                .map_err(|_| ApiError::Connection {
+                    message: format!(
+                        "OpenAI-compatible backend did not return stream headers within {}s",
+                        request_timeout.as_secs()
+                    ),
+                })?
+                .map_err(|e| ApiError::Connection {
+                    message: e.to_string(),
+                })?
+        }
+    };
     let status = response.status();
     if !status.is_success() {
         let code = status.as_u16();
@@ -950,6 +1055,7 @@ async fn call_streaming_openai_responses(
     if let Some(tool_choice) = response_tool_choice {
         body["tool_choice"] = tool_choice;
     }
+    apply_openai_responses_effort(&mut body, params.effort);
     merge_extra_body(&mut body, &params.extra_body);
 
     let request_timeout = openai_compat_request_timeout();
@@ -978,17 +1084,24 @@ async fn call_streaming_openai_responses(
         "OpenAI Responses request dispatch",
     );
 
-    let response = tokio::time::timeout(request_timeout, req.send())
-        .await
-        .map_err(|_| ApiError::Connection {
-            message: format!(
-                "OpenAI Responses backend did not return stream headers within {}s",
-                request_timeout.as_secs()
-            ),
-        })?
-        .map_err(|e| ApiError::Connection {
-            message: e.to_string(),
-        })?;
+    let response = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => {
+            return Err(ApiError::Cancelled);
+        }
+        response = tokio::time::timeout(request_timeout, req.send()) => {
+            response
+                .map_err(|_| ApiError::Connection {
+                    message: format!(
+                        "OpenAI Responses backend did not return stream headers within {}s",
+                        request_timeout.as_secs()
+                    ),
+                })?
+                .map_err(|e| ApiError::Connection {
+                    message: e.to_string(),
+                })?
+        }
+    };
     let status = response.status();
     if !status.is_success() {
         let code = status.as_u16();
@@ -1417,7 +1530,7 @@ fn openai_responses_url(base_url: &str) -> String {
 // Provider ↔ OpenAI message / tool translation
 // ---------------------------------------------------------------------------
 // Faithful Rust port of openaiCompatibleClient.ts::mossen{Messages,Tools,
-// ToolChoice}ToOpenAI. These exist because the MiniMax/OpenAI-compatible
+// ToolChoice}ToOpenAI. These exist because the ExampleProvider/OpenAI-compatible
 // backend speaks chat.completions, not /v1/messages.
 
 fn build_openai_messages(
@@ -1805,18 +1918,104 @@ fn openai_responses_usage_from_event(event: &serde_json::Value) -> Option<crate:
 #[cfg(test)]
 mod tests {
     use super::{
-        anthropic_messages_url, build_anthropic_messages_body, build_openai_messages,
-        build_openai_responses_input, build_openai_responses_tools, openai_choice_content_text,
-        openai_choice_tool_calls, openai_compat_chat_url, openai_content_text,
-        openai_responses_url, ToolCallAccum,
+        anthropic_messages_url, apply_anthropic_effort, apply_openai_chat_effort,
+        apply_openai_responses_effort, build_anthropic_messages_body, build_openai_messages,
+        build_openai_responses_input, build_openai_responses_tools, call_streaming,
+        openai_choice_content_text, openai_choice_tool_calls, openai_compat_chat_url,
+        openai_content_text, openai_responses_url, ApiClientConfig, ApiError, ToolCallAccum,
     };
-    use crate::types::{ApiMetadata, MessageParam, StreamRequestParams, SystemBlock};
+    use crate::types::{ApiMetadata, EffortLevel, MessageParam, StreamRequestParams, SystemBlock};
     use mossen_types::{
         ContentBlock, TextBlock, ToolDefinition, ToolInputSchema, ToolResultBlock,
         ToolResultContent, ToolUseBlock,
     };
     use serde_json::json;
     use std::collections::HashMap;
+    use tokio_util::sync::CancellationToken;
+
+    const CUSTOM_BACKEND_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_AUTH_TOKEN",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+    ];
+
+    struct EnvRestore {
+        vars: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvRestore {
+        fn clear(keys: &'static [&'static str]) -> Self {
+            let vars = keys
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect();
+            for key in keys {
+                std::env::remove_var(key);
+            }
+            Self { vars }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.vars.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn call_streaming_without_backend_config_fails_fast_with_personal_hint() {
+        let _guard = crate::test_support::env_lock_async().await;
+        let _env = EnvRestore::clear(CUSTOM_BACKEND_ENV_KEYS);
+        let config = ApiClientConfig::new(String::new(), None);
+        let params = StreamRequestParams {
+            model: "test-model".to_string(),
+            max_tokens: 256,
+            messages: vec![MessageParam {
+                role: "user".to_string(),
+                content: vec![ContentBlock::Text(TextBlock {
+                    text: "hello".to_string(),
+                })],
+            }],
+            system: vec![],
+            tools: vec![],
+            thinking: None,
+            tool_choice: None,
+            stream: true,
+            metadata: ApiMetadata { user_id: None },
+            extra_body: HashMap::new(),
+            effort: None,
+        };
+
+        let err = match call_streaming(&config, &params, CancellationToken::new()).await {
+            Ok(_) => panic!("missing backend should fail before contacting placeholder URL"),
+            Err(err) => err,
+        };
+
+        match &err {
+            ApiError::Auth { status, message } => {
+                assert_eq!(*status, 401);
+                assert!(message.contains("MOSSEN_CODE_CUSTOM_BASE_URL"));
+                assert!(message.contains("MOSSEN_CODE_CUSTOM_API_KEY"));
+                assert!(message.contains("MOSSEN_CODE_CUSTOM_AUTH_TOKEN"));
+                assert!(message.contains("mossen.activeProfile"));
+                assert!(!message.contains("api.mossen.invalid"));
+                assert!(!message.contains("mossen.ai/login"));
+            }
+            other => panic!("expected auth configuration error, got {other:?}"),
+        }
+        assert!(
+            !err.is_retryable(),
+            "missing local backend configuration should not enter API retry"
+        );
+    }
 
     #[test]
     fn content_text_accepts_openai_vision_array_blocks() {
@@ -1995,6 +2194,34 @@ mod tests {
     }
 
     #[test]
+    fn effort_maps_to_openai_compatible_reasoning_effort() {
+        let mut body = json!({"model": "test", "messages": []});
+
+        apply_openai_chat_effort(&mut body, Some(EffortLevel::Max));
+
+        assert_eq!(body["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn effort_maps_to_openai_responses_reasoning_object() {
+        let mut body = json!({"model": "test", "input": []});
+
+        apply_openai_responses_effort(&mut body, Some(EffortLevel::Medium));
+
+        assert_eq!(body["reasoning"]["effort"], "medium");
+    }
+
+    #[test]
+    fn effort_maps_to_anthropic_thinking_when_no_native_thinking_set() {
+        let mut body = json!({"model": "test", "max_tokens": 10_000, "messages": []});
+
+        apply_anthropic_effort(&mut body, Some(EffortLevel::High), 10_000);
+
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 8192);
+    }
+
+    #[test]
     fn anthropic_body_uses_messages_contract_and_system_blocks() {
         let params = StreamRequestParams {
             model: "anthropic-test-model".to_string(),
@@ -2015,6 +2242,7 @@ mod tests {
             stream: true,
             metadata: ApiMetadata { user_id: None },
             extra_body: HashMap::from([("temperature".to_string(), json!(0.2))]),
+            effort: None,
         };
 
         let body = build_anthropic_messages_body(&params);

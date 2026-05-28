@@ -47,7 +47,7 @@ Use AskUserQuestion to find out what the user wants:
 
 - "Which MOSSEN.md files should /init set up?"
   Options: "Project MOSSEN.md" | "Personal MOSSEN.local.md" | "Both project + personal"
-  Description for project: "Team-shared instructions checked into source control — architecture, coding standards, common workflows."
+  Description for project: "Project instructions checked into source control — architecture, coding standards, common workflows."
   Description for personal: "Your private preferences for this project (gitignored, not shared) — your role, sandbox URLs, preferred test data, workflow quirks."
 
 - "Also set up skills and hooks?"

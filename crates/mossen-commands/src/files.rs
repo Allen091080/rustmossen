@@ -65,12 +65,50 @@ impl Directive for FilesDirective {
             }
         });
 
-        // In full implementation: query session state for file operations
         let msg = match filter {
-            Some(op) => format!("No {} files in this session.", op),
-            None => "No file changes recorded in this session.".to_string(),
+            Some(op) => format!(
+                "File activity snapshot is not attached to this command runner, so {} files cannot be listed here. Use /files in the interactive TUI for the live session view.",
+                op
+            ),
+            None => "File activity snapshot is not attached to this command runner. Use /files in the interactive TUI for the live session view.".to_string(),
         };
 
         Ok(CommandResult::Text(msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn files_directive_does_not_claim_empty_session_without_snapshot() {
+        let output = tokio_test::block_on(FilesDirective.execute(&[], &test_context()))
+            .expect("files command");
+
+        let CommandResult::Text(text) = output else {
+            panic!("files should return explanatory text");
+        };
+        assert!(text.contains("snapshot is not attached"), "{text}");
+        assert!(!text.contains("No file changes recorded"), "{text}");
     }
 }

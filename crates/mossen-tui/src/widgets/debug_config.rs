@@ -242,7 +242,7 @@ mod tests {
         let model = DebugConfigRenderModel::new("renderer unicode | secrets redacted")
             .section(
                 StatusSectionRenderModel::new("Engine")
-                    .row("Model", "MiniMax-M2.7", StatusRowLevel::Good)
+                    .row("Model", "example-fast", StatusRowLevel::Good)
                     .row("API Key", "configured", StatusRowLevel::Good)
                     .row(
                         "Extra Body",

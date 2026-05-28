@@ -16,6 +16,10 @@ use mossen_types::constants::prompts as p;
 use mossen_types::constants::system as sys_consts;
 
 use mossen_agent::types::SystemBlock;
+use mossen_utils::hooks_utils::{
+    execute_instructions_loaded_hooks, has_instructions_loaded_hook, HooksContext,
+    InstructionsLoadReason, InstructionsMemoryType, TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+};
 
 /// Inputs to the composer. Anything the CLI/TUI launcher already knows by
 /// the time it builds an `EngineConfig` belongs here — keeps the function
@@ -23,11 +27,13 @@ use mossen_agent::types::SystemBlock;
 pub struct SystemPromptInputs<'a> {
     pub cwd: &'a str,
     pub model: &'a str,
-    /// Marketing-friendly model name (e.g. "MiniMax M2.7"); falls back to a
+    /// Marketing-friendly model name (e.g. "Example Fast"); falls back to a
     /// generic phrasing when None.
     pub model_marketing_name: Option<&'a str>,
     /// `--oneshot`, `--print`, or any non-TUI driver.
     pub is_non_interactive: bool,
+    /// True when this process is the background fork created by Agent.
+    pub is_fork_subagent: bool,
     pub is_custom_backend: bool,
     /// USER_TYPE=internal unlocks a few additional sections (numeric anchors,
     /// stricter code-style rules). Off by default.
@@ -47,6 +53,12 @@ pub struct SystemPromptInputs<'a> {
     /// Preformatted loaded-skill list, already constrained to the prompt
     /// budget. Empty string means no skills are available.
     pub skill_commands_text: &'a str,
+    /// Whether the built-in explore/plan subagents are available in this
+    /// runtime. Keep this tied to the actual agent registry; otherwise the
+    /// prompt can steer the model into a dead subagent_type.
+    pub are_explore_plan_agents: bool,
+    /// Exact subagent_type for broad exploration guidance.
+    pub explore_agent_type: &'a str,
     /// Optional language hint ("Chinese", "Spanish", …). When set, the
     /// language section tells the assistant to respond in that language by
     /// default. The TUI infers this from locale / past conversations.
@@ -107,10 +119,10 @@ pub fn assemble(inputs: &SystemPromptInputs<'_>) -> Vec<SystemBlock> {
         enabled_tools: &tool_set,
         skill_commands_count: inputs.skill_commands_count,
         is_non_interactive: inputs.is_non_interactive,
-        is_fork_subagent: false,
+        is_fork_subagent: inputs.is_fork_subagent,
         has_embedded_search: false,
-        are_explore_plan_agents: true,
-        explore_agent_type: "Explore",
+        are_explore_plan_agents: inputs.are_explore_plan_agents,
+        explore_agent_type: inputs.explore_agent_type,
         explore_agent_min_queries: 3,
         is_verification_agent_enabled: false,
     });
@@ -216,6 +228,9 @@ async fn expand_at_includes(
     parent: &std::path::Path,
     visited: &mut std::collections::HashSet<std::path::PathBuf>,
     depth: u8,
+    hooks_context: Option<&HooksContext>,
+    memory_type: InstructionsMemoryType,
+    parent_file_path: Option<&std::path::Path>,
 ) -> String {
     if depth >= 5 {
         return raw.to_string();
@@ -247,6 +262,14 @@ async fn expand_at_includes(
 
             match tokio::fs::read_to_string(&candidate).await {
                 Ok(child_raw) => {
+                    run_instructions_loaded_hook(
+                        hooks_context,
+                        &candidate,
+                        memory_type,
+                        InstructionsLoadReason::Include,
+                        parent_file_path,
+                    )
+                    .await;
                     let child_parent = candidate
                         .parent()
                         .map(|p| p.to_path_buf())
@@ -256,6 +279,9 @@ async fn expand_at_includes(
                         &child_parent,
                         visited,
                         depth + 1,
+                        hooks_context,
+                        memory_type,
+                        Some(&candidate),
                     ))
                     .await;
                     out.push_str(&expanded);
@@ -277,12 +303,56 @@ async fn expand_at_includes(
 }
 
 pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
+    gather_memory_text_with_hooks(cwd, None).await
+}
+
+async fn run_instructions_loaded_hook(
+    hooks_context: Option<&HooksContext>,
+    file_path: &std::path::Path,
+    memory_type: InstructionsMemoryType,
+    load_reason: InstructionsLoadReason,
+    parent_file_path: Option<&std::path::Path>,
+) {
+    let Some(ctx) = hooks_context else {
+        return;
+    };
+    if !has_instructions_loaded_hook(ctx) {
+        return;
+    }
+
+    let file_path = file_path.to_string_lossy();
+    let parent_file_path = parent_file_path.map(|path| path.to_string_lossy().to_string());
+    execute_instructions_loaded_hooks(
+        ctx,
+        &file_path,
+        memory_type,
+        load_reason,
+        None,
+        None,
+        parent_file_path.as_deref(),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+}
+
+pub async fn gather_memory_text_with_hooks(
+    cwd: &std::path::Path,
+    hooks_context: Option<&HooksContext>,
+) -> String {
     let mut sections: Vec<String> = Vec::new();
 
     // 1. User-global instructions.
     if let Some(home) = dirs::home_dir() {
         for path in [home.join(".mossen").join("MOSSEN.md")] {
             if let Ok(text) = tokio::fs::read_to_string(&path).await {
+                run_instructions_loaded_hook(
+                    hooks_context,
+                    &path,
+                    InstructionsMemoryType::User,
+                    InstructionsLoadReason::SessionStart,
+                    None,
+                )
+                .await;
                 let parent = path
                     .parent()
                     .map(|p| p.to_path_buf())
@@ -291,7 +361,16 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
                 if let Ok(canon) = std::fs::canonicalize(&path) {
                     visited.insert(canon);
                 }
-                let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+                let expanded = expand_at_includes(
+                    &text,
+                    &parent,
+                    &mut visited,
+                    0,
+                    hooks_context,
+                    InstructionsMemoryType::User,
+                    Some(&path),
+                )
+                .await;
                 let trimmed = expanded.trim();
                 if !trimmed.is_empty() {
                     sections.push(format!(
@@ -309,6 +388,19 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
     for filename in ["MOSSEN.md", "MOSSEN.local.md"] {
         let p = cwd.join(filename);
         if let Ok(text) = tokio::fs::read_to_string(&p).await {
+            let memory_type = if filename.ends_with(".local.md") {
+                InstructionsMemoryType::Local
+            } else {
+                InstructionsMemoryType::Project
+            };
+            run_instructions_loaded_hook(
+                hooks_context,
+                &p,
+                memory_type,
+                InstructionsLoadReason::SessionStart,
+                None,
+            )
+            .await;
             let parent = p
                 .parent()
                 .map(|p| p.to_path_buf())
@@ -317,7 +409,16 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
             if let Ok(canon) = std::fs::canonicalize(&p) {
                 visited.insert(canon);
             }
-            let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+            let expanded = expand_at_includes(
+                &text,
+                &parent,
+                &mut visited,
+                0,
+                hooks_context,
+                memory_type,
+                Some(&p),
+            )
+            .await;
             let trimmed = expanded.trim();
             if !trimmed.is_empty() {
                 sections.push(format!("Contents of {}:\n\n{}", p.display(), trimmed));
@@ -332,6 +433,24 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
         cwd.join(".mossen").join("MOSSEN.local.md"),
     ] {
         if let Ok(text) = tokio::fs::read_to_string(&nested).await {
+            let memory_type = if nested
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.ends_with(".local.md"))
+                .unwrap_or(false)
+            {
+                InstructionsMemoryType::Local
+            } else {
+                InstructionsMemoryType::Project
+            };
+            run_instructions_loaded_hook(
+                hooks_context,
+                &nested,
+                memory_type,
+                InstructionsLoadReason::SessionStart,
+                None,
+            )
+            .await;
             let parent = nested
                 .parent()
                 .map(|p| p.to_path_buf())
@@ -340,7 +459,16 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
             if let Ok(canon) = std::fs::canonicalize(&nested) {
                 visited.insert(canon);
             }
-            let expanded = expand_at_includes(&text, &parent, &mut visited, 0).await;
+            let expanded = expand_at_includes(
+                &text,
+                &parent,
+                &mut visited,
+                0,
+                hooks_context,
+                memory_type,
+                Some(&nested),
+            )
+            .await;
             let trimmed = expanded.trim();
             if !trimmed.is_empty() {
                 sections.push(format!("Contents of {}:\n\n{}", nested.display(), trimmed));
@@ -348,7 +476,7 @@ pub async fn gather_memory_text(cwd: &std::path::Path) -> String {
         }
     }
 
-    // 4. File-based auto/team memory instructions. This is intentionally
+    // 4. File-based memory instructions. This is intentionally
     // loaded after MOSSEN.md so project instructions stay visible while the
     // final system-prompt memory block also tells the model where persistent
     // memories must be read and written.
@@ -385,6 +513,9 @@ pub fn detect_git_repo(cwd: &std::path::Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mossen_utils::hooks_utils::{HookMatcher, HooksContext};
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
 
     const MEMORY_ENV_KEYS: &[&str] = &[
         "HOME",
@@ -435,14 +566,61 @@ mod tests {
         guard
     }
 
+    fn instructions_hook_context(cwd: &std::path::Path, command: String) -> HooksContext {
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "InstructionsLoaded".to_string(),
+            vec![HookMatcher {
+                matcher: None,
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": command,
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+
+        HooksContext {
+            session_id: "instructions-loaded-hook-test".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: Arc::new(|session_id| format!("/tmp/{session_id}.jsonl")),
+            get_agent_transcript_path: Arc::new(|agent_id| format!("/tmp/agent-{agent_id}.jsonl")),
+            log_debug: Arc::new(|_| {}),
+            log_error: Arc::new(|_| {}),
+            log_event: Arc::new(|_, _| {}),
+            get_settings: Arc::new(|| None),
+            get_settings_for_source: Arc::new(|_| None),
+            invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: None,
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
+        }
+    }
+
     #[test]
     fn assemble_emits_identity_and_env() {
         let tools: Vec<String> = vec!["Bash".into(), "Read".into(), "Edit".into()];
         let inputs = SystemPromptInputs {
             cwd: "/tmp/test",
-            model: "MiniMax-M2.7",
-            model_marketing_name: Some("MiniMax M2.7"),
+            model: "example-fast",
+            model_marketing_name: Some("Example Fast"),
             is_non_interactive: false,
+            is_fork_subagent: false,
             is_custom_backend: true,
             is_internal: false,
             is_git_repo: false,
@@ -450,6 +628,8 @@ mod tests {
             enabled_tools: &tools,
             skill_commands_count: 0,
             skill_commands_text: "",
+            are_explore_plan_agents: false,
+            explore_agent_type: "explore",
             language_preference: Some("Chinese"),
             memory_text: "# mossenMd\nProject rule: respond in Chinese.",
         };
@@ -464,7 +644,7 @@ mod tests {
         assert!(joined.contains("Mossen"), "identity prefix missing");
         assert!(joined.contains("/tmp/test"), "cwd missing from env block");
         assert!(
-            joined.contains("MiniMax-M2.7") || joined.contains("MiniMax M2.7"),
+            joined.contains("example-fast") || joined.contains("Example Fast"),
             "model id/name missing"
         );
         assert!(
@@ -478,9 +658,10 @@ mod tests {
         let tools: Vec<String> = vec!["Skill".into(), "Read".into()];
         let inputs = SystemPromptInputs {
             cwd: "/tmp/test",
-            model: "MiniMax-M2.7",
+            model: "example-fast",
             model_marketing_name: None,
             is_non_interactive: false,
+            is_fork_subagent: false,
             is_custom_backend: true,
             is_internal: false,
             is_git_repo: false,
@@ -488,6 +669,8 @@ mod tests {
             enabled_tools: &tools,
             skill_commands_count: 1,
             skill_commands_text: "- audit: Audit the current change",
+            are_explore_plan_agents: false,
+            explore_agent_type: "explore",
             language_preference: None,
             memory_text: "",
         };
@@ -504,6 +687,80 @@ mod tests {
             "{joined}"
         );
         assert!(joined.contains("Use the Skill tool"), "{joined}");
+    }
+
+    #[test]
+    fn assemble_only_mentions_explore_agent_when_runtime_enables_it() {
+        let tools: Vec<String> = vec!["Agent".into(), "Glob".into(), "Grep".into()];
+        let disabled = SystemPromptInputs {
+            cwd: "/tmp/test",
+            model: "example-fast",
+            model_marketing_name: None,
+            is_non_interactive: false,
+            is_fork_subagent: false,
+            is_custom_backend: true,
+            is_internal: false,
+            is_git_repo: false,
+            product_name: "Mossen",
+            enabled_tools: &tools,
+            skill_commands_count: 0,
+            skill_commands_text: "",
+            are_explore_plan_agents: false,
+            explore_agent_type: "explore",
+            language_preference: None,
+            memory_text: "",
+        };
+        let disabled_prompt = assemble(&disabled)
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        assert!(!disabled_prompt.contains("subagent_type=Explore"));
+        assert!(!disabled_prompt.contains("subagent_type=explore"));
+
+        let enabled = SystemPromptInputs {
+            are_explore_plan_agents: true,
+            ..disabled
+        };
+        let enabled_prompt = assemble(&enabled)
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        assert!(enabled_prompt.contains("subagent_type=explore"));
+        assert!(!enabled_prompt.contains("subagent_type=Explore"));
+    }
+
+    #[test]
+    fn assemble_marks_fork_subagent_as_non_delegating_worker() {
+        let tools: Vec<String> = vec!["Agent".into(), "Read".into(), "Glob".into()];
+        let inputs = SystemPromptInputs {
+            cwd: "/tmp/test",
+            model: "example-fast",
+            model_marketing_name: None,
+            is_non_interactive: true,
+            is_fork_subagent: true,
+            is_custom_backend: true,
+            is_internal: false,
+            is_git_repo: false,
+            product_name: "Mossen",
+            enabled_tools: &tools,
+            skill_commands_count: 0,
+            skill_commands_text: "",
+            are_explore_plan_agents: false,
+            explore_agent_type: "explore",
+            language_preference: None,
+            memory_text: "",
+        };
+
+        let joined = assemble(&inputs)
+            .iter()
+            .map(|block| block.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(joined.contains("If you ARE the fork"), "{joined}");
+        assert!(joined.contains("do not re-delegate"), "{joined}");
     }
 
     #[tokio::test]
@@ -523,6 +780,40 @@ mod tests {
             text
         );
         assert!(!text.contains("@included.md"), "got:\n{}", text);
+    }
+
+    #[tokio::test]
+    async fn instructions_loaded_hook_runs_for_project_and_include_files() {
+        let _lock = memory_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _env = isolate_memory_env(temp.path());
+        let root = temp.path();
+        let marker = root.join("instructions-loaded.log");
+        std::fs::write(root.join("MOSSEN.md"), "@included.md\nProject rules\n")
+            .expect("write root memory");
+        std::fs::write(root.join("included.md"), "Included rules\n")
+            .expect("write included memory");
+
+        let command = format!("cat >> {}", marker.display());
+        let ctx = instructions_hook_context(root, command);
+
+        let text = gather_memory_text_with_hooks(root, Some(&ctx)).await;
+        assert!(text.contains("Included rules"), "{text}");
+
+        let log = std::fs::read_to_string(marker).expect("hook marker");
+        assert!(
+            log.contains(r#""hook_event_name":"InstructionsLoaded""#)
+                && log.contains(r#""memory_type":"Project""#)
+                && log.contains(r#""load_reason":"session_start""#)
+                && log.contains("MOSSEN.md"),
+            "{log}"
+        );
+        assert!(
+            log.contains(r#""load_reason":"include""#)
+                && log.contains("included.md")
+                && log.contains(r#""parent_file_path":"#),
+            "{log}"
+        );
     }
 
     #[tokio::test]

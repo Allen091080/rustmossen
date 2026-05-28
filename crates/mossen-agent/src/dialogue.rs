@@ -45,7 +45,13 @@ use crate::types::*;
 use mossen_types::{
     ContentBlock, Message, Role, TextBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
 };
-use mossen_utils::hooks_utils::{execute_post_sampling_hooks, TOOL_HOOK_EXECUTION_TIMEOUT_MS};
+use mossen_utils::hooks_utils::{
+    execute_cwd_changed_hooks, execute_permission_denied_hooks, execute_permission_request_hooks,
+    execute_post_sampling_hooks, execute_post_tool_hooks, execute_post_tool_use_failure_hooks,
+    execute_pre_tool_hooks, execute_stop_failure_hooks, execute_stop_hooks,
+    get_pre_tool_hook_blocking_message, get_stop_hook_message, register_runtime_hooks_context,
+    unregister_runtime_hooks_context, AggregatedHookResult, TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+};
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -62,6 +68,40 @@ const ESCALATED_MAX_OUTPUT_TOKENS: u32 = 64_000;
 const PERMISSION_MODE_ENV: &str = "MOSSEN_PERMISSION_MODE";
 const PERMISSION_ALLOW_RULES_ENV: &str = "MOSSEN_PERMISSION_ALLOW_RULES";
 const PERMISSION_DENY_RULES_ENV: &str = "MOSSEN_PERMISSION_DENY_RULES";
+const AGENT_SUBPROCESS_ID_ENV: &str = "MOSSEN_AGENT_SUBPROCESS_ID";
+const AGENT_SUBPROCESS_TYPE_ENV: &str = "MOSSEN_AGENT_SUBPROCESS_TYPE";
+const HOOK_CONTEXT_ID_EXTRA_KEY: &str = "mossen_hook_context_id";
+const PERMISSION_MODE_EXTRA_KEY: &str = "mossen_permission_mode";
+
+struct RuntimeHookContextGuard {
+    id: String,
+}
+
+impl Drop for RuntimeHookContextGuard {
+    fn drop(&mut self) {
+        unregister_runtime_hooks_context(&self.id);
+    }
+}
+
+enum SettingsStopHookOutcome {
+    Allow,
+    Block { reason: String },
+    Prevent { reason: String },
+}
+
+#[derive(Debug, Clone)]
+struct PreToolUseHookOutcome {
+    input: serde_json::Value,
+    permission_behavior: Option<String>,
+    deny_message: Option<String>,
+    additional_contexts: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct PermissionDeniedHookOutcome {
+    additional_contexts: Vec<String>,
+    retry: bool,
+}
 
 fn origin_tag_hook_source(origin_tag: &OriginTag) -> &'static str {
     match origin_tag {
@@ -143,6 +183,20 @@ fn is_edit_permission_tool(tool_name: &str) -> bool {
     matches!(tool_name, "Edit" | "Write" | "NotebookEdit")
 }
 
+fn stop_hook_feedback_message(reason: impl Into<String>) -> Message {
+    Message {
+        role: Role::User,
+        content: vec![ContentBlock::Text(TextBlock {
+            text: reason.into(),
+        })],
+        uuid: Some(uuid::Uuid::new_v4().to_string()),
+        is_meta: Some(true),
+        origin: None,
+        timestamp: Some(chrono::Utc::now().to_rfc3339()),
+        extra: HashMap::new(),
+    }
+}
+
 fn session_permission_rule_decision(
     tool_name: &str,
     input: &serde_json::Value,
@@ -160,6 +214,362 @@ fn session_permission_rule_decision(
     }
 
     None
+}
+
+fn hook_messages_with_assistant(
+    messages: &[Message],
+    assistant_message: &Message,
+) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .chain(std::iter::once(assistant_message))
+        .filter_map(|message| serde_json::to_value(message).ok())
+        .collect()
+}
+
+async fn execute_settings_stop_hooks_for_turn(
+    spec: &DialogueSpec,
+    state: &TurnLedger,
+    assistant_message: &Message,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> SettingsStopHookOutcome {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return SettingsStopHookOutcome::Allow;
+    };
+
+    let hook_messages = hook_messages_with_assistant(&state.messages, assistant_message);
+    let subagent_id = std::env::var(AGENT_SUBPROCESS_ID_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let subagent_type = subagent_id.as_ref().and_then(|_| {
+        std::env::var(AGENT_SUBPROCESS_TYPE_ENV)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .or_else(|| ctx.main_thread_agent_type.clone())
+    });
+    let results = execute_stop_hooks(
+        ctx,
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+        state.stop_hook_active.unwrap_or(false),
+        subagent_id.as_deref(),
+        Some(&hook_messages),
+        subagent_type.as_deref(),
+    )
+    .await;
+
+    let mut blocking_reason = None;
+    let mut prevent_reason = None;
+    for result in results {
+        if result.prevent_continuation == Some(true) {
+            prevent_reason = Some(
+                result
+                    .stop_reason
+                    .unwrap_or_else(|| "Stop hook prevented continuation.".to_string()),
+            );
+        }
+        if let Some(blocking_error) = result.blocking_error {
+            blocking_reason = Some(get_stop_hook_message(&blocking_error));
+        }
+    }
+
+    if let Some(reason) = prevent_reason {
+        SettingsStopHookOutcome::Prevent { reason }
+    } else if let Some(reason) = blocking_reason {
+        SettingsStopHookOutcome::Block { reason }
+    } else {
+        SettingsStopHookOutcome::Allow
+    }
+}
+
+async fn execute_pre_tool_use_hooks_for_call(
+    spec: &DialogueSpec,
+    tool_name: &str,
+    tool_id: &str,
+    input: serde_json::Value,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> PreToolUseHookOutcome {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return PreToolUseHookOutcome {
+            input,
+            permission_behavior: None,
+            deny_message: None,
+            additional_contexts: Vec::new(),
+        };
+    };
+
+    let results = execute_pre_tool_hooks(
+        ctx,
+        tool_name,
+        tool_id,
+        &input,
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+
+    let mut outcome = PreToolUseHookOutcome {
+        input,
+        permission_behavior: None,
+        deny_message: None,
+        additional_contexts: collect_hook_additional_contexts(&results),
+    };
+
+    for result in results {
+        if let Some(blocking_error) = result.blocking_error {
+            outcome.deny_message = Some(get_pre_tool_hook_blocking_message(
+                &blocking_error.command,
+                &blocking_error,
+            ));
+        }
+        if let Some(updated_input) = result.updated_input {
+            outcome.input = updated_input;
+        }
+        if let Some(behavior) = result.permission_behavior {
+            match behavior.as_str() {
+                "deny" => {
+                    outcome.permission_behavior = Some("deny".to_string());
+                    outcome.deny_message = Some(
+                        result
+                            .hook_permission_decision_reason
+                            .unwrap_or_else(|| "Tool call denied by PreToolUse hook.".to_string()),
+                    );
+                }
+                "ask" if outcome.permission_behavior.as_deref() != Some("deny") => {
+                    outcome.permission_behavior = Some("ask".to_string());
+                }
+                "allow" if outcome.permission_behavior.is_none() => {
+                    outcome.permission_behavior = Some("allow".to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    outcome
+}
+
+async fn execute_post_tool_use_hooks_for_result(
+    spec: &DialogueSpec,
+    tool_name: &str,
+    tool_id: &str,
+    tool_input: &serde_json::Value,
+    result: &mut crate::tool_registry::ToolResult,
+    cancel: &tokio_util::sync::CancellationToken,
+) {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return;
+    };
+    let tool_response = serde_json::json!({
+        "output": result.output.clone(),
+        "is_error": result.is_error,
+        "duration_ms": result.duration_ms,
+        "metadata": result.metadata.clone(),
+    });
+    let results = execute_post_tool_hooks(
+        ctx,
+        tool_name,
+        tool_id,
+        tool_input,
+        &tool_response,
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+
+    if let Some(updated_output) = results
+        .iter()
+        .filter_map(|result| result.updated_mcp_tool_output.as_ref())
+        .last()
+    {
+        result.output = hook_value_to_tool_output(updated_output);
+    }
+    append_hook_additional_contexts(
+        &mut result.output,
+        "PostToolUse additional context",
+        collect_hook_additional_contexts(&results),
+    );
+}
+
+async fn execute_post_tool_use_failure_hooks_for_error(
+    spec: &DialogueSpec,
+    tool_name: &str,
+    tool_id: &str,
+    tool_input: &serde_json::Value,
+    error: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Vec<String> {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return Vec::new();
+    };
+    let results = execute_post_tool_use_failure_hooks(
+        ctx,
+        tool_name,
+        tool_id,
+        tool_input,
+        error,
+        Some(cancel.is_cancelled()),
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+    collect_hook_additional_contexts(&results)
+}
+
+async fn execute_permission_denied_hooks_for_call(
+    spec: &DialogueSpec,
+    tool_name: &str,
+    tool_id: &str,
+    tool_input: &serde_json::Value,
+    reason: &str,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> PermissionDeniedHookOutcome {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return PermissionDeniedHookOutcome::default();
+    };
+    let results = execute_permission_denied_hooks(
+        ctx,
+        tool_name,
+        tool_id,
+        tool_input,
+        reason,
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+    PermissionDeniedHookOutcome {
+        additional_contexts: collect_hook_additional_contexts(&results),
+        retry: results.iter().any(|result| result.retry == Some(true)),
+    }
+}
+
+async fn execute_permission_request_hooks_for_call(
+    spec: &DialogueSpec,
+    tool_name: &str,
+    tool_id: &str,
+    tool_input: &serde_json::Value,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Option<PermissionDecision> {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return None;
+    };
+    let results = execute_permission_request_hooks(
+        ctx,
+        tool_name,
+        tool_id,
+        tool_input,
+        Some(effective_permission_mode(spec.permission_mode).as_str()),
+        None,
+        Some(cancel),
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+    for result in results {
+        if let Some(request_result) = result.permission_request_result {
+            match request_result.behavior.as_str() {
+                "allow" | "allowAlways" => {
+                    return Some(
+                        request_result
+                            .updated_input
+                            .map(|updated_input| PermissionDecision::AllowWithUpdatedInput {
+                                updated_input,
+                            })
+                            .unwrap_or(PermissionDecision::Allow),
+                    );
+                }
+                "deny" => return Some(PermissionDecision::Deny),
+                _ => {}
+            }
+        }
+        if let Some(behavior) = result.permission_behavior {
+            match behavior.as_str() {
+                "allow" => return Some(PermissionDecision::Allow),
+                "deny" => return Some(PermissionDecision::Deny),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+async fn execute_stop_failure_hooks_for_error(
+    spec: &DialogueSpec,
+    last_assistant_text: Option<&str>,
+    error: &str,
+    error_details: Option<&str>,
+) {
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return;
+    };
+    execute_stop_failure_hooks(
+        ctx,
+        last_assistant_text,
+        error,
+        error_details,
+        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+    )
+    .await;
+}
+
+async fn execute_cwd_changed_hooks_for_transition(
+    spec: &DialogueSpec,
+    old_cwd: &str,
+    new_cwd: &str,
+) {
+    if old_cwd == new_cwd {
+        return;
+    }
+    let Some(ctx) = spec.hook_context.as_deref() else {
+        return;
+    };
+    let (_results, env_exports, watch_paths) =
+        execute_cwd_changed_hooks(ctx, old_cwd, new_cwd, TOOL_HOOK_EXECUTION_TIMEOUT_MS).await;
+    if !env_exports.is_empty() || !watch_paths.is_empty() {
+        debug!(
+            env_export_count = env_exports.len(),
+            watch_path_count = watch_paths.len(),
+            "CwdChanged hooks produced environment/watch updates"
+        );
+    }
+}
+
+fn collect_hook_additional_contexts(results: &[AggregatedHookResult]) -> Vec<String> {
+    results
+        .iter()
+        .flat_map(|result| {
+            result
+                .additional_contexts
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+        })
+        .filter(|context| !context.trim().is_empty())
+        .collect()
+}
+
+fn append_hook_additional_contexts(output: &mut String, label: &str, contexts: Vec<String>) {
+    if contexts.is_empty() {
+        return;
+    }
+    if !output.is_empty() {
+        output.push_str("\n\n");
+    }
+    output.push_str(label);
+    output.push_str(":\n");
+    output.push_str(&contexts.join("\n"));
+}
+
+fn hook_value_to_tool_output(value: &serde_json::Value) -> String {
+    value.as_str().map(str::to_string).unwrap_or_else(|| {
+        serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+    })
 }
 
 fn permission_rule_env_lines(key: &str) -> Vec<String> {
@@ -517,6 +927,7 @@ async fn execute_turn_cycle(
             &spec.tools,
             env.thinking_config.as_ref(),
             None, // tool_choice
+            env.effort,
             &spec.extra_body,
             &ApiMetadata { user_id: None },
         );
@@ -583,6 +994,8 @@ async fn execute_turn_cycle(
                 return Ok((TerminalReason::Retry, cost_state));
             }
             Err(RetryError::CannotRetry(e)) => {
+                let error = e.to_string();
+                execute_stop_failure_hooks_for_error(spec, None, &error, None).await;
                 return Ok((TerminalReason::ModelError { error: e }, cost_state));
             }
         };
@@ -614,6 +1027,7 @@ async fn execute_turn_cycle(
                 }
                 Err(ApiError::StreamTimeout) => {
                     warn!("Stream timeout during turn {}", state.turn_count);
+                    execute_stop_failure_hooks_for_error(spec, None, "Stream timeout", None).await;
                     return Ok((
                         TerminalReason::ModelError {
                             error: anyhow::anyhow!("Stream timeout"),
@@ -623,9 +1037,20 @@ async fn execute_turn_cycle(
                 }
                 Err(e) => {
                     error!(error = %e, "Stream error");
+                    let visible_text = accumulator.visible_text();
+                    let last_assistant_text =
+                        (!visible_text.trim().is_empty()).then_some(visible_text.as_str());
+                    let error = e.to_string();
+                    execute_stop_failure_hooks_for_error(
+                        spec,
+                        last_assistant_text,
+                        &error,
+                        Some("stream_error"),
+                    )
+                    .await;
                     return Ok((
                         TerminalReason::ModelError {
-                            error: anyhow::anyhow!("{}", e),
+                            error: anyhow::anyhow!("{}", error),
                         },
                         cost_state,
                     ));
@@ -818,6 +1243,24 @@ async fn execute_turn_cycle(
         if !accumulator.has_tool_use() {
             // Stop hooks 评估
             if !spec.skip_stop_hooks {
+                match execute_settings_stop_hooks_for_turn(spec, &state, &assistant_message, cancel)
+                    .await
+                {
+                    SettingsStopHookOutcome::Allow => {}
+                    SettingsStopHookOutcome::Block { reason } => {
+                        debug!(reason = %reason, "Settings Stop hook blocking, continuing");
+                        state.messages.push(assistant_message);
+                        state.messages.push(stop_hook_feedback_message(reason));
+                        state.advance_turn(ContinueReason::StopHookBlocking);
+                        continue;
+                    }
+                    SettingsStopHookOutcome::Prevent { reason } => {
+                        debug!(reason = %reason, "Settings Stop hook prevented continuation");
+                        state.messages.push(assistant_message);
+                        return Ok((TerminalReason::StopHookPrevented, cost_state));
+                    }
+                }
+
                 let hook_ctx = StopHookContext {
                     session_id: session_id.to_string(),
                     origin_tag: spec.origin_tag.clone(),
@@ -834,6 +1277,7 @@ async fn execute_turn_cycle(
                         // 站点 6: stop hook 阻塞
                         debug!(reason = %reason, "Stop hook blocking, continuing");
                         state.messages.push(assistant_message);
+                        state.messages.push(stop_hook_feedback_message(reason));
                         state.advance_turn(ContinueReason::StopHookBlocking);
                         continue;
                     }
@@ -867,6 +1311,26 @@ async fn execute_turn_cycle(
             let mut input: serde_json::Value = serde_json::from_str(input_json)
                 .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
             record_tool_call_start(tool_name);
+
+            let pre_tool_hook = execute_pre_tool_use_hooks_for_call(
+                spec,
+                tool_name,
+                tool_id,
+                input.clone(),
+                cancel,
+            )
+            .await;
+            input = pre_tool_hook.input;
+            if let Some(deny_message) = pre_tool_hook.deny_message.clone() {
+                debug!(tool = %tool_name, id = %tool_id, "Tool execution denied by PreToolUse hook");
+                record_tool_call_finish(tool_name, "denied");
+                tool_results.push(ContentBlock::ToolResult(ToolResultBlock {
+                    tool_use_id: tool_id.clone(),
+                    content: ToolResultContent::Text(deny_message),
+                    is_error: Some(true),
+                }));
+                continue;
+            }
 
             // ── Permission gate ───────────────────────────────────────
             // Before invoking the tool we consult `spec.permission_gate`.
@@ -905,8 +1369,38 @@ async fn execute_turn_cycle(
             } else {
                 None
             };
+            let pre_hook_behavior = pre_tool_hook.permission_behavior.as_deref();
+            let mode_denied = mode_decision
+                .as_ref()
+                .map(|decision| !decision.decision.is_allowed())
+                .unwrap_or(false);
+            let permission_request_hook_decision = if needs_permission
+                && rule_decision.is_none()
+                && !mode_denied
+                && pre_hook_behavior != Some("allow")
+                && mode_decision.is_none()
+            {
+                execute_permission_request_hooks_for_call(spec, tool_name, tool_id, &input, cancel)
+                    .await
+            } else {
+                None
+            };
             let decision = if let Some(rule_decision) = rule_decision.as_ref() {
                 rule_decision.decision.clone()
+            } else if mode_denied {
+                mode_decision
+                    .as_ref()
+                    .expect("mode_denied implies mode_decision")
+                    .decision
+                    .clone()
+            } else if pre_hook_behavior == Some("allow") {
+                PermissionDecision::Allow
+            } else if let Some(permission_request_hook_decision) =
+                permission_request_hook_decision.as_ref()
+            {
+                permission_request_hook_decision.clone()
+            } else if pre_hook_behavior == Some("ask") {
+                spec.permission_gate.check(tool_name, tool_id, &input).await
             } else if let Some(mode_decision) = mode_decision.as_ref() {
                 mode_decision.decision.clone()
             } else if needs_permission {
@@ -916,6 +1410,14 @@ async fn execute_turn_cycle(
             };
             let permission_source = if rule_decision.is_some() {
                 "session_permission_rules"
+            } else if mode_denied {
+                "permission_mode"
+            } else if pre_hook_behavior == Some("allow") {
+                "pre_tool_use_hook"
+            } else if permission_request_hook_decision.is_some() {
+                "permission_request_hook"
+            } else if pre_hook_behavior == Some("ask") {
+                "pre_tool_use_hook_ask"
             } else if mode_decision.is_some() {
                 "permission_mode"
             } else if needs_permission {
@@ -931,20 +1433,39 @@ async fn execute_turn_cycle(
             if !decision.is_allowed() {
                 debug!(tool = %tool_name, id = %tool_id, "Tool execution denied by permission gate");
                 record_tool_call_finish(tool_name, "denied");
-                tool_results.push(ContentBlock::ToolResult(ToolResultBlock {
-                    tool_use_id: tool_id.clone(),
-                    content: ToolResultContent::Text(
-                        rule_decision
+                let mut deny_message = rule_decision
+                    .as_ref()
+                    .and_then(|decision| decision.deny_message)
+                    .or_else(|| {
+                        mode_decision
                             .as_ref()
                             .and_then(|decision| decision.deny_message)
-                            .or_else(|| {
-                                mode_decision
-                                    .as_ref()
-                                    .and_then(|decision| decision.deny_message)
-                            })
-                            .unwrap_or("User denied permission for this tool call.")
-                            .to_string(),
-                    ),
+                    })
+                    .unwrap_or("User denied permission for this tool call.")
+                    .to_string();
+                let permission_denied_hook = execute_permission_denied_hooks_for_call(
+                    spec,
+                    tool_name,
+                    tool_id,
+                    &input,
+                    &deny_message,
+                    cancel,
+                )
+                .await;
+                append_hook_additional_contexts(
+                    &mut deny_message,
+                    "PermissionDenied additional context",
+                    permission_denied_hook.additional_contexts,
+                );
+                if permission_denied_hook.retry {
+                    if !deny_message.is_empty() {
+                        deny_message.push_str("\n\n");
+                    }
+                    deny_message.push_str("PermissionDenied hook requested retry.");
+                }
+                tool_results.push(ContentBlock::ToolResult(ToolResultBlock {
+                    tool_use_id: tool_id.clone(),
+                    content: ToolResultContent::Text(deny_message),
                     is_error: Some(true),
                 }));
                 continue;
@@ -952,6 +1473,20 @@ async fn execute_turn_cycle(
             if let Some(updated_input) = decision.updated_input().cloned() {
                 input = updated_input;
             }
+            let tool_input_for_hooks = input.clone();
+            let mut tool_use_context = state.tool_use_context.clone();
+            let _runtime_hook_context_guard = spec.hook_context.clone().map(|ctx| {
+                let id = register_runtime_hooks_context(ctx);
+                tool_use_context.extra.insert(
+                    HOOK_CONTEXT_ID_EXTRA_KEY.to_string(),
+                    serde_json::json!(id.clone()),
+                );
+                tool_use_context.extra.insert(
+                    PERMISSION_MODE_EXTRA_KEY.to_string(),
+                    serde_json::json!(effective_permission_mode(spec.permission_mode).as_str()),
+                );
+                RuntimeHookContextGuard { id }
+            });
 
             debug!(tool = %tool_name, id = %tool_id, "Executing tool");
             let tool_start = Instant::now();
@@ -976,7 +1511,7 @@ async fn execute_turn_cycle(
                 }
             } else {
                 match tool_registry
-                    .execute_with_cancel(tool_name, input, &state.tool_use_context, cancel)
+                    .execute_with_cancel(tool_name, input, &tool_use_context, cancel)
                     .await
                 {
                     Ok(result) => Ok(result),
@@ -992,7 +1527,38 @@ async fn execute_turn_cycle(
             cost_tracker::record_tool_duration(&mut cost_state, tool_duration);
 
             let result_block = match exec_result {
-                Ok(result) => {
+                Ok(mut result) => {
+                    if result.is_error {
+                        let contexts = execute_post_tool_use_failure_hooks_for_error(
+                            spec,
+                            tool_name,
+                            tool_id,
+                            &tool_input_for_hooks,
+                            &result.output,
+                            cancel,
+                        )
+                        .await;
+                        append_hook_additional_contexts(
+                            &mut result.output,
+                            "PostToolUseFailure additional context",
+                            contexts,
+                        );
+                    } else {
+                        execute_post_tool_use_hooks_for_result(
+                            spec,
+                            tool_name,
+                            tool_id,
+                            &tool_input_for_hooks,
+                            &mut result,
+                            cancel,
+                        )
+                        .await;
+                    }
+                    append_hook_additional_contexts(
+                        &mut result.output,
+                        "PreToolUse additional context",
+                        pre_tool_hook.additional_contexts,
+                    );
                     record_tool_call_finish(
                         tool_name,
                         if result.is_error {
@@ -1012,6 +1578,15 @@ async fn execute_turn_cycle(
                             cost_tracker::record_line_changes(&mut cost_state, added, removed);
                         }
                     }
+                    if let Some(next_cwd) = result.metadata.get("set_cwd").and_then(|v| v.as_str())
+                    {
+                        if !next_cwd.trim().is_empty() {
+                            let old_cwd = state.tool_use_context.cwd.clone();
+                            state.tool_use_context.cwd = next_cwd.to_string();
+                            execute_cwd_changed_hooks_for_transition(spec, &old_cwd, next_cwd)
+                                .await;
+                        }
+                    }
 
                     ContentBlock::ToolResult(ToolResultBlock {
                         tool_use_id: tool_id.clone(),
@@ -1020,10 +1595,30 @@ async fn execute_turn_cycle(
                     })
                 }
                 Err(e) => {
+                    let mut error_text = format!("Error: {}", e);
+                    let contexts = execute_post_tool_use_failure_hooks_for_error(
+                        spec,
+                        tool_name,
+                        tool_id,
+                        &tool_input_for_hooks,
+                        &error_text,
+                        cancel,
+                    )
+                    .await;
+                    append_hook_additional_contexts(
+                        &mut error_text,
+                        "PostToolUseFailure additional context",
+                        contexts,
+                    );
+                    append_hook_additional_contexts(
+                        &mut error_text,
+                        "PreToolUse additional context",
+                        pre_tool_hook.additional_contexts,
+                    );
                     record_tool_call_finish(tool_name, "error");
                     ContentBlock::ToolResult(ToolResultBlock {
                         tool_use_id: tool_id.clone(),
-                        content: ToolResultContent::Text(format!("Error: {}", e)),
+                        content: ToolResultContent::Text(error_text),
                         is_error: Some(true),
                     })
                 }
@@ -1761,10 +2356,7 @@ mod tests {
     }
 
     async fn custom_backend_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-            .lock()
-            .await
+        crate::test_support::env_lock_async().await
     }
 
     fn restore_permission_env(previous: Option<String>) {
@@ -1843,6 +2435,7 @@ mod tests {
             get_settings: Arc::new(|| None),
             get_settings_for_source: Arc::new(|_| None),
             invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: None,
             subprocess_env: std::env::vars().collect(),
             allowed_official_marketplace_names: HashSet::new(),
         }
@@ -1896,6 +2489,153 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct HarnessSetCwdTool {
+        next_cwd: String,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for HarnessSetCwdTool {
+        fn name(&self) -> &str {
+            "Glob"
+        }
+
+        fn description(&self) -> &str {
+            "Set cwd harness tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            HarnessGlobTool.definition()
+        }
+
+        fn is_read_only(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            let mut metadata = HashMap::new();
+            metadata.insert("set_cwd".to_string(), serde_json::json!(self.next_cwd));
+            Ok(ToolResult {
+                output: "cwd changed from harness".to_string(),
+                is_error: false,
+                duration_ms: 0,
+                metadata,
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct PermissionedHarnessGlobTool;
+
+    #[async_trait::async_trait]
+    impl Tool for PermissionedHarnessGlobTool {
+        fn name(&self) -> &str {
+            "Glob"
+        }
+
+        fn description(&self) -> &str {
+            "Permissioned glob harness tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            HarnessGlobTool.definition()
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            panic!("permissioned harness tool should be denied before execution")
+        }
+    }
+
+    #[derive(Debug)]
+    struct PermissionedExecutableGlobTool;
+
+    #[async_trait::async_trait]
+    impl Tool for PermissionedExecutableGlobTool {
+        fn name(&self) -> &str {
+            "Glob"
+        }
+
+        fn description(&self) -> &str {
+            "Permissioned executable glob harness tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            HarnessGlobTool.definition()
+        }
+
+        async fn execute(
+            &self,
+            input: serde_json::Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            assert_eq!(input["pattern"], "**/*.md");
+            Ok(ToolResult {
+                output: "phases/01-harness.md".to_string(),
+                is_error: false,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct DenyAllGate;
+
+    #[async_trait::async_trait]
+    impl crate::types::PermissionGate for DenyAllGate {
+        async fn check(
+            &self,
+            _tool_name: &str,
+            _tool_id: &str,
+            _input: &serde_json::Value,
+        ) -> PermissionDecision {
+            PermissionDecision::Deny
+        }
+    }
+
+    #[derive(Debug)]
+    struct HarnessFailingGlobTool;
+
+    #[async_trait::async_trait]
+    impl Tool for HarnessFailingGlobTool {
+        fn name(&self) -> &str {
+            "Glob"
+        }
+
+        fn description(&self) -> &str {
+            "Failing glob harness tool"
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            HarnessGlobTool.definition()
+        }
+
+        fn is_read_only(&self) -> bool {
+            true
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _context: &ToolUseContext,
+        ) -> anyhow::Result<ToolResult> {
+            Ok(ToolResult {
+                output: "glob failed from harness".to_string(),
+                is_error: true,
+                duration_ms: 0,
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
     struct EnvRestore {
         vars: Vec<(&'static str, Option<String>)>,
     }
@@ -1903,6 +2643,20 @@ mod tests {
     impl EnvRestore {
         fn set_custom_backend(base_url: &str) -> Self {
             Self::set_custom_backend_with_protocol(base_url, "openai-compatible")
+        }
+
+        fn set_agent_subprocess(agent_id: &str, agent_type: &str) -> Self {
+            const KEYS: &[&str] = &[
+                super::AGENT_SUBPROCESS_ID_ENV,
+                super::AGENT_SUBPROCESS_TYPE_ENV,
+            ];
+            let vars = KEYS
+                .iter()
+                .map(|key| (*key, std::env::var(key).ok()))
+                .collect();
+            std::env::set_var(super::AGENT_SUBPROCESS_ID_ENV, agent_id);
+            std::env::set_var(super::AGENT_SUBPROCESS_TYPE_ENV, agent_type);
+            Self { vars }
         }
 
         fn set_custom_backend_with_protocol(base_url: &str, protocol: &str) -> Self {
@@ -1955,7 +2709,12 @@ mod tests {
     }
 
     fn tool_call_sse_response() -> String {
+        tool_call_sse_response_with_pattern("**/*.md")
+    }
+
+    fn tool_call_sse_response_with_pattern(pattern: &str) -> String {
         let mut body = String::new();
+        let arguments = serde_json::json!({ "pattern": pattern }).to_string();
         body.push_str(&openai_sse_data(serde_json::json!({
             "choices": [{
                 "delta": {
@@ -1965,7 +2724,7 @@ mod tests {
                         "type": "function",
                         "function": {
                             "name": "Glob",
-                            "arguments": "{\"pattern\":\"**/*.md\"}"
+                            "arguments": arguments
                         }
                     }]
                 }
@@ -1996,6 +2755,14 @@ mod tests {
         })));
         body.push_str("data: [DONE]\n\n");
         http_sse_response(body)
+    }
+
+    fn http_error_response(status: u16, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status} Error\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
     }
 
     fn sse_event(event: &str, data: serde_json::Value) -> String {
@@ -2061,13 +2828,19 @@ mod tests {
         body.push_str(&sse_event(
             "message_start",
             serde_json::json!({
-                "id": "msg_01",
-                "type": "message",
-                "role": "assistant",
-                "model": "harness-test",
-                "usage": {
-                    "input_tokens": 3,
-                    "output_tokens": 0
+                "type": "message_start",
+                "message": {
+                    "id": "msg_01",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "harness-test",
+                    "content": [],
+                    "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 0
+                    }
                 }
             }),
         ));
@@ -2119,13 +2892,19 @@ mod tests {
         body.push_str(&sse_event(
             "message_start",
             serde_json::json!({
-                "id": "msg_tool",
-                "type": "message",
-                "role": "assistant",
-                "model": "harness-test",
-                "usage": {
-                    "input_tokens": 3,
-                    "output_tokens": 0
+                "type": "message_start",
+                "message": {
+                    "id": "msg_tool",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "harness-test",
+                    "content": [],
+                    "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 0
+                    }
                 }
             }),
         ));
@@ -2136,7 +2915,8 @@ mod tests {
                 "content_block": {
                     "type": "tool_use",
                     "id": "toolu-glob",
-                    "name": "Glob"
+                    "name": "Glob",
+                    "input": {}
                 }
             }),
         ));
@@ -2362,6 +3142,770 @@ mod tests {
             .expect("harness server should receive request")
             .expect("harness server should join");
         assert_eq!(bodies.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_stop_failure_hooks_on_model_error() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_single_response_harness_server(http_error_response(400, "bad request")).await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("stop_failure_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "StopFailure".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: None,
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf failed > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "trigger model error")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(1),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "stop-failure-session",
+        )
+        .await
+        .expect("dialogue should return a terminal model error");
+
+        assert!(matches!(terminal, TerminalReason::ModelError { .. }));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("StopFailure hook should write marker");
+        assert_eq!(marker, "failed");
+        let bodies = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive request")
+            .expect("harness server should join");
+        assert_eq!(bodies.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_pre_and_post_tool_use_settings_hooks() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            tool_call_sse_response_with_pattern("**/*.txt"),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("post_tool_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let pre_output = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "updatedInput": { "pattern": "**/*.md" },
+                "additionalContext": "pre tool context"
+            }
+        })
+        .to_string()
+        .replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PreToolUse".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("Glob".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf '%s' '{pre_output}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        registered_hooks.insert(
+            "PostToolUse".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("Glob".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf post-tool > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessGlobTool));
+        let registry = Arc::new(registry);
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run glob with hooks")],
+            tools: registry.definitions(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "tool-hook-session",
+        )
+        .await
+        .expect("tool hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("PostToolUse hook should write marker");
+        assert_eq!(marker, "post-tool");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].1.contains("pre tool context"),
+            "PreToolUse additional context should reach the follow-up model request: {}",
+            requests[1].1
+        );
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_cwd_changed_hooks_after_tool_set_cwd() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            tool_call_sse_response(),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let next_cwd = cwd.path().join("next");
+        tokio::fs::create_dir_all(&next_cwd)
+            .await
+            .expect("next cwd");
+        let marker_path = cwd.path().join("cwd_changed_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "CwdChanged".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: None,
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf cwd-changed > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessSetCwdTool {
+            next_cwd: next_cwd.to_string_lossy().to_string(),
+        }));
+        let registry = Arc::new(registry);
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run cwd tool")],
+            tools: registry.definitions(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "cwd-changed-hook-session",
+        )
+        .await
+        .expect("cwd changed hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("CwdChanged hook should write marker");
+        assert_eq!(marker, "cwd-changed");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_permission_denied_settings_hooks() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            tool_call_sse_response(),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("permission_denied_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let hook_output = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionDenied",
+                "retry": true
+            }
+        })
+        .to_string()
+        .replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PermissionDenied".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("Glob".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf denied > '{marker_arg}'; printf '%s' '{hook_output}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(PermissionedHarnessGlobTool));
+        let registry = Arc::new(registry);
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run denied glob")],
+            tools: registry.definitions(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(DenyAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "permission-denied-hook-session",
+        )
+        .await
+        .expect("permission denied hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("PermissionDenied hook should write marker");
+        assert_eq!(marker, "denied");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1]
+                .1
+                .contains("PermissionDenied hook requested retry."),
+            "PermissionDenied retry signal should reach the follow-up model request: {}",
+            requests[1].1
+        );
+    }
+
+    #[tokio::test]
+    async fn dialogue_uses_permission_request_hook_before_permission_gate() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            tool_call_sse_response(),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("permission_request_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let hook_output = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "decision": {
+                    "behavior": "allow",
+                    "updatedInput": { "pattern": "**/*.md" }
+                }
+            }
+        })
+        .to_string()
+        .replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PermissionRequest".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("Glob".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf requested > '{marker_arg}'; printf '%s' '{hook_output}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(PermissionedExecutableGlobTool));
+        let registry = Arc::new(registry);
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run permission request glob")],
+            tools: registry.definitions(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(DenyAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "permission-request-hook-session",
+        )
+        .await
+        .expect("permission request hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("PermissionRequest hook should write marker");
+        assert_eq!(marker, "requested");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].1.contains("phases/01-harness.md"),
+            "PermissionRequest allow decision should execute the tool before the follow-up model request: {}",
+            requests[1].1
+        );
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_post_tool_use_failure_settings_hooks() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            tool_call_sse_response(),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("post_tool_failure_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "PostToolUseFailure".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: Some("Glob".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf post-tool-failure > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(HarnessFailingGlobTool));
+        let registry = Arc::new(registry);
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run failing glob with hooks")],
+            tools: registry.definitions(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: true,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "tool-failure-hook-session",
+        )
+        .await
+        .expect("tool failure hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("PostToolUseFailure hook should write marker");
+        assert_eq!(marker, "post-tool-failure");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_settings_stop_hook_blocking_feedback() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) = spawn_capture_harness_server(vec![
+            final_answer_sse_response(),
+            final_answer_sse_response(),
+        ])
+        .await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("stop_hook_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "Stop".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: None,
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("if [ ! -f '{marker_arg}' ]; then touch '{marker_arg}'; echo stop-hook-blocked >&2; exit 2; fi"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run stop hook")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(3),
+            origin_tag: OriginTag::Sdk,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: false,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "stop-hook-session",
+        )
+        .await
+        .expect("stop hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        assert!(marker_path.exists(), "Stop hook should write marker");
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].1.contains("Stop hook feedback")
+                && requests[1].1.contains("stop-hook-blocked"),
+            "second request should carry blocking hook feedback: {}",
+            requests[1].1
+        );
+    }
+
+    #[tokio::test]
+    async fn dialogue_executes_settings_subagent_stop_hook_for_subprocess() {
+        let _guard = custom_backend_test_lock().await;
+        let (base_url, server) =
+            spawn_capture_harness_server(vec![final_answer_sse_response()]).await;
+        let _env = EnvRestore::set_custom_backend(&base_url);
+        let _agent_env = EnvRestore::set_agent_subprocess("agent-sub-1", "explore");
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("subagent_stop_hook_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "SubagentStop".to_string(),
+            vec![mossen_utils::hooks_utils::HookMatcher {
+                matcher: None,
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("cat > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let hooks_context = Arc::new(test_hooks_context(cwd.path(), registered_hooks));
+        let registry = Arc::new(ToolRegistry::new());
+        let spec = DialogueSpec {
+            system_prompt: Vec::new(),
+            messages: vec![test_message(Role::User, "run subagent stop hook")],
+            tools: Vec::new(),
+            tool_use_context: ToolUseContext {
+                cwd: cwd.path().to_string_lossy().to_string(),
+                additional_working_directories: None,
+                extra: HashMap::new(),
+            },
+            model: "harness-test".to_string(),
+            thinking_enabled: false,
+            thinking_budget: None,
+            max_output_tokens: Some(1024),
+            max_turns: Some(2),
+            origin_tag: OriginTag::AgentTask,
+            fast_mode: None,
+            extra_body: HashMap::new(),
+            cancel: CancellationToken::new(),
+            chain_trace: None,
+            skip_stop_hooks: false,
+            effort: None,
+            auto_mode: false,
+            pre_approved_permissions: Vec::new(),
+            permission_mode: PermissionMode::Default,
+            permission_gate: Arc::new(AllowAllGate),
+            hook_context: Some(hooks_context),
+        };
+        let api_config = ApiClientConfig::new("test-key".to_string(), Some(base_url));
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+
+        let (terminal, _cost) = execute_turn_cycle(
+            &spec,
+            &api_config,
+            &registry,
+            &Arc::new(StopHookManager::new()),
+            &Arc::new(PostSamplingHookRegistry::new()),
+            &tx,
+            "subagent-stop-hook-session",
+        )
+        .await
+        .expect("subagent stop hook harness should complete");
+
+        assert!(matches!(terminal, TerminalReason::Completed));
+        let marker = tokio::fs::read_to_string(&marker_path)
+            .await
+            .expect("SubagentStop hook should write marker");
+        let marker: serde_json::Value =
+            serde_json::from_str(&marker).expect("SubagentStop marker json");
+        assert_eq!(marker["hook_event_name"], "SubagentStop");
+        assert_eq!(marker["agent_id"], "agent-sub-1");
+        assert_eq!(marker["agent_type"], "explore");
+        assert_eq!(
+            marker["agent_transcript_path"],
+            "/tmp/agent-agent-sub-1.jsonl"
+        );
+        let requests = tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .expect("harness server should receive requests")
+            .expect("harness server should join");
+        assert_eq!(requests.len(), 1);
     }
 
     #[tokio::test]

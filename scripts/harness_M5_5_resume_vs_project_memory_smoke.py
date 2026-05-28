@@ -34,7 +34,7 @@ def main() -> int:
                 "crates/mossen-cli/src/repl.rs",
                 [
                     "let restore_history = load_restore_history",
-                    "let memory_text = crate::system_prompt::gather_memory_text(&cwd_path).await;",
+                    "gather_memory_text_with_hooks(&cwd_path, hook_context.as_deref())",
                     "history_messages: restore_history",
                     "system_prompt: system_prompt_blocks",
                 ],

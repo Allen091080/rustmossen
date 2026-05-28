@@ -1,8 +1,9 @@
 //! # grep — ContentScanner 工具
 //!
-//! 对应 TS `GrepTool`（578 行）。通过 ripgrep 搜索文件内容。
+//! 对应 TS `GrepTool`（578 行）。通过快速搜索后端搜索文件内容。
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -13,7 +14,7 @@ use tracing::info;
 use mossen_agent::tool_registry::{Tool, ToolResult, ToolType};
 use mossen_types::{ToolDefinition, ToolInputSchema, ToolUseContext};
 
-/// 内容扫描器 — 通过 ripgrep 搜索文件内容。
+/// 内容扫描器 — 通过快速搜索后端搜索文件内容。
 pub struct ContentScanner;
 
 /// 默认结果行数限制。
@@ -62,6 +63,29 @@ pub struct ContentScannerInput {
     pub multiline: Option<bool>,
 }
 
+fn tool_error(message: impl Into<String>, duration_ms: u64) -> ToolResult {
+    ToolResult {
+        output: message.into(),
+        is_error: true,
+        duration_ms,
+        metadata: HashMap::new(),
+    }
+}
+
+fn parse_input(input: Value) -> Result<ContentScannerInput, String> {
+    match input {
+        Value::Null => Err("Grep requires a JSON object with a `pattern` string; received null."
+            .to_string()),
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!("Grep received invalid input: {error}. Expected object: {{\"pattern\":\"...\",\"path\":\"optional file or directory\"}}.")
+        }),
+        other => Err(format!(
+            "Grep requires a JSON object with a `pattern` string; received {}.",
+            other
+        )),
+    }
+}
+
 fn build_input_schema() -> ToolInputSchema {
     let mut properties = HashMap::new();
     properties.insert("pattern".to_string(), serde_json::json!({"type": "string", "description": "The regular expression pattern to search for"}));
@@ -91,7 +115,7 @@ fn build_input_schema() -> ToolInputSchema {
         "offset".to_string(),
         serde_json::json!({"type": "number", "description": "Skip first N entries. Default 0."}),
     );
-    properties.insert("multiline".to_string(), serde_json::json!({"type": "boolean", "description": "Enable multiline mode (rg -U --multiline-dotall). Default false."}));
+    properties.insert("multiline".to_string(), serde_json::json!({"type": "boolean", "description": "Enable multiline matching. Default false."}));
 
     ToolInputSchema {
         schema_type: "object".to_string(),
@@ -101,13 +125,79 @@ fn build_input_schema() -> ToolInputSchema {
     }
 }
 
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    path.is_file()
+        && std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn resolve_rg_executable() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("MOSSEN_RG").map(PathBuf::from) {
+        if is_executable_file(&path) {
+            return Some(path);
+        }
+    }
+
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join("rg");
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+
+    for candidate in ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "/usr/bin/rg"] {
+        let candidate = PathBuf::from(candidate);
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn resolve_search_target(raw_path: &str, cwd: &str) -> PathBuf {
+    let expanded = shellexpand::tilde(raw_path).to_string();
+    let path = PathBuf::from(expanded);
+    if path.is_absolute() {
+        path
+    } else {
+        PathBuf::from(cwd).join(path)
+    }
+}
+
+fn grep_working_dir_and_target(path: &Path) -> anyhow::Result<(PathBuf, String)> {
+    if path.is_dir() {
+        return Ok((path.to_path_buf(), ".".to_string()));
+    }
+    if path.is_file() {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8: {}", path.display()))?;
+        return Ok((parent.to_path_buf(), filename.to_string()));
+    }
+    anyhow::bail!("Path not found: {}", path.display())
+}
+
 #[async_trait]
 impl Tool for ContentScanner {
     fn name(&self) -> &str {
         "Grep"
     }
     fn description(&self) -> &str {
-        "Search file contents with regex using ripgrep"
+        "Search file contents with regular expressions"
     }
     fn tool_type(&self) -> ToolType {
         ToolType::Builtin
@@ -126,14 +216,38 @@ impl Tool for ContentScanner {
     }
 
     async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: ContentScannerInput = serde_json::from_value(input)?;
         let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => return Ok(tool_error(message, start.elapsed().as_millis() as u64)),
+        };
+        if inp.pattern.trim().is_empty() {
+            return Ok(tool_error(
+                "Grep requires a non-empty `pattern` string.",
+                start.elapsed().as_millis() as u64,
+            ));
+        }
 
-        let search_path = inp
-            .path
-            .map(|p| shellexpand::tilde(&p).to_string())
-            .unwrap_or_else(|| context.cwd.clone());
+        let raw_search_path = inp.path.as_deref().unwrap_or(context.cwd.as_str());
+        let search_path = resolve_search_target(raw_search_path, &context.cwd);
+        let (working_dir, target_arg) = match grep_working_dir_and_target(&search_path) {
+            Ok(target) => target,
+            Err(error) => {
+                return Ok(tool_error(
+                    format!("Grep path is not searchable: {error}"),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
+        };
         let mode = inp.output_mode.as_deref().unwrap_or("files_with_matches");
+        let Some(rg) = resolve_rg_executable() else {
+            return Ok(ToolResult {
+                output: "Grep search backend is unavailable. Ensure the search executable is installed or available on PATH.".to_string(),
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        };
 
         let mut args: Vec<String> = vec!["--hidden".into(), "--max-columns".into(), "500".into()];
         for dir in &[".git", ".svn", ".hg", ".bzr", ".jj", ".sl"] {
@@ -154,6 +268,9 @@ impl Tool for ContentScanner {
         }
         if inp.show_line_numbers.unwrap_or(true) && mode == "content" {
             args.push("-n".into());
+        }
+        if mode == "content" {
+            args.push("--with-filename".into());
         }
         if mode == "content" {
             if let Some(c) = inp.context_c {
@@ -182,14 +299,38 @@ impl Tool for ContentScanner {
             args.push("--glob".into());
             args.push(g.clone());
         }
+        args.push(target_arg);
 
-        info!(pattern = %inp.pattern, path = %search_path, mode = %mode, "ContentScanner: searching");
+        info!(pattern = %inp.pattern, path = %search_path.display(), mode = %mode, "ContentScanner: searching");
 
-        let output = Command::new("rg")
+        let output = match Command::new(rg)
             .args(&args)
-            .current_dir(&search_path)
+            .current_dir(&working_dir)
             .output()
-            .await?;
+            .await
+        {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(tool_error(
+                    format!("Failed to start Grep search backend: {error}"),
+                    start.elapsed().as_millis() as u64,
+                ))
+            }
+        };
+        let is_no_matches = output.status.code() == Some(1);
+        if !output.status.success() && !is_no_matches {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Ok(ToolResult {
+                output: if stderr.is_empty() {
+                    format!("Grep search backend failed with status {}", output.status)
+                } else {
+                    stderr
+                },
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        }
 
         let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
             .lines()
@@ -220,5 +361,105 @@ impl Tool for ContentScanner {
             duration_ms: start.elapsed().as_millis() as u64,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ContentScanner;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use std::collections::HashMap;
+
+    fn context(cwd: &std::path::Path) -> ToolUseContext {
+        ToolUseContext {
+            cwd: cwd.to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn grep_searches_absolute_directory_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("marker.txt"), "alpha\nneedle-one\n")
+            .expect("write fixture");
+
+        let result = ContentScanner
+            .execute(
+                serde_json::json!({
+                    "pattern": "needle-one",
+                    "path": temp.path().to_string_lossy(),
+                    "output_mode": "content"
+                }),
+                &context(temp.path()),
+            )
+            .await
+            .expect("grep result");
+
+        assert!(!result.is_error, "{}", result.output);
+        assert!(result.output.contains("marker.txt"), "{}", result.output);
+        assert!(result.output.contains("needle-one"), "{}", result.output);
+    }
+
+    #[tokio::test]
+    async fn grep_searches_file_path_without_current_dir_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let file = temp.path().join("single.rs");
+        std::fs::write(&file, "fn main() { println!(\"needle-two\"); }\n").expect("write fixture");
+
+        let result = ContentScanner
+            .execute(
+                serde_json::json!({
+                    "pattern": "needle-two",
+                    "path": file.to_string_lossy(),
+                    "output_mode": "content"
+                }),
+                &context(temp.path()),
+            )
+            .await
+            .expect("grep result");
+
+        assert!(!result.is_error, "{}", result.output);
+        assert!(result.output.contains("single.rs"), "{}", result.output);
+        assert!(result.output.contains("needle-two"), "{}", result.output);
+    }
+
+    #[tokio::test]
+    async fn grep_null_input_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let result = ContentScanner
+            .execute(serde_json::Value::Null, &context(temp.path()))
+            .await
+            .expect("grep result");
+
+        assert!(result.is_error);
+        assert!(result.output.contains("pattern"), "{}", result.output);
+        assert!(result.output.contains("null"), "{}", result.output);
+    }
+
+    #[tokio::test]
+    async fn grep_missing_path_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let missing = temp.path().join("missing");
+
+        let result = ContentScanner
+            .execute(
+                serde_json::json!({
+                    "pattern": "needle",
+                    "path": missing.to_string_lossy()
+                }),
+                &context(temp.path()),
+            )
+            .await
+            .expect("grep result");
+
+        assert!(result.is_error);
+        assert!(
+            result.output.contains("Path not found"),
+            "{}",
+            result.output
+        );
     }
 }

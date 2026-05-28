@@ -8,7 +8,7 @@ R1 — 远程 telemetry 0 流量的安全网测试 (按 Allen D-3 决策: mock H
   1. 强制开 telemetry env (绕守卫): MOSSEN_CODE_ENABLE_TELEMETRY=1
      + MOSSEN_CODE_TRUST_DIALOG_ACCEPTED=1
   2. 把所有 telemetry endpoint env 指向本机 mock HTTP server (random port)
-  3. 模型 backend env (custom backend / dashscope) 不动 → 走真 API
+  3. 模型 backend env (custom backend / external provider) 不动 → 走真 API
   4. 跑一次完整对话
   5. 断言:
      - mock_server 收到的 telemetry 请求数 = 0
@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 
 # ============================================================================
@@ -113,8 +114,13 @@ def _stop_mock_server(server: HTTPServer, thread: threading.Thread):
 
 def _find_session_logs(home: Path) -> list[Path]:
     found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in found:
                 found.append(p)
@@ -124,6 +130,7 @@ def _find_session_logs(home: Path) -> list[Path]:
 def _make_env(ctx, mock_port: int) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
 
     # 强制开 telemetry (绕过守卫, 让 mossen 真试图发数据)
     env["MOSSEN_CODE_ENABLE_TELEMETRY"] = "1"
@@ -138,7 +145,6 @@ def _make_env(ctx, mock_port: int) -> dict:
     env["OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] = mock_url
     env["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = mock_url
 
-    # 模型 backend env 不动 (custom backend 走真 dashscope)
     return env
 
 
@@ -153,18 +159,27 @@ def case_no_remote_telemetry_traffic() -> dict:
 
         prompt = "请把以下字符串原样回复给我: R1_TELEMETRY_TEST_OK"
 
-        proc = subprocess.run(
-            [str(ROOT / "run-mossen.sh"), "-p"],
-            input=prompt,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=str(fake_proj),
-        )
+        with mock_openai_provider(model="r1-telemetry-model") as (base_url, provider):
+            apply_mock_provider_env(
+                env,
+                base_url,
+                model="r1-telemetry-model",
+                name="R1 Telemetry Mock",
+            )
+            ctx.env.update(env)
+            proc = subprocess.run(
+                [str(ROOT / "scripts" / "start-mossen.sh"), "--stdin"],
+                input=prompt,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                cwd=str(fake_proj),
+            )
+            provider_snapshot = provider.snapshot()
         write_command_log(
             ctx,
-            ["mossen", "-p", f"(mock_telemetry_port={port}, force_enable=1)"],
+            ["mossen", "--stdin", f"(mock_telemetry_port={port}, force_enable=1)"],
             proc.stdout, proc.stderr, proc.returncode,
         )
 
@@ -201,6 +216,8 @@ def case_no_remote_telemetry_traffic() -> dict:
         "session_log_count": len(session_logs),
         "no_traces_files": no_traces_files,
         "traces_files": [str(p) for p in traces_files[:5]],
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_paths": provider_snapshot["paths"],
         "stdout_excerpt": proc.stdout[:300],
         "stderr_excerpt": proc.stderr[:300],
         "fixture_root": str(ctx.root_dir),
@@ -235,7 +252,8 @@ def main() -> int:
                 f"exit={res.get('exit_code')} "
                 f"telemetry_req={res.get('telemetry_request_count')} "
                 f"session_landed={res.get('session_landed')} "
-                f"no_traces={res.get('no_traces_files')}"
+                f"no_traces={res.get('no_traces_files')} "
+                f"provider_req={res.get('provider_request_count')}"
             ),
         }],
     )

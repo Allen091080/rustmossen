@@ -109,23 +109,59 @@ impl Directive for RestoreDirective {
                         "Session index must be 1 or greater.".to_string(),
                     ));
                 }
-                // In full implementation: load session at index n from recent list
-                Ok(CommandResult::System(format!(
-                    "Resuming session #{} from history...",
+                Ok(CommandResult::Error(format!(
+                    "Cannot resume session #{} from this command runner. Use /resume in the interactive TUI so the render snapshot and live session state are updated together.",
                     n
                 )))
             }
             ResumeTarget::SessionId(id) => {
-                // In full implementation: load the session transcript and resume
-                Ok(CommandResult::System(format!("Resuming session {}...", id)))
+                Ok(CommandResult::Error(format!(
+                    "Cannot resume session {} from this command runner. Use /resume in the interactive TUI so the render snapshot and live session state are updated together.",
+                    id
+                )))
             }
             ResumeTarget::Search(query) => {
-                // In full implementation: search sessions by title and show matches
-                Ok(CommandResult::System(format!(
-                    "Searching sessions for: {}",
+                Ok(CommandResult::Error(format!(
+                    "Cannot search/resume sessions for \"{}\" from this command runner. Use /resume in the interactive TUI.",
                     query
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn resume_directive_does_not_claim_live_session_switch() {
+        let output = tokio_test::block_on(RestoreDirective.execute(&["1"], &test_context()))
+            .expect("resume command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("resume by index should not claim success outside TUI");
+        };
+        assert!(text.contains("Cannot resume session"), "{text}");
+        assert!(!text.contains("Resuming session"), "{text}");
     }
 }

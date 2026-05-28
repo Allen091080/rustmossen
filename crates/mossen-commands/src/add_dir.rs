@@ -69,12 +69,49 @@ impl Directive for AddDirDirective {
             return Ok(CommandResult::Error(e));
         }
 
-        // In full implementation: add to toolPermissionContext.additionalWorkingDirectories
-        // and update the session state
-
-        Ok(CommandResult::System(format!(
-            "Added working directory: {}",
+        Ok(CommandResult::Error(format!(
+            "Cannot add working directory from this command runner. Use /add-dir {} in the interactive TUI so the live tool context is updated.",
             resolved.display()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context(cwd: PathBuf) -> CommandContext {
+        CommandContext {
+            cwd,
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn add_dir_directive_does_not_claim_live_tool_context_update() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = tokio_test::block_on(AddDirDirective.execute(
+            &[dir.path().to_string_lossy().as_ref()],
+            &test_context(dir.path().to_path_buf()),
+        ))
+        .expect("add-dir command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("add-dir should not claim success outside TUI state");
+        };
+        assert!(text.contains("Cannot add working directory"), "{text}");
+        assert!(!text.contains("Added working directory"), "{text}");
     }
 }

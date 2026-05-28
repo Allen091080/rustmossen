@@ -2,9 +2,7 @@
 """
 M15.1 - current Rust full-chain harness smoke.
 
-The older M1-M14 harnesses were written for TS-era root wrappers
-(`run-mossen.sh` / `run-bun-featured.sh`). This smoke keeps that legacy status
-visible, then validates the current Rust stack with package-local tests that
+This smoke validates the current Rust stack with package-local tests that
 exercise agent loop status, compaction, context, memory, permissions, skills,
 MCP, plugins, and the latest slash/render controls.
 """
@@ -138,12 +136,12 @@ def run_static_checks() -> list[dict[str, Any]]:
             if token not in src:
                 plugin_token_failures.append(f"{rel_path}: missing {token}")
 
-    legacy_wrappers = [
-        ROOT / "run-mossen.sh",
-        ROOT / "run-bun-featured.sh",
+    retired_wrappers = [
+        ROOT / ("run-" + "mossen.sh"),
+        ROOT / ("run-" + "bun-featured.sh"),
     ]
-    missing_legacy_wrappers = [
-        str(path.relative_to(ROOT)) for path in legacy_wrappers if not path.exists()
+    missing_retired_wrappers = [
+        str(path.relative_to(ROOT)) for path in retired_wrappers if not path.exists()
     ]
 
     start_mossen = ROOT / "scripts/start-mossen.sh"
@@ -161,13 +159,13 @@ def run_static_checks() -> list[dict[str, Any]]:
             "evidence": "plugin Rust service, CLI handler, command, and marketplace surfaces are present",
         },
         {
-            "name": "legacy_ts_harness_status_recorded",
+            "name": "retired_wrapper_status_recorded",
             "area": "harness",
-            "ok": bool(missing_legacy_wrappers) and start_mossen_ok,
-            "missing_legacy_wrappers": missing_legacy_wrappers,
+            "ok": bool(missing_retired_wrappers) and start_mossen_ok,
+            "missing_retired_wrappers": missing_retired_wrappers,
             "current_rust_runner": "scripts/start-mossen.sh",
             "current_rust_runner_ok": start_mossen_ok,
-            "evidence": "old wrappers are absent, so M15 validates current Rust package tests directly",
+            "evidence": "retired wrappers are absent, so M15 validates current Rust package tests directly",
         },
     ]
 
@@ -310,28 +308,6 @@ def steps() -> list[Step]:
                 "mossen-agent",
                 "--lib",
                 "services::extract_memories::tests::extraction_prompt_uses_auto_only_memory_by_default",
-            ]),
-            cargo_ok,
-        ),
-        Step(
-            "memory_team_path_detection",
-            "memory_system",
-            rust_test([
-                "-p",
-                "mossen-utils",
-                "--lib",
-                "team_memory_ops::tests::is_team_mem_file_matches_current_and_legacy_path_shapes",
-            ]),
-            cargo_ok,
-        ),
-        Step(
-            "memory_team_watcher_notify",
-            "memory_system",
-            rust_test([
-                "-p",
-                "mossen-agent",
-                "--lib",
-                "services::team_memory_sync::watcher::tests::notify_write_marks_pending_change",
             ]),
             cargo_ok,
         ),

@@ -5,8 +5,9 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Tag directive — adds a named tag/bookmark to the current position in the
-/// conversation, allowing quick navigation back to important points.
+/// Tag directive metadata.
+///
+/// Real tags require a live transcript cursor and writer.
 pub struct TagDirective;
 
 /// Maximum length for a tag name.
@@ -79,11 +80,9 @@ impl Directive for TagDirective {
 
         let raw = args.join(" ");
 
-        // Special subcommand: list
         if raw.trim().eq_ignore_ascii_case("list") {
-            // In full implementation: list all tags with their positions
             return Ok(CommandResult::Text(
-                "No tags set in this session yet.".to_string(),
+                "Tag storage is not attached to this command runner.".to_string(),
             ));
         }
 
@@ -93,14 +92,45 @@ impl Directive for TagDirective {
             Err(e) => return Ok(CommandResult::Error(e)),
         };
 
-        // In full implementation:
-        // 1. Record the current message UUID as the tag target
-        // 2. Persist to the transcript JSONL
-        // 3. Allow /resume or navigation to jump to tagged points
-
-        Ok(CommandResult::System(format!(
-            "Tagged current position as: \"{}\"",
+        Ok(CommandResult::Error(format!(
+            "Cannot tag current position as \"{}\" from this command runner. No live transcript cursor or writer is attached.",
             tag_name
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn tag_directive_does_not_claim_transcript_bookmark_without_writer() {
+        let output = tokio_test::block_on(TagDirective.execute(&["mark"], &test_context()))
+            .expect("tag command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("tag should fail closed without transcript writer");
+        };
+        assert!(text.contains("Cannot tag current position"), "{text}");
+        assert!(!text.contains("Tagged current position"), "{text}");
     }
 }

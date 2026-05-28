@@ -5,6 +5,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use tokio::sync::mpsc;
 
+const TUI_EVENT_LOG_PATH_ENV: &str = "MOSSEN_TUI_EVENT_LOG_PATH";
+
 /// Maximum pending terminal events the App should coalesce after one wakeup.
 ///
 /// Ticks are intentionally lossy: a long render should not leave hundreds of
@@ -58,14 +60,27 @@ impl EventBus {
         let first = self.rx.recv().await?;
         let max_events = max_events.max(1);
         let mut events = Vec::with_capacity(max_events.min(16));
+        let mut non_lossy_events = usize::from(!app_event_is_lossy(&first));
         events.push(first);
-        while events.len() < max_events {
+        while non_lossy_events < max_events {
             match self.rx.try_recv() {
-                Ok(event) => events.push(event),
+                Ok(event) => {
+                    if !app_event_is_lossy(&event) {
+                        non_lossy_events = non_lossy_events.saturating_add(1);
+                    }
+                    events.push(event);
+                }
                 Err(_) => break,
             }
         }
-        Some(coalesce_event_batch(events))
+        let raw_count = events.len();
+        let coalesced = coalesce_event_batch(events);
+        append_tui_event_log_line(format!(
+            "recv_coalesced raw_count={raw_count} coalesced_count={} {}",
+            coalesced.len(),
+            summarize_app_events(&coalesced)
+        ));
+        Some(coalesced)
     }
 
     /// Try to receive without blocking.
@@ -174,6 +189,59 @@ fn coalesce_event_batch(events: Vec<AppEvent>) -> Vec<AppEvent> {
     coalesced
 }
 
+fn app_event_is_lossy(event: &AppEvent) -> bool {
+    matches!(
+        event,
+        AppEvent::Tick | AppEvent::Resize { .. } | AppEvent::FocusChange(_)
+    )
+}
+
+fn append_tui_event_log_line(line: String) {
+    let Some(path) = std::env::var_os(TUI_EVENT_LOG_PATH_ENV) else {
+        return;
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write as _;
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+fn summarize_app_events(events: &[AppEvent]) -> String {
+    let mut keys = 0usize;
+    let mut mouse_up = 0usize;
+    let mut mouse_down = 0usize;
+    let mut mouse_other = 0usize;
+    let mut resizes = 0usize;
+    let mut focus = 0usize;
+    let mut ticks = 0usize;
+    let mut quits = 0usize;
+    for event in events {
+        match event {
+            AppEvent::Key(_) => keys = keys.saturating_add(1),
+            AppEvent::Mouse(mouse) => match mouse.kind {
+                crossterm::event::MouseEventKind::ScrollUp => {
+                    mouse_up = mouse_up.saturating_add(1);
+                }
+                crossterm::event::MouseEventKind::ScrollDown => {
+                    mouse_down = mouse_down.saturating_add(1);
+                }
+                _ => mouse_other = mouse_other.saturating_add(1),
+            },
+            AppEvent::Resize { .. } => resizes = resizes.saturating_add(1),
+            AppEvent::FocusChange(_) => focus = focus.saturating_add(1),
+            AppEvent::Tick => ticks = ticks.saturating_add(1),
+            AppEvent::Quit => quits = quits.saturating_add(1),
+        }
+    }
+    format!(
+        "keys={keys} mouse_up={mouse_up} mouse_down={mouse_down} mouse_other={mouse_other} resizes={resizes} focus={focus} ticks={ticks} quits={quits}"
+    )
+}
+
 fn flush_pending_lossy(coalesced: &mut Vec<AppEvent>, pending_lossy: &mut Option<AppEvent>) {
     if let Some(event) = pending_lossy.take() {
         coalesced.push(event);
@@ -280,6 +348,32 @@ mod tests {
         ));
         assert!(matches!(batch[2], AppEvent::FocusChange(false)));
         assert!(matches!(batch[3], AppEvent::Quit));
+    }
+
+    #[tokio::test]
+    async fn recv_coalesced_drains_stale_tick_backlog_to_reach_input() {
+        let mut bus = EventBus::new();
+        let tx = bus.sender();
+        for _ in 0..2048 {
+            tx.send(AppEvent::Tick).expect("send stale tick");
+        }
+        tx.send(AppEvent::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollDown,
+            column: 7,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        }))
+        .expect("send mouse");
+
+        let batch = bus.recv_coalesced(8).await.expect("coalesced batch");
+
+        assert_eq!(batch.len(), 2, "{batch:?}");
+        assert!(matches!(batch[0], AppEvent::Tick));
+        assert!(matches!(batch[1], AppEvent::Mouse(_)));
+        assert!(
+            bus.try_recv().is_none(),
+            "stale ticks should not remain queued"
+        );
     }
 
     #[tokio::test]

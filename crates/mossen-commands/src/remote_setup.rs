@@ -73,6 +73,10 @@ impl Directive for RemoteSetupDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_remote_workspace_features()
+    }
+
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let product_name = &ctx.product_name;
 

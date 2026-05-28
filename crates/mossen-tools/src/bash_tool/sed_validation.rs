@@ -138,7 +138,7 @@ fn normalize_expression(expression: &str) -> String {
 ///
 /// Returns:
 /// - `Allowed` if the sed command is safe to auto-approve
-/// - `NeedsApproval` if it needs permission  
+/// - `NeedsApproval` if it needs permission
 /// - `Passthrough` if not a sed command
 pub fn check_sed_constraints(command: &str) -> SedCheckResult {
     let trimmed = command.trim();

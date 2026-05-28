@@ -2,10 +2,8 @@
 //!
 //! Translated from tools/ExitPlanModeTool/prompt.ts
 
-use crate::ask_user_tool::prompt::ASK_USER_QUESTION_TOOL_NAME;
-
 /// `ExitPlanModeTool/prompt.ts` `EXIT_PLAN_MODE_V2_TOOL_PROMPT` — static
-/// version of the prompt with `{ask_user}` placeholder pre-rendered.
+/// prompt used by legacy call sites.
 pub const EXIT_PLAN_MODE_V2_TOOL_PROMPT: &str = "Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for user approval.
 
 ## How This Tool Works
@@ -19,21 +17,20 @@ IMPORTANT: Only use this tool when the task requires planning the implementation
 
 ## Before Using This Tool
 Ensure your plan is complete and unambiguous:
-- If you have unresolved questions about requirements or approach, use AskUserQuestion first (in earlier phases)
+- If you have unresolved questions about requirements or approach, ask a concise follow-up question first (in earlier phases)
 - Once your plan is finalized, use THIS tool to request approval
 
-**Important:** Do NOT use AskUserQuestion to ask \"Is this plan okay?\" or \"Should I proceed?\" - that's exactly what THIS tool does. ExitPlanMode inherently requests user approval of your plan.
+**Important:** Do NOT ask \"Is this plan okay?\" or \"Should I proceed?\" separately - that's exactly what THIS tool does. ExitPlanMode inherently requests user approval of your plan.
 
 ## Examples
 
 1. Initial task: \"Search for and understand the implementation of vim mode in the codebase\" - Do not use the exit plan mode tool because you are not planning the implementation steps of a task.
 2. Initial task: \"Help me implement yank mode for vim\" - Use the exit plan mode tool after you have finished planning the implementation steps of the task.
-3. Initial task: \"Add a new feature to handle user authentication\" - If unsure about auth method (OAuth, JWT, etc.), use AskUserQuestion first, then use exit plan mode tool after clarifying the approach.
+3. Initial task: \"Add a new feature to handle user authentication\" - If unsure about auth method (OAuth, JWT, etc.), ask a concise follow-up question first, then use exit plan mode tool after clarifying the approach.
 ";
 
 pub fn get_exit_plan_mode_v2_tool_prompt() -> String {
-    format!(
-        r#"Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for user approval.
+    r#"Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for user approval.
 
 ## How This Tool Works
 - You should have already written your plan to the plan file specified in the plan mode system message
@@ -46,17 +43,16 @@ IMPORTANT: Only use this tool when the task requires planning the implementation
 
 ## Before Using This Tool
 Ensure your plan is complete and unambiguous:
-- If you have unresolved questions about requirements or approach, use {ask_user} first (in earlier phases)
+- If you have unresolved questions about requirements or approach, ask a concise follow-up question first (in earlier phases)
 - Once your plan is finalized, use THIS tool to request approval
 
-**Important:** Do NOT use {ask_user} to ask "Is this plan okay?" or "Should I proceed?" - that's exactly what THIS tool does. ExitPlanMode inherently requests user approval of your plan.
+**Important:** Do NOT ask "Is this plan okay?" or "Should I proceed?" separately - that's exactly what THIS tool does. ExitPlanMode inherently requests user approval of your plan.
 
 ## Examples
 
 1. Initial task: "Search for and understand the implementation of vim mode in the codebase" - Do not use the exit plan mode tool because you are not planning the implementation steps of a task.
 2. Initial task: "Help me implement yank mode for vim" - Use the exit plan mode tool after you have finished planning the implementation steps of the task.
-3. Initial task: "Add a new feature to handle user authentication" - If unsure about auth method (OAuth, JWT, etc.), use {ask_user} first, then use exit plan mode tool after clarifying the approach.
-"#,
-        ask_user = ASK_USER_QUESTION_TOOL_NAME
-    )
+3. Initial task: "Add a new feature to handle user authentication" - If unsure about auth method (OAuth, JWT, etc.), ask a concise follow-up question first, then use exit plan mode tool after clarifying the approach.
+"#
+    .to_string()
 }

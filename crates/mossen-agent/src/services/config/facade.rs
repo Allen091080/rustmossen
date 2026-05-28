@@ -75,6 +75,8 @@ struct FacadeInner {
     user_settings: Arc<UserSettingsProvider>,
     local_default: Arc<LocalDefaultProvider>,
     refresh_listeners: RwLock<Vec<Arc<dyn Fn() + Send + Sync>>>,
+    config_change_listeners:
+        RwLock<Vec<Arc<dyn Fn(ConfigOverrideScope, Option<String>) + Send + Sync>>>,
 }
 
 static FACADE: Lazy<FacadeInner> = Lazy::new(|| FacadeInner {
@@ -84,6 +86,7 @@ static FACADE: Lazy<FacadeInner> = Lazy::new(|| FacadeInner {
     user_settings: Arc::new(UserSettingsProvider::new()),
     local_default: Arc::new(LocalDefaultProvider),
     refresh_listeners: RwLock::new(Vec::new()),
+    config_change_listeners: RwLock::new(Vec::new()),
 });
 
 impl FacadeInner {
@@ -109,6 +112,13 @@ impl FacadeInner {
         let listeners = self.refresh_listeners.read();
         for listener in listeners.iter() {
             listener();
+        }
+    }
+
+    fn notify_config_change_listeners(&self, scope: ConfigOverrideScope, key: Option<String>) {
+        let listeners = self.config_change_listeners.read();
+        for listener in listeners.iter() {
+            listener(scope, key.clone());
         }
     }
 }
@@ -185,11 +195,25 @@ pub fn on_mossen_config_refresh(listener: Arc<dyn Fn() + Send + Sync>) -> impl F
     }
 }
 
+/// Subscribe to config change events with mutation metadata.
+pub fn on_mossen_config_change(
+    listener: Arc<dyn Fn(ConfigOverrideScope, Option<String>) + Send + Sync>,
+) -> Box<dyn FnOnce() + Send> {
+    let listener_clone = Arc::clone(&listener);
+    FACADE.config_change_listeners.write().push(listener_clone);
+    let listener_ptr = Arc::as_ptr(&listener) as *const () as usize;
+    Box::new(move || {
+        let mut listeners = FACADE.config_change_listeners.write();
+        listeners.retain(|l| Arc::as_ptr(l) as *const () as usize != listener_ptr);
+    })
+}
+
 /// Set a config override.
 pub fn set_mossen_config_override(key: &str, value: Value, scope: ConfigOverrideScope) {
     let provider = FACADE.pick_writable_provider(scope);
     provider.set(key, value);
     FACADE.notify_refresh_listeners();
+    FACADE.notify_config_change_listeners(scope, Some(key.to_string()));
 }
 
 /// Clear config overrides.
@@ -197,6 +221,7 @@ pub fn clear_mossen_config_overrides(scope: ConfigOverrideScope, key: Option<&st
     let provider = FACADE.pick_writable_provider(scope);
     provider.clear(key);
     FACADE.notify_refresh_listeners();
+    FACADE.notify_config_change_listeners(scope, key.map(str::to_string));
 }
 
 /// Get all resolved config values (built-in defaults only).

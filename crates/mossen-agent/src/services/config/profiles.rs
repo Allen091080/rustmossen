@@ -240,7 +240,7 @@ pub fn get_profile_by_name(name: &str) -> Option<ProfileSchema> {
     get_profiles().get(name).cloned()
 }
 
-const FALLBACK_PROFILE_DEFAULT_NAME: &str = "qwen";
+const FALLBACK_PROFILE_DEFAULT_NAME: &str = "custom";
 
 /// Get fallback profile from env vars.
 pub fn get_fallback_profile() -> Option<ListedProfile> {
@@ -382,6 +382,87 @@ pub fn get_default_active_profile_name() -> Option<String> {
     } else {
         Some(s)
     }
+}
+
+fn env_value_present(key: &str) -> bool {
+    env::var(key)
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn set_profile_env_value(key: &str, value: &str, overwrite_existing: bool) {
+    if value.trim().is_empty() {
+        return;
+    }
+    if overwrite_existing || !env_value_present(key) {
+        env::set_var(key, value);
+    }
+}
+
+fn apply_profile_to_custom_backend_env_with_mode(
+    profile: &ListedProfile,
+    cli_model_override: Option<&str>,
+    overwrite_existing: bool,
+) {
+    set_profile_env_value("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1", overwrite_existing);
+    set_profile_env_value(
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        profile.profile.provider.runtime_protocol(),
+        overwrite_existing,
+    );
+    set_profile_env_value("MOSSEN_CODE_CUSTOM_NAME", &profile.name, overwrite_existing);
+    set_profile_env_value(
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        &profile.profile.base_url,
+        overwrite_existing,
+    );
+    set_profile_env_value(
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        &profile.profile.api_key,
+        overwrite_existing,
+    );
+
+    if cli_model_override
+        .map(|model| model.trim().is_empty())
+        .unwrap_or(true)
+    {
+        set_profile_env_value(
+            "MOSSEN_CODE_CUSTOM_MODEL",
+            &profile.profile.model,
+            overwrite_existing,
+        );
+    }
+
+    // Keep EngineConfig/status displays aligned with the active profile. The
+    // request path still reads MOSSEN_CODE_CUSTOM_* for custom backends.
+    set_profile_env_value(
+        "MOSSEN_API_BASE_URL",
+        &profile.profile.base_url,
+        overwrite_existing,
+    );
+    set_profile_env_value(
+        "MOSSEN_API_KEY",
+        &profile.profile.api_key,
+        overwrite_existing,
+    );
+}
+
+/// Apply a selected profile to the live custom backend environment.
+///
+/// This is used by interactive profile switching, so it intentionally
+/// overwrites any previous profile-derived runtime values.
+pub fn apply_profile_to_custom_backend_env(profile: &ListedProfile) {
+    apply_profile_to_custom_backend_env_with_mode(profile, None, true);
+}
+
+/// Apply the current profile at startup without overriding explicit env vars.
+pub fn apply_current_profile_to_custom_backend_env_if_missing(
+    cli_model_override: Option<&str>,
+) -> Option<ListedProfile> {
+    let profile = get_current_profile()?;
+    apply_profile_to_custom_backend_env_with_mode(&profile, cli_model_override, false);
+    Some(profile)
 }
 
 /// Set/overwrite a profile.
@@ -655,21 +736,49 @@ pub fn migrate_fallback_profile(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_profile, ProfileProvider};
+    use super::{
+        clear_active_profile, delete_profile, desensitize_profiles, get_active_profile,
+        get_active_profile_name, get_profile_by_name, get_profiles, set_active_profile,
+        set_profile, validate_profile, validate_profile_name, ProfileProvider,
+    };
+    use crate::services::config::facade::{reset_facade_for_testing, set_mossen_config_override};
+    use crate::services::config::types::ConfigOverrideScope;
     use serde_json::json;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn config_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("profile config test lock poisoned")
+    }
+
+    fn reset_profile_config_for_test() {
+        reset_facade_for_testing();
+        set_mossen_config_override(
+            super::PROFILES_KEY,
+            json!({}),
+            ConfigOverrideScope::Override,
+        );
+        set_mossen_config_override(
+            super::ACTIVE_PROFILE_KEY,
+            serde_json::Value::Null,
+            ConfigOverrideScope::Override,
+        );
+    }
 
     #[test]
     fn validate_profile_accepts_openai_responses_and_anthropic() {
         let responses = validate_profile(&json!({
             "provider": "openai-responses",
-            "baseURL": "https://api.openai.com/v1",
-            "model": "gpt-5.1",
+            "baseURL": "https://responses.example.com/v1",
+            "model": "responses-test-model",
             "apiKey": "sk-test"
         }))
         .expect("openai responses profile should validate");
         let anthropic = validate_profile(&json!({
             "provider": "anthropic",
-            "baseURL": "https://api.anthropic.com/v1",
+            "baseURL": "https://anthropic.example.com/v1",
             "model": "anthropic-test-model",
             "apiKey": "sk-ant-test"
         }))
@@ -694,5 +803,179 @@ mod tests {
         assert!(error.contains("openai-compatible"));
         assert!(error.contains("openai-responses"));
         assert!(error.contains("anthropic"));
+    }
+
+    #[test]
+    fn profile_facade_reads_active_profile_and_redacts_secrets() {
+        let _guard = config_test_lock();
+        reset_profile_config_for_test();
+        set_mossen_config_override(
+            "mossen.profiles",
+            json!({
+                "example": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://coding.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-example-1234567890abcdef",
+                    "name": "Example Large"
+                },
+                "fast": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-fast",
+                    "apiKey": "sk-test-fast-abcdefg1234567"
+                },
+                "coding": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://coding-alt.example.com/v1",
+                    "model": "example-coding",
+                    "apiKey": "sk-test-coding-zyxwvut0987654321"
+                }
+            }),
+            ConfigOverrideScope::Override,
+        );
+        set_mossen_config_override(
+            "mossen.activeProfile",
+            json!("example"),
+            ConfigOverrideScope::Override,
+        );
+
+        let profiles = get_profiles();
+        let mut names = profiles.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["coding", "example", "fast"]);
+        assert_eq!(get_active_profile_name().as_deref(), Some("example"));
+        let active = get_active_profile().expect("active profile should resolve");
+        assert_eq!(active.model, "example-large");
+        assert_eq!(active.api_key, "sk-test-example-1234567890abcdef");
+
+        let redacted = desensitize_profiles(&profiles);
+        assert_eq!(
+            redacted
+                .get("example")
+                .map(|profile| profile.api_key.as_str()),
+            Some("sk-tes...cdef")
+        );
+        assert_eq!(
+            redacted.get("fast").map(|profile| profile.api_key.as_str()),
+            Some("sk-tes...4567")
+        );
+        assert_ne!(
+            redacted
+                .get("coding")
+                .map(|profile| profile.api_key.as_str()),
+            Some("sk-test-coding-zyxwvut0987654321")
+        );
+
+        reset_facade_for_testing();
+    }
+
+    #[test]
+    fn profile_facade_filters_invalid_entries_and_missing_active() {
+        let _guard = config_test_lock();
+        reset_profile_config_for_test();
+        set_mossen_config_override(
+            "mossen.profiles",
+            json!({
+                "good": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://example.com/v1",
+                    "model": "good-model",
+                    "apiKey": "sk-test-good"
+                },
+                "missing_apikey": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://example.com/v1",
+                    "model": "x"
+                },
+                "wrong_provider": {
+                    "provider": "provider",
+                    "baseURL": "https://example.com/v1",
+                    "model": "x",
+                    "apiKey": "sk-test-x"
+                },
+                "not_an_object": "string-value"
+            }),
+            ConfigOverrideScope::Override,
+        );
+        set_mossen_config_override(
+            "mossen.activeProfile",
+            json!("ghost"),
+            ConfigOverrideScope::Override,
+        );
+
+        let profiles = get_profiles();
+        let names = profiles.keys().cloned().collect::<Vec<_>>();
+        assert_eq!(names, vec!["good"]);
+        assert_eq!(get_active_profile_name(), None);
+        assert!(get_active_profile().is_none());
+
+        reset_facade_for_testing();
+    }
+
+    #[test]
+    fn profile_crud_lifecycle_updates_active_and_preserves_raw_secret() {
+        let _guard = config_test_lock();
+        reset_profile_config_for_test();
+        let alpha_v1 = json!({
+            "provider": "openai-compatible",
+            "baseURL": "https://example.com/v1",
+            "model": "alpha-1",
+            "apiKey": "sk-test-alpha-AAAAAAAAAAAAAAAA"
+        });
+        let alpha_v2 = json!({
+            "provider": "openai-compatible",
+            "baseURL": "https://example.com/v1",
+            "model": "alpha-2",
+            "apiKey": "sk-test-alpha-AAAAAAAAAAAAAAAA"
+        });
+        let beta = json!({
+            "provider": "openai-compatible",
+            "baseURL": "https://example.com/v1",
+            "model": "beta-1",
+            "apiKey": "sk-test-beta-BBBBBBBBBBBBBBBB"
+        });
+
+        assert!(set_profile("alpha", &alpha_v1, ConfigOverrideScope::Override).is_ok());
+        assert_eq!(
+            get_profile_by_name("alpha").map(|profile| profile.model),
+            Some("alpha-1".to_string())
+        );
+        assert!(set_profile("beta", &beta, ConfigOverrideScope::Override).is_ok());
+        let (active, profile, source) =
+            set_active_profile("beta", ConfigOverrideScope::Override).expect("activate beta");
+        assert_eq!(active, "beta");
+        assert_eq!(profile.model, "beta-1");
+        assert_eq!(source, super::ProfileSource::Settings);
+
+        assert!(set_profile("alpha", &alpha_v2, ConfigOverrideScope::Override).is_ok());
+        assert_eq!(
+            get_profile_by_name("alpha").map(|profile| profile.model),
+            Some("alpha-2".to_string())
+        );
+
+        let (deleted, active_cleared, remaining) =
+            delete_profile("beta", ConfigOverrideScope::Override);
+        assert!(deleted);
+        assert!(active_cleared);
+        assert_eq!(remaining.keys().cloned().collect::<Vec<_>>(), vec!["alpha"]);
+        assert_eq!(get_active_profile_name(), None);
+        clear_active_profile(ConfigOverrideScope::Override);
+        assert_eq!(get_active_profile_name(), None);
+
+        assert!(validate_profile_name("123-bad").is_err());
+        let err = set_profile(
+            "charlie",
+            &json!({
+                "provider": "openai-compatible",
+                "baseURL": "https://example.com/v1",
+                "model": "charlie"
+            }),
+            ConfigOverrideScope::Override,
+        )
+        .expect_err("invalid schema should fail");
+        assert!(err.contains("apiKey"));
+
+        reset_facade_for_testing();
     }
 }

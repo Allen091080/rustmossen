@@ -17,9 +17,8 @@ struct LanguageEntry {
 impl CliHighlight {
     /// Highlight source code text for the given language.
     pub fn highlight(&self, code: &str, language: &str) -> String {
-        // In Rust we use syntect or tree-sitter for highlighting.
-        // This is a placeholder that returns the code as-is since
-        // cli-highlight is a Node.js specific package.
+        // Placeholder for the legacy CLI highlighter API; terminal rendering
+        // performs syntax highlighting in the TUI layer.
         let _ = language;
         code.to_string()
     }

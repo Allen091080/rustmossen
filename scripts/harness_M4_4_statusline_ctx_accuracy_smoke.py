@@ -43,6 +43,7 @@ def main() -> int:
                 cargo_test(
                     "-p",
                     "mossen-tui",
+                    "--lib",
                     "engine_stream_tests::footer_reports_estimated_context_usage_from_model_history",
                 ),
                 ("test result: ok.", "1 passed;"),

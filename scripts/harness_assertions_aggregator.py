@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -79,6 +80,54 @@ def aggregate(assertions: list[dict]) -> dict:
     }
 
 
+def refresh_capability_matrix(harness_root: Path, output_dir: Path) -> dict:
+    """Generate/load the capability report as part of the final report."""
+    script = ROOT / "scripts" / "harness_capability_matrix.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--harness-root",
+            str(harness_root),
+            "--output-dir",
+            str(output_dir),
+            "--quiet",
+        ],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    report_path = output_dir / "harness-capability-report.json"
+    if report_path.exists():
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            report = {
+                "status": "load_error",
+                "error": str(exc),
+                "summary_by_status": {"fail": 1},
+            }
+    else:
+        report = {
+            "status": "missing",
+            "error": "harness-capability-report.json was not generated",
+            "summary_by_status": {"missing": 1},
+        }
+    report["_generator_exit_code"] = proc.returncode
+    report["_generator_stdout"] = proc.stdout[:2000]
+    report["_generator_stderr"] = proc.stderr[:2000]
+    return report
+
+
+def capability_bad_count(capability_report: dict | None) -> int:
+    if not capability_report:
+        return 0
+    counts = capability_report.get("summary_by_status")
+    if not isinstance(counts, dict):
+        return 1
+    return sum(int(counts.get(status, 0) or 0) for status in ("fail", "missing", "stale", "partial"))
+
+
 def render_markdown(report: dict) -> str:
     """产出 markdown 报告."""
     lines = []
@@ -97,6 +146,24 @@ def render_markdown(report: dict) -> str:
     for status, count in sorted(report["by_status_counts"].items()):
         lines.append(f"| `{status}` | {count} |")
     lines.append("")
+    capability = report.get("capability_matrix") or {}
+    capability_counts = capability.get("summary_by_status") if isinstance(capability, dict) else {}
+    if isinstance(capability_counts, dict):
+        lines.append("### 按产品能力分组")
+        lines.append("| 能力状态 | 数量 |")
+        lines.append("|---|---|")
+        for status in ("pass", "partial", "stale", "missing", "fail"):
+            lines.append(f"| `{status}` | {capability_counts.get(status, 0)} |")
+        coverage = capability.get("script_coverage", {})
+        lines.append("")
+        lines.append(
+            "- M/R 脚本映射: "
+            f"{coverage.get('mapped_mr_scripts', 0)}/{coverage.get('total_mr_scripts', 0)}"
+        )
+        if coverage.get("unmapped_mr_scripts"):
+            lines.append(f"- 未映射 M/R 脚本: {len(coverage.get('unmapped_mr_scripts', []))}")
+        lines.append("- 能力报告: `harness-capability-report.md`")
+        lines.append("")
     lines.append("### 按模块分组")
     lines.append("| 模块 | passed | failed | blocked | skipped | load_error |")
     lines.append("|---|---|---|---|---|---|")
@@ -115,7 +182,9 @@ def render_markdown(report: dict) -> str:
         lines.append(f"| {test_id} | {status} | {n_assertions} | {artifacts_str} |")
     lines.append("")
     lines.append("## 关联文档")
-    lines.append("- 能力基线: `harness能力基线矩阵.md`")
+    lines.append("- Harness manifest: `docs/release_readiness.v1.json`")
+    lines.append("- Capability matrix: `docs/capability_matrix.v1.json`")
+    lines.append("- Capability report: `harness-capability-report.md`")
     lines.append("- Slash command 矩阵: `harness_slash_command_matrix.json`")
     lines.append("- SOP: `harness全链路测试.md`")
     lines.append("- 延后待办: `harness全链路测试.md` 附录 E")
@@ -124,10 +193,16 @@ def render_markdown(report: dict) -> str:
     fail_count = report["by_status_counts"].get("failed", 0)
     block_count = report["by_status_counts"].get("blocked", 0)
     err_count = report["by_status_counts"].get("load_error", 0)
-    if fail_count == 0 and err_count == 0 and block_count == 0:
-        lines.append(f"✅ 全部 {report['total_tests']} 测试 passed, 个人版核心链路验证通过。")
+    cap_bad = capability_bad_count(report.get("capability_matrix"))
+    if fail_count == 0 and err_count == 0 and block_count == 0 and cap_bad == 0:
+        lines.append(f"✅ 全部 {report['total_tests']} 测试 passed, 且能力矩阵全部 pass。")
     else:
-        lines.append(f"❌ 待修复: {fail_count} failed / {block_count} blocked / {err_count} load_error。")
+        lines.append(
+            f"❌ 待修复: {fail_count} failed / {block_count} blocked / "
+            f"{err_count} load_error / {cap_bad} capability non-pass。"
+        )
+        if cap_bad:
+            lines.append("能力矩阵存在 stale/missing/partial/fail，不能仅凭脚本通过率声明生产可用。")
     return "\n".join(lines)
 
 
@@ -135,11 +210,21 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--harness-root", type=Path, default=DEFAULT_HARNESS_ROOT)
     parser.add_argument("--output-dir", type=Path, default=ROOT)
+    parser.add_argument(
+        "--skip-capability-matrix",
+        action="store_true",
+        help="Only aggregate assertions. Intended for aggregator unit smokes with mock harness roots.",
+    )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
+    capability_report = None
+    if not args.skip_capability_matrix:
+        capability_report = refresh_capability_matrix(args.harness_root, args.output_dir)
     assertions = discover_assertions(args.harness_root)
     report = aggregate(assertions)
+    if capability_report is not None:
+        report["capability_matrix"] = capability_report
 
     json_target = args.output_dir / "harness-final-report.json"
     md_target = args.output_dir / "harness-final-report.md"
@@ -158,7 +243,8 @@ def main() -> int:
     fail_count = report["by_status_counts"].get("failed", 0)
     block_count = report["by_status_counts"].get("blocked", 0)
     err_count = report["by_status_counts"].get("load_error", 0)
-    return 0 if (fail_count + block_count + err_count == 0) else 1
+    cap_bad = capability_bad_count(report.get("capability_matrix"))
+    return 0 if (fail_count + block_count + err_count + cap_bad == 0) else 1
 
 
 if __name__ == "__main__":

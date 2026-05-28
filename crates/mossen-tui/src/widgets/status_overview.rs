@@ -223,10 +223,10 @@ mod tests {
     #[test]
     fn status_overview_renders_sections_and_rows() {
         let model =
-            StatusOverviewRenderModel::new("MiniMax-M2.7 | turn running command | mode Supervised")
+            StatusOverviewRenderModel::new("example-fast | turn running command | mode Supervised")
                 .section(
                     StatusSectionRenderModel::new("Session")
-                        .row("Model", "MiniMax-M2.7", StatusRowLevel::Good)
+                        .row("Model", "example-fast", StatusRowLevel::Good)
                         .row("Session", "session-123", StatusRowLevel::Info),
                 )
                 .section(
@@ -240,7 +240,7 @@ mod tests {
         assert!(rendered.contains("Status"), "{rendered}");
         assert!(rendered.contains("Session"), "{rendered}");
         assert!(rendered.contains("Model"), "{rendered}");
-        assert!(rendered.contains("MiniMax-M2.7"), "{rendered}");
+        assert!(rendered.contains("example-fast"), "{rendered}");
         assert!(rendered.contains("Policy"), "{rendered}");
         assert!(rendered.contains("API Key"), "{rendered}");
         assert!(rendered.contains("configured"), "{rendered}");
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn status_overview_clips_multibyte_and_uses_ascii_separator() {
         let model = StatusOverviewRenderModel::new(
-            "模型 MiniMax-M2.7 正在执行一个很长很长的状态摘要用于测试裁剪",
+            "模型 example-fast 正在执行一个很长很长的状态摘要用于测试裁剪",
         )
         .section(StatusSectionRenderModel::new("Workspace").row(
             "CWD",

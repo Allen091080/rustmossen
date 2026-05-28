@@ -442,7 +442,11 @@ def run_pty_resize_scroll_soak() -> dict[str, Any]:
         ("restore_bottom_rendered_tail", restored_segment_has_tail, TAIL_MARKER),
         ("entered_alt_screen_once", alt_enters == 1, f"alt_enters={alt_enters}"),
         ("left_alt_screen_once", alt_leaves == 1, f"alt_leaves={alt_leaves}"),
-        ("no_repeated_fullscreen_clear", full_clears == 0, f"full_clears={full_clears}"),
+        (
+            "no_repeated_fullscreen_clear",
+            full_clears == 0,
+            f"full_clears={full_clears}",
+        ),
         ("output_size_bounded", output_bytes < 5_000_000, f"bytes={output_bytes}"),
     ]
 

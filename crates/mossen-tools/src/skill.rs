@@ -36,6 +36,33 @@ pub struct CraftInvokerOutput {
     pub error: Option<String>,
 }
 
+fn parse_input(input: Value) -> Result<CraftInvokerInput, String> {
+    match input {
+        Value::Null => {
+            Err("Skill requires a JSON object with a `skill` string; received null.".to_string())
+        }
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!(
+                "Skill received invalid input: {error}. Expected object: {{\"skill\":\"...\"}}."
+            )
+        }),
+        other => Err(format!(
+            "Skill requires a JSON object with a `skill` string; received {}.",
+            other
+        )),
+    }
+}
+
+fn error_output(skill: impl Into<String>, message: impl Into<String>) -> CraftInvokerOutput {
+    CraftInvokerOutput {
+        success: false,
+        command_name: skill.into(),
+        allowed_tools: None,
+        result: None,
+        error: Some(message.into()),
+    }
+}
+
 fn build_input_schema() -> ToolInputSchema {
     let mut properties = HashMap::new();
     properties.insert(
@@ -84,7 +111,29 @@ impl Tool for CraftInvoker {
     }
 
     async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: CraftInvokerInput = serde_json::from_value(input)?;
+        let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => {
+                return Ok(ToolResult {
+                    output: serde_json::to_string(&error_output("", message))?,
+                    is_error: true,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    metadata: skill_invocation_metadata("", None, false),
+                })
+            }
+        };
+        if inp.skill.trim().is_empty() {
+            return Ok(ToolResult {
+                output: serde_json::to_string(&error_output(
+                    "",
+                    "Skill requires a non-empty `skill` string.",
+                ))?,
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: skill_invocation_metadata("", None, false),
+            });
+        }
         let mut crafts = mossen_skills::get_dynamic_skills();
         crafts.extend(mossen_skills::get_bundled_crafts());
 
@@ -100,7 +149,7 @@ impl Tool for CraftInvoker {
             return Ok(ToolResult {
                 output: serde_json::to_string(&output)?,
                 is_error: true,
-                duration_ms: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
                 metadata,
             });
         };
@@ -149,7 +198,7 @@ impl Tool for CraftInvoker {
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
-            duration_ms: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
             metadata,
         })
     }
@@ -210,6 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn skill_tool_executes_loaded_dynamic_skill() {
+        let _guard = crate::dynamic_skill_test_lock();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("temp dir");
         let skill_dir = temp.path().join("echoer");
@@ -267,6 +317,7 @@ mod tests {
 
     #[tokio::test]
     async fn skill_tool_reports_missing_skill_as_structured_error() {
+        let _guard = crate::dynamic_skill_test_lock();
         mossen_skills::clear_dynamic_skills();
         let tool = CraftInvoker;
         let result = tool
@@ -299,7 +350,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skill_tool_null_input_returns_structured_error() {
+        let _guard = crate::dynamic_skill_test_lock();
+        mossen_skills::clear_dynamic_skills();
+        let tool = CraftInvoker;
+        let result = tool
+            .execute(
+                serde_json::Value::Null,
+                &ToolUseContext {
+                    cwd: ".".to_string(),
+                    additional_working_directories: None,
+                    extra: Default::default(),
+                },
+            )
+            .await
+            .expect("skill execution");
+
+        assert!(result.is_error);
+        let output: CraftInvokerOutput =
+            serde_json::from_str(&result.output).expect("valid skill error output");
+        assert!(!output.success);
+        assert!(output
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("skill"));
+        assert_eq!(result.metadata["skill_invocation"]["status"], "missing");
+    }
+
+    #[tokio::test]
+    async fn skill_tool_empty_skill_returns_structured_error() {
+        let _guard = crate::dynamic_skill_test_lock();
+        mossen_skills::clear_dynamic_skills();
+        let tool = CraftInvoker;
+        let result = tool
+            .execute(
+                json!({"skill": ""}),
+                &ToolUseContext {
+                    cwd: ".".to_string(),
+                    additional_working_directories: None,
+                    extra: Default::default(),
+                },
+            )
+            .await
+            .expect("skill execution");
+
+        assert!(result.is_error);
+        let output: CraftInvokerOutput =
+            serde_json::from_str(&result.output).expect("valid skill error output");
+        assert!(!output.success);
+        assert!(output
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("non-empty"));
+        assert_eq!(result.metadata["skill_invocation"]["status"], "missing");
+    }
+
+    #[tokio::test]
     async fn skill_tool_result_contains_rendered_body_for_model_followup() {
+        let _guard = crate::dynamic_skill_test_lock();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("temp dir");
         let skill_dir = temp.path().join("m65_force_marker");

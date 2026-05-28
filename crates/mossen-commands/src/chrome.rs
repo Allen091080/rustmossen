@@ -18,16 +18,6 @@ enum ChromeMenuAction {
     ToggleDefault,
 }
 
-/// Check if Chrome extension is installed (stub - would check filesystem/registry).
-fn is_chrome_extension_installed() -> bool {
-    false
-}
-
-/// Check if the user can use Chrome integration (subscription check).
-fn can_use_chrome_integration() -> bool {
-    true
-}
-
 /// Check if running in WSL environment.
 fn is_wsl() -> bool {
     std::env::var("WSL_DISTRO_NAME").is_ok() || std::env::var("WSLENV").is_ok()
@@ -54,10 +44,15 @@ impl Directive for ChromeDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_chrome_integration()
+    }
+
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let product_name = &ctx.product_name;
-        let extension_installed = is_chrome_extension_installed();
-        let is_subscriber = can_use_chrome_integration();
+        let extension_installed =
+            mossen_utils::mossen_in_chrome::is_chrome_extension_installed().await;
+        let is_subscriber = ctx.can_use_chrome_integration();
         let wsl = is_wsl();
 
         let mut output = format!("{} in Chrome (Beta)\n\n", product_name);
@@ -108,5 +103,49 @@ impl Directive for ChromeDirective {
         output.push_str("Use /chrome to manage your Chrome browser integration.");
 
         Ok(CommandResult::Text(output))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context(env_vars: HashMap<String, String>) -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: true,
+            user_type: None,
+            env_vars,
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn chrome_directive_is_hidden_by_default_and_requires_explicit_opt_in() {
+        let directive = ChromeDirective;
+        assert!(!directive.is_enabled(&test_context(HashMap::new())));
+
+        let mut env = HashMap::new();
+        env.insert("MOSSEN_CODE_ENABLE_CHROME".to_string(), "1".to_string());
+        assert!(directive.is_enabled(&test_context(env)));
+
+        let mut hosted_env = HashMap::new();
+        hosted_env.insert(
+            "MOSSEN_CODE_PLATFORM_BASE_URL".to_string(),
+            "https://platform.example".to_string(),
+        );
+        assert!(
+            !directive.is_enabled(&test_context(hosted_env)),
+            "placeholder hosted URLs must not enable Chrome integration"
+        );
     }
 }

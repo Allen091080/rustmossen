@@ -184,7 +184,7 @@ mod tests {
         let status = TopStatusRenderModel {
             stage: Some("running command".to_string()),
             activity: Some("cmd: cargo test".to_string()),
-            model: Some("MiniMax-M2.7".to_string()),
+            model: Some("example-fast".to_string()),
             access_mode: Some("Supervised".to_string()),
             reasoning: Some("high".to_string()),
             context: Some(ContextUsageRenderModel {
@@ -199,7 +199,7 @@ mod tests {
 
         assert!(rendered.contains("status: running command"), "{rendered}");
         assert!(rendered.contains("cmd: cargo test"), "{rendered}");
-        assert!(rendered.contains("model MiniMax-M2.7"), "{rendered}");
+        assert!(rendered.contains("model example-fast"), "{rendered}");
         assert!(rendered.contains("mode Supervised"), "{rendered}");
         assert!(rendered.contains("reasoning:high"), "{rendered}");
         assert!(rendered.contains("ctx 24k/200k"), "{rendered}");
@@ -210,7 +210,7 @@ mod tests {
     fn status_header_prioritizes_blocking_and_clips_narrow_width() {
         let status = TopStatusRenderModel {
             stage: Some("running command".to_string()),
-            model: Some("MiniMax-M2.7".to_string()),
+            model: Some("example-fast".to_string()),
             blocking: Some(BlockingRenderModel::approval(
                 "Shell Command",
                 "Risk: Medium · Command: cargo test --all-targets",

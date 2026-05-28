@@ -2,6 +2,7 @@
 
 pub mod alias_map;
 pub mod defaults;
+pub mod doctor;
 pub mod facade;
 pub mod profile_cli;
 pub mod profiles;

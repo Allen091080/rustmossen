@@ -44,7 +44,11 @@ impl Directive for PassesDirective {
         true
     }
 
-    async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_hosted_platform_features() || ctx.is_env_truthy("MOSSEN_ENABLE_PASSES_COMMAND")
+    }
+
+    async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         if args
             .first()
             .map(|a| matches!(*a, "help" | "-h" | "--help"))
@@ -59,15 +63,50 @@ impl Directive for PassesDirective {
             return Ok(CommandResult::Text(help));
         }
 
-        // Show passes status - marks first visit in config
         let mut output = String::from("Passes\n\n");
-        output.push_str("Current plan status and remaining passes.\n\n");
-        output.push_str("Tier: Standard\n");
-        output.push_str("Status: Active\n");
-        output.push_str("Rate limit: 60 requests/minute\n");
-        output.push_str("Tokens: Unlimited (fair use)\n");
-        output.push_str("Expires: Never\n\n");
-        output.push_str("Use /passes to view your current passes and usage.");
+        output.push_str("Pass status is not available from this local personal build.\n");
+        output.push_str(
+            "No plan, tier, or token limit is shown unless an account service provides it.\n",
+        );
         Ok(CommandResult::Text(output))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn passes_does_not_print_fake_hosted_plan() {
+        let output = match tokio_test::block_on(PassesDirective.execute(&[], &test_context()))
+            .expect("passes command")
+        {
+            CommandResult::Text(text) => text,
+            other => panic!("unexpected result: {other:?}"),
+        };
+
+        assert!(output.contains("not available"), "{output}");
+        assert!(!output.to_ascii_lowercase().contains("hosted"), "{output}");
+        assert!(!output.contains("Tier: Standard"), "{output}");
+        assert!(!output.contains("Tokens: Unlimited"), "{output}");
     }
 }

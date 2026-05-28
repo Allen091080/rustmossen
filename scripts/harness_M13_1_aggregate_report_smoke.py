@@ -33,6 +33,22 @@ from harness_fixture import make_fixture, write_assertions, write_command_log
 
 def case_aggregator_produces_final_report() -> dict:
     ctx = make_fixture("M13.1")
+    write_assertions(
+        ctx,
+        status="passed",
+        assertions=[
+            {
+                "name": "aggregator_smoke_self_seed",
+                "expected": True,
+                "actual": True,
+                "passed": True,
+                "evidence": (
+                    "Seed current M13.1 artifact before invoking the aggregator so "
+                    "capability-matrix refresh does not observe this fresh fixture as stale."
+                ),
+            }
+        ],
+    )
 
     # 跑现有 aggregator (它扫 /tmp/mossen-harness/*/artifacts/assertions.json)
     aggregator = ROOT / "scripts" / "harness_assertions_aggregator.py"

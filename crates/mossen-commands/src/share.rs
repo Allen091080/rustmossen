@@ -9,9 +9,8 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 /// a shareable URL that others can use to view the conversation.
 pub struct ShareDirective;
 
-/// Determine if sharing is available in the current context.
+/// Determine if sharing is at least configured in the current context.
 fn is_sharing_available(ctx: &CommandContext) -> bool {
-    // Sharing requires network access and a valid session
     !ctx.is_non_interactive
         && ctx
             .env_vars
@@ -46,6 +45,10 @@ impl Directive for ShareDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_hosted_platform_features() && !ctx.is_env_truthy("MOSSEN_DISABLE_SHARING")
+    }
+
     fn is_immediate(&self) -> bool {
         true
     }
@@ -60,18 +63,50 @@ impl Directive for ShareDirective {
 
         let base_url = get_share_base_url(ctx);
 
-        // In full implementation:
-        // 1. Serialize the current conversation transcript
-        // 2. Upload to the share service (POST to base_url/api/share)
-        // 3. Return the share URL
-        // 4. Copy URL to clipboard via OSC 52
-        //
-        // The TS implementation uploads conversation data and returns a link.
-        // For now, indicate that the share process would start.
-
-        Ok(CommandResult::System(format!(
-            "Creating share link via {}...\nShare link will be copied to clipboard when ready.",
+        Ok(CommandResult::Error(format!(
+            "Cannot create share link via {} from this command runner. No transcript serializer, uploader, or clipboard writer is attached, so nothing was shared.",
             base_url
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        let mut env_vars = HashMap::new();
+        env_vars.insert(
+            "MOSSEN_SHARE_BASE_URL".to_string(),
+            "https://share.example".to_string(),
+        );
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars,
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn share_does_not_claim_link_creation_without_uploader() {
+        let output = tokio_test::block_on(ShareDirective.execute(&[], &test_context()))
+            .expect("share command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("share should fail closed without uploader");
+        };
+        assert!(text.contains("Cannot create share link"), "{text}");
+        assert!(!text.contains("will be copied"), "{text}");
     }
 }

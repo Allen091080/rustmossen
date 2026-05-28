@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 
 class Mock1PHandler(BaseHTTPRequestHandler):
@@ -96,8 +97,13 @@ def _stop_mock(server: HTTPServer, thread: threading.Thread):
 
 def _find_session_logs(home: Path) -> list[Path]:
     found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in found:
                 found.append(p)
@@ -107,6 +113,7 @@ def _find_session_logs(home: Path) -> list[Path]:
 def _make_env(ctx, mock_port: int) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     env["MOSSEN_CODE_TRUST_DIALOG_ACCEPTED"] = "1"
     env["MOSSEN_NON_INTERACTIVE_SESSION"] = "1"
     # 1P 端点指向 mock
@@ -127,18 +134,27 @@ def case_1p_events_exported_or_persisted() -> dict:
 
         prompt = "请把以下字符串原样回复给我: R4_1P_TEST_OK"
 
-        proc = subprocess.run(
-            [str(ROOT / "run-mossen.sh"), "-p"],
-            input=prompt,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=str(fake_proj),
-        )
+        with mock_openai_provider(model="r4-1p-model") as (base_url, provider):
+            apply_mock_provider_env(
+                env,
+                base_url,
+                model="r4-1p-model",
+                name="R4 1P Mock",
+            )
+            ctx.env.update(env)
+            proc = subprocess.run(
+                [str(ROOT / "scripts" / "start-mossen.sh"), "--stdin"],
+                input=prompt,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                cwd=str(fake_proj),
+            )
+            provider_snapshot = provider.snapshot()
         write_command_log(
             ctx,
-            ["mossen", "-p", f"(mock_1p_port={mock_port})"],
+            ["mossen", "--stdin", f"(mock_1p_port={mock_port})"],
             proc.stdout, proc.stderr, proc.returncode,
         )
 
@@ -185,6 +201,8 @@ def case_1p_events_exported_or_persisted() -> dict:
         "events_received_excerpt": events_received[:3],
         "failed_persisted_count": len(failed_files),
         "session_logs_count": len(session_logs),
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_paths": provider_snapshot["paths"],
         "result_mode": (
             "received" if len(events_received) > 0
             else "persisted" if len(failed_files) > 0
@@ -224,7 +242,8 @@ def main() -> int:
                 f"exit={res.get('exit_code')} "
                 f"events_recv={res.get('events_received_count')} "
                 f"persisted={res.get('failed_persisted_count')} "
-                f"mode={res.get('result_mode')}"
+                f"mode={res.get('result_mode')} "
+                f"provider_req={res.get('provider_request_count')}"
             ),
         }],
     )

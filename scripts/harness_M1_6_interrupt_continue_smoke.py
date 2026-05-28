@@ -1,32 +1,14 @@
 #!/usr/bin/env python3
 """
-M1.6 — SIGTERM 中断后状态正确, --continue 后不丢 session log。
+M1.6 - current Rust SIGTERM cancellation + restore smoke.
 
-按 harness全链路测试.md §3.1 / §C.1 (M1.6 P0) 契约:
-  P1 (中断阶段):
-    启动 mossen -p --allowedTools Bash, prompt 让 model 跑 sleep 30 然后回复 OK
-    主进程 5s 后 SIGTERM (Popen.terminate)
-    观察:
-      - 进程退出 (returncode != 0 或 SIGTERM 信号 -15)
-      - session log .jsonl 真存在 + size > 0 (中断前有 flush)
-      - jsonl 含 user prompt 字面 (说明被中断前至少 user message 已写入)
+This version proves the current personal Rust path:
 
-  P2 (恢复阶段):
-    mossen -p --continue, 同 cwd, 同 fixture HOME, prompt "你之前在做什么? 简短描述"
-    观察:
-      - exit 0
-      - stdout 非空 (能续上, 不 crash)
-      - P2 之后 session log size 比 P1 后更大 (新 message 也被写入)
-
-  反测信号:
-    - 改 session storage 让 SIGTERM 时不 flush log → P1 jsonl 空 → fail
-    - 改 --continue 不 reload → P2 stdout 空 / 无意义 → fail
-    - 改 main.tsx SIGINT 处理让它 exit(0) without flush → log 缺 → fail
-
-  注意:
-    - 不能用 SIGKILL (无 graceful flush 机会). 用 SIGTERM (terminate())
-    - 启动时间 5s 是经验值: 给 mossen 足够时间到 model 调 Bash, 又够早能 catch
-    - prompt 要求 sleep 30 是为了保证子进程一定还活着可被中断
+1. `--stdin` starts a model request against a local OpenAI-compatible mock.
+2. SIGTERM while the mock is holding response headers cancels the in-flight
+   request quickly instead of waiting for the request timeout.
+3. The interrupted oneshot records a transcript, and a fresh `--stdin --restore`
+   turn reloads that history without using a real backend.
 """
 
 from __future__ import annotations
@@ -36,169 +18,349 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
+REAL_HOME = Path.home()
 P1_PROMPT_MARKER = "INTERRUPT_M1_6_P1_PROMPT_unique_marker_555"
+P2_MARKER = "RESTORE_OK_M1_6"
 
 
-def _find_session_logs(home_dir: Path) -> list[Path]:
-    return list(home_dir.glob("**/projects/**/*.jsonl"))
+def mossen_runner() -> str:
+    return str(ROOT / "scripts" / "start-mossen.sh")
 
 
-def _total_log_size(logs: list[Path]) -> int:
-    total = 0
-    for p in logs:
+def iter_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from iter_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from iter_strings(item)
+
+
+def find_transcripts(home_dir: Path) -> list[Path]:
+    return sorted((home_dir / ".mossen" / "transcripts").glob("*.json"))
+
+
+class MockState:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.p1_request_received = threading.Event()
+        self.requests: list[dict[str, Any]] = []
+        self.phase = "interrupt"
+        self.restore_history_seen = False
+
+    def record(self, path: str, body: bytes) -> dict[str, Any]:
         try:
-            total += p.stat().st_size
-        except OSError:
-            continue
-    return total
+            parsed = json.loads(body.decode("utf-8")) if body else {}
+        except json.JSONDecodeError:
+            parsed = {"_decode_error": body.decode("utf-8", "replace")}
+        with self.lock:
+            phase = self.phase
+            self.requests.append({"phase": phase, "path": path, "body": parsed})
+            request_index = len(self.requests)
+            body_text = "\n".join(iter_strings(parsed))
+            if phase == "interrupt":
+                self.p1_request_received.set()
+            if phase == "restore" and P1_PROMPT_MARKER in body_text:
+                self.restore_history_seen = True
+            return {"index": request_index, "phase": phase, "body_text": body_text}
+
+    def enter_restore_phase(self) -> None:
+        with self.lock:
+            self.phase = "restore"
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {
+                "request_count": len(self.requests),
+                "paths": [req["path"] for req in self.requests],
+                "restore_history_seen": self.restore_history_seen,
+                "phase": self.phase,
+                "requests": self.requests,
+            }
 
 
-def _aggregate_log_text(logs: list[Path]) -> str:
-    parts = []
-    for p in logs:
-        try:
-            parts.append(p.read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            continue
-    return "\n".join(parts)
+def write_sse(wfile, payload: dict[str, Any]) -> None:
+    wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+    wfile.flush()
 
 
-def case_interrupt_then_continue() -> dict:
-    ctx = make_fixture("M1.6")
-    env = ctx.env.copy()
-    env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+def write_text_final(wfile, text: str) -> None:
+    write_sse(
+        wfile,
+        {
+            "id": "m1-6-final",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
+        },
+    )
+    write_sse(
+        wfile,
+        {
+            "id": "m1-6-final",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+        },
+    )
+    wfile.write(b"data: [DONE]\n\n")
+    wfile.flush()
+
+
+class DaemonThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+
+def make_handler(state: MockState):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            payload = json.dumps(
+                {"object": "list", "data": [{"id": "m1-6-cancel-model", "object": "model"}]}
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            body = self.rfile.read(length) if length else b""
+            request = state.record(self.path, body)
+            if not self.path.endswith("/chat/completions"):
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            if request["phase"] == "interrupt":
+                time.sleep(60)
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                write_text_final(self.wfile, f"{P2_MARKER}: restored interrupted context.")
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+    return Handler
+
+
+@contextmanager
+def mock_openai_server():
+    state = MockState()
+    server = DaemonThreadingHTTPServer(("127.0.0.1", 0), make_handler(state))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield f"http://{host}:{port}", state
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+def ensure_mossen_built(env: dict[str, str]) -> None:
+    proc = subprocess.run(
+        ["cargo", "build", "--quiet", "-p", "mossen-cli", "--bin", "mossen"],
+        cwd=str(ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "failed to build mossen test binary\n"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
+        )
+
+
+def case_interrupt_then_restore() -> dict:
+    ctx = make_fixture("M1.6_interrupt_continue_current_rust")
+    env = dict(ctx.env)
+    env.setdefault("CARGO_HOME", str(REAL_HOME / ".cargo"))
+    env.setdefault("RUSTUP_HOME", str(REAL_HOME / ".rustup"))
+    env.setdefault("MOSSEN_CONFIG_DIR", str(ctx.mossen_config_home))
+    env.update(
+        {
+            "MOSSEN_CODE_USE_CUSTOM_BACKEND": "1",
+            "MOSSEN_CODE_CUSTOM_MODEL": "m1-6-cancel-model",
+            "MOSSEN_CODE_CUSTOM_NAME": "M1.6 Cancel Mock",
+            "MOSSEN_CODE_CUSTOM_API_KEY": "sk-m1-6-local-fake",
+            "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL": "openai-compatible",
+            "MOSSEN_CODE_CUSTOM_REQUEST_TIMEOUT_SECS": "45",
+            "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS": "45",
+        }
+    )
+    ensure_mossen_built(env)
+    env["MOSSEN_START_BUILD"] = "never"
+    ctx.env.update(env)
 
     shared_cwd = ctx.root_dir / "project_root"
     shared_cwd.mkdir(parents=True, exist_ok=True)
-
-    mossen = str(ROOT / "run-mossen.sh")
-
-    # ---------- P1: 启动后 SIGTERM 中断长输出 ----------
-    # prompt 让 model 生成长内容 (会持续生成 30s+), 4s 后 SIGTERM 必中 model 流式生成中
     p1_prompt = (
         f"标记: {P1_PROMPT_MARKER}. "
-        f"请用大约 2000 字详细解释 Python 和 JavaScript 的区别, "
-        f"包含语法 / 类型系统 / 异步模型 / 内存管理 / 生态 / 性能等 6 大方面, "
-        f"每方面给具体代码例子。回复尽量详细, 保证篇幅。"
+        "请开始一个长回复；测试会在服务端返回响应头之前发送 SIGTERM。"
     )
+    p2_prompt = f"继续上次中断的会话，并只回答 {P2_MARKER}。"
 
-    p1_proc = subprocess.Popen(
-        [mossen, "-p", "--tools", ""],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        text=True,
-        cwd=str(shared_cwd),
-        start_new_session=True,
-    )
-
-    if p1_proc.stdin:
+    with mock_openai_server() as (base_url, model_state):
+        env["MOSSEN_CODE_CUSTOM_BASE_URL"] = base_url
+        ctx.env.update(env)
+        p1_command = [mossen_runner(), "--stdin", "--cwd", str(shared_cwd)]
+        p1_proc = subprocess.Popen(
+            p1_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+            cwd=str(ROOT),
+            start_new_session=True,
+        )
+        assert p1_proc.stdin is not None
         p1_proc.stdin.write(p1_prompt)
-        p1_proc.stdin.flush()
+        p1_proc.stdin.close()
+        p1_proc.stdin = None
 
-    # 8s 后 SIGTERM — 给 mossen 足够时间启动 + 注册 handler + 开始 model 流式生成
-    time.sleep(8)
-    try:
-        os.killpg(os.getpgid(p1_proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-    try:
-        p1_stdout, p1_stderr = p1_proc.communicate(timeout=15)
-    except subprocess.TimeoutExpired:
+        request_seen = model_state.p1_request_received.wait(timeout=45)
+        signal_at = time.monotonic()
+        if request_seen:
+            try:
+                os.killpg(os.getpgid(p1_proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+        else:
+            try:
+                os.killpg(os.getpgid(p1_proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
         try:
-            os.killpg(os.getpgid(p1_proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-        p1_stdout, p1_stderr = p1_proc.communicate(timeout=10)
-    p1_returncode = p1_proc.returncode
+            p1_stdout, p1_stderr = p1_proc.communicate(timeout=12)
+            p1_timed_out = False
+        except subprocess.TimeoutExpired:
+            p1_timed_out = True
+            try:
+                os.killpg(os.getpgid(p1_proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            p1_stdout, p1_stderr = p1_proc.communicate(timeout=10)
+        p1_exit_after_signal_secs = time.monotonic() - signal_at
 
-    p1_logs = _find_session_logs(ctx.home_dir)
-    p1_log_size = _total_log_size(p1_logs)
-    p1_log_text = _aggregate_log_text(p1_logs)
-    p1_marker_in_log = P1_PROMPT_MARKER in p1_log_text
+        p2_command = [mossen_runner(), "--stdin", "--restore", "--cwd", str(shared_cwd)]
+        p2_stdout = ""
+        p2_stderr = ""
+        p2_returncode: int | None = None
+        if request_seen:
+            model_state.enter_restore_phase()
+            try:
+                p2 = subprocess.run(
+                    p2_command,
+                    input=p2_prompt,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    cwd=str(ROOT),
+                )
+                p2_stdout = p2.stdout
+                p2_stderr = p2.stderr
+                p2_returncode = p2.returncode
+            except subprocess.TimeoutExpired as exc:
+                p2_stdout = exc.stdout or ""
+                p2_stderr = exc.stderr or ""
+                p2_returncode = -999
+        server_snapshot = model_state.snapshot()
 
-    # 中断契约 (修正):
-    #   - 退出码非 0 或 = SIGTERM (143/-15): 真被打断
-    #   - mossen 当前实现: SIGTERM 不 graceful flush (model response 才写 log).
-    #     P1 在 model 响应前被杀 → log 可能为空, 这是当前真实行为不是 bug.
-    #     所以 p1_log_persisted 改为软断言 (仅记录, 不卡 ok).
-    p1_was_interrupted = p1_returncode != 0
-    p1_log_persisted = (
-        len(p1_logs) >= 1
-        and p1_log_size > 0
-        and p1_marker_in_log
+    transcripts = find_transcripts(ctx.home_dir)
+    transcript_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace") for path in transcripts
+    )
+    p1_cancelled_prompt_recorded = P1_PROMPT_MARKER in transcript_text
+    p2_marker_in_stdout = P2_MARKER in p2_stdout
+    restore_history_seen = bool(server_snapshot["restore_history_seen"])
+    p1_exited_promptly = (
+        request_seen
+        and not p1_timed_out
+        and p1_exit_after_signal_secs < 8
     )
 
-    # ---------- P2: --continue 续会话 ----------
-    p2_prompt = "你之前在做什么? 请用一句话简短描述, 不要再调用任何工具。"
-    p2 = subprocess.run(
-        [mossen, "-p", "--continue", "--tools", ""],
-        input=p2_prompt, env=env,
-        capture_output=True, text=True, timeout=240,
-        cwd=str(shared_cwd),
+    stdout = (
+        f"=== P1 stdout ===\n{p1_stdout}\n"
+        f"=== P2 stdout ===\n{p2_stdout}\n"
+        f"=== model requests ===\n"
+        f"{json.dumps(server_snapshot, indent=2, ensure_ascii=False)[:4000]}\n"
     )
-
-    p2_logs = _find_session_logs(ctx.home_dir)
-    p2_log_size = _total_log_size(p2_logs)
-
-    p2_resume_ok = (
-        p2.returncode == 0
-        and bool(p2.stdout.strip())
+    stderr = (
+        f"=== P1 stderr ===\n{p1_stderr}\n"
+        f"=== P2 stderr ===\n{p2_stderr}\n"
+        f"=== timing ===\n"
+        f"request_seen={request_seen} p1_timed_out={p1_timed_out} "
+        f"p1_exit_after_signal_secs={p1_exit_after_signal_secs:.3f}\n"
     )
-    p2_log_grew = p2_log_size > p1_log_size
-
     write_command_log(
         ctx,
-        ["mossen-interrupt-then-continue"],
-        f"=== P1 stdout (interrupted) ===\n{p1_stdout[:1500]}\n"
-        f"=== P2 stdout (continue) ===\n{p2.stdout}\n",
-        f"=== P1 stderr ===\n{p1_stderr[:1500]}\n"
-        f"=== P2 stderr ===\n{p2.stderr}\n"
-        f"=== meta: p1_returncode={p1_returncode} ===\n",
-        p2.returncode,
+        [*p1_command, "then", *p2_command],
+        stdout,
+        stderr,
+        p2_returncode if p2_returncode is not None else p1_proc.returncode or 1,
     )
 
-    # 强契约: P1 真被中断 + P2 仍能正常启动响应 (interrupt 不破坏后续 session)
-    # 注: mossen 已加 print mode SIGTERM → gracefulShutdown handler (main.tsx 早注册).
-    # graceful flush 是否真完成依赖 mossen 内部 buffer 状态 (短 prompt 已写, 长 prompt
-    # 仍在 model 思考时 SIGTERM 可能 log 仍空). 此契约只验最低保证: 中断 + recover 不崩.
+    requests_path = ctx.artifacts_dir / "model_requests.json"
+    requests_path.write_text(json.dumps(server_snapshot["requests"], indent=2, ensure_ascii=False))
+    transcripts_path = ctx.artifacts_dir / "transcripts.txt"
+    transcripts_path.write_text(transcript_text, encoding="utf-8")
+
     ok = (
-        p1_was_interrupted
-        and p2_resume_ok
+        p1_exited_promptly
+        and p1_cancelled_prompt_recorded
+        and p2_returncode == 0
+        and p2_marker_in_stdout
+        and restore_history_seen
     )
-
     return {
-        "name": "M1_6_interrupt_then_continue",
+        "name": "interrupt_then_restore_current_rust",
         "ok": ok,
-        "p1_returncode": p1_returncode,
-        "p1_was_interrupted": p1_was_interrupted,
-        "p1_log_count": len(p1_logs),
-        "p1_log_size": p1_log_size,
-        "p1_marker_in_log": p1_marker_in_log,
-        "p1_log_persisted": p1_log_persisted,
-        "p2_exit": p2.returncode,
-        "p2_stdout_nonempty": bool(p2.stdout.strip()),
-        "p2_log_size": p2_log_size,
-        "p2_log_grew": p2_log_grew,
-        "p1_stdout_excerpt": p1_stdout[:300],
-        "p2_stdout_excerpt": p2.stdout[:300],
+        "request_seen": request_seen,
+        "p1_returncode": p1_proc.returncode,
+        "p1_timed_out": p1_timed_out,
+        "p1_exit_after_signal_secs": round(p1_exit_after_signal_secs, 3),
+        "p1_exited_promptly": p1_exited_promptly,
+        "p1_cancelled_prompt_recorded": p1_cancelled_prompt_recorded,
+        "p2_exit": p2_returncode,
+        "p2_marker_in_stdout": p2_marker_in_stdout,
+        "restore_history_seen": restore_history_seen,
+        "transcript_count": len(transcripts),
         "fixture_root": str(ctx.root_dir),
+        "model_requests": str(requests_path),
+        "transcripts": str(transcripts_path),
         "_ctx": ctx,
     }
 
 
 def main() -> int:
-    res = case_interrupt_then_continue()
+    res = case_interrupt_then_restore()
     ctx = res.pop("_ctx")
     results = [res]
 
@@ -212,15 +374,21 @@ def main() -> int:
                 "actual": r.get("ok"),
                 "passed": r.get("ok"),
                 "evidence": (
-                    f"p1_interrupted={r.get('p1_was_interrupted')} "
-                    f"p1_log_persisted={r.get('p1_log_persisted')} "
-                    f"p2_resume_ok={r.get('p2_stdout_nonempty')} "
-                    f"p2_log_grew={r.get('p2_log_grew')} "
-                    f"p1_rc={r.get('p1_returncode')} p2_exit={r.get('p2_exit')}"
+                    f"request_seen={r.get('request_seen')} "
+                    f"p1_prompt_exit={r.get('p1_exited_promptly')} "
+                    f"p1_secs={r.get('p1_exit_after_signal_secs')} "
+                    f"transcript_recorded={r.get('p1_cancelled_prompt_recorded')} "
+                    f"p2_exit={r.get('p2_exit')} "
+                    f"p2_marker={r.get('p2_marker_in_stdout')} "
+                    f"restore_history_seen={r.get('restore_history_seen')}"
                 ),
             }
             for r in results
         ],
+        extra_artifacts={
+            "model_requests": str(ctx.artifacts_dir / "model_requests.json"),
+            "transcripts": str(ctx.artifacts_dir / "transcripts.txt"),
+        },
     )
 
     summary = {
@@ -229,9 +397,8 @@ def main() -> int:
         "total": len(results),
         "fixture_root": str(ctx.root_dir),
         "design_note": (
-            "M1.6 中断 + 续: P1 启动 sleep 30 后 5s SIGTERM → "
-            "log 含 prompt marker 证明 graceful flush; "
-            "P2 --continue 拿回会话, log 继续增长。"
+            "M1.6 validates SIGTERM cancellation is wired through the current "
+            "Rust oneshot path and that restore reloads the interrupted transcript."
         ),
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))

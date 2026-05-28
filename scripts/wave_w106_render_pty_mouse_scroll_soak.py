@@ -251,6 +251,7 @@ def run_pty_mouse_scroll_soak() -> dict[str, Any]:
             "MOSSEN_CODE_DISABLE_THINKING": "1",
             "MOSSEN_CODE_DISABLE_ADAPTIVE_THINKING": "1",
             "MOSSEN_CODE_CUSTOM_STREAM_TIMEOUT_SECS": "30",
+            "MOSSEN_TERMINAL_RENDER_CAPTURE_MOUSE": "1",
             "TERM": "xterm-256color",
             "TERM_PROGRAM": "WezTerm",
         }

@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    {
+      "id": "harness_foundation",
+      "title": "Harness foundation and command inventory",
+      "user_entries": ["scripts/harness_M0_*.py"],
+      "launcher": "python3 scripts/harness_M0_4_aggregator_smoke.py",
+      "code_paths": ["scripts/harness_fixture.py", "scripts/harness_assertions_aggregator.py"],
+      "invariants": [
+        "fixture setup is reproducible",
+        "harness aggregation reports current assertion evidence"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M0_*.py"]
+      }
+    },
+    {
+      "id": "core_agent_tool_loop",
+      "title": "Core agent tool loop",
+      "user_entries": ["read", "bash", "edit", "followup", "interrupt", "plan"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src/dialogue.rs", "crates/mossen-tools/src"],
+      "invariants": [
+        "tools execute through the current Rust path",
+        "tool failures and continuations return useful feedback"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M1_*.py"]
+      }
+    },
+    {
+      "id": "permissions",
+      "title": "Permission decisions and scoped allow/deny rules",
+      "user_entries": ["permissions", "approval", "deny", "allow"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-cli/src/structured_io.rs", "crates/mossen-commands/src/access.rs"],
+      "invariants": [
+        "dangerous actions request permission",
+        "allow and deny rules apply to the requested scope"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M2_*.py"]
+      }
+    },
+    {
+      "id": "mcp",
+      "title": "MCP registration, calls, and server isolation",
+      "user_entries": ["/mcp"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-mcp/src", "crates/mossen-agent/src/mcp"],
+      "invariants": [
+        "registered MCP servers are visible",
+        "failed servers do not break healthy servers"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M3_*.py"]
+      }
+    },
+    {
+      "id": "context_and_compaction",
+      "title": "Context accounting, resume boundaries, and compaction",
+      "user_entries": ["/context", "/compact", "/resume"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src/context", "crates/mossen-agent/src/services/compact"],
+      "invariants": [
+        "context status reflects the effective window",
+        "manual and auto compaction preserve continuation state"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M4_*.py"]
+      }
+    },
+    {
+      "id": "memory",
+      "title": "Project and session memory",
+      "user_entries": ["/memory"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src/context", "crates/mossen-commands/src/recall.rs"],
+      "invariants": [
+        "memory survives restart when configured",
+        "resume history and project memory remain separate"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M5_*.py"]
+      }
+    },
+    {
+      "id": "skills",
+      "title": "Skill discovery, invocation, reload, and isolation",
+      "user_entries": ["/skills"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-skills/src", "crates/mossen-tools/src/skill.rs"],
+      "invariants": [
+        "user-invocable skills appear only when loadable",
+        "skill failures are isolated from the main session"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M6_*.py"]
+      }
+    },
+    {
+      "id": "plugins",
+      "title": "Plugin install, commands, reload, disable, and isolation",
+      "user_entries": ["/plugin", "/reload-plugins"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-commands/src/plugin.rs", "crates/mossen-utils/src/plugins"],
+      "invariants": [
+        "plugin commands are listed only after successful load",
+        "plugin failures do not corrupt the active command registry"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M7_*.py"]
+      }
+    },
+    {
+      "id": "slash_commands",
+      "title": "Slash command inventory, help, and hidden command rules",
+      "user_entries": ["/help"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-commands/src", "crates/mossen-tui/src/app.rs"],
+      "invariants": [
+        "/help lists only visible enabled commands",
+        "visible commands are routed by the current TUI slash router"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M8_*.py"]
+      }
+    },
+    {
+      "id": "model_provider_profiles",
+      "title": "Model profiles and provider routing",
+      "user_entries": ["/model", "openai-compatible", "openai-responses", "anthropic"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": [
+        "crates/mossen-agent/src/services/config/profiles.rs",
+        "crates/mossen-agent/src/api_client.rs",
+        "crates/mossen-agent/src/api/mossen_api.rs",
+        "crates/mossen-cli/src/main.rs"
+      ],
+      "invariants": [
+        "configured profiles map into runtime provider settings",
+        "all supported provider protocols have local mock coverage"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M9_*.py"]
+      }
+    },
+    {
+      "id": "subagent_lifecycle",
+      "title": "Sub-agent lifecycle and TaskOutput recovery",
+      "user_entries": ["Agent", "TaskOutput"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-tools/src/agent.rs", "crates/mossen-tools/src/task_output.rs"],
+      "invariants": [
+        "background Agent returns a retrievable task id",
+        "parallel Agents expose unique visible task ids and complete feedback"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M10_*.py"]
+      }
+    },
+    {
+      "id": "language_and_localization",
+      "title": "Runtime language consistency",
+      "user_entries": ["Chinese prompts", "English prompts"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-utils/src/i18n", "crates/mossen-cli/src/repl.rs"],
+      "invariants": [
+        "user-visible runtime text follows the session language",
+        "English mode does not leak unrelated Chinese copy"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M11_*.py"]
+      }
+    },
+    {
+      "id": "statusline_and_session_logs",
+      "title": "Statusline configuration, session logs, and resume export",
+      "user_entries": ["/statusline", "/resume"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-tui/src/widgets/footer.rs", "crates/mossen-cli/src/session_hooks.rs"],
+      "invariants": [
+        "statusline configuration is persisted and redacted",
+        "session log export and resume evidence is usable"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M12_*.py"]
+      }
+    },
+    {
+      "id": "harness_reporting",
+      "title": "Harness reporting and capability matrix",
+      "user_entries": ["scripts/harness_capability_matrix.py"],
+      "launcher": "python3 scripts/harness_M13_3_capability_matrix_smoke.py",
+      "code_paths": ["scripts/harness_capability_matrix.py", "docs/capability_matrix.v1.json"],
+      "invariants": [
+        "every M/R harness is mapped to a capability",
+        "non-pass evidence is explicit rather than hidden"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M13_*.py"]
+      }
+    },
+    {
+      "id": "browser_visibility",
+      "title": "Browser command visibility in local builds",
+      "user_entries": ["/browser", "/chrome"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-commands/src/chrome.rs", "crates/mossen-tui/src/app.rs"],
+      "invariants": [
+        "browser commands are hidden unless explicitly enabled",
+        "local builds do not advertise unavailable hosted browser features"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M14*.py"]
+      }
+    },
+    {
+      "id": "full_chain_runtime",
+      "title": "Full-chain Rust runtime smoke",
+      "user_entries": ["scripts/start-mossen.sh"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-cli/src/main.rs", "crates/mossen-agent/src/dialogue.rs"],
+      "invariants": [
+        "the current Rust launcher completes a full chain",
+        "artifacts route to the current harness output directory"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M15_*.py"]
+      }
+    },
+    {
+      "id": "hooks_lifecycle",
+      "title": "Hooks lifecycle integration",
+      "user_entries": ["hooks", "settings.json hooks"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src/dialogue.rs", "crates/mossen-cli/src/session_hooks.rs"],
+      "invariants": [
+        "configured hooks are called by the dialogue lifecycle",
+        "hook failures are attributed without breaking unrelated hooks"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M16_*.py"]
+      }
+    },
+    {
+      "id": "tui_rendering_interaction",
+      "title": "TUI rendering, scroll, copy, and input responsiveness",
+      "user_entries": ["TUI", "scroll", "copy", "input"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-tui/src/app.rs", "crates/mossen-tui/src/render_model.rs"],
+      "invariants": [
+        "scrolling can return to live tail",
+        "copy can export the current transcript without relying on mouse selection",
+        "typing remains responsive during background agent activity"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_M17_*.py"]
+      }
+    },
+    {
+      "id": "release_no_remote_telemetry",
+      "title": "Release local-first network boundaries",
+      "user_entries": ["local-first runtime"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src", "crates/mossen-utils/src"],
+      "invariants": [
+        "local sessions do not make unintended hosted telemetry calls",
+        "remote growthbook traffic remains disabled by default"
+      ],
+      "verification": {
+        "script_globs": [
+          "scripts/harness_R1_*.py",
+          "scripts/harness_R4_*.py",
+          "scripts/harness_R7_*.py"
+        ]
+      }
+    },
+    {
+      "id": "release_session_and_context",
+      "title": "Release session, ALS, and core-domain parity",
+      "user_entries": ["session id", "ALS context", "core domain"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-cli/src", "crates/mossen-agent/src"],
+      "invariants": [
+        "session ids persist across the expected runtime boundary",
+        "context propagation stays intact across async work"
+      ],
+      "verification": {
+        "script_globs": [
+          "scripts/harness_R2_*.py",
+          "scripts/harness_R3_*.py",
+          "scripts/harness_R8_*.py",
+          "scripts/harness_R9_*.py"
+        ]
+      }
+    },
+    {
+      "id": "release_config_precedence",
+      "title": "Release config precedence and local project overrides",
+      "user_entries": ["settings.json", "project config"],
+      "launcher": "scripts/start-mossen.sh",
+      "code_paths": ["crates/mossen-agent/src/services/config", "scripts/lib/mossen_settings_fixture.py"],
+      "invariants": [
+        "provider precedence is deterministic",
+        "project overrides do not leak into unrelated workspaces"
+      ],
+      "verification": {
+        "script_globs": [
+          "scripts/harness_R5_*.py",
+          "scripts/harness_R6_*.py",
+          "scripts/harness_R10_*.py"
+        ]
+      }
+    },
+    {
+      "id": "release_readiness_and_install",
+      "title": "Release readiness contract and package install smoke",
+      "user_entries": ["README quick start", "install from source"],
+      "launcher": "cargo install --path crates/mossen-cli --bin mossen --locked",
+      "code_paths": [
+        "README.md",
+        "README.zh-CN.md",
+        "docs/release_readiness.v1.json",
+        "scripts/release_readiness_status.py",
+        "scripts/v11_external_user_ready_status.py",
+        "scripts/harness_R11_1_release_readiness_contract_smoke.py",
+        "scripts/harness_R11_3_v11_external_user_ready_contract_smoke.py",
+        "scripts/harness_R11_2_package_install_smoke.py"
+      ],
+      "invariants": [
+        "release readiness reports exact missing gates",
+        "source install path works without committing user secrets"
+      ],
+      "verification": {
+        "script_globs": ["scripts/harness_R11_*.py"]
+      }
+    }
+  ]
+}

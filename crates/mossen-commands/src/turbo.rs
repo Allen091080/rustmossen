@@ -47,9 +47,10 @@ impl Directive for TurboDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args
-            .first()
-            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+        let first = args.first().map(|s| s.to_lowercase());
+        if first
+            .as_deref()
+            .map(|a| matches!(a, "help" | "-h" | "--help"))
             .unwrap_or(false)
         {
             return Ok(CommandResult::Text(
@@ -64,35 +65,61 @@ impl Directive for TurboDirective {
             .map(|v| matches!(v.as_str(), "1" | "true" | "on"))
             .unwrap_or(false);
 
-        match args.first().map(|s| s.to_lowercase()).as_deref() {
-            Some("on" | "enable" | "true" | "1") => {
-                Ok(CommandResult::System(
-                    "Fast mode: enabled\n                     Responses will prioritize speed over depth."
-                        .to_string(),
-                ))
-            }
-            Some("off" | "disable" | "false" | "0") => {
-                Ok(CommandResult::System(
-                    "Fast mode: disabled\n                     Responses will use full reasoning depth."
-                        .to_string(),
-                ))
-            }
-            None => {
-                let new_state = if current { "disabled" } else { "enabled" };
-                let desc = if current {
-                    "Responses will use full reasoning depth."
-                } else {
-                    "Responses will prioritize speed over depth."
-                };
-                Ok(CommandResult::System(format!(
-                    "Fast mode: {}\n{}", new_state, desc
-                )))
-            }
-            Some(v) => {
-                Ok(CommandResult::Error(format!(
-                    "Invalid value: \"{}\". Use on/off.", v
-                )))
-            }
+        if matches!(first.as_deref(), None | Some("status" | "current" | "show")) {
+            return Ok(CommandResult::Text(format!(
+                "Fast mode: {}\nThis command reports the current environment only; live fast-mode switching is not attached to this command runner.",
+                if current { "enabled" } else { "disabled" }
+            )));
         }
+
+        match first.as_deref() {
+            Some("on" | "enable" | "true" | "1" | "off" | "disable" | "false" | "0") => {
+                Ok(CommandResult::Error(
+                    "Cannot change fast mode from this command runner; live fast-mode switching is not attached to the engine request path."
+                        .to_string(),
+                ))
+            }
+            Some(v) => Ok(CommandResult::Error(format!(
+                "Invalid value: \"{}\". Use on/off.",
+                v
+            ))),
+            None => unreachable!("handled above"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn fast_directive_does_not_claim_live_engine_update() {
+        let output = tokio_test::block_on(TurboDirective.execute(&["on"], &test_context()))
+            .expect("fast command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("fast should not claim success until the engine path is wired");
+        };
+        assert!(text.contains("Cannot change fast mode"), "{text}");
+        assert!(!text.contains("Fast mode: enabled"), "{text}");
     }
 }

@@ -116,7 +116,7 @@ pub struct StreamErrorPayload {
 pub fn parse_sse_event(raw: &RawSseEvent) -> Result<StreamEvent, StreamParseError> {
     match raw.event.as_str() {
         "message_start" => {
-            let payload: MessageStartPayload = serde_json::from_str(&raw.data)?;
+            let payload = parse_message_start_payload(&raw.data)?;
             Ok(StreamEvent::MessageStart { message: payload })
         }
         "content_block_start" => {
@@ -166,11 +166,32 @@ pub fn parse_sse_event(raw: &RawSseEvent) -> Result<StreamEvent, StreamParseErro
         "message_stop" => Ok(StreamEvent::MessageStop),
         "ping" => Ok(StreamEvent::Ping),
         "error" => {
-            let payload: StreamErrorPayload = serde_json::from_str(&raw.data)?;
+            let payload = parse_error_payload(&raw.data)?;
             Ok(StreamEvent::Error { error: payload })
         }
         other => Err(StreamParseError::UnknownEvent(other.to_string())),
     }
+}
+
+fn parse_message_start_payload(data: &str) -> Result<MessageStartPayload, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct WrappedMessageStart {
+        message: MessageStartPayload,
+    }
+
+    serde_json::from_str::<MessageStartPayload>(data).or_else(|_| {
+        serde_json::from_str::<WrappedMessageStart>(data).map(|wrapped| wrapped.message)
+    })
+}
+
+fn parse_error_payload(data: &str) -> Result<StreamErrorPayload, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct WrappedError {
+        error: StreamErrorPayload,
+    }
+
+    serde_json::from_str::<StreamErrorPayload>(data)
+        .or_else(|_| serde_json::from_str::<WrappedError>(data).map(|wrapped| wrapped.error))
 }
 
 /// 从字节流中提取 SSE 行。
@@ -391,5 +412,100 @@ impl StreamAccumulator {
             })
             .collect::<Vec<_>>()
             .join("")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_sse_event, RawSseEvent, StreamEvent};
+    use serde_json::json;
+
+    #[test]
+    fn message_start_accepts_internal_direct_payload() {
+        let event = RawSseEvent {
+            event: "message_start".to_string(),
+            data: json!({
+                "id": "msg-internal",
+                "type": "message",
+                "role": "assistant",
+                "model": "internal-model",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 0
+                }
+            })
+            .to_string(),
+        };
+
+        let parsed = parse_sse_event(&event).expect("direct message_start should parse");
+
+        match parsed {
+            StreamEvent::MessageStart { message } => {
+                assert_eq!(message.id, "msg-internal");
+                assert_eq!(message.model, "internal-model");
+                assert_eq!(message.usage.unwrap().input_tokens, 1);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn message_start_accepts_anthropic_wrapped_payload() {
+        let event = RawSseEvent {
+            event: "message_start".to_string(),
+            data: json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg-anthropic",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-test",
+                    "content": [],
+                    "stop_reason": null,
+                    "stop_sequence": null,
+                    "usage": {
+                        "input_tokens": 3,
+                        "output_tokens": 0
+                    }
+                }
+            })
+            .to_string(),
+        };
+
+        let parsed = parse_sse_event(&event).expect("wrapped Anthropic message_start should parse");
+
+        match parsed {
+            StreamEvent::MessageStart { message } => {
+                assert_eq!(message.id, "msg-anthropic");
+                assert_eq!(message.model, "claude-test");
+                assert_eq!(message.usage.unwrap().input_tokens, 3);
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_accepts_anthropic_wrapped_payload() {
+        let event = RawSseEvent {
+            event: "error".to_string(),
+            data: json!({
+                "type": "error",
+                "error": {
+                    "type": "overloaded_error",
+                    "message": "server is overloaded"
+                }
+            })
+            .to_string(),
+        };
+
+        let parsed = parse_sse_event(&event).expect("wrapped Anthropic error should parse");
+
+        match parsed {
+            StreamEvent::Error { error } => {
+                assert_eq!(error.error_type, "overloaded_error");
+                assert_eq!(error.message, "server is overloaded");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
     }
 }

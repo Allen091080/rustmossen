@@ -22,7 +22,7 @@ pub mod codes {
 /// 执行清理流程后以 0 退出。
 pub async fn cli_ok(state: &SharedBootstrapState) -> Result<()> {
     info!("cli_ok: initiating clean exit");
-    run_cleanup(state).await?;
+    run_cleanup(state, "prompt_input_exit").await?;
     print_session_summary(state);
     Ok(())
 }
@@ -39,7 +39,7 @@ pub async fn cli_error(state: &SharedBootstrapState, err: &anyhow::Error) -> i32
     }
 
     // 尝试执行清理（但不因清理失败而影响退出）
-    if let Err(cleanup_err) = run_cleanup(state).await {
+    if let Err(cleanup_err) = run_cleanup(state, "other").await {
         error!("cleanup failed during error exit: {:#}", cleanup_err);
     }
 
@@ -54,17 +54,20 @@ pub async fn cli_error(state: &SharedBootstrapState, err: &anyhow::Error) -> i32
 /// 2. 清理临时文件
 /// 3. 释放 worktree（如果已创建）
 /// 4. 停止后台任务
-async fn run_cleanup(state: &SharedBootstrapState) -> Result<()> {
+async fn run_cleanup(state: &SharedBootstrapState, session_end_reason: &str) -> Result<()> {
     let _span = tracing::info_span!("cleanup").entered();
     info!("cleanup: starting");
 
     // 1. 保存会话 transcript
     save_session_transcript(state).await?;
 
-    // 2. 清理临时文件
+    // 2. 执行 SessionEnd hooks
+    crate::session_hooks::run_session_end_hooks(state, session_end_reason, false).await;
+
+    // 3. 清理临时文件
     cleanup_temp_files().await;
 
-    // 3. 停止后台 MCP 服务器
+    // 4. 停止后台 MCP 服务器
     cleanup_mcp_servers().await;
 
     info!("cleanup: completed");

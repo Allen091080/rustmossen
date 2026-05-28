@@ -9,14 +9,10 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Context usage command — shows token budget allocation.
+/// Context usage command.
 ///
-/// Reports:
-/// - Total tokens used vs. available
-/// - Usage percentage and remaining capacity
-/// - Breakdown by category (system prompt, messages, tools, etc.)
-/// - Auto-compact threshold status
-/// - Recent compaction history
+/// The generic command runner can report configured model/window metadata. Live
+/// prompt token breakdown requires the TUI/structured runtime snapshot.
 pub struct EnvironDirective;
 
 #[async_trait]
@@ -54,25 +50,64 @@ impl Directive for EnvironDirective {
             ));
         }
 
-        // In full implementation, this would:
-        // 1. Get messages after compact boundary
-        // 2. Apply context collapse if enabled
-        // 3. Run microcompact to get accurate token count
-        // 4. Analyze context usage by category
-        // 5. Format as markdown table
-
         let model = ctx
             .env_vars
             .get("MOSSEN_MODEL")
             .cloned()
             .unwrap_or_else(|| "default".to_string());
+        let context_window = mossen_utils::context::terminal_context_window_tokens(&model)
+            .unwrap_or(mossen_utils::context::MODEL_CONTEXT_WINDOW_DEFAULT);
 
         let mut output = String::from("## Context Usage\n\n");
         output.push_str(&format!("**Model:** {}\n", model));
-        output.push_str("**Tokens:** (connect to model service for live stats)\n");
-        output.push_str("**Auto-compact:** Enabled\n");
-        output.push_str("**Recent compact:** No compact boundary in this session\n");
+        output.push_str(&format!(
+            "**Configured context window:** {} tokens\n",
+            context_window
+        ));
+        output.push_str("**Live token usage:** not attached to this command runner\n");
+        output.push_str("**Auto-compact state:** not attached to this command runner\n");
+        output.push_str("**Recent compact:** not attached to this command runner\n");
 
         Ok(CommandResult::Text(output))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn context_directive_does_not_claim_live_token_or_compact_state() {
+        let output = tokio_test::block_on(EnvironDirective.execute(&[], &test_context()))
+            .expect("context command");
+
+        let CommandResult::Text(text) = output else {
+            panic!("context should return text");
+        };
+        assert!(text.contains("Live token usage:** not attached"), "{text}");
+        assert!(!text.contains("**Auto-compact:** Enabled"), "{text}");
+        assert!(
+            !text.contains("No compact boundary in this session"),
+            "{text}"
+        );
     }
 }

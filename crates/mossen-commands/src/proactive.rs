@@ -39,9 +39,10 @@ impl Directive for ProactiveDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args
-            .first()
-            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+        let first = args.first().map(|s| s.to_lowercase());
+        if first
+            .as_deref()
+            .map(|a| matches!(a, "help" | "-h" | "--help"))
             .unwrap_or(false)
         {
             return Ok(CommandResult::Text(
@@ -56,30 +57,64 @@ impl Directive for ProactiveDirective {
             .map(|v| matches!(v.as_str(), "1" | "true" | "on"))
             .unwrap_or(false);
 
-        match args.first().map(|s| s.to_lowercase()).as_deref() {
-            Some("on" | "enable" | "true" | "1") => {
-                Ok(CommandResult::System(
-                    "Proactive suggestions: enabled\n                     The model may now suggest improvements without being asked."
-                        .to_string(),
-                ))
-            }
-            Some("off" | "disable" | "false" | "0") => {
-                Ok(CommandResult::System(
-                    "Proactive suggestions: disabled\n                     The model will only respond when explicitly asked."
-                        .to_string(),
-                ))
-            }
-            None => {
-                let new_state = if current { "disabled" } else { "enabled" };
-                Ok(CommandResult::System(format!(
-                    "Proactive suggestions: {}", new_state
-                )))
-            }
-            Some(v) => {
-                Ok(CommandResult::Error(format!(
-                    "Invalid value: \"{}\". Use on/off.", v
-                )))
-            }
+        if matches!(first.as_deref(), None | Some("status" | "current" | "show")) {
+            return Ok(CommandResult::Text(format!(
+                "Proactive suggestions: {}\nThis command reports the current environment only; live proactive scheduling is not attached to this command runner.",
+                if current { "enabled" } else { "disabled" }
+            )));
         }
+
+        match first.as_deref() {
+            Some("on" | "enable" | "true" | "1" | "off" | "disable" | "false" | "0") => {
+                Ok(CommandResult::Error(
+                    "Cannot change proactive suggestions from this command runner; live proactive scheduling is not attached to the session loop."
+                        .to_string(),
+                ))
+            }
+            Some(v) => Ok(CommandResult::Error(format!(
+                "Invalid value: \"{}\". Use on/off.",
+                v
+            ))),
+            None => unreachable!("handled above"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn proactive_directive_does_not_claim_live_scheduler_update() {
+        let output = tokio_test::block_on(ProactiveDirective.execute(&["on"], &test_context()))
+            .expect("proactive command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("proactive should not claim success until the scheduler path is wired");
+        };
+        assert!(
+            text.contains("Cannot change proactive suggestions"),
+            "{text}"
+        );
+        assert!(!text.contains("Proactive suggestions: enabled"), "{text}");
     }
 }

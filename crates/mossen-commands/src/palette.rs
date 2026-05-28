@@ -45,9 +45,23 @@ impl Directive for PaletteDirective {
 
     async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         if let Some(theme_name) = args.first() {
+            if matches!(*theme_name, "help" | "-h" | "--help") {
+                let available = THEMES
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Ok(CommandResult::Text(format!(
+                    "Usage: /theme [name]\n\nAvailable themes: {}",
+                    available
+                )));
+            }
             let lowered = theme_name.to_lowercase();
             if THEMES.iter().any(|(name, _)| *name == lowered.as_str()) {
-                return Ok(CommandResult::Text(format!("Theme set to {}", lowered)));
+                return Ok(CommandResult::Error(format!(
+                    "Cannot set theme to {} from this command runner. Use /theme in the interactive TUI so the live renderer state is updated.",
+                    lowered
+                )));
             } else {
                 let available = THEMES
                     .iter()
@@ -68,5 +82,41 @@ impl Directive for PaletteDirective {
         }
         output.push_str("\nUse /theme <name> to set, or select from the list above.");
         Ok(CommandResult::Text(output))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn theme_directive_does_not_claim_live_renderer_update() {
+        let output = tokio_test::block_on(PaletteDirective.execute(&["dark"], &test_context()))
+            .expect("theme command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("theme should fail closed outside the live TUI renderer");
+        };
+        assert!(text.contains("Cannot set theme"), "{text}");
+        assert!(!text.contains("Theme set to"), "{text}");
     }
 }

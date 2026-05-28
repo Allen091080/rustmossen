@@ -24,12 +24,15 @@ def main() -> None:
         "async fn slash_auth_response",
         "async fn slash_login_message",
         "fn auth_token_source_label",
-        '"handoffType": "external_cli_command"',
+        '"credentialMode": "personal_backend"',
+        '"handoffType": handoff_type',
+        '"handoffRequired": false',
+        '"requiresExternalInteractiveCli": false',
         '"mutationSupported": false',
         '"writesAuthStateDirectly": false',
         '"tokensRedacted": true',
         '"rawEnvValuesIncluded": false',
-        "slash_command_auth_returns_redacted_external_cli_handoff",
+        "slash_command_auth_returns_redacted_backend_credential_status",
         '"command":"/login"',
         '"command":"/logout"',
     ]:
@@ -40,9 +43,9 @@ def main() -> None:
         '"slash.login"',
         '"slash.logout"',
         "CommandStatus::Available",
-        "SideEffect::AuthState",
-        "external CLI handoff for login",
-        "external CLI handoff for logout",
+        "SideEffect::ReadOnly",
+        "backend credential status plus setup guidance",
+        "without mutating personal backend configuration",
     ]:
         require(capabilities, needle, "auth capability")
 
@@ -51,7 +54,7 @@ def main() -> None:
         "wave_w216_stream_json_auth_slash_command_smoke",
         "run_all registration",
     )
-    require(phase, "2026-05-23 Stream-json /login and /logout auth handoff", "phase note")
+    require(phase, "2026-05-23 Stream-json /login and /logout backend credential status", "phase note")
 
     print("wave_w216_stream_json_auth_slash_command_smoke: ok")
 

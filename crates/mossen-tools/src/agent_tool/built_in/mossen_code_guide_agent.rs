@@ -15,7 +15,6 @@ const FILE_READ_TOOL_NAME: &str = "Read";
 const GLOB_TOOL_NAME: &str = "Glob";
 const GREP_TOOL_NAME: &str = "Grep";
 const BASH_TOOL_NAME: &str = "Bash";
-const SEND_MESSAGE_TOOL_NAME: &str = "SendMessage";
 
 fn get_mossen_code_guide_base_prompt() -> String {
     let embedded = std::env::var("MOSSEN_EMBEDDED_SEARCH_TOOLS")
@@ -26,6 +25,16 @@ fn get_mossen_code_guide_base_prompt() -> String {
         format!("`find`/`grep` via {}", BASH_TOOL_NAME)
     } else {
         format!("{}/{}", GLOB_TOOL_NAME, GREP_TOOL_NAME)
+    };
+    let web_search_step = if crate::web_search_tool_enabled() {
+        format!("6. Use {WEB_SEARCH_TOOL_NAME} if docs don't cover the topic\n")
+    } else {
+        String::new()
+    };
+    let local_step_number = if crate::web_search_tool_enabled() {
+        7
+    } else {
+        6
     };
 
     format!(
@@ -58,8 +67,7 @@ fn get_mossen_code_guide_base_prompt() -> String {
 3. Identify the most relevant documentation URLs from the map
 4. Fetch the specific documentation pages
 5. Provide clear, actionable guidance based on official documentation
-6. Use {web_search} if docs don't cover the topic
-7. Reference local project files (MOSSEN.md, .mossen/ directory) when relevant using {local_search}
+{web_search_step}{local_step_number}. Reference local project files (MOSSEN.md, .mossen/ directory) when relevant using {local_search}
 
 **Guidelines:**
 - Always prioritize official documentation over assumptions
@@ -70,7 +78,8 @@ fn get_mossen_code_guide_base_prompt() -> String {
         mossen_docs = MOSSEN_DOCS_URL,
         platform_docs = MOSSEN_PLATFORM_DOCS_URL,
         web_fetch = WEB_FETCH_TOOL_NAME,
-        web_search = WEB_SEARCH_TOOL_NAME,
+        web_search_step = web_search_step,
+        local_step_number = local_step_number,
         local_search = local_search_hint,
     )
 }
@@ -81,12 +90,11 @@ pub fn definition() -> AgentDefinition {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let tools = if embedded {
+    let mut tools = if embedded {
         vec![
             BASH_TOOL_NAME.to_string(),
             FILE_READ_TOOL_NAME.to_string(),
             WEB_FETCH_TOOL_NAME.to_string(),
-            WEB_SEARCH_TOOL_NAME.to_string(),
         ]
     } else {
         vec![
@@ -94,21 +102,21 @@ pub fn definition() -> AgentDefinition {
             GREP_TOOL_NAME.to_string(),
             FILE_READ_TOOL_NAME.to_string(),
             WEB_FETCH_TOOL_NAME.to_string(),
-            WEB_SEARCH_TOOL_NAME.to_string(),
         ]
     };
+    if crate::web_search_tool_enabled() {
+        tools.push(WEB_SEARCH_TOOL_NAME.to_string());
+    }
 
     AgentDefinition {
         agent_type: MOSSEN_CODE_GUIDE_AGENT_TYPE.to_string(),
-        when_to_use: format!(
+        when_to_use:
             "Use this agent when the user asks questions about: (1) Mossen (the CLI tool) - \
              features, hooks, slash commands, MCP servers, settings, IDE integrations; \
              (2) Mossen Agent SDK - building custom agents; (3) Mossen API - API usage, \
-             tool use, and SDK usage. **IMPORTANT:** Before spawning a new agent, check if \
-             there is already a running or recently completed mossen-code-guide agent that \
-             you can continue via {}.",
-            SEND_MESSAGE_TOOL_NAME
-        ),
+             tool use, and SDK usage. Start a fresh guide agent with a self-contained prompt \
+             when direct local files and docs checks are not enough."
+                .to_string(),
         tools: Some(tools),
         disallowed_tools: None,
         skills: None,
@@ -135,3 +143,18 @@ pub fn definition() -> AgentDefinition {
 /// definition built once on first access. Mirrors the TS `export const`.
 pub static MOSSEN_CODE_GUIDE_AGENT: std::sync::LazyLock<AgentDefinition> =
     std::sync::LazyLock::new(definition);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guide_agent_definition_does_not_reference_unwired_continuation() {
+        let agent = definition();
+        assert!(
+            !agent.when_to_use.contains("SendMessage"),
+            "{}",
+            agent.when_to_use
+        );
+    }
+}

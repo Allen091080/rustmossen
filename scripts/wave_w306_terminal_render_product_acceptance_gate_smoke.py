@@ -130,43 +130,6 @@ REQUIRED_STATUS_TOKENS = [
     "terminal_render_product_external_pty_matrix_w288_w322",
 ]
 
-REQUIRED_PHASE_TOKENS = [
-    "Terminal-render manual-scroll completion hold",
-    "Terminal-render manual-scroll tail-hold PTY",
-    "Terminal-render manual-scroll teardown release PTY",
-    "Terminal-render manual-scroll resize teardown release PTY",
-    "Terminal-render manual-scroll resize interrupt PTY",
-    "Terminal-render manual-scroll approval bypass PTY",
-    "Terminal-render manual-scroll approval reject PTY",
-    "Terminal-render manual-scroll approval approve PTY",
-    "Terminal-render manual-scroll approval edit-command PTY",
-    "Terminal-render manual-scroll approval always-allow PTY",
-    "Terminal-render manual-scroll approval edit-cancel PTY",
-    "Terminal-render manual-scroll approval resize-approve PTY",
-    "Terminal-render manual-scroll approval active-scroll reject PTY",
-    "Terminal-render mouse-scroll approval reject PTY",
-    "Terminal-render mouse-scroll approval approve PTY",
-    "Terminal-render mouse-scroll approval edit-command PTY",
-    "Terminal-render mouse-scroll approval always-allow PTY",
-    "Terminal-render manual-scroll command-output after approval PTY",
-    "Terminal-render mouse-scroll command-output after approval PTY",
-    "Terminal-render manual-scroll command-output resize after approval PTY",
-    "Terminal-render mouse-scroll command-output resize after approval PTY",
-    "Terminal-render manual-scroll command interrupt after approval PTY",
-    "Terminal-render mouse-scroll command interrupt after approval PTY",
-    "Terminal-render manual-scroll command resize interrupt after approval PTY",
-    "Terminal-render mouse-scroll command resize interrupt after approval PTY",
-    "Terminal-render manual-scroll command live-tail release after approval PTY",
-    "Terminal-render mouse-scroll command live-tail release after approval PTY",
-    "Terminal-render manual-scroll command resize live-tail release after approval PTY",
-    "Terminal-render mouse-scroll command resize live-tail release after approval PTY",
-    "Terminal-render manual-scroll command End live-tail release after approval PTY",
-    "Terminal-render command End live-tail matrix after approval PTY",
-    "Terminal-render no-fullscreen-clear external PTY contract",
-    "Terminal-render command PageDown live-tail matrix after approval PTY",
-    "Terminal-render command mouse-wheel-down live-tail matrix after approval PTY",
-]
-
 REQUIRED_W295_TOKENS = [
     "MOSSEN_TERMINAL_APPROVAL_APPROVE_PTY_COMMAND",
     "MOSSEN_TERMINAL_APPROVAL_APPROVE_PTY_SCROLL_DURING_COMMAND_AFTER_APPROVE",
@@ -378,7 +341,6 @@ def require_text(text: str, token: str, label: str, failures: list[str]) -> None
 def main() -> int:
     run_all = (ROOT / "scripts/run_all_smoke.sh").read_text()
     structured = (ROOT / "crates/mossen-cli/src/structured_io.rs").read_text()
-    phase = (ROOT / "phases/03g-rendering-product-grade-plan.md").read_text()
     w295 = (
         ROOT / "scripts/wave_w295_terminal_manual_scroll_approval_approve_pty_smoke.py"
     ).read_text()
@@ -462,9 +424,6 @@ def main() -> int:
 
     for token in REQUIRED_STATUS_TOKENS:
         require_text(structured, token, "status metadata", failures)
-
-    for token in REQUIRED_PHASE_TOKENS:
-        require_text(phase, token, "phase note", failures)
 
     for token in REQUIRED_W295_TOKENS:
         require_text(w295, token, "W295 extensible approval harness", failures)
@@ -582,13 +541,6 @@ def main() -> int:
         "status metadata",
         failures,
     )
-    require_text(
-        phase,
-        "Terminal-render product acceptance gate",
-        "phase note",
-        failures,
-    )
-
     if failures:
         print("=== W306 terminal render product acceptance gate smoke ===")
         for failure in failures:

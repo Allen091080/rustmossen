@@ -3,27 +3,42 @@
 //! 管理多个 MCP 服务器连接的创建、维护、重连与清理。
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock as StdRwLock};
 
 use dashmap::DashMap;
 use tokio::sync::RwLock;
 use tracing;
 
-/// Process-wide singleton holding the active `McpServerManager`. The CLI
-/// launcher installs it once after `connect_all()` so cross-crate consumers
-/// (notably `mossen-tools::mcp_tool`) can resolve a server client without
-/// taking a circular dependency on `mossen-cli`.
-static GLOBAL_MANAGER: OnceLock<Arc<McpServerManager>> = OnceLock::new();
+/// Process-wide slot holding the active `McpServerManager`. The slot itself is
+/// initialized once, but the manager inside it is replaceable so `/reload-plugins`
+/// and MCP config reloads can swap in a freshly connected runtime.
+static GLOBAL_MANAGER: OnceLock<StdRwLock<Option<Arc<McpServerManager>>>> = OnceLock::new();
 
-/// Install the process-global manager. Idempotent — first writer wins, later
-/// calls are ignored (matching `OnceLock` semantics).
+fn global_manager_slot() -> &'static StdRwLock<Option<Arc<McpServerManager>>> {
+    GLOBAL_MANAGER.get_or_init(|| StdRwLock::new(None))
+}
+
+/// Install or replace the process-global manager.
 pub fn set_global_manager(manager: Arc<McpServerManager>) {
-    let _ = GLOBAL_MANAGER.set(manager);
+    if let Ok(mut guard) = global_manager_slot().write() {
+        *guard = Some(manager);
+    }
+}
+
+/// Clear the process-global manager after shutdown or a reload that finds no
+/// configured MCP servers.
+pub fn clear_global_manager() {
+    if let Ok(mut guard) = global_manager_slot().write() {
+        *guard = None;
+    }
 }
 
 /// Fetch the process-global manager, if one was installed.
 pub fn global_manager() -> Option<Arc<McpServerManager>> {
-    GLOBAL_MANAGER.get().cloned()
+    global_manager_slot()
+        .read()
+        .ok()
+        .and_then(|guard| guard.clone())
 }
 
 use crate::client::{
@@ -364,6 +379,40 @@ mod tests {
             .and_then(|path| path.parent())
             .expect("crate is under crates/mossen-mcp")
             .to_path_buf()
+    }
+
+    fn global_manager_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("global manager test lock poisoned")
+    }
+
+    #[test]
+    fn global_manager_can_be_replaced_for_reload() {
+        let _guard = global_manager_test_lock();
+        clear_global_manager();
+        let first = Arc::new(McpServerManager::new(Implementation {
+            name: "first".to_string(),
+            version: "0.0.0".to_string(),
+        }));
+        let second = Arc::new(McpServerManager::new(Implementation {
+            name: "second".to_string(),
+            version: "0.0.0".to_string(),
+        }));
+
+        set_global_manager(first.clone());
+        assert!(Arc::ptr_eq(
+            &global_manager().expect("first manager"),
+            &first
+        ));
+        set_global_manager(second.clone());
+        assert!(Arc::ptr_eq(
+            &global_manager().expect("second manager"),
+            &second
+        ));
+        clear_global_manager();
+        assert!(global_manager().is_none());
     }
 
     #[tokio::test]

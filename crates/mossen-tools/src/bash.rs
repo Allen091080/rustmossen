@@ -115,6 +115,52 @@ pub struct ShellExecutorOutput {
     pub interrupted: bool,
 }
 
+fn shell_error_output(message: impl Into<String>) -> ShellExecutorOutput {
+    ShellExecutorOutput {
+        stdout: None,
+        stderr: Some(message.into()),
+        exit_code: None,
+        background_task_id: None,
+        timed_out: false,
+        interrupted: false,
+    }
+}
+
+fn tool_error(
+    message: impl Into<String>,
+    duration_ms: u64,
+    background_task_id: Option<String>,
+) -> anyhow::Result<ToolResult> {
+    let mut output = shell_error_output(message);
+    output.background_task_id = background_task_id.clone();
+    let metadata = background_task_id
+        .map(|task_id| HashMap::from([("task_id".to_string(), Value::String(task_id))]))
+        .unwrap_or_default();
+    Ok(ToolResult {
+        output: serde_json::to_string(&output)?,
+        is_error: true,
+        duration_ms,
+        metadata,
+    })
+}
+
+fn parse_input(input: Value) -> Result<ShellExecutorInput, String> {
+    match input {
+        Value::Null => {
+            Err("Bash requires a JSON object with a `command` string; received null.".to_string())
+        }
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!(
+                "Bash received invalid input: {error}. Expected object: {{\"command\":\"...\"}}."
+            )
+        }),
+        other => Err(format!(
+            "Bash requires a JSON object with a `command` string; received {}.",
+            other
+        )),
+    }
+}
+
 fn format_background_shell_output(stdout: &str, stderr: &str, timed_out: bool) -> String {
     let mut combined = String::new();
     if !stdout.is_empty() {
@@ -239,8 +285,20 @@ impl Tool for ShellExecutor {
     }
 
     async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: ShellExecutorInput = serde_json::from_value(input)?;
         let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => {
+                return tool_error(message, start.elapsed().as_millis() as u64, None);
+            }
+        };
+        if inp.command.trim().is_empty() {
+            return tool_error(
+                "Bash requires a non-empty `command` string.",
+                start.elapsed().as_millis() as u64,
+                None,
+            );
+        }
 
         let timeout_ms = inp.timeout.min(MAX_TIMEOUT_MS);
         let duration = std::time::Duration::from_millis(timeout_ms);
@@ -254,13 +312,29 @@ impl Tool for ShellExecutor {
 
         // 后台模式：生成后台任务并立即返回。
         if inp.run_in_background {
-            let task = crate::task_store::create_background_shell_task(
+            let task_id = uuid::Uuid::new_v4().to_string();
+            let task_subject = inp.description.clone().unwrap_or_else(|| {
+                format!("bash: {}", inp.command.chars().take(80).collect::<String>())
+            });
+            let task_description = inp.command.clone();
+            let created_hook = crate::task_hooks::task_created(
+                context,
+                &task_id,
+                &task_subject,
+                Some(task_description.as_str()),
+            )
+            .await;
+            if let Some(message) = created_hook.block_message {
+                return tool_error(message, start.elapsed().as_millis() as u64, None);
+            }
+
+            let task = crate::task_store::create_background_shell_task_with_id(
+                task_id.clone(),
                 inp.command.clone(),
                 context.cwd.clone(),
                 inp.description.clone(),
                 timeout_ms,
             );
-            let task_id = task.id.clone();
 
             let mut command = Command::new("bash");
             command
@@ -281,20 +355,11 @@ impl Tool for ShellExecutor {
                         None,
                         false,
                     );
-                    let output = ShellExecutorOutput {
-                        stdout: None,
-                        stderr: Some(format!("Failed to execute command: {e}")),
-                        exit_code: None,
-                        background_task_id: Some(task_id.clone()),
-                        timed_out: false,
-                        interrupted: false,
-                    };
-                    return Ok(ToolResult {
-                        output: serde_json::to_string(&output)?,
-                        is_error: true,
-                        duration_ms: start.elapsed().as_millis() as u64,
-                        metadata: HashMap::from([("task_id".to_string(), Value::String(task_id))]),
-                    });
+                    return tool_error(
+                        format!("Failed to execute command: {e}"),
+                        start.elapsed().as_millis() as u64,
+                        Some(task_id),
+                    );
                 }
             };
 
@@ -306,6 +371,11 @@ impl Tool for ShellExecutor {
 
             let command_text = inp.command.clone();
             let task_id_for_task = task_id.clone();
+            let task_subject_for_task = task_subject.clone();
+            let task_description_for_task = task_description.clone();
+            let hook_context_for_task = crate::task_hooks::runtime_hook_context(context);
+            let permission_mode_for_task =
+                crate::task_hooks::permission_mode(context).map(str::to_string);
             tokio::spawn(async move {
                 let result = tokio::select! {
                     res = child.wait_with_output() => {
@@ -345,6 +415,25 @@ impl Tool for ShellExecutor {
                         )
                     }
                 };
+                if result.0 == "completed" {
+                    let completed_hook = crate::task_hooks::task_completed_with_context(
+                        hook_context_for_task.as_deref(),
+                        permission_mode_for_task.as_deref(),
+                        &task_id_for_task,
+                        &task_subject_for_task,
+                        Some(task_description_for_task.as_str()),
+                    )
+                    .await;
+                    if let Some(message) = completed_hook.block_message {
+                        let _ = crate::task_store::block_task_completion(
+                            &task_id_for_task,
+                            result.1,
+                            result.2,
+                            message,
+                        );
+                        return;
+                    }
+                }
                 crate::task_store::finish_background_shell_task(
                     &task_id_for_task,
                     &result.0,
@@ -382,7 +471,16 @@ impl Tool for ShellExecutor {
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
         configure_foreground_process_group(&mut command);
-        let child = command.spawn()?;
+        let child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                return tool_error(
+                    format!("Failed to execute command: {error}"),
+                    start.elapsed().as_millis() as u64,
+                    None,
+                )
+            }
+        };
         #[cfg(unix)]
         let mut process_group_guard = ForegroundProcessGroupGuard::from_child(&child);
 
@@ -603,5 +701,84 @@ mod tests {
 
         kill_pid(child_pid);
         panic!("background process-group child survived TaskStop");
+    }
+
+    #[tokio::test]
+    async fn bash_null_input_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = ToolUseContext {
+            cwd: temp.path().to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = ShellExecutor
+            .execute(Value::Null, &context)
+            .await
+            .expect("bash result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["stderr"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("command"));
+        assert!(output["stderr"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("null"));
+    }
+
+    #[tokio::test]
+    async fn bash_echo_command_returns_stdout_marker() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let context = ToolUseContext {
+            cwd: temp.path().to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = ShellExecutor
+            .execute(
+                serde_json::json!({"command": "printf 'MARKER_M1_2_BASH_OUTPUT_unique_xyz'"}),
+                &context,
+            )
+            .await
+            .expect("bash result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(!result.is_error, "{}", result.output);
+        assert_eq!(output["exit_code"], 0);
+        assert!(
+            output["stdout"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("MARKER_M1_2_BASH_OUTPUT_unique_xyz"),
+            "{}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn bash_spawn_error_returns_structured_tool_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let missing_cwd = temp.path().join("missing");
+        let context = ToolUseContext {
+            cwd: missing_cwd.to_string_lossy().to_string(),
+            additional_working_directories: None,
+            extra: HashMap::new(),
+        };
+
+        let result = ShellExecutor
+            .execute(serde_json::json!({"command": "pwd"}), &context)
+            .await
+            .expect("bash result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["stderr"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Failed to execute command"));
     }
 }

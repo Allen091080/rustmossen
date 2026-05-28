@@ -11,13 +11,12 @@ static COORDINATOR_MODE_FEATURE: AtomicBool = AtomicBool::new(true);
 /// Tool name constants (mirroring tools/ constants).
 pub const AGENT_TOOL_NAME: &str = "Agent";
 pub const BASH_TOOL_NAME: &str = "Bash";
-pub const FILE_EDIT_TOOL_NAME: &str = "FileEdit";
-pub const FILE_READ_TOOL_NAME: &str = "FileRead";
-pub const SEND_MESSAGE_TOOL_NAME: &str = "SendMessage";
-pub const SYNTHETIC_OUTPUT_TOOL_NAME: &str = "SyntheticOutput";
+pub const FILE_EDIT_TOOL_NAME: &str = "Edit";
+pub const FILE_READ_TOOL_NAME: &str = "Read";
+pub const GLOB_TOOL_NAME: &str = "Glob";
+pub const GREP_TOOL_NAME: &str = "Grep";
+pub const TASK_OUTPUT_TOOL_NAME: &str = "TaskOutput";
 pub const TASK_STOP_TOOL_NAME: &str = "TaskStop";
-pub const TEAM_CREATE_TOOL_NAME: &str = "TeamCreate";
-pub const TEAM_DELETE_TOOL_NAME: &str = "TeamDelete";
 
 /// The set of tools async agents are allowed to use.
 /// In production this would come from constants/tools, here we define a reasonable default.
@@ -27,11 +26,10 @@ fn async_agent_allowed_tools() -> HashSet<&'static str> {
         BASH_TOOL_NAME,
         FILE_EDIT_TOOL_NAME,
         FILE_READ_TOOL_NAME,
-        SEND_MESSAGE_TOOL_NAME,
-        SYNTHETIC_OUTPUT_TOOL_NAME,
+        GLOB_TOOL_NAME,
+        GREP_TOOL_NAME,
+        TASK_OUTPUT_TOOL_NAME,
         TASK_STOP_TOOL_NAME,
-        TEAM_CREATE_TOOL_NAME,
-        TEAM_DELETE_TOOL_NAME,
     ]
     .into_iter()
     .collect()
@@ -39,14 +37,9 @@ fn async_agent_allowed_tools() -> HashSet<&'static str> {
 
 /// Internal tools that workers don't expose to the user.
 fn internal_worker_tools() -> HashSet<&'static str> {
-    [
-        TEAM_CREATE_TOOL_NAME,
-        TEAM_DELETE_TOOL_NAME,
-        SEND_MESSAGE_TOOL_NAME,
-        SYNTHETIC_OUTPUT_TOOL_NAME,
-    ]
-    .into_iter()
-    .collect()
+    [TASK_OUTPUT_TOOL_NAME, TASK_STOP_TOOL_NAME]
+        .into_iter()
+        .collect()
 }
 
 /// Trait for checking feature gates (allows DI for testing).
@@ -255,7 +248,6 @@ Every message you send is to the user. Worker results and system notifications a
 ## 2. Your Tools
 
 - **{agent}** - Spawn a new worker
-- **{send}** - Continue an existing worker (send a follow-up to its `to` agent ID)
 - **{stop}** - Stop a running worker
 - **subscribe_pr_activity / unsubscribe_pr_activity** (if available) - Subscribe to GitHub PR events (review comments, CI results). Events arrive as user messages. Merge conflict transitions do NOT arrive — GitHub doesn't webhook `mergeable_state` changes, so poll `gh pr view N --json mergeable` if tracking conflict status. Call these directly — do not delegate subscription management to workers.
 
@@ -263,7 +255,7 @@ When calling {agent}:
 - Do not use one worker to check on another. Workers will notify you when they are done.
 - Do not use workers to trivially report file contents or run commands. Give them higher-level tasks.
 - Do not set the model parameter. Workers need the default model for the substantive tasks you delegate.
-- Continue workers whose work is complete via {send} to take advantage of their loaded context
+- If completed worker results need follow-up, spawn a fresh worker with a self-contained prompt that includes the relevant prior findings.
 - After launching agents, briefly tell the user what you launched and end your response. Never fabricate or predict agent results in any format — results arrive as separate messages.
 
 ### {agent} Results
@@ -288,7 +280,7 @@ Format:
 
 - `<result>` and `<usage>` are optional sections
 - The `<summary>` describes the outcome: "completed", "failed: {{error}}", or "was stopped"
-- The `<task-id>` value is the agent ID — use SendMessage with that ID as `to` to continue that worker
+- The `<task-id>` value identifies the completed worker result. It is not a continuation handle in the personal runtime.
 
 ### Example
 
@@ -313,8 +305,6 @@ User:
 You:
   Found the bug — null pointer in confirmTokenExists in validate.ts. I'll fix it.
   Still waiting on the token storage research.
-
-  {send}({{ to: "agent-a1b", message: "Fix the null pointer in src/auth/validate.ts:42..." }})
 
 ## 3. Workers
 
@@ -356,12 +346,12 @@ Verification means **proving the code works**, not confirming it exists. A verif
 ### Handling Worker Failures
 
 When a worker reports failure (tests failed, build errors, file not found):
-- Continue the same worker with {send} — it has the full error context
-- If a correction attempt fails, try a different approach or report to the user
+- Investigate the failure yourself or spawn a fresh worker with the relevant error context.
+- If a correction attempt fails, try a different approach or report to the user.
 
 ### Stopping Workers
 
-Use {stop} to stop a worker you sent in the wrong direction — for example, when you realize mid-flight that the approach is wrong, or the user changes requirements after you launched the worker. Pass the `task_id` from the {agent} tool's launch result. Stopped workers can be continued with {send}.
+Use {stop} to stop a worker you sent in the wrong direction — for example, when you realize mid-flight that the approach is wrong, or the user changes requirements after you launched the worker. Pass the `task_id` from the {agent} tool's launch result.
 
 ```
 // Launched a worker to refactor auth to use JWT
@@ -371,13 +361,13 @@ Use {stop} to stop a worker you sent in the wrong direction — for example, whe
 // User clarifies: "Actually, keep sessions — just fix the null pointer"
 {stop}({{ task_id: "agent-x7q" }})
 
-// Continue with corrected instructions
-{send}({{ to: "agent-x7q", message: "Stop the JWT refactor. Instead, fix the null pointer in src/auth/validate.ts:42..." }})
+// Start a new worker with corrected instructions if delegation is still useful
+{agent}({{ description: "Fix auth null pointer", subagent_type: "worker", prompt: "Keep session-based auth. Fix the null pointer in src/auth/validate.ts:42..." }})
 ```
 
 ## 5. Writing Worker Prompts
 
-**Workers can't see your conversation.** Every prompt must be self-contained with everything the worker needs. After research completes, you always do two things: (1) synthesize findings into a specific prompt, and (2) choose whether to continue that worker via {send} or spawn a fresh one.
+**Workers can't see your conversation.** Every prompt must be self-contained with everything the worker needs. After research completes, synthesize findings into a specific prompt before starting any follow-up worker.
 
 ### Always synthesize — your most important job
 
@@ -386,15 +376,15 @@ When workers report research findings, **you must understand them before directi
 Never write "based on your findings" or "based on the research." These phrases delegate understanding to the worker instead of doing it yourself. You never hand off understanding to another worker.
 
 ```
-// Anti-pattern — lazy delegation (bad whether continuing or spawning)
+// Anti-pattern — lazy delegation
 {agent}({{ prompt: "Based on your findings, fix the auth bug", ... }})
 {agent}({{ prompt: "The worker found an issue in the auth module. Please fix it.", ... }})
 
-// Good — synthesized spec (works with either continue or spawn)
+// Good — synthesized spec
 {agent}({{ prompt: "Fix the null pointer in src/auth/validate.ts:42. The user field on Session (src/auth/types.ts:15) is undefined when sessions expire but the token remains cached. Add a null check before user.id access — if null, return 401 with 'Session expired'. Commit and report the hash.", ... }})
 ```
 
-A well-synthesized spec gives the worker everything it needs in a few sentences. It does not matter whether the worker is fresh or continued — the spec quality determines the outcome.
+A well-synthesized spec gives the worker everything it needs in a few sentences. Fresh workers need that context to produce reliable results.
 
 ### Add a purpose statement
 
@@ -404,32 +394,18 @@ Include a brief purpose so workers can calibrate depth and emphasis:
 - "I need this to plan an implementation — report file paths, line numbers, and type signatures."
 - "This is a quick check before we merge — just verify the happy path."
 
-### Choose continue vs. spawn by context overlap
+### Spawn follow-up workers with full context
 
-After synthesizing, decide whether the worker's existing context helps or hurts:
+When follow-up delegation is useful, start a fresh worker with the synthesized findings and all relevant error text:
 
-| Situation | Mechanism | Why |
-|-----------|-----------|-----|
-| Research explored exactly the files that need editing | **Continue** ({send}) with synthesized spec | Worker already has the files in context AND now gets a clear plan |
-| Research was broad but implementation is narrow | **Spawn fresh** ({agent}) with synthesized spec | Avoid dragging along exploration noise; focused context is cleaner |
-| Correcting a failure or extending recent work | **Continue** | Worker has the error context and knows what it just tried |
-| Verifying code a different worker just wrote | **Spawn fresh** | Verifier should see the code with fresh eyes, not carry implementation assumptions |
-| First implementation attempt used the wrong approach entirely | **Spawn fresh** | Wrong-approach context pollutes the retry; clean slate avoids anchoring on the failed path |
-| Completely unrelated task | **Spawn fresh** | No useful context to reuse |
-
-There is no universal default. Think about how much of the worker's context overlaps with the next task. High overlap -> continue. Low overlap -> spawn fresh.
-
-### Continue mechanics
-
-When continuing a worker with {send}, it has full context from its previous run:
 ```
-// Continuation — worker finished research, now give it a synthesized implementation spec
-{send}({{ to: "xyz-456", message: "Fix the null pointer in src/auth/validate.ts:42. The user field is undefined when Session.expired is true but the token is still cached. Add a null check before accessing user.id — if null, return 401 with 'Session expired'. Commit and report the hash." }})
+// Worker finished research, now give a fresh worker a synthesized implementation spec
+{agent}({{ description: "Fix auth expiry", subagent_type: "worker", prompt: "Fix the null pointer in src/auth/validate.ts:42. The user field is undefined when Session.expired is true but the token is still cached. Add a null check before accessing user.id — if null, return 401 with 'Session expired'. Commit and report the hash." }})
 ```
 
 ```
-// Correction — worker just reported test failures from its own change, keep it brief
-{send}({{ to: "xyz-456", message: "Two tests still failing at lines 58 and 72 — update the assertions to match the new error message." }})
+// A prior implementation reported test failures; include exact failure context
+{agent}({{ description: "Fix auth tests", subagent_type: "worker", prompt: "Two tests still fail at validate.test.ts:58 and validate.test.ts:72 after the auth expiry change. Update only the assertions needed to match the new 'Session expired' error message, run the auth tests, and report the result." }})
 ```
 
 ### Prompt tips
@@ -440,7 +416,7 @@ When continuing a worker with {send}, it has full context from its previous run:
 
 2. Precise git operation: "Create a new branch from main called 'fix/session-expiry'. Cherry-pick only commit abc123 onto it. Push and create a draft PR targeting main. Add mossen/cli as reviewer. Report the PR URL."
 
-3. Correction (continued worker, short): "The tests failed on the null check you added — validate.test.ts:58 expects 'Invalid session' but you changed it to 'Session expired'. Fix the assertion. Commit and report the hash."
+3. Correction: "The previous attempt changed the auth expiry error to 'Session expired', but validate.test.ts:58 still expects 'Invalid session'. Fix the assertion. Commit and report the hash."
 
 **Bad examples:**
 
@@ -455,7 +431,7 @@ Additional tips:
 - For implementation: "Run relevant tests and typecheck, then commit your changes and report the hash" — workers self-verify before reporting done. This is the first layer of QA; a separate verification worker is the second layer.
 - For research: "Report findings — do not modify files"
 - Be precise about git operations — specify branch names, commit hashes, draft vs ready, reviewers
-- When continuing for corrections: reference what the worker did ("the null check you added") not what you discussed with the user
+- When delegating corrections: include the exact prior change or failure, not just what you discussed with the user
 - For implementation: "Fix the root cause, not the symptom" — guide workers toward durable fixes
 - For verification: "Prove the code works, don't just confirm it exists"
 - For verification: "Try edge cases and error paths — don't just re-run what the implementation worker ran"
@@ -484,7 +460,7 @@ User:
 You:
   Found the bug — null pointer in validate.ts:42.
 
-  {send}({{ to: "agent-a1b", message: "Fix the null pointer in src/auth/validate.ts:42. Add a null check before accessing user.id — if null, ... Commit and report the hash." }})
+  {agent}({{ description: "Fix auth null pointer", subagent_type: "worker", prompt: "Fix the null pointer in src/auth/validate.ts:42. Add a null check before accessing user.id — if null, return an appropriate session-expired error. Commit and report the hash." }})
 
   Fix is in progress.
 
@@ -494,8 +470,92 @@ User:
 You:
   Fix for the new test is in progress. Still waiting to hear back about the test suite."#,
         agent = AGENT_TOOL_NAME,
-        send = SEND_MESSAGE_TOOL_NAME,
         stop = TASK_STOP_TOOL_NAME,
         capabilities = worker_capabilities,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    struct EnvRestore {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvRestore {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("coordinator env test lock poisoned")
+    }
+
+    struct DisabledScratchpad;
+
+    impl FeatureGateChecker for DisabledScratchpad {
+        fn check_gate_cached(&self, _gate_name: &str) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn coordinator_prompt_does_not_advertise_unwired_send_message() {
+        let prompt = get_coordinator_system_prompt();
+
+        assert!(!prompt.contains("SendMessage"), "{prompt}");
+        assert!(!prompt.contains("{send}"), "{prompt}");
+    }
+
+    #[test]
+    fn coordinator_worker_context_uses_executable_personal_tool_names() {
+        let _lock = env_lock();
+        let _mode = EnvRestore::set("MOSSEN_CODE_COORDINATOR_MODE", "1");
+        let _simple = EnvRestore::remove("MOSSEN_CODE_SIMPLE");
+        set_coordinator_mode_feature(true);
+
+        let context = get_coordinator_user_context(&[], None, &DisabledScratchpad);
+        let worker_context = context
+            .get("workerToolsContext")
+            .expect("worker tools context");
+
+        for visible in ["Agent", "Bash", "Edit", "Glob", "Grep", "Read"] {
+            assert!(worker_context.contains(visible), "{worker_context}");
+        }
+        for hidden in [
+            "SendMessage",
+            "TeamCreate",
+            "TeamDelete",
+            "SyntheticOutput",
+            "FileRead",
+            "FileEdit",
+        ] {
+            assert!(!worker_context.contains(hidden), "{worker_context}");
+        }
+    }
 }

@@ -18,7 +18,7 @@
 //! later pass.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, Mutex, OnceLock};
 
 #[cfg(unix)]
 use nix::sys::signal::{killpg, Signal};
@@ -69,6 +69,45 @@ pub struct TaskRecord {
     pub exit_code: Option<i32>,
 }
 
+/// Lightweight task view for UI/process-list surfaces. This intentionally
+/// excludes `TaskRecord::output`; completed agent output can be large enough
+/// that cloning it on every render makes keyboard input visibly lag.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskSnapshot {
+    pub id: String,
+    pub subject: String,
+    pub status: String,
+    #[serde(
+        rename = "completedAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub completed_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(rename = "outputLen", default)]
+    pub output_len: usize,
+    #[serde(rename = "taskType", default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskStoreEvent {
+    pub id: String,
+    pub subject: String,
+    pub status: String,
+    #[serde(rename = "taskType", default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    #[serde(
+        rename = "completedAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub completed_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+}
+
 impl TaskRecord {
     fn new(id: String, subject: String, description: String) -> Self {
         Self {
@@ -88,9 +127,58 @@ impl TaskRecord {
     }
 }
 
+impl From<&TaskRecord> for TaskSnapshot {
+    fn from(record: &TaskRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            subject: record.subject.clone(),
+            status: record.status.clone(),
+            completed_at: record.completed_at,
+            exit_code: record.exit_code,
+            output_len: record.output.len(),
+            task_type: task_type(record),
+        }
+    }
+}
+
+impl From<&TaskRecord> for TaskStoreEvent {
+    fn from(record: &TaskRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            subject: record.subject.clone(),
+            status: record.status.clone(),
+            task_type: task_type(record),
+            completed_at: record.completed_at,
+            exit_code: record.exit_code,
+        }
+    }
+}
+
 fn store() -> &'static Mutex<HashMap<String, TaskRecord>> {
     static STORE: OnceLock<Mutex<HashMap<String, TaskRecord>>> = OnceLock::new();
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn event_subscribers() -> &'static Mutex<Vec<mpsc::Sender<TaskStoreEvent>>> {
+    static SUBSCRIBERS: OnceLock<Mutex<Vec<mpsc::Sender<TaskStoreEvent>>>> = OnceLock::new();
+    SUBSCRIBERS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+pub fn subscribe_task_events() -> mpsc::Receiver<TaskStoreEvent> {
+    let (tx, rx) = mpsc::channel();
+    event_subscribers().lock().unwrap().push(tx);
+    rx
+}
+
+fn notify_task_event(record: &TaskRecord) {
+    if !is_terminal_status(&record.status) {
+        return;
+    }
+    let event = TaskStoreEvent::from(record);
+    event_subscribers()
+        .lock()
+        .unwrap()
+        .retain(|tx| tx.send(event.clone()).is_ok());
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +205,14 @@ fn is_terminal_status(status: &str) -> bool {
     )
 }
 
+fn task_type(record: &TaskRecord) -> Option<String> {
+    record
+        .metadata
+        .get("type")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
 #[cfg(unix)]
 fn terminate_background_process(process: &BackgroundShellProcess) {
     let pgid = Pid::from_raw(process.pgid);
@@ -140,7 +236,11 @@ fn terminate_background_process(process: &BackgroundShellProcess) {
 
 /// Insert a new task. Returns the freshly-created record (cloned).
 pub fn create_task(subject: String, description: String) -> TaskRecord {
-    let id = uuid::Uuid::new_v4().to_string();
+    create_task_with_id(uuid::Uuid::new_v4().to_string(), subject, description)
+}
+
+/// Insert a new task with a caller-provided id.
+pub fn create_task_with_id(id: String, subject: String, description: String) -> TaskRecord {
     let record = TaskRecord::new(id.clone(), subject, description);
     store().lock().unwrap().insert(id, record.clone());
     record
@@ -153,10 +253,27 @@ pub fn create_background_shell_task(
     description: Option<String>,
     timeout_ms: u64,
 ) -> TaskRecord {
+    create_background_shell_task_with_id(
+        uuid::Uuid::new_v4().to_string(),
+        command,
+        cwd,
+        description,
+        timeout_ms,
+    )
+}
+
+/// Insert a task record for a background Bash command with a caller-provided id.
+pub fn create_background_shell_task_with_id(
+    task_id: String,
+    command: String,
+    cwd: String,
+    description: Option<String>,
+    timeout_ms: u64,
+) -> TaskRecord {
     let subject = description
         .clone()
         .unwrap_or_else(|| format!("bash: {}", command.chars().take(80).collect::<String>()));
-    let mut record = create_task(subject, command.clone());
+    let mut record = create_task_with_id(task_id, subject, command.clone());
     let mut metadata = HashMap::new();
     metadata.insert("type".to_string(), json!("background_shell"));
     metadata.insert("kind".to_string(), json!("bash"));
@@ -175,6 +292,32 @@ pub fn create_background_shell_task(
     record
 }
 
+/// Insert a task record for a background sub-agent and mark it running.
+pub fn create_background_agent_task(
+    task_id: String,
+    agent_id: String,
+    agent_type: String,
+    description: String,
+    prompt: String,
+    cwd: String,
+) -> TaskRecord {
+    let mut metadata = HashMap::new();
+    metadata.insert("type".to_string(), json!("background_agent"));
+    metadata.insert("kind".to_string(), json!("agent"));
+    metadata.insert("agentId".to_string(), json!(agent_id));
+    metadata.insert("agentType".to_string(), json!(agent_type));
+    metadata.insert("prompt".to_string(), json!(prompt.clone()));
+    metadata.insert("cwd".to_string(), json!(cwd));
+    metadata.insert("startedAt".to_string(), json!(now_ms()));
+
+    let mut record = TaskRecord::new(task_id.clone(), description, prompt);
+    record.status = "in_progress".to_string();
+    record.active_form = Some("Running agent".to_string());
+    record.metadata = metadata;
+    store().lock().unwrap().insert(task_id, record.clone());
+    record
+}
+
 /// Lookup by id.
 pub fn get_task(id: &str) -> Option<TaskRecord> {
     store().lock().unwrap().get(id).cloned()
@@ -184,6 +327,14 @@ pub fn get_task(id: &str) -> Option<TaskRecord> {
 pub fn list_tasks() -> Vec<TaskRecord> {
     let map = store().lock().unwrap();
     let mut v: Vec<TaskRecord> = map.values().cloned().collect();
+    v.sort_by(|a, b| a.id.cmp(&b.id));
+    v
+}
+
+/// Lightweight snapshot of all tasks, sorted by id for stable UI output.
+pub fn list_task_snapshots() -> Vec<TaskSnapshot> {
+    let map = store().lock().unwrap();
+    let mut v: Vec<TaskSnapshot> = map.values().map(TaskSnapshot::from).collect();
     v.sort_by(|a, b| a.id.cmp(&b.id));
     v
 }
@@ -233,14 +384,22 @@ pub fn stop_background_task(task_id: &str) -> Option<TaskRecord> {
         terminate_background_process(&process);
     }
 
-    update_task(task_id, |r| {
+    let mut should_notify = false;
+    let updated = update_task(task_id, |r| {
         if !is_terminal_status(&r.status) {
             r.status = "cancelled".to_string();
             r.completed_at = Some(now_ms());
             r.output = append_output_note(&r.output, "Task stopped by request.");
+            should_notify = true;
         }
         r.metadata.insert("stoppedAt".to_string(), json!(now_ms()));
-    })
+    });
+    if should_notify {
+        if let Some(record) = updated.as_ref() {
+            notify_task_event(record);
+        }
+    }
+    updated
 }
 
 /// Finish a background shell task after the process exits.
@@ -252,10 +411,12 @@ pub fn finish_background_shell_task(
     timed_out: bool,
 ) -> Option<TaskRecord> {
     unregister_background_shell_process(task_id);
-    update_task(task_id, |r| {
+    let mut should_notify = false;
+    let updated = update_task(task_id, |r| {
         if !r.status.eq("cancelled") && !r.status.eq("deleted") {
             r.status = status.to_string();
             r.completed_at = Some(now_ms());
+            should_notify = true;
         } else if r.completed_at.is_none() {
             r.completed_at = Some(now_ms());
         }
@@ -264,6 +425,58 @@ pub fn finish_background_shell_task(
         r.metadata
             .insert("completedAt".to_string(), json!(now_ms()));
         r.metadata.insert("timedOut".to_string(), json!(timed_out));
+    });
+    if should_notify {
+        if let Some(record) = updated.as_ref() {
+            notify_task_event(record);
+        }
+    }
+    updated
+}
+
+/// Finish a background sub-agent task after the child agent process exits.
+pub fn finish_background_agent_task(
+    task_id: &str,
+    status: &str,
+    output: String,
+    exit_code: Option<i32>,
+) -> Option<TaskRecord> {
+    let mut should_notify = false;
+    let updated = update_task(task_id, |r| {
+        if !r.status.eq("cancelled") && !r.status.eq("deleted") {
+            r.status = status.to_string();
+            r.completed_at = Some(now_ms());
+            should_notify = true;
+        } else if r.completed_at.is_none() {
+            r.completed_at = Some(now_ms());
+        }
+        r.output = output;
+        r.exit_code = exit_code;
+        r.metadata
+            .insert("completedAt".to_string(), json!(now_ms()));
+    });
+    if should_notify {
+        if let Some(record) = updated.as_ref() {
+            notify_task_event(record);
+        }
+    }
+    updated
+}
+
+/// Keep a task open when a TaskCompleted hook blocks the terminal transition.
+pub fn block_task_completion(
+    task_id: &str,
+    output: String,
+    exit_code: Option<i32>,
+    reason: String,
+) -> Option<TaskRecord> {
+    update_task(task_id, |r| {
+        r.output = append_output_note(&output, &reason);
+        r.exit_code = exit_code;
+        r.metadata
+            .insert("completionBlockedAt".to_string(), json!(now_ms()));
+        r.metadata
+            .insert("completionBlockedReason".to_string(), json!(reason));
     })
 }
 
@@ -341,5 +554,87 @@ mod tests {
         create_task("a".into(), "".into());
         create_task("b".into(), "".into());
         assert_eq!(list_tasks().len(), 2);
+    }
+
+    #[test]
+    fn list_task_snapshots_excludes_large_output_payloads() {
+        let _guard = test_store_guard();
+        let record = create_background_agent_task(
+            "agent-large".to_string(),
+            "agent-large".to_string(),
+            "general".to_string(),
+            "large output task".to_string(),
+            "prompt".to_string(),
+            ".".to_string(),
+        );
+        finish_background_agent_task(&record.id, "completed", "x".repeat(1024 * 1024), Some(0));
+
+        let snapshots = list_task_snapshots();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].id, "agent-large");
+        assert_eq!(snapshots[0].output_len, 1024 * 1024);
+        assert_eq!(snapshots[0].task_type.as_deref(), Some("background_agent"));
+    }
+
+    #[test]
+    fn background_agent_finish_notifies_subscribers_without_output_payload() {
+        let _guard = test_store_guard();
+        let rx = subscribe_task_events();
+        create_background_agent_task(
+            "agent-done".to_string(),
+            "agent-done".to_string(),
+            "general".to_string(),
+            "scan repo".to_string(),
+            "prompt".to_string(),
+            ".".to_string(),
+        );
+        finish_background_agent_task(
+            "agent-done",
+            "completed",
+            "private output".to_string(),
+            Some(0),
+        );
+
+        let event = rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .expect("completion event");
+        assert_eq!(event.id, "agent-done");
+        assert_eq!(event.status, "completed");
+        assert_eq!(event.subject, "scan repo");
+        assert_eq!(event.task_type.as_deref(), Some("background_agent"));
+        assert_eq!(event.exit_code, Some(0));
+    }
+
+    #[test]
+    fn stop_then_finish_emits_single_terminal_event() {
+        let _guard = test_store_guard();
+        let rx = subscribe_task_events();
+        create_background_agent_task(
+            "agent-cancel".to_string(),
+            "agent-cancel".to_string(),
+            "general".to_string(),
+            "cancel scan".to_string(),
+            "prompt".to_string(),
+            ".".to_string(),
+        );
+
+        stop_background_task("agent-cancel");
+        finish_background_agent_task(
+            "agent-cancel",
+            "completed",
+            "late child output".to_string(),
+            Some(0),
+        );
+
+        let event = rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .expect("cancel event");
+        assert_eq!(event.id, "agent-cancel");
+        assert_eq!(event.status, "cancelled");
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(50))
+                .is_err(),
+            "late child finish should not emit a second terminal event"
+        );
     }
 }

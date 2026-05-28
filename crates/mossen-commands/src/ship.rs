@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use tokio::process::Command;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
@@ -20,9 +21,6 @@ const ALLOWED_TOOLS: &[&str] = &[
     "Bash(gh pr edit:*)",
     "Bash(gh pr view:*)",
     "Bash(gh pr merge:*)",
-    "ToolSearch",
-    "mcp__slack__send_message",
-    "mcp__hosted_Slack__slack_send_message",
 ];
 
 /// Check if undercover mode is active.
@@ -61,8 +59,58 @@ fn get_pr_attribution(ctx: &CommandContext) -> String {
     )
 }
 
-/// Get the default branch name (placeholder; in production would call git).
-fn get_default_branch() -> String {
+async fn run_git_text(ctx: &CommandContext, args: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(&ctx.cwd)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Resolve the default branch from the current git repository.
+async fn get_default_branch(ctx: &CommandContext) -> String {
+    if let Some(remote_head) = run_git_text(
+        ctx,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    )
+    .await
+    {
+        let branch = remote_head
+            .strip_prefix("origin/")
+            .unwrap_or(remote_head.as_str())
+            .trim();
+        if !branch.is_empty() {
+            return branch.to_string();
+        }
+    }
+
+    for branch in ["main", "master"] {
+        let ref_name = format!("refs/heads/{branch}");
+        if run_git_text(
+            ctx,
+            &["rev-parse", "--verify", "--quiet", ref_name.as_str()],
+        )
+        .await
+        .is_some()
+        {
+            return branch.to_string();
+        }
+    }
+
+    if let Some(configured) = run_git_text(ctx, &["config", "--get", "init.defaultBranch"]).await {
+        return configured;
+    }
+
     "main".to_string()
 }
 
@@ -81,16 +129,11 @@ fn get_prompt_content(ctx: &CommandContext, default_branch: &str, pr_attribution
 <!-- CHANGELOG:START -->
 [If this PR contains user-facing changes, add a changelog entry here. Otherwise, remove this section.]
 <!-- CHANGELOG:END -->"#.to_string();
-    let mut slack_step = r#"
-
-5. After creating/updating the PR, check if the user's MOSSEN.md mentions posting to Slack channels. If it does, use ToolSearch to search for "slack send message" tools. If ToolSearch finds a Slack tool, ask the user if they'd like you to post the PR URL to the relevant Slack channel. Only post if the user confirms. If ToolSearch returns no results or errors, skip this step silently—do not mention the failure, do not attempt workarounds, and do not try alternative approaches."#.to_string();
-
     if ctx.is_internal_user() && is_undercover(ctx) {
         prefix = format!("{}\n", get_undercover_instructions());
         reviewer_arg = String::new();
         add_reviewer_arg = String::new();
         changelog_section = String::new();
-        slack_step = String::new();
     }
 
     let commit_attr_example = if !commit_attribution.is_empty() {
@@ -152,7 +195,7 @@ EOF
 )"
 ```
 
-You have the capability to call multiple tools in a single response. You MUST do all of the above in a single message.{slack_step}
+You have the capability to call multiple tools in a single response. You MUST do all of the above in a single message.
 
 Return the PR URL when you're done, so the user can see it."#,
         commit_attr_note = if !commit_attribution.is_empty() {
@@ -186,7 +229,7 @@ impl Directive for ShipDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        let default_branch = get_default_branch();
+        let default_branch = get_default_branch(ctx).await;
         let pr_attribution = get_pr_attribution(ctx);
         let mut prompt_content = get_prompt_content(ctx, &default_branch, &pr_attribution);
 
@@ -206,4 +249,79 @@ impl Directive for ShipDirective {
 /// Get the list of allowed tools for the ship command.
 pub fn ship_allowed_tools() -> &'static [&'static str] {
     ALLOWED_TOOLS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context(cwd: PathBuf) -> CommandContext {
+        CommandContext {
+            cwd,
+            is_non_interactive: false,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn ship_uses_origin_head_default_branch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .current_dir(temp.path())
+            .status()
+            .expect("git init");
+        assert!(status.success());
+        let status = std::process::Command::new("git")
+            .args([
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/trunk",
+            ])
+            .current_dir(temp.path())
+            .status()
+            .expect("git symbolic-ref");
+        assert!(status.success());
+
+        let result = ShipDirective
+            .execute(&[], &test_context(temp.path().to_path_buf()))
+            .await
+            .expect("ship prompt");
+        let CommandResult::Text(prompt) = result else {
+            panic!("expected prompt text");
+        };
+        assert!(prompt.contains("git diff trunk...HEAD"));
+    }
+
+    #[tokio::test]
+    async fn ship_prompt_does_not_surface_hosted_slack_workflow_by_default() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let result = ShipDirective
+            .execute(&[], &test_context(temp.path().to_path_buf()))
+            .await
+            .expect("ship prompt");
+        let CommandResult::Text(prompt) = result else {
+            panic!("expected prompt text");
+        };
+
+        assert!(!prompt.contains("Slack"), "{prompt}");
+        assert!(!prompt.contains("ToolSearch"), "{prompt}");
+        assert!(
+            ship_allowed_tools()
+                .iter()
+                .all(|tool| !tool.to_ascii_lowercase().contains("slack")),
+            "{:?}",
+            ship_allowed_tools()
+        );
+    }
 }

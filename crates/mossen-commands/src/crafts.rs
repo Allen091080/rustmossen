@@ -450,9 +450,6 @@ fn parse_skill_frontmatter_json(bytes: &[u8]) -> HashMap<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static SKILL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn test_context(cwd: PathBuf) -> CommandContext {
         CommandContext {
@@ -466,6 +463,7 @@ mod tests {
             cli_name: "mossen".to_string(),
             version: "test".to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         }
     }
 
@@ -480,7 +478,7 @@ mod tests {
 
     #[tokio::test]
     async fn skills_install_executes_github_plan_and_loads_skill() {
-        let _guard = SKILL_TEST_LOCK.lock().unwrap();
+        let _guard = crate::test_support::skill_state_lock();
         mossen_utils::skills_utils::reset_github_skill_install_plan_store_for_testing();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("tempdir");
@@ -523,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn skills_install_rejects_target_without_skill_md() {
-        let _guard = SKILL_TEST_LOCK.lock().unwrap();
+        let _guard = crate::test_support::skill_state_lock();
         mossen_utils::skills_utils::reset_github_skill_install_plan_store_for_testing();
         let temp = tempfile::tempdir().expect("tempdir");
         let install_root = temp.path().join(".mossen").join("skills");
@@ -550,7 +548,7 @@ mod tests {
 
     #[tokio::test]
     async fn skills_remove_deletes_project_skill_and_refreshes_inventory() {
-        let _guard = SKILL_TEST_LOCK.lock().unwrap();
+        let _guard = crate::test_support::skill_state_lock();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("tempdir");
         let skill_dir = temp.path().join(".mossen").join("skills").join("obsolete");

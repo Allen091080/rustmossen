@@ -76,23 +76,56 @@ pub fn get_tools_for_default_preset() -> Vec<String> {
         .collect()
 }
 
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .map(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+fn web_search_tool_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_WEB_SEARCH_TOOL")
+        || std::env::var("MOSSEN_WEB_SEARCH_ENDPOINT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+}
+
+fn cron_tools_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_CRON_TOOLS")
+}
+
+fn ask_user_tool_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_ASK_USER_TOOL")
+}
+
+fn send_user_message_tool_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_SEND_USER_MESSAGE_TOOL") || env_truthy("MOSSEN_BRIEF_ONLY")
+}
+
+fn plan_mode_tools_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_PLAN_MODE_TOOLS")
+}
+
+fn mcp_resource_tools_enabled() -> bool {
+    env_truthy("MOSSEN_ENABLE_MCP_RESOURCE_TOOLS")
+}
+
 /// `tools.ts` `getAllBaseTools` — the canonical list of built-in tools.
 /// The Rust port enumerates the static names; runtime gating (feature flags,
 /// USER_TYPE=internal) is applied via `enabled`.
 pub fn get_all_base_tools() -> Vec<ToolDescriptor> {
     let user_type_internal = std::env::var("USER_TYPE").as_deref() == Ok("internal");
     let has_embedded = std::env::var("MOSSEN_EMBEDDED_SEARCH").as_deref() == Ok("1");
-    let lsp_enabled = matches!(
-        std::env::var("ENABLE_LSP_TOOL").as_deref(),
-        Ok("1" | "true" | "TRUE")
-    );
     let worktree_enabled = matches!(
         std::env::var("MOSSEN_WORKTREE_MODE").as_deref(),
         Ok("1" | "true" | "TRUE")
     );
 
     let mut tools: Vec<ToolDescriptor> = vec![
-        ToolDescriptor::new("Task"), // AgentTool
+        ToolDescriptor::new("Agent"),
         ToolDescriptor::new("TaskOutput"),
         ToolDescriptor::new("Bash"),
     ];
@@ -101,39 +134,44 @@ pub fn get_all_base_tools() -> Vec<ToolDescriptor> {
         tools.push(ToolDescriptor::new("Grep"));
     }
     tools.extend([
-        ToolDescriptor::new("ExitPlanMode"),
         ToolDescriptor::new("Read"),
         ToolDescriptor::new("Edit"),
         ToolDescriptor::new("Write"),
         ToolDescriptor::new("NotebookEdit"),
         ToolDescriptor::new("WebFetch"),
         ToolDescriptor::new("TodoWrite"),
-        ToolDescriptor::new("WebSearch"),
         ToolDescriptor::new("TaskStop"),
-        ToolDescriptor::new("AskUserQuestion"),
         ToolDescriptor::new("Skill"),
-        ToolDescriptor::new("EnterPlanMode"),
     ]);
+    if plan_mode_tools_enabled() {
+        tools.push(ToolDescriptor::new("EnterPlanMode"));
+        tools.push(ToolDescriptor::new("ExitPlanMode"));
+    }
+    if send_user_message_tool_enabled() {
+        tools.push(ToolDescriptor::new("SendUserMessage"));
+    }
+    if ask_user_tool_enabled() {
+        tools.push(ToolDescriptor::new("AskUserQuestion"));
+    }
+    if web_search_tool_enabled() {
+        tools.push(ToolDescriptor::new("WebSearch"));
+    }
     if user_type_internal {
         tools.push(ToolDescriptor::new("Config"));
-        tools.push(ToolDescriptor::new("Tungsten"));
-    }
-    if lsp_enabled {
-        tools.push(ToolDescriptor::new("LSP"));
     }
     if worktree_enabled {
         tools.push(ToolDescriptor::new("EnterWorktree"));
         tools.push(ToolDescriptor::new("ExitWorktree"));
     }
-    tools.extend([
-        ToolDescriptor::new("SendMessage"),
-        ToolDescriptor::new("Brief"),
-        ToolDescriptor::new("CronCreate"),
-        ToolDescriptor::new("CronDelete"),
-        ToolDescriptor::new("CronList"),
-        ToolDescriptor::new("ListMcpResources"),
-        ToolDescriptor::new("ReadMcpResource"),
-    ]);
+    if mcp_resource_tools_enabled() {
+        tools.push(ToolDescriptor::new("ListMcpResources"));
+        tools.push(ToolDescriptor::new("ReadMcpResource"));
+    }
+    if cron_tools_enabled() {
+        tools.push(ToolDescriptor::new("CronCreate"));
+        tools.push(ToolDescriptor::new("CronDelete"));
+        tools.push(ToolDescriptor::new("CronList"));
+    }
     tools
 }
 
@@ -209,29 +247,177 @@ pub fn get_merged_tools(
 }
 
 /// `tools.ts` `ALL_AGENT_DISALLOWED_TOOLS`.
-pub const ALL_AGENT_DISALLOWED_TOOLS: &[&str] =
-    &["Task", "ExitPlanMode", "EnterPlanMode", "TodoWrite"];
+pub const ALL_AGENT_DISALLOWED_TOOLS: &[&str] = &[
+    "Agent",
+    "Task",
+    "ExitPlanMode",
+    "EnterPlanMode",
+    "TodoWrite",
+];
 
 /// `tools.ts` `CUSTOM_AGENT_DISALLOWED_TOOLS`.
-pub const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] = &["Task", "EnterPlanMode", "ExitPlanMode"];
+pub const CUSTOM_AGENT_DISALLOWED_TOOLS: &[&str] =
+    &["Agent", "Task", "EnterPlanMode", "ExitPlanMode"];
 
 /// `tools.ts` `ASYNC_AGENT_ALLOWED_TOOLS`.
-pub const ASYNC_AGENT_ALLOWED_TOOLS: &[&str] = &[
-    "Read",
-    "Glob",
-    "Grep",
-    "WebFetch",
-    "WebSearch",
-    "TaskOutput",
-];
+pub const ASYNC_AGENT_ALLOWED_TOOLS: &[&str] = &["Read", "Glob", "Grep", "WebFetch", "TaskOutput"];
 
 /// `tools.ts` `COORDINATOR_MODE_ALLOWED_TOOLS`.
 pub const COORDINATOR_MODE_ALLOWED_TOOLS: &[&str] = &[
+    "Agent",
     "Task",
     "TaskStop",
     "TaskOutput",
-    "SendMessage",
     "Read",
     "Grep",
     "Glob",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    struct EnvRestore {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvRestore {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    fn tool_names() -> HashSet<String> {
+        get_all_base_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect()
+    }
+
+    #[test]
+    fn personal_default_index_excludes_unwired_optional_tools() {
+        let _lock = env_lock();
+        let _web = EnvRestore::remove("MOSSEN_ENABLE_WEB_SEARCH_TOOL");
+        let _web_endpoint = EnvRestore::remove("MOSSEN_WEB_SEARCH_ENDPOINT");
+        let _cron = EnvRestore::remove("MOSSEN_ENABLE_CRON_TOOLS");
+        let _ask_user = EnvRestore::remove("MOSSEN_ENABLE_ASK_USER_TOOL");
+        let _send_user_message = EnvRestore::remove("MOSSEN_ENABLE_SEND_USER_MESSAGE_TOOL");
+        let _brief_only = EnvRestore::remove("MOSSEN_BRIEF_ONLY");
+        let _plan_mode = EnvRestore::remove("MOSSEN_ENABLE_PLAN_MODE_TOOLS");
+        let _mcp_resources = EnvRestore::remove("MOSSEN_ENABLE_MCP_RESOURCE_TOOLS");
+        let _lsp = EnvRestore::remove("ENABLE_LSP_TOOL");
+        let _teams = EnvRestore::remove("MOSSEN_CODE_EXPERIMENTAL_AGENT_TEAMS");
+        let _user_type = EnvRestore::remove("USER_TYPE");
+
+        let names = tool_names();
+        for hidden in [
+            "AskUserQuestion",
+            "Brief",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "ListMcpResources",
+            "ReadMcpResource",
+            "SendUserMessage",
+            "SendMessage",
+            "Tungsten",
+            "LSP",
+            "WebSearch",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+        ] {
+            assert!(
+                !names.contains(hidden),
+                "{hidden} must not be in the personal default tool index"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_index_gates_expose_web_search_and_cron_tools() {
+        let _lock = env_lock();
+        let _web = EnvRestore::set("MOSSEN_ENABLE_WEB_SEARCH_TOOL", "1");
+        let _cron = EnvRestore::set("MOSSEN_ENABLE_CRON_TOOLS", "1");
+        let _ask_user = EnvRestore::set("MOSSEN_ENABLE_ASK_USER_TOOL", "1");
+        let _send_user_message = EnvRestore::set("MOSSEN_ENABLE_SEND_USER_MESSAGE_TOOL", "1");
+        let _plan_mode = EnvRestore::set("MOSSEN_ENABLE_PLAN_MODE_TOOLS", "1");
+        let _mcp_resources = EnvRestore::set("MOSSEN_ENABLE_MCP_RESOURCE_TOOLS", "1");
+        let _lsp = EnvRestore::set("ENABLE_LSP_TOOL", "1");
+        let _teams = EnvRestore::set("MOSSEN_CODE_EXPERIMENTAL_AGENT_TEAMS", "1");
+        let _user_type = EnvRestore::set("USER_TYPE", "internal");
+
+        let names = tool_names();
+        for exposed in [
+            "AskUserQuestion",
+            "Config",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "ListMcpResources",
+            "ReadMcpResource",
+            "SendUserMessage",
+            "WebSearch",
+            "CronCreate",
+            "CronDelete",
+            "CronList",
+        ] {
+            assert!(
+                names.contains(exposed),
+                "{exposed} should be present after its explicit feature gate"
+            );
+        }
+        for hidden in [
+            "LSP",
+            "SendMessage",
+            "Tungsten",
+            "Workflow",
+            "RemoteTrigger",
+        ] {
+            assert!(
+                !names.contains(hidden),
+                "{hidden} must stay out of the index until its runtime path is wired"
+            );
+        }
+    }
+
+    #[test]
+    fn coordinator_allowlist_excludes_unwired_personal_runtime_tools() {
+        for hidden in [
+            "SendMessage",
+            "TeamCreate",
+            "TeamDelete",
+            "Workflow",
+            "RemoteTrigger",
+        ] {
+            assert!(
+                !COORDINATOR_MODE_ALLOWED_TOOLS.contains(&hidden),
+                "{hidden} must not be advertised as coordinator-allowed in the personal runtime"
+            );
+        }
+    }
+}

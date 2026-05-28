@@ -10,7 +10,7 @@ Contract:
     the tool call.
 
 This test uses a local OpenAI-compatible mock server so it does not depend on a
-real LLM service or the removed legacy run-mossen.sh wrapper.
+real LLM service.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
 REAL_HOME = Path.home()
-DEBUG_MOSSEN = ROOT / "target" / "debug" / "mossen"
 MCP_SERVER_NAME = "harness_mock_slow_M10_1"
 MCP_TOOL_FULL_NAME = f"mcp__{MCP_SERVER_NAME}__slow_M10_1"
 SLOW_TAG = "SLOW_TAG_FROM_MOCK_M10_1"
@@ -41,8 +40,6 @@ FINAL_MARKER = "FINAL_OK_M10_1"
 
 
 def mossen_runner() -> str:
-    if DEBUG_MOSSEN.exists() and DEBUG_MOSSEN.is_file():
-        return str(DEBUG_MOSSEN)
     return str(ROOT / "scripts" / "start-mossen.sh")
 
 

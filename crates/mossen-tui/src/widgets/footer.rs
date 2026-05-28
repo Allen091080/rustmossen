@@ -388,7 +388,7 @@ mod tests {
     fn footer_widget_renders_semantic_footer_model_directly() {
         let footer = FooterRenderModel {
             project: Some("/Users/allen/Documents/rustmossen/逐行阅读项目".to_string()),
-            model: Some("MiniMax-M2.7".to_string()),
+            model: Some("example-fast".to_string()),
             access_mode: Some("Supervised".to_string()),
             reasoning: Some("low".to_string()),
             context: Some(ContextUsageRenderModel {
@@ -413,7 +413,7 @@ mod tests {
         for ch in ['逐', '行', '阅', '读', '项', '目'] {
             assert!(rendered.contains(ch), "{rendered}");
         }
-        assert!(rendered.contains("MiniMax-M2.7"), "{rendered}");
+        assert!(rendered.contains("example-fast"), "{rendered}");
         assert!(rendered.contains("reasoning:low"), "{rendered}");
         assert!(rendered.contains("approval required"), "{rendered}");
         assert!(rendered.contains("approval: Bash"), "{rendered}");
@@ -427,7 +427,7 @@ mod tests {
         let mut config = FooterRenderConfig::default();
         config.set_enabled(FooterItem::ExternalStatus, true);
         let footer = FooterRenderModel {
-            model: Some("MiniMax-M2.7".to_string()),
+            model: Some("example-fast".to_string()),
             external_status: Some("branch main".to_string()),
             config,
             ..FooterRenderModel::default()
@@ -435,7 +435,7 @@ mod tests {
 
         let rendered = render_footer(&footer, 96);
 
-        assert!(rendered.contains("MiniMax-M2.7"), "{rendered}");
+        assert!(rendered.contains("example-fast"), "{rendered}");
         assert!(rendered.contains("branch main"), "{rendered}");
     }
 

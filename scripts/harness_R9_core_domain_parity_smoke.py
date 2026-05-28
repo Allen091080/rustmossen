@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 
 WEAK_MODE = True  # G2-2d framework 阶段; 各 G4-x slice 后逐域切 STRICT
@@ -45,6 +46,7 @@ WEAK_MODE = True  # G2-2d framework 阶段; 各 G4-x slice 后逐域切 STRICT
 def _make_env(ctx, *, extra: dict | None = None) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     env["MOSSEN_NON_INTERACTIVE_SESSION"] = "1"
     env["MOSSEN_CODE_TRUST_DIALOG_ACCEPTED"] = "1"
     env.pop("MOSSEN_CONFIG_OVERRIDES", None)
@@ -56,8 +58,13 @@ def _make_env(ctx, *, extra: dict | None = None) -> dict:
 
 def _find_session_jsonls(home: Path) -> list[Path]:
     out = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in out:
                 out.append(p)
@@ -70,12 +77,22 @@ def _run_prompt(ctx, prompt: str, *, extra_env: dict | None = None,
     proj = ctx.root_dir / "fake_project"
     proj.mkdir(parents=True, exist_ok=True)
 
-    cmd = [str(ROOT / "run-mossen.sh"), "-p", *(extra_args or [])]
-    proc = subprocess.run(
-        cmd, input=prompt, env=env, capture_output=True,
-        text=True, timeout=timeout, cwd=str(proj),
-    )
-    write_command_log(ctx, ["mossen", "-p", *(extra_args or [])],
+    model = "r9-core-domain-model"
+    with mock_openai_provider(model=model) as (base_url, provider):
+        apply_mock_provider_env(
+            env,
+            base_url,
+            model=model,
+            name="R9 Core Domain Mock",
+        )
+        ctx.env.update(env)
+        cmd = [str(ROOT / "scripts" / "start-mossen.sh"), "--stdin", *(extra_args or [])]
+        proc = subprocess.run(
+            cmd, input=prompt, env=env, capture_output=True,
+            text=True, timeout=timeout, cwd=str(proj),
+        )
+        provider_snapshot = provider.snapshot()
+    write_command_log(ctx, ["mossen", "--stdin", *(extra_args or [])],
                       proc.stdout, proc.stderr, proc.returncode)
     sessions = _find_session_jsonls(ctx.home_dir)
     return {
@@ -85,6 +102,8 @@ def _run_prompt(ctx, prompt: str, *, extra_env: dict | None = None,
         "session_count": len(sessions),
         "session_paths": [str(p) for p in sessions[:3]],
         "session_landed": len(sessions) > 0,
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_paths": provider_snapshot["paths"],
     }
 
 
@@ -140,7 +159,7 @@ def case_memory() -> dict:
 
 
 # ============================================================================
-# Sub-case 3: R9.permission — 验 permission gate 不破 (--permission-mode acceptEdits)
+# Sub-case 3: R9.permission — 验 permission gate 不破 (--access-policy trust-edits)
 # (G4-3 后切 STRICT: 3 模式真生效, edit/rm/危险操作行为正确)
 # ============================================================================
 def case_permission() -> dict:
@@ -148,7 +167,7 @@ def case_permission() -> dict:
     marker = "R9_PERMISSION_MARKER"
     prompt = f"请把以下字符串原样回复给我: {marker}"
     res = _run_prompt(ctx, prompt,
-                      extra_args=["--permission-mode", "acceptEdits"])
+                      extra_args=["--access-policy", "trust-edits"])
     base_ok = res["exit_code"] == 0 and res["session_landed"]
     return {
         "name": "R9.permission",
@@ -179,20 +198,27 @@ def case_model() -> dict:
     model_in_session = None
     if res["session_paths"]:
         try:
-            for line in Path(res["session_paths"][0]).read_text().splitlines():
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(rec, dict) and "model" in rec:
-                    model_in_session = rec["model"]
-                    break
-                if isinstance(rec, dict) and "message" in rec:
-                    msg = rec["message"]
-                    if isinstance(msg, dict) and "model" in msg:
-                        model_in_session = msg["model"]
+            session_path = Path(res["session_paths"][0])
+            session_text = session_path.read_text(encoding="utf-8", errors="replace")
+            if session_path.suffix == ".json":
+                rec = json.loads(session_text)
+                if isinstance(rec, dict):
+                    model_in_session = rec.get("model")
+            else:
+                for line in session_text.splitlines():
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(rec, dict) and "model" in rec:
+                        model_in_session = rec["model"]
                         break
-        except OSError:
+                    if isinstance(rec, dict) and "message" in rec:
+                        msg = rec["message"]
+                        if isinstance(msg, dict) and "model" in msg:
+                            model_in_session = msg["model"]
+                            break
+        except (OSError, json.JSONDecodeError):
             pass
 
     base_ok = res["exit_code"] == 0 and res["session_landed"]

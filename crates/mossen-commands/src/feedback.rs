@@ -34,6 +34,10 @@ impl Directive for FeedbackDirective {
         DirectiveType::LocalWidget
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        has_configured_feedback_urls(ctx)
+    }
+
     fn is_immediate(&self) -> bool {
         true
     }
@@ -64,12 +68,57 @@ impl Directive for FeedbackDirective {
                     .to_string(),
             ))
         } else {
-            // Quick feedback with pre-filled description
-            // In full implementation: submit directly or open form pre-filled
-            Ok(CommandResult::System(format!(
-                "Feedback submitted: {}",
-                initial_description
+            let target = ctx
+                .env_vars
+                .get("MOSSEN_CODE_PLATFORM_FEEDBACK_URL")
+                .or_else(|| ctx.env_vars.get("MOSSEN_CODE_PLATFORM_ISSUES_URL"))
+                .cloned()
+                .unwrap_or_else(|| "configured feedback endpoint".to_string());
+            Ok(CommandResult::Error(format!(
+                "Cannot submit feedback from this command runner. Open {} and include: {}",
+                target, initial_description
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        let mut env_vars = HashMap::new();
+        env_vars.insert(
+            "MOSSEN_CODE_PLATFORM_FEEDBACK_URL".to_string(),
+            "https://feedback.example/form".to_string(),
+        );
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars,
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn feedback_directive_does_not_claim_inline_submission() {
+        let output = tokio_test::block_on(FeedbackDirective.execute(&["broken"], &test_context()))
+            .expect("feedback command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("feedback should fail closed without a submitter");
+        };
+        assert!(text.contains("Cannot submit feedback"), "{text}");
+        assert!(!text.contains("Feedback submitted"), "{text}");
     }
 }

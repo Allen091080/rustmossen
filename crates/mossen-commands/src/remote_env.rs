@@ -1,7 +1,7 @@
 //! `/remote-env` — Configure remote environment settings.
 //!
-//! Manages environment variables and configuration for remote
-//! execution contexts (cloud workspaces, SSH sessions, containers).
+//! Manages environment variables and configuration for external execution
+//! contexts when that mode is explicitly enabled.
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -10,9 +10,8 @@ use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
 /// Remote environment configuration command.
 ///
-/// Allows setting environment variables that will be forwarded
-/// to remote execution contexts. Useful for API keys, paths,
-/// and tool configurations in remote sessions.
+/// Allows setting environment variables that will be forwarded to external
+/// execution contexts. Useful for API keys, paths, and tool configurations.
 pub struct RemoteEnvDirective;
 
 #[async_trait]
@@ -44,7 +43,7 @@ impl Directive for RemoteEnvDirective {
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         if !ctx.is_remote_mode {
             return Ok(CommandResult::Error(
-                "This command is only available in remote mode.".to_string(),
+                "This command is not available in this session.".to_string(),
             ));
         }
 
@@ -54,7 +53,7 @@ impl Directive for RemoteEnvDirective {
             .unwrap_or(false)
         {
             return Ok(CommandResult::Text(
-                "Usage: /remote-env [subcommand]\n\n                 Manage remote environment variables.\n\n                 Subcommands:\n                   list             List configured remote env vars\n                   set KEY=VALUE    Set a remote env var\n                   unset KEY        Remove a remote env var"
+                    "Usage: /remote-env [subcommand]\n\n                 Manage external execution environment variables.\n\n                 Subcommands:\n                   list             List configured environment variables\n                   set KEY=VALUE    Set an environment variable\n                   unset KEY        Remove an environment variable"
                     .to_string(),
             ));
         }
@@ -64,15 +63,15 @@ impl Directive for RemoteEnvDirective {
             None | Some("list") => {
                 if ctx.is_non_interactive {
                     return Ok(CommandResult::Text(
-                        "Remote environment variables: (none configured)".to_string(),
+                        "Execution environment variables: (none configured)".to_string(),
                     ));
                 }
                 // Interactive mode: show the RemoteEnvironmentDialog equivalent
-                // Lists all env vars configured for remote/teleport sessions.
+                // Lists all env vars configured for external execution contexts.
                 let mut lines = Vec::new();
-                lines.push("Remote Environment Configuration".to_string());
+                lines.push("Execution Environment Configuration".to_string());
                 lines.push(String::new());
-                lines.push("Variables forwarded to remote sessions:".to_string());
+                lines.push("Variables forwarded to configured execution contexts:".to_string());
                 lines.push("  (none configured)".to_string());
                 lines.push(String::new());
                 lines.push("Use /remote-env set KEY=VALUE to add a variable.".to_string());
@@ -102,5 +101,61 @@ impl Directive for RemoteEnvDirective {
                 unknown
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context(is_remote_mode: bool) -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: false,
+            is_remote_mode,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn remote_env_disabled_message_is_session_neutral() {
+        let output = tokio_test::block_on(RemoteEnvDirective.execute(&[], &test_context(false)))
+            .expect("remote-env command");
+        let CommandResult::Error(text) = output else {
+            panic!("disabled remote-env should return an error");
+        };
+
+        assert!(text.contains("not available"), "{text}");
+        assert!(!text.to_ascii_lowercase().contains("remote"), "{text}");
+        assert!(!text.to_ascii_lowercase().contains("hosted"), "{text}");
+    }
+
+    #[test]
+    fn remote_env_list_does_not_advertise_remote_sessions() {
+        let output = tokio_test::block_on(RemoteEnvDirective.execute(&[], &test_context(true)))
+            .expect("remote-env command");
+        let CommandResult::Text(text) = output else {
+            panic!("remote-env list should return text");
+        };
+
+        assert!(
+            text.contains("Execution Environment Configuration"),
+            "{text}"
+        );
+        assert!(
+            !text.to_ascii_lowercase().contains("remote sessions"),
+            "{text}"
+        );
+        assert!(!text.to_ascii_lowercase().contains("hosted"), "{text}");
     }
 }

@@ -49,6 +49,7 @@ FALLBACK_VAL = "R5_DEFAULT_FALLBACK"
 def _make_env(ctx, env_overrides: dict | None = None) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     if env_overrides:
         env["MOSSEN_CONFIG_OVERRIDES"] = json.dumps(env_overrides)
     else:
@@ -60,7 +61,7 @@ def _make_env(ctx, env_overrides: dict | None = None) -> dict:
 def _read_resolved(env: dict, proj_dir: Path) -> tuple[int, str]:
     """Run mossen --get-mossen-config <PROBE_KEY>; return (rc, stdout)."""
     proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "--get-mossen-config", PROBE_KEY],
+        [str(ROOT / "scripts" / "start-mossen.sh"), "--get-mossen-config", PROBE_KEY],
         env=env,
         capture_output=True,
         text=True,

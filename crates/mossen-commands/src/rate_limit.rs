@@ -7,6 +7,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
+use mossen_agent::services::root::hosted_limits::{
+    get_current_limits, get_rate_limit_display_name, QuotaStatus,
+};
 
 /// Rate limit options command — rate limiting configuration.
 ///
@@ -43,7 +46,12 @@ impl Directive for RateLimitDirective {
         true
     }
 
-    async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_hosted_platform_features()
+            || ctx.is_env_truthy("MOSSEN_ENABLE_RATE_LIMIT_COMMAND")
+    }
+
+    async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         if args
             .first()
             .map(|a| matches!(*a, "help" | "-h" | "--help"))
@@ -58,27 +66,155 @@ impl Directive for RateLimitDirective {
             return Ok(CommandResult::Text(help));
         }
 
-        if ctx.is_non_interactive {
-            return Ok(CommandResult::Text(
-                "Rate Limit Status\n\
-                 =================\n\n\
-                 Requests remaining: unlimited\n\
-                 Reset: N/A\n\
-                 Retry policy: auto-retry with exponential backoff\n\
-                 Notification: warn at 80% usage"
-                    .to_string(),
-            ));
+        let limits = get_current_limits();
+        let has_snapshot = limits.rate_limit_type.is_some()
+            || limits.remaining_tokens.is_some()
+            || limits.reset_at.is_some()
+            || limits.warning_message.is_some()
+            || limits.status != QuotaStatus::Allowed
+            || limits.is_overage;
+
+        let mut output = String::from("Rate Limit Status\n=================\n\n");
+        if !has_snapshot {
+            output.push_str("No API rate-limit snapshot has been recorded yet.\n");
+            output.push_str(
+                "This local build will show live limits only after the API layer records them.\n",
+            );
+            return Ok(CommandResult::Text(output));
         }
 
-        // Show rate limit options menu
-        Ok(CommandResult::Text(
-            "Rate Limit Options\n\
-             ==================\n\n\
-             What do you want to do?\n\n\
-             1. Buy extra usage\n\
-             2. Upgrade your plan\n\
-             3. Stop and wait for limit to reset"
-                .to_string(),
-        ))
+        output.push_str(&format!(
+            "Status:            {}\n",
+            quota_status_label(&limits.status)
+        ));
+        if let Some(rate_limit_type) = limits.rate_limit_type.as_ref() {
+            output.push_str(&format!(
+                "Limit type:        {}\n",
+                get_rate_limit_display_name(rate_limit_type)
+            ));
+        }
+        if let Some(remaining) = limits.remaining_tokens {
+            output.push_str(&format!("Tokens remaining:  {remaining}\n"));
+        } else {
+            output.push_str("Tokens remaining:  not provided by API\n");
+        }
+        if let Some(reset_at) = limits.reset_at {
+            output.push_str(&format!(
+                "Reset:             {}\n",
+                format_reset_duration(reset_at)
+            ));
+        }
+        if limits.is_overage {
+            output.push_str("Overage:           active\n");
+        }
+        if let Some(message) = limits.warning_message.as_ref() {
+            output.push_str(&format!("Message:           {message}\n"));
+        }
+
+        Ok(CommandResult::Text(output))
+    }
+}
+
+fn quota_status_label(status: &QuotaStatus) -> &'static str {
+    match status {
+        QuotaStatus::Allowed => "allowed",
+        QuotaStatus::AllowedWarning => "warning",
+        QuotaStatus::Rejected => "rejected",
+    }
+}
+
+fn format_reset_duration(reset_at: std::time::Instant) -> String {
+    let now = std::time::Instant::now();
+    if reset_at <= now {
+        "now".to_string()
+    } else {
+        let seconds = reset_at.duration_since(now).as_secs();
+        if seconds < 60 {
+            format!("{seconds}s")
+        } else if seconds < 3_600 {
+            format!("{}m", seconds / 60)
+        } else {
+            format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use mossen_agent::services::root::hosted_limits::{
+        reset_rate_limits, update_rate_limits, RateLimitType,
+    };
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+
+    fn hosted_limit_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("hosted limit test lock poisoned")
+    }
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    fn text(result: CommandResult) -> String {
+        match result {
+            CommandResult::Text(text) => text,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rate_limit_does_not_print_fake_unlimited_state_without_snapshot() {
+        let _guard = hosted_limit_test_lock();
+        reset_rate_limits();
+
+        let output = text(
+            tokio_test::block_on(RateLimitDirective.execute(&[], &test_context()))
+                .expect("rate limit command"),
+        );
+
+        assert!(output.contains("No API rate-limit snapshot"), "{output}");
+        assert!(!output.to_lowercase().contains("hosted"), "{output}");
+        assert!(!output.contains("unlimited"), "{output}");
+        assert!(!output.contains("Upgrade your plan"), "{output}");
+    }
+
+    #[test]
+    fn rate_limit_reports_recorded_snapshot() {
+        let _guard = hosted_limit_test_lock();
+        reset_rate_limits();
+        update_rate_limits(
+            QuotaStatus::AllowedWarning,
+            Some(RateLimitType::FiveHour),
+            Some(123),
+            Some(60),
+        );
+
+        let output = text(
+            tokio_test::block_on(RateLimitDirective.execute(&[], &test_context()))
+                .expect("rate limit command"),
+        );
+
+        assert!(output.contains("Status:            warning"), "{output}");
+        assert!(output.contains("5-hour rate limit"), "{output}");
+        assert!(output.contains("Tokens remaining:  123"), "{output}");
+        reset_rate_limits();
     }
 }

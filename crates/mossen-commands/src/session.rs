@@ -41,6 +41,10 @@ impl Directive for SessionDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.is_remote_mode
+    }
+
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         // Check if we're in remote mode
         if !ctx.is_remote_mode {

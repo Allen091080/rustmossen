@@ -28,8 +28,8 @@ fn validate_name(name: &str) -> Result<&str, String> {
     Ok(trimmed)
 }
 
-/// Check if the current session is a teammate (swarm child).
-fn is_teammate(ctx: &CommandContext) -> bool {
+/// Check if the current session is a delegated child session.
+fn is_delegated_session(ctx: &CommandContext) -> bool {
     ctx.env_vars
         .get("MOSSEN_TEAMMATE")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
@@ -59,10 +59,9 @@ impl Directive for RenameDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        // Teammates cannot rename — their names are set by the team leader
-        if is_teammate(ctx) {
+        if is_delegated_session(ctx) {
             return Ok(CommandResult::System(
-                "Cannot rename: This session is a swarm teammate. Teammate names are set by the team leader.".to_string(),
+                "Cannot rename this child agent session from inside the child.".to_string(),
             ));
         }
 
@@ -84,15 +83,60 @@ impl Directive for RenameDirective {
             Err(e) => return Ok(CommandResult::Error(e)),
         };
 
-        // In full implementation:
-        // 1. Get current session ID and transcript path
-        // 2. Save custom title via saveCustomTitle(sessionId, newName, fullPath)
-        // 3. Also persist as agent name for prompt-bar display
-        // 4. Update app state with new name
-
-        Ok(CommandResult::System(format!(
-            "Session renamed to: {}",
-            new_name
+        Ok(CommandResult::Error(format!(
+            "Cannot rename from this command runner. Use /rename {new_name} in the interactive TUI session so the live session title state is updated."
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn rename_directive_does_not_claim_success_outside_tui_state() {
+        let output = tokio_test::block_on(RenameDirective.execute(&["demo"], &test_context()))
+            .expect("rename command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("rename should not claim success outside TUI state");
+        };
+        assert!(text.contains("Cannot rename"), "{text}");
+        assert!(!text.contains("Session renamed to"), "{text}");
+    }
+
+    #[test]
+    fn rename_child_session_message_avoids_team_wiring_claims() {
+        let mut ctx = test_context();
+        ctx.env_vars
+            .insert("MOSSEN_TEAMMATE".to_string(), "1".to_string());
+        let output =
+            tokio_test::block_on(RenameDirective.execute(&["demo"], &ctx)).expect("rename command");
+
+        let CommandResult::System(text) = output else {
+            panic!("child rename should return a system message");
+        };
+        let lowered = text.to_ascii_lowercase();
+        assert!(!lowered.contains("swarm"), "{text}");
+        assert!(!lowered.contains("teammate"), "{text}");
     }
 }

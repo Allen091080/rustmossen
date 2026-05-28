@@ -1838,6 +1838,13 @@ pub fn _set_global_config_cache_for_testing(_value: serde_json::Value) {
     }
 }
 
+#[doc(hidden)]
+pub fn _reset_global_config_cache_for_testing() {
+    let mut cache = GLOBAL_CONFIG_CACHE.write();
+    cache.config = None;
+    cache.mtime = 0;
+}
+
 /// 测试用：判断给定 config 切换是否会丢失 auth 状态（对应 TS
 /// `_wouldLoseAuthStateForTesting`）。Rust 端简化为比较 `oauthAccount` 字段。
 #[doc(hidden)]

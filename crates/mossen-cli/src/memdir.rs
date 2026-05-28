@@ -492,7 +492,9 @@ pub fn sanitize_path_key(key: &str) -> Result<String, PathTraversalError> {
 }
 
 pub fn is_team_memory_enabled() -> bool {
-    is_auto_memory_enabled() && is_team_memory_rollout_enabled()
+    is_auto_memory_enabled()
+        && is_team_memory_rollout_enabled()
+        && mossen_agent::services::team_memory_sync::is_team_memory_sync_available()
 }
 
 pub fn is_team_memory_rollout_enabled() -> bool {
@@ -511,7 +513,7 @@ pub fn is_team_memory_rollout_enabled() -> bool {
 fn resolve_team_memory_rollout_enabled(
     disable_flag: Option<bool>,
     enable_flag: Option<bool>,
-    sync_available: bool,
+    _sync_available: bool,
 ) -> bool {
     if disable_flag == Some(true) {
         return false;
@@ -519,7 +521,7 @@ fn resolve_team_memory_rollout_enabled(
     if let Some(enabled) = enable_flag {
         return enabled;
     }
-    sync_available
+    false
 }
 
 fn env_flag(names: &[&str]) -> Option<bool> {
@@ -890,6 +892,8 @@ mod tests {
         "MOSSEN_TEAM_MEMORY",
         "MOSSEN_MEMORY_TEAM_MEMORY_ENABLED",
         "MOSSEN_TEAM_MEMORY_ENABLED",
+        "TEAM_MEMORY_SYNC_TOKEN",
+        "MOSSEN_TEAM_MEMORY_SYNC_TOKEN",
     ];
 
     struct EnvGuard(Vec<(&'static str, Option<String>)>);
@@ -927,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn team_memory_rollout_uses_explicit_flags_before_sync_availability() {
+    fn team_memory_rollout_requires_explicit_opt_in() {
         assert!(!resolve_team_memory_rollout_enabled(
             Some(true),
             Some(true),
@@ -939,7 +943,7 @@ mod tests {
             Some(false),
             true
         ));
-        assert!(resolve_team_memory_rollout_enabled(None, None, true));
+        assert!(!resolve_team_memory_rollout_enabled(None, None, true));
         assert!(!resolve_team_memory_rollout_enabled(None, None, false));
     }
 
@@ -1041,6 +1045,34 @@ mod tests {
         assert!(
             prompt.contains(&auto_mem_dir.display().to_string()),
             "{prompt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_memory_prompt_stays_personal_without_team_opt_in_even_with_sync_token() {
+        let _lock = memdir_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_root = temp.path().join("project");
+        let auto_mem_dir = temp.path().join("automem");
+        std::fs::create_dir_all(&project_root).expect("project dir");
+        std::fs::create_dir_all(&auto_mem_dir).expect("auto mem dir");
+        let _env = isolate_memdir_env(temp.path(), &auto_mem_dir);
+        std::env::remove_var("MOSSEN_CODE_DISABLE_TEAM_MEMORY");
+        std::env::set_var("TEAM_MEMORY_SYNC_TOKEN", "test-token");
+
+        assert!(!is_team_memory_rollout_enabled());
+        assert!(!is_team_memory_enabled());
+
+        let prompt = load_memory_prompt(&project_root)
+            .await
+            .expect("memory prompt");
+        assert!(
+            !prompt.contains("shared team directory"),
+            "personal default prompt must not expose team memory:\n{prompt}"
+        );
+        assert!(
+            prompt.contains("auto memory"),
+            "personal memory prompt should still be loaded:\n{prompt}"
         );
     }
 }

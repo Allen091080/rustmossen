@@ -8463,7 +8463,7 @@ mod tests {
         let transcript = RenderTranscript::from_messages(&[message(MessageType::User, "跑测试")]);
         let footer = FooterRenderModel {
             project: Some("/Users/allen/Documents/rustmossen".to_string()),
-            model: Some("MiniMax-M2.7".to_string()),
+            model: Some("example-fast".to_string()),
             access_mode: Some("Supervised".to_string()),
             turn_state: Some("streaming".to_string()),
             message_count: Some(1),

@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
-RUN_MOSSEN = str(ROOT / "run-mossen.sh")
+RUN_MOSSEN = str(ROOT / "scripts" / "start-mossen.sh")
 
 PROFILE_A_KEY = "sk-test-mock-A-AAAAAAAAAAAAAAAA"
 PROFILE_B_KEY = "sk-test-mock-B-BBBBBBBBBBBBBBBB"
@@ -52,11 +52,12 @@ class _MockState:
         self.lock = threading.Lock()
 
     def record(self, path: str, headers: dict, body: bytes):
+        normalized_headers = {str(k).lower(): v for k, v in headers.items()}
         with self.lock:
             self.requests.append({
                 "path": path,
-                "authorization": headers.get("Authorization", ""),
-                "user_agent": headers.get("User-Agent", ""),
+                "authorization": normalized_headers.get("authorization", ""),
+                "user_agent": normalized_headers.get("user-agent", ""),
                 "body": body.decode("utf-8", errors="replace")[:200] if body else "",
                 "ts": time.time(),
             })

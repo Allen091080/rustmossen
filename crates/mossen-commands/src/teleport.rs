@@ -76,6 +76,13 @@ impl Directive for TeleportDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_remote_workspace_features()
+            && (ctx.is_remote_mode
+                || ctx.is_env_truthy("MOSSEN_TELEPORT_ENABLED")
+                || ctx.env_vars.contains_key("MOSSEN_TELEPORT_URL"))
+    }
+
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let result = execute_teleport_flow(args, ctx).await?;
         Ok(CommandResult::Text(result))

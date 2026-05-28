@@ -233,4 +233,3 @@ pub fn start_settings_polling(ctx: std::sync::Arc<dyn RemoteManagedSettingsConte
         }
     });
 }
-

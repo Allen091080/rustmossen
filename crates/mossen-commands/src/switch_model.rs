@@ -222,6 +222,7 @@ impl Directive for SwitchModelDirective {
             Some(profile) => {
                 config_profiles::set_session_active_profile(&profile.name)
                     .map_err(anyhow::Error::msg)?;
+                config_profiles::apply_profile_to_custom_backend_env(&profile);
                 output.push_str(&format_switch_result(&profile, cli_name));
                 Ok(CommandResult::Text(output))
             }
@@ -240,11 +241,46 @@ mod tests {
     use crate::context::CommandContext;
     use mossen_agent::services::config::{facade, types::ConfigOverrideScope};
     use std::collections::HashMap;
+    use std::env;
     use std::sync::{Mutex, OnceLock};
 
     fn config_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    const PROFILE_ENV_KEYS: &[&str] = &[
+        "MOSSEN_CODE_USE_CUSTOM_BACKEND",
+        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+        "MOSSEN_CODE_CUSTOM_NAME",
+        "MOSSEN_CODE_CUSTOM_BASE_URL",
+        "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_MODEL",
+        "MOSSEN_API_BASE_URL",
+        "MOSSEN_API_KEY",
+    ];
+
+    struct EnvRestore(Vec<(&'static str, Option<String>)>);
+
+    impl EnvRestore {
+        fn capture(keys: &'static [&'static str]) -> Self {
+            Self(
+                keys.iter()
+                    .map(|key| (*key, env::var(key).ok()))
+                    .collect::<Vec<_>>(),
+            )
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                match value {
+                    Some(value) => env::set_var(key, value),
+                    None => env::remove_var(key),
+                }
+            }
+        }
     }
 
     fn test_context() -> CommandContext {
@@ -259,6 +295,7 @@ mod tests {
             cli_name: "mossen".to_string(),
             version: "test".to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         }
     }
 
@@ -267,24 +304,24 @@ mod tests {
         facade::set_mossen_config_override(
             "mossen.profiles",
             serde_json::json!({
-                "glm": {
+                "fast": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://glm.example.com/v1",
-                    "model": "glm-5.1",
-                    "apiKey": "sk-glm-secret"
+                    "baseURL": "https://fast.example.com/v1",
+                    "model": "example-fast",
+                    "apiKey": "sk-test-fast-secret"
                 },
-                "qwen": {
+                "large": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://qwen.example.com/v1",
-                    "model": "qwen3.6-plus[1M]",
-                    "apiKey": "sk-qwen-secret"
+                    "baseURL": "https://large.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-large-secret"
                 }
             }),
             ConfigOverrideScope::Override,
         );
         facade::set_mossen_config_override(
             "mossen.activeProfile",
-            serde_json::Value::String("qwen".to_string()),
+            serde_json::Value::String("large".to_string()),
             ConfigOverrideScope::Override,
         );
     }
@@ -302,31 +339,53 @@ mod tests {
         };
 
         assert!(text.contains("Model profiles (2)"));
-        assert!(text.contains("qwen [session]"));
-        assert!(text.contains("glm"));
-        assert!(text.contains("qwen3.6-plus[1M]"));
-        assert!(!text.contains("sk-qwen-secret"));
-        assert!(!text.contains("https://qwen.example.com/v1"));
+        assert!(text.contains("large [session]"));
+        assert!(text.contains("fast"));
+        assert!(text.contains("example-large"));
+        assert!(!text.contains("sk-test-large-secret"));
+        assert!(!text.contains("https://large.example.com/v1"));
         facade::reset_facade_for_testing();
     }
 
     #[tokio::test]
     async fn model_directive_switches_session_profile() {
         let _guard = config_lock();
+        let _env_guard = crate::test_support::env_lock();
+        let _env_restore = EnvRestore::capture(PROFILE_ENV_KEYS);
+        for key in PROFILE_ENV_KEYS {
+            env::remove_var(key);
+        }
         seed_profiles();
         let result = SwitchModelDirective
-            .execute(&["glm"], &test_context())
+            .execute(&["fast"], &test_context())
             .await
             .expect("model switch");
         let CommandResult::Text(text) = result else {
             panic!("expected text");
         };
 
-        assert!(text.contains("Switched session profile to \"glm\""));
-        assert!(text.contains("model: glm-5.1"));
+        assert!(text.contains("Switched session profile to \"fast\""));
+        assert!(text.contains("model: example-fast"));
         assert_eq!(
             config_profiles::get_active_profile_name().as_deref(),
-            Some("glm")
+            Some("fast")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
+            Ok("openai-compatible")
+        );
+        assert_eq!(env::var("MOSSEN_CODE_CUSTOM_NAME").as_deref(), Ok("fast"));
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_BASE_URL").as_deref(),
+            Ok("https://fast.example.com/v1")
+        );
+        assert_eq!(
+            env::var("MOSSEN_CODE_CUSTOM_MODEL").as_deref(),
+            Ok("example-fast")
+        );
+        assert_eq!(
+            env::var("MOSSEN_API_BASE_URL").as_deref(),
+            Ok("https://fast.example.com/v1")
         );
         facade::reset_facade_for_testing();
     }

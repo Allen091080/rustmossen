@@ -24,7 +24,7 @@ fn get_effort_value_description(value: &str) -> &'static str {
         "low" => "Quick, straightforward implementation",
         "medium" => "Balanced approach with standard testing",
         "high" => "Comprehensive implementation with extensive testing",
-        "max" => "Maximum capability with deepest reasoning (Max 4.6 only)",
+        "max" => "Maximum capability with the deepest configured reasoning tier",
         _ => "Unknown effort level",
     }
 }
@@ -35,7 +35,7 @@ struct EffortCommandResult {
     effort_update: Option<Option<String>>, // Some(Some(value)) = set, Some(None) = unset
 }
 
-/// Set an effort value.
+/// Build the message for an effort value without claiming a live update.
 fn set_effort_value(effort_value: &str) -> EffortCommandResult {
     // Check for environment variable override
     if let Ok(env_raw) = std::env::var("MOSSEN_CODE_EFFORT_LEVEL") {
@@ -43,8 +43,9 @@ fn set_effort_value(effort_value: &str) -> EffortCommandResult {
         if env_override != effort_value {
             return EffortCommandResult {
                 message: format!(
-                    "MOSSEN_CODE_EFFORT_LEVEL={} overrides this session — clear it and {} takes over",
-                    env_raw, effort_value
+                    "Cannot set effort level to {} from this command runner. MOSSEN_CODE_EFFORT_LEVEL={} currently controls this session.",
+                    effort_value,
+                    env_raw
                 ),
                 effort_update: Some(Some(effort_value.to_string())),
             };
@@ -61,7 +62,7 @@ fn set_effort_value(effort_value: &str) -> EffortCommandResult {
 
     EffortCommandResult {
         message: format!(
-            "Set effort level to {}{}: {}",
+            "Cannot set effort level to {}{} from this command runner. The live model request path is not attached here. {}",
             effort_value, suffix, description
         ),
         effort_update: Some(Some(effort_value.to_string())),
@@ -106,7 +107,7 @@ fn unset_effort_level() -> EffortCommandResult {
     }
 
     EffortCommandResult {
-        message: "Effort level set to auto".to_string(),
+        message: "Cannot reset effort level from this command runner. The live model request path is not attached here.".to_string(),
         effort_update: Some(None),
     }
 }
@@ -167,7 +168,7 @@ impl Directive for EffortDirective {
                  - low: Quick, straightforward implementation\n\
                  - medium: Balanced approach with standard testing\n\
                  - high: Comprehensive implementation with extensive testing\n\
-                 - max: Maximum capability with deepest reasoning (Max 4.6 only)\n\
+                 - max: Maximum capability with the deepest configured reasoning tier\n\
                  - auto: Use the default effort level for your model"
                     .to_string(),
             ));
@@ -201,8 +202,49 @@ impl Directive for EffortDirective {
             return Ok(CommandResult::Text(output));
         }
 
-        // Execute with the given argument
+        // Execute with the given argument. The result is intentionally
+        // fail-closed until the live TUI applies this to EngineConfig.
         let result = execute_effort(&args_str);
-        Ok(CommandResult::Text(result.message))
+        if result.effort_update.is_some() {
+            Ok(CommandResult::Error(result.message))
+        } else {
+            Ok(CommandResult::Text(result.message))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn effort_directive_does_not_claim_live_model_update() {
+        let output = tokio_test::block_on(EffortDirective.execute(&["high"], &test_context()))
+            .expect("effort command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("effort should fail closed outside live request path");
+        };
+        assert!(text.contains("Cannot set effort level"), "{text}");
+        assert!(!text.contains("Set effort level"), "{text}");
     }
 }

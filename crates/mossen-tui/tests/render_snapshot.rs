@@ -721,7 +721,7 @@ fn render_snapshot_app_frame_shows_inline_approval_and_footer_state() {
 fn render_snapshot_app_frame_shows_status_chrome() {
     let mut app = App::new();
     app.fullscreen = true;
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.engine_config
         .extra_body
         .insert("effort".to_string(), serde_json::json!("high"));
@@ -740,7 +740,7 @@ fn render_snapshot_app_frame_shows_status_chrome() {
         &snapshot,
         &[
             "running command",
-            "MiniMax-M2.7",
+            "example-fast",
             "Supervised",
             "reasoning:high",
         ],
@@ -818,7 +818,7 @@ fn render_snapshot_app_frame_bottom_chrome_handles_multibyte_cells() {
     let mut app = App::new();
     app.fullscreen = true;
     app.engine_config.cwd = "/Users/allen/Documents/rustmossen/逐行阅读项目".to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.total_cost_usd = 0.15;
     app.state.is_streaming = true;
     app.messages
@@ -841,7 +841,7 @@ fn render_snapshot_app_frame_bottom_chrome_handles_multibyte_cells() {
         &[
             "真实缺口",
             "Thinking",
-            "MiniMax-M2.7",
+            "example-fast",
             "$0.15",
             "2 msgs",
             "Enter to send",
@@ -893,7 +893,7 @@ fn render_snapshot_app_frame_inline_prompt_shows_command_suggestions() {
 fn render_snapshot_app_frame_complex_turn_survives_resize_matrix_without_noise() {
     let mut app = App::new();
     app.fullscreen = true;
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.total_cost_usd = 0.03;
     app.state.is_streaming = true;
     app.messages.push(msg(
@@ -1208,8 +1208,8 @@ fn render_snapshot_app_frame_model_skills_memory_panels_handle_multibyte_rows() 
     let mut model_app = App::new();
     model_app.fullscreen = true;
     model_app.active_modal = ActiveModal::ModelPicker(ModelPickerState::new(vec![ModelInfo {
-        id: "minimax-m2.7".to_string(),
-        name: "MiniMax-M2.7 项目逐行阅读长上下文模型名称".to_string(),
+        id: "example-fast-m2.7".to_string(),
+        name: "example-fast 项目逐行阅读长上下文模型名称".to_string(),
         provider: "自定义后端".to_string(),
         supports_thinking: true,
         supports_streaming: true,
@@ -1219,7 +1219,7 @@ fn render_snapshot_app_frame_model_skills_memory_panels_handle_multibyte_rows() 
     assert_snapshot_has(
         "app model picker multibyte",
         &model_snapshot,
-        &["Select Model", "MiniMax-M2.7", "自定义后端"],
+        &["Select Model", "example-fast", "自定义后端"],
     );
     let first_line = model_snapshot.lines().next().unwrap_or_default();
     assert!(
@@ -1710,7 +1710,7 @@ fn render_snapshot_raw_debug_view_includes_layer1_engine_events() {
 
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "raw-event-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: vec!["Bash".to_string()],
         task_id: None,
     });
@@ -2010,7 +2010,7 @@ fn render_snapshot_timeline_modal_is_structured_event_history() {
         .push(msg(MessageType::User, "查看结构化渲染事件"));
     app.handle_engine_message(SdkMessage::SystemInit {
         session_id: "timeline-snapshot-session".to_string(),
-        model: "MiniMax-M2.7".to_string(),
+        model: "example-fast".to_string(),
         tools: Vec::new(),
         task_id: None,
     });
@@ -2070,7 +2070,7 @@ fn render_snapshot_timeline_modal_is_structured_event_history() {
 fn render_snapshot_statusline_config_is_explicit_session_ui() {
     let mut app = App::new();
     app.engine_config.cwd = "/Users/allen/Documents/rustmossen".to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.messages
         .push(msg(MessageType::Assistant, "Status line config snapshot"));
 
@@ -2099,7 +2099,7 @@ fn render_snapshot_statusline_config_persists_across_startup() {
     let dir = tempfile::tempdir().expect("tempdir should be created");
     let mut source = App::new();
     source.engine_config.cwd = dir.path().to_string_lossy().to_string();
-    source.engine_config.model = "MiniMax-M2.7".to_string();
+    source.engine_config.model = "example-fast".to_string();
 
     source.prompt.input.insert_str("/statusline minimal");
     source.dispatch_key_for_test(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -2108,7 +2108,7 @@ fn render_snapshot_statusline_config_persists_across_startup() {
 
     let mut app = App::new();
     app.engine_config.cwd = dir.path().to_string_lossy().to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.load_footer_render_config_on_startup()
         .expect("statusline startup load should succeed")
         .expect("statusline config should exist");
@@ -2119,7 +2119,7 @@ fn render_snapshot_statusline_config_persists_across_startup() {
     assert!(app.state.footer_config.is_enabled(FooterItem::Context));
 
     let footer = render_app_frame(&mut app, 96, 18);
-    assert_snapshot_has("persisted statusline footer", &footer, &["MiniMax-M2.7"]);
+    assert_snapshot_has("persisted statusline footer", &footer, &["example-fast"]);
     assert!(
         !footer.contains("Messages"),
         "minimal footer should not show the message-count label\n--- snapshot ---\n{footer}"
@@ -2140,7 +2140,7 @@ fn render_snapshot_statusline_config_persists_across_startup() {
 fn render_snapshot_external_statusline_output_is_stable_footer_chrome() {
     let mut app = App::new();
     app.engine_config.cwd = "/Users/allen/Documents/rustmossen".to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.state
         .footer_config
         .set_enabled(FooterItem::ExternalStatus, true);
@@ -2259,7 +2259,7 @@ fn render_snapshot_status_overview_modal_is_semantic() {
     let mut app = App::new();
     app.fullscreen = true;
     app.engine_config.cwd = "/Users/allen/Documents/rustmossen".to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.engine_config.api_base_url = Some("http://localhost:8000/v1".to_string());
     app.engine_config.api_key = Some("redacted-test-key".to_string());
     app.engine_config.output_style = Some("Concise".to_string());
@@ -2308,7 +2308,7 @@ fn render_snapshot_status_overview_modal_is_semantic() {
             "Turn",
             "Policy",
             "Workspace",
-            "MiniMax-M2.7",
+            "example-fast",
             "running command",
             "reasoning:high",
             "ctx 0/200k",
@@ -2326,7 +2326,7 @@ fn render_snapshot_debug_config_modal_is_redacted_and_semantic() {
     let mut app = App::new();
     app.fullscreen = true;
     app.engine_config.cwd = "/Users/allen/Documents/rustmossen".to_string();
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.engine_config.api_base_url = Some("http://localhost:8000/v1".to_string());
     app.engine_config.api_key = Some("redacted-debug-config-key".to_string());
     app.engine_config.max_turns = Some(6);
@@ -2357,7 +2357,7 @@ fn render_snapshot_debug_config_modal_is_redacted_and_semantic() {
             "Engine",
             "Policy",
             "Renderer",
-            "MiniMax-M2.7",
+            "example-fast",
             "API Key",
             "configured",
             "Extra Body",
@@ -2657,7 +2657,7 @@ fn render_snapshot_approval_history_modal_is_semantic() {
 fn render_snapshot_process_status_modal_summarizes_active_state() {
     let mut app = App::new();
     app.fullscreen = true;
-    app.engine_config.model = "MiniMax-M2.7".to_string();
+    app.engine_config.model = "example-fast".to_string();
     app.state.turn_state = TurnState::Streaming;
     app.state.ui_stage = UiStage::RunningCommand;
     app.state

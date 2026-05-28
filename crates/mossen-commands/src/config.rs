@@ -138,3 +138,83 @@ impl Directive for ConfigDirective {
         Ok(CommandResult::Text(format!("{} = {}", query, value)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    struct EnvRestore {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvRestore {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+            mossen_utils::config::_reset_global_config_cache_for_testing();
+        }
+    }
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: true,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn config_set_persists_and_query_reads_current_rust_config() {
+        let _lock = crate::test_support::env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _config_dir =
+            EnvRestore::set("MOSSEN_CONFIG_DIR", temp.path().to_string_lossy().as_ref());
+        mossen_utils::config::_reset_global_config_cache_for_testing();
+
+        let update =
+            tokio_test::block_on(ConfigDirective.execute(&["theme=light"], &test_context()))
+                .expect("config update");
+        let CommandResult::System(update_text) = update else {
+            panic!("expected system update result");
+        };
+        assert!(update_text.contains("theme"), "{update_text}");
+
+        let config = mossen_utils::config::get_global_config();
+        assert_eq!(config.theme, "light");
+
+        let settings_path = PathBuf::from(mossen_utils::config::get_global_mossen_file());
+        let settings_text = std::fs::read_to_string(&settings_path).expect("settings file");
+        assert!(settings_text.contains("\"theme\""), "{settings_text}");
+        assert!(settings_text.contains("\"light\""), "{settings_text}");
+
+        let query = tokio_test::block_on(ConfigDirective.execute(&["theme"], &test_context()))
+            .expect("config query");
+        let CommandResult::Text(query_text) = query else {
+            panic!("expected text query result");
+        };
+        assert_eq!(query_text, "theme = \"light\"");
+    }
+}

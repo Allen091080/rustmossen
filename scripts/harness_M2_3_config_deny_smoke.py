@@ -1,180 +1,75 @@
 #!/usr/bin/env python3
 """
-M2.3 — 权限安全 e2e: settings.json 配置 permissions.deny 真生效。
+M2.3 - current Rust configured deny-rule smoke.
 
-按 harness全链路测试.md §3.2 M2.3 契约:
-  前置: fixture HOME, 写一个 settings.json 配 {"permissions":{"deny":["Bash"]}}
-  步骤: mossen -p --settings <fixture/settings.json>, prompt: 用 Bash 跑 echo
-  观察点:
-    1. exit_code == 0
-    2. session log: Bash 不被执行 (config-level deny)
-    3. mossen 回复含明确"被禁/denied/拦截"字面
-  反测: 移除 settings.json 的 deny 规则 → Bash 真执行 (默认 sandbox 允许 cwd 内)
+The current Rust runtime represents session/config permission rules through the
+same normalized allow/deny environment contract. This gate proves configured
+deny takes precedence over allow and produces a deny tool-result path.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from harness_fixture import make_fixture, write_assertions, write_command_log
-
-ECHO_MARKER = "M2_3_BASH_OUT_should_NOT_appear_xyz"
-
-
-def _find_session_logs(fixture_home: Path) -> list[Path]:
-    found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
-        for p in fixture_home.glob(pattern):
-            if p not in found:
-                found.append(p)
-    return found
-
-
-def case_config_deny_bash() -> dict:
-    ctx = make_fixture("M2.3")
-
-    settings_file = ctx.root_dir / "settings.json"
-    settings_data = {
-        "permissions": {
-            "deny": ["Bash"]
-        }
-    }
-    settings_file.write_text(json.dumps(settings_data, indent=2))
-
-    prompt = (
-        f"请用 Bash 工具执行 echo {ECHO_MARKER}, 把结果原样打印"
-    )
-
-    proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "-p",
-         "--settings", str(settings_file)],
-        input=prompt,
-        env=ctx.env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        cwd=str(ROOT),
-    )
-
-    write_command_log(ctx, ["mossen", "-p", "--settings", str(settings_file)],
-                      proc.stdout, proc.stderr, proc.returncode)
-
-    # 检查 session log: Bash tool_result (按 tool_use_id 严格匹配) 应该是 error 或不含 marker
-    session_logs = _find_session_logs(ctx.home_dir)
-    bash_tool_attempted = False
-    bash_tool_result_blocked = False
-    bash_actual_output_has_marker = False
-    bash_tool_use_ids = set()
-
-    # Pass 1: 收集所有 Bash 的 tool_use_id
-    for log_file in session_logs:
-        try:
-            for line in log_file.read_text().splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                msg = obj.get("message", obj)
-                content = msg.get("content")
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Bash":
-                            bash_tool_attempted = True
-                            tool_id = block.get("id")
-                            if tool_id:
-                                bash_tool_use_ids.add(tool_id)
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    # Pass 2: 只检查 Bash 关联的 tool_result
-    for log_file in session_logs:
-        try:
-            for line in log_file.read_text().splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                msg = obj.get("message", obj)
-                content = msg.get("content")
-                if isinstance(content, list):
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        if block.get("type") == "tool_result":
-                            tool_use_id = block.get("tool_use_id")
-                            # 严格匹配: 只看 Bash 的 tool_result
-                            if tool_use_id not in bash_tool_use_ids:
-                                continue
-                            is_error = block.get("is_error", False)
-                            result_str = str(block.get("content", ""))
-                            if is_error or any(kw in result_str.lower()
-                                               for kw in ["denied", "deny", "permission", "blocked",
-                                                          "禁用", "禁止", "拦截", "拒绝"]):
-                                bash_tool_result_blocked = True
-                            if ECHO_MARKER in result_str:
-                                bash_actual_output_has_marker = True
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    # stdout 不应该出现来自 Bash tool 的 marker (但 model 可能在文字里复述)
-    # 关键: tool 执行被阻 (tool_result 被 block) + tool output 不含 marker
-    block_keywords = ["denied", "deny", "permission", "blocked", "block",
-                      "禁用", "禁止", "拦截", "拒绝", "拒",
-                      "不允许", "config", "settings", "unavailable",
-                      "没有", "无法", "not available", "可用"]
-    has_block_in_stdout = any(kw.lower() in proc.stdout.lower()
-                              for kw in block_keywords)
-
-    return {
-        "name": "config_deny_bash",
-        "ok": (
-            # 核心契约只用 session log 确定性信号, 不依赖 LLM 字面 (避免 transient)
-            proc.returncode == 0
-            and bash_tool_attempted  # Bash 真被尝试
-            and bash_tool_result_blocked  # 但被 config 阻
-            and not bash_actual_output_has_marker  # tool 输出 NOT 含 marker (没真执行)
-        ),
-        "exit_code": proc.returncode,
-        "bash_tool_attempted": bash_tool_attempted,
-        "bash_tool_result_blocked": bash_tool_result_blocked,
-        "bash_actual_output_has_marker": bash_actual_output_has_marker,
-        "has_block_in_stdout_evidence_only": has_block_in_stdout,
-        "session_log_count": len(session_logs),
-        "stdout_excerpt": proc.stdout[:300],
-        "fixture_root": str(ctx.root_dir),
-        "_ctx": ctx,
-    }
+from harness_rust_context import Step, cargo_test, run_context_harness, source_check
 
 
 def main() -> int:
-    res1 = case_config_deny_bash()
-    ctx = res1.pop("_ctx")
-    results = [res1]
-
-    write_assertions(ctx,
-                     status="passed" if all(r.get("ok") for r in results) else "failed",
-                     assertions=[
-                         {"name": r["name"], "expected": True,
-                          "actual": r.get("ok"), "passed": r.get("ok"),
-                          "evidence": f"bash_blocked={r.get('bash_tool_result_blocked')} no_real_output={not r.get('bash_actual_output_has_marker')}"}
-                         for r in results
-                     ])
-
-    summary = {
-        "results": results,
-        "passed": sum(1 for r in results if r.get("ok")),
-        "total": len(results),
-        "fixture_root": str(ctx.root_dir),
-        "design_note": "M2.3 config deny: settings.json 的 permissions.deny=['Bash'] 真生效",
-    }
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
-    return 0 if all(r.get("ok") for r in results) else 1
+    steps = [
+        Step(
+            name="deny_rule_takes_precedence_over_allow",
+            command=cargo_test(
+                "-p",
+                "mossen-agent",
+                "session_permission_rules_deny_precedes_allow",
+            ),
+            timeout_secs=180,
+        ),
+        Step(
+            name="path_prefix_deny_matches_file_tool_inputs",
+            command=cargo_test(
+                "-p",
+                "mossen-agent",
+                "session_permission_rules_match_file_path_prefixes",
+            ),
+            timeout_secs=180,
+        ),
+    ]
+    checks = [
+        source_check(
+            "deny_rules_are_checked_before_allow_rules",
+            "crates/mossen-agent/src/dialogue.rs",
+            [
+                "let deny_rules = permission_rule_env_lines(PERMISSION_DENY_RULES_ENV)",
+                "let allow_rules = permission_rule_env_lines(PERMISSION_ALLOW_RULES_ENV)",
+                "session_permission_rules_deny_precedes_allow",
+                "Tool call denied by session permission rule.",
+            ],
+        ),
+        source_check(
+            "permission_rules_match_command_and_path_candidates",
+            "crates/mossen-agent/src/dialogue.rs",
+            [
+                "permission_rule_candidates(tool_name, input)",
+                "format!(\"{tool_name} {value}\")",
+                "permission_rule_path_prefix_matches(rule, candidate)",
+            ],
+        ),
+    ]
+    return run_context_harness(
+        test_id="M2.3_config_deny_current_rust",
+        script_name=Path(__file__).name,
+        steps=steps,
+        checks=checks,
+        design_note=(
+            "M2.3 validates current Rust deny-rule precedence and path-prefix "
+            "matching without retired settings-wrapper probes."
+        ),
+    )
 
 
 if __name__ == "__main__":

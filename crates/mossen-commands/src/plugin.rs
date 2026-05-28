@@ -584,13 +584,56 @@ async fn run_marketplace_command(
     match action.as_deref() {
         Some("add") => run_marketplace_add_plan(target, None, runtime).await,
         Some("list") | None => run_sources(runtime).await,
-        Some("remove") | Some("update") => Ok(CommandResult::Error(
-            "Marketplace remove/update is not implemented in the command layer yet.".to_string(),
+        Some("remove") => run_marketplace_remove(target, runtime).await,
+        Some("update") => Ok(CommandResult::Error(
+            "Unsupported marketplace action: update. Use /plugin marketplace add --dry-run <path|url|owner/repo> to refresh a source.".to_string(),
         )),
         Some(other) => Ok(CommandResult::Error(format!(
             "Unsupported marketplace action: {other}"
         ))),
     }
+}
+
+async fn run_marketplace_remove(
+    target: Option<String>,
+    runtime: &FilePluginContext,
+) -> Result<CommandResult> {
+    let Some(name) = target
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(CommandResult::Error(
+            "Usage: /plugin marketplace remove <marketplace-name>".to_string(),
+        ));
+    };
+
+    let mut known = read_known_marketplaces(runtime);
+    let removed_known = known.remove(name).is_some();
+    if removed_known {
+        write_known_marketplaces(runtime, &known)?;
+        remove_marketplace_cache_files(runtime, name);
+    }
+
+    let removed_declared = remove_marketplace_from_settings(runtime, name);
+    if !removed_known && !removed_declared {
+        return Ok(CommandResult::Error(format!(
+            "Marketplace not found: {name}"
+        )));
+    }
+
+    mossen_utils::plugins::marketplace_manager::clear_marketplaces_cache();
+    let mut details = Vec::new();
+    if removed_known {
+        details.push("known cache");
+    }
+    if removed_declared {
+        details.push("settings");
+    }
+    Ok(CommandResult::Text(format!(
+        "Removed marketplace {name} from {}.",
+        details.join(" and ")
+    )))
 }
 
 async fn run_marketplace_add_plan(
@@ -983,6 +1026,53 @@ fn read_known_marketplaces(runtime: &FilePluginContext) -> KnownMarketplacesFile
         .unwrap_or_default()
 }
 
+fn write_known_marketplaces(
+    runtime: &FilePluginContext,
+    known: &KnownMarketplacesFile,
+) -> Result<()> {
+    let path = runtime.plugins_dir().join("known_marketplaces.json");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(known)?;
+    std::fs::write(path, format!("{content}\n"))?;
+    Ok(())
+}
+
+fn remove_marketplace_cache_files(runtime: &FilePluginContext, name: &str) {
+    let cache_dir = runtime.marketplaces_dir();
+    let _ = std::fs::remove_dir_all(cache_dir.join(name));
+    let _ = std::fs::remove_file(cache_dir.join(format!("{name}.json")));
+}
+
+fn remove_marketplace_from_settings(runtime: &FilePluginContext, name: &str) -> bool {
+    let mut removed = false;
+    for source in ["userSettings", "projectSettings", "localSettings"] {
+        let Some(settings) = runtime.read_settings_value_for_source(source) else {
+            continue;
+        };
+        let contains_name = settings
+            .get("extraKnownMarketplaces")
+            .and_then(Value::as_object)
+            .map(|extra| extra.contains_key(name))
+            .unwrap_or(false);
+        if contains_name {
+            let mut updates = HashMap::new();
+            updates.insert(
+                "extraKnownMarketplaces".to_string(),
+                serde_json::json!({ name: null }),
+            );
+            if runtime
+                .update_raw_settings_for_source(source, updates)
+                .is_ok()
+            {
+                removed = true;
+            }
+        }
+    }
+    removed
+}
+
 async fn read_marketplace_by_name(
     runtime: &FilePluginContext,
     marketplace: &str,
@@ -1075,12 +1165,6 @@ mod tests {
     use super::*;
     use crate::context::CommandContext;
     use mossen_utils::plugins::schemas::{KnownMarketplace, PluginAuthor, PluginSource};
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     fn test_context(cwd: PathBuf) -> CommandContext {
         CommandContext {
@@ -1094,6 +1178,7 @@ mod tests {
             cli_name: "mossen".to_string(),
             version: "test".to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         }
     }
 
@@ -1107,7 +1192,7 @@ mod tests {
     }
 
     async fn assert_plugin_directive_core_actions() {
-        let _guard = env_lock();
+        let _guard = crate::test_support::env_lock();
         let temp = tempfile::tempdir().expect("tempdir");
         std::env::set_var("MOSSEN_CONFIG_DIR", temp.path().join("config"));
         let ctx = test_context(temp.path().join("project"));
@@ -1164,7 +1249,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_directive_install_plan_uses_cached_marketplace_and_confirm_token() {
-        let _guard = env_lock();
+        let _guard = crate::test_support::env_lock();
         let temp = tempfile::tempdir().expect("tempdir");
         let config_home = temp.path().join("config");
         std::env::set_var("MOSSEN_CONFIG_DIR", &config_home);
@@ -1261,7 +1346,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_directive_surfaces_status_sources_paths_and_prune() {
-        let _guard = env_lock();
+        let _guard = crate::test_support::env_lock();
         let temp = tempfile::tempdir().expect("tempdir");
         let config_home = temp.path().join("config");
         std::env::set_var("MOSSEN_CONFIG_DIR", &config_home);
@@ -1286,7 +1371,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_directive_marketplace_add_plan_writes_settings() {
-        let _guard = env_lock();
+        let _guard = crate::test_support::env_lock();
         mossen_utils::plugins::marketplace_add_plan::reset_plugin_marketplace_add_plan_store_for_testing();
         let temp = tempfile::tempdir().expect("tempdir");
         let config_home = temp.path().join("config");
@@ -1331,6 +1416,83 @@ mod tests {
             settings["extraKnownMarketplaces"]["local-marketplace"]["source"]["source"],
             "directory"
         );
+
+        std::env::remove_var("MOSSEN_CONFIG_DIR");
+    }
+
+    #[tokio::test]
+    async fn plugin_directive_marketplace_remove_cleans_known_cache_and_settings() {
+        let _guard = crate::test_support::env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config_home = temp.path().join("config");
+        std::env::set_var("MOSSEN_CONFIG_DIR", &config_home);
+        let ctx = test_context(temp.path().join("project"));
+        let directive = PluginDirective;
+
+        let plugins_dir = config_home.join("plugins");
+        let cache_dir = plugins_dir.join("marketplaces");
+        std::fs::create_dir_all(cache_dir.join("local-market")).unwrap();
+        std::fs::write(cache_dir.join("local-market.json"), "{}").unwrap();
+        std::fs::create_dir_all(&plugins_dir).unwrap();
+        std::fs::write(
+            plugins_dir.join("known_marketplaces.json"),
+            serde_json::to_string(&KnownMarketplacesFile::from([(
+                "local-market".to_string(),
+                KnownMarketplace {
+                    source: MarketplaceSource::Directory {
+                        path: temp
+                            .path()
+                            .join("local-market")
+                            .to_string_lossy()
+                            .to_string(),
+                    },
+                    install_location: cache_dir.join("local-market").to_string_lossy().to_string(),
+                    last_updated: None,
+                    auto_update: None,
+                },
+            )]))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(&config_home).unwrap();
+        std::fs::write(
+            config_home.join("settings.json"),
+            serde_json::json!({
+                "extraKnownMarketplaces": {
+                    "local-market": {
+                        "source": {
+                            "source": "directory",
+                            "path": temp.path().join("local-market").to_string_lossy()
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let removed = text(
+            directive
+                .execute(&["marketplace", "remove", "local-market"], &ctx)
+                .await
+                .unwrap(),
+        );
+        assert!(removed.contains("Removed marketplace local-market"));
+
+        let known: KnownMarketplacesFile = serde_json::from_str(
+            &std::fs::read_to_string(plugins_dir.join("known_marketplaces.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(!known.contains_key("local-market"));
+        let settings: Value = serde_json::from_str(
+            &std::fs::read_to_string(config_home.join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(settings["extraKnownMarketplaces"]
+            .get("local-market")
+            .is_none());
+        assert!(!cache_dir.join("local-market").exists());
+        assert!(!cache_dir.join("local-market.json").exists());
 
         std::env::remove_var("MOSSEN_CONFIG_DIR");
     }

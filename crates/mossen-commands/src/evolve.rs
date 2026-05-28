@@ -8,13 +8,9 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Upgrade command — checks and installs updates.
+/// Upgrade command metadata.
 ///
-/// Behavior:
-/// - Checks the update server for the latest available version
-/// - Compares with the currently running version
-/// - If an update is available, downloads and stages it
-/// - Reports update status (up-to-date, update available, update staged)
+/// Native update delivery is not attached in this source checkout.
 pub struct EvolveDirective;
 
 #[async_trait]
@@ -51,7 +47,7 @@ impl Directive for EvolveDirective {
             .unwrap_or(false)
         {
             return Ok(CommandResult::Text(format!(
-                "Current version: {}\nChecking for updates... You are up to date.",
+                "Current version: {}\nUpdate service is not attached in this source checkout.",
                 ctx.version
             )));
         }
@@ -67,20 +63,50 @@ impl Directive for EvolveDirective {
             ));
         }
 
-        // In full implementation:
-        // 1. Query update server for latest version
-        // 2. Compare semver with current version
-        // 3. If newer: download, verify checksum, stage
-        // 4. Report result to user
-
         let build_info = match &ctx.build_time {
             Some(bt) => format!(" (built {})", bt),
             None => String::new(),
         };
 
-        Ok(CommandResult::System(format!(
-            "Current version: {}{}\n             Checking for updates... You are running the latest version.",
+        Ok(CommandResult::Error(format!(
+            "Cannot check or install updates from this command runner. Current version: {}{}. Native update delivery is not attached in this source checkout.",
             ctx.version, build_info
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn upgrade_does_not_claim_latest_without_update_service() {
+        let output = tokio_test::block_on(EvolveDirective.execute(&[], &test_context()))
+            .expect("upgrade command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("upgrade should fail closed without update service");
+        };
+        assert!(text.contains("Cannot check or install updates"), "{text}");
+        assert!(!text.contains("latest version"), "{text}");
     }
 }

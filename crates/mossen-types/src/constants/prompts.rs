@@ -54,9 +54,9 @@ pub fn get_model_family_guidance(
 /// Product availability guidance.
 pub fn get_product_availability_guidance(is_custom_backend: bool, product_name: &str) -> String {
     if is_custom_backend {
-        format!("{} is available in the terminal and may also integrate with Mossen Desktop, hosted workspace, browser integration, and IDE extensions when available.", product_name)
+        format!("{} is available as a local terminal application. Optional local desktop, browser, and IDE integrations may be present when installed.", product_name)
     } else {
-        "Mossen is available as a CLI in the terminal and may also integrate with desktop, web, browser, hosted workspace, and IDE extensions when available.".to_string()
+        "Mossen is available as a local CLI in the terminal. Optional local desktop, browser, and IDE integrations may be present when installed.".to_string()
     }
 }
 
@@ -336,9 +336,9 @@ pub fn get_using_your_tools_section(
 /// Agent tool section.
 pub fn get_agent_tool_section(is_fork_subagent: bool) -> String {
     if is_fork_subagent {
-        format!("Calling {} without a subagent_type creates a fork, which runs in the background and keeps its tool output out of your context \u{2014} so you can keep chatting with the user while it works. Reach for it when research or multi-step implementation work would otherwise fill your context with raw output you won't need again. **If you ARE the fork** \u{2014} execute directly; do not re-delegate.", AGENT_TOOL_NAME)
+        format!("Calling {} without a subagent_type creates a fork, which runs in the background and keeps its tool output out of your context \u{2014} so you can keep chatting with the user while it works. Reach for it when research or multi-step implementation work would otherwise fill your context with raw output you won't need again. If a background agent returns async_launched, treat that only as task registration: use TaskOutput for its task_id and do not report the subagent succeeded until TaskOutput returns a ready completed result. If TaskOutput returns not_ready, the agent is still running; call TaskOutput again with the same task_id instead of treating the launch as failed or duplicating the work yourself. **If you ARE the fork** \u{2014} execute directly; do not re-delegate.", AGENT_TOOL_NAME)
     } else {
-        format!("Use the {} tool with specialized agents when the task at hand matches the agent's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but they should not be used excessively when not needed. Importantly, avoid duplicating work that subagents are already doing - if you delegate research to a subagent, do not also perform the same searches yourself.", AGENT_TOOL_NAME)
+        format!("Use the {} tool with specialized agents when the task at hand matches the agent's description. Subagents are valuable for parallelizing independent queries or for protecting the main context window from excessive results, but they should not be used excessively when not needed. If a background agent returns async_launched, treat that only as task registration: use TaskOutput for its task_id and do not report the subagent succeeded until TaskOutput returns a ready completed result. If TaskOutput returns not_ready, the agent is still running; call TaskOutput again with the same task_id instead of treating the launch as failed or duplicating the work yourself. Importantly, avoid duplicating work that subagents are already doing - if you delegate research to a subagent, do not also perform the same searches yourself.", AGENT_TOOL_NAME)
     }
 }
 
@@ -417,9 +417,9 @@ pub fn get_output_efficiency_section(is_internal: bool) -> String {
         r#"# Communicating with the user
 When sending user-facing text, you're writing for a person, not logging to a console. Assume users can't see most tool calls or thinking - only your text output. Before your first tool call, briefly state what you're about to do. While working, give short updates at key moments: when you find something load-bearing (a bug, a root cause), when changing direction, when you've made progress without an update.
 
-When making updates, assume the person has stepped away and lost the thread. They don't know codenames, abbreviations, or shorthand you created along the way, and didn't track your process. Write so they can pick back up cold: use complete, grammatically correct sentences without unexplained jargon. Expand technical terms. Err on the side of more explanation. Attend to cues about the user's level of expertise; if they seem like an expert, tilt a bit more concise, while if they seem like they're new, be more explanatory. 
+When making updates, assume the person has stepped away and lost the thread. They don't know codenames, abbreviations, or shorthand you created along the way, and didn't track your process. Write so they can pick back up cold: use complete, grammatically correct sentences without unexplained jargon. Expand technical terms. Err on the side of more explanation. Attend to cues about the user's level of expertise; if they seem like an expert, tilt a bit more concise, while if they seem like they're new, be more explanatory.
 
-Write user-facing text in flowing prose while eschewing fragments, excessive em dashes, symbols and notation, or similarly hard-to-parse content. Only use tables when appropriate; for example to hold short enumerable facts (file names, line numbers, pass/fail), or communicate quantitative data. Don't pack explanatory reasoning into table cells -- explain before or after. Avoid semantic backtracking: structure each sentence so a person can read it linearly, building up meaning without having to re-parse what came before. 
+Write user-facing text in flowing prose while eschewing fragments, excessive em dashes, symbols and notation, or similarly hard-to-parse content. Only use tables when appropriate; for example to hold short enumerable facts (file names, line numbers, pass/fail), or communicate quantitative data. Don't pack explanatory reasoning into table cells -- explain before or after. Avoid semantic backtracking: structure each sentence so a person can read it linearly, building up meaning without having to re-parse what came before.
 
 What's most important is the reader understanding your output without mental overhead or follow-ups, not how terse you are. If the user has to reread a summary or ask you to explain, that will more than eat up the time savings from a shorter first read. Match responses to the task: a simple question gets a direct answer in prose, not headers and numbered sections. While keeping communication clear, also keep it concise, direct, and free of fluff. Avoid filler or stating the obvious. Get straight to the point. Don't overemphasize unimportant trivia about your process or use superlatives to oversell small wins or losses. Use inverted pyramid when appropriate (leading with the action), and if something about your reasoning or process is so important that it absolutely must be in user-facing text, save it for the end.
 
@@ -777,4 +777,37 @@ The user context may include a `terminalFocus` field indicating whether the user
         sleep = SLEEP_TOOL_NAME,
         brief = brief_suffix,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_agent_tool_section, get_product_availability_guidance};
+
+    #[test]
+    fn agent_guidance_requires_taskoutput_before_claiming_background_success() {
+        let guidance = get_agent_tool_section(false);
+
+        assert!(guidance.contains("async_launched"), "{guidance}");
+        assert!(guidance.contains("TaskOutput"), "{guidance}");
+        assert!(guidance.contains("ready completed result"), "{guidance}");
+        assert!(guidance.contains("not_ready"), "{guidance}");
+        assert!(
+            guidance.contains("duplicating the work yourself"),
+            "{guidance}"
+        );
+    }
+
+    #[test]
+    fn product_availability_guidance_is_personal_local_surface() {
+        for guidance in [
+            get_product_availability_guidance(true, "Mossen"),
+            get_product_availability_guidance(false, "Mossen"),
+        ] {
+            let lower = guidance.to_lowercase();
+            assert!(!lower.contains("hosted"), "{guidance}");
+            assert!(!lower.contains("workspace"), "{guidance}");
+            assert!(lower.contains("local"), "{guidance}");
+            assert!(lower.contains("terminal"), "{guidance}");
+        }
+    }
 }

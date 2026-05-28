@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{3,4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -40,24 +41,38 @@ def _make_env(ctx) -> dict:
     """补 MOSSEN_CONFIG_DIR (R-018 命名 bug 修)."""
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     return env
 
 
 def _find_session_logs(home: Path) -> list[Path]:
     found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in found:
                 found.append(p)
     return found
 
 
-def _scan_session_id(jsonl: Path) -> str | None:
-    """从 jsonl 任一 event 里找 sessionId 字段."""
+def _scan_session_id(path: Path) -> str | None:
+    """从当前 transcript JSON 或旧 jsonl event 里找 session id 字段."""
     try:
-        text = jsonl.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
+        return None
+    if path.suffix == ".json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, dict):
+            return payload.get("session_id") or payload.get("sessionId")
         return None
     for line in text.splitlines():
         line = line.strip()
@@ -89,16 +104,25 @@ def case_session_id_persists() -> dict:
 
     prompt = "请把以下字符串原样回复给我: R2_TEST_OK"
 
-    proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "-p"],
-        input=prompt,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-        cwd=str(fake_proj),
-    )
-    write_command_log(ctx, ["mossen", "-p"], proc.stdout, proc.stderr, proc.returncode)
+    with mock_openai_provider(model="r2-session-model") as (base_url, provider):
+        apply_mock_provider_env(
+            env,
+            base_url,
+            model="r2-session-model",
+            name="R2 Session Mock",
+        )
+        ctx.env.update(env)
+        proc = subprocess.run(
+            [str(ROOT / "scripts" / "start-mossen.sh"), "--stdin"],
+            input=prompt,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(fake_proj),
+        )
+        provider_snapshot = provider.snapshot()
+    write_command_log(ctx, ["mossen", "--stdin"], proc.stdout, proc.stderr, proc.returncode)
 
     session_logs = _find_session_logs(ctx.home_dir)
 
@@ -111,7 +135,7 @@ def case_session_id_persists() -> dict:
     chosen = None
     for log in session_logs:
         parts = log.parts
-        if "projects" in parts:
+        if "projects" in parts or "transcripts" in parts:
             stem = log.stem
             if UUID_RE.match(stem):
                 path_shape_ok = True
@@ -155,6 +179,8 @@ def case_session_id_persists() -> dict:
         "consistency_ok": consistency_ok,
         "consistency_mode": consistency_mode,
         "session_log_count": len(session_logs),
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_paths": provider_snapshot["paths"],
         "stdout_excerpt": proc.stdout[:300],
         "stderr_excerpt": proc.stderr[:300],
         "fixture_root": str(ctx.root_dir),
@@ -190,7 +216,8 @@ def main() -> int:
                 f"file_exists={res.get('file_exists')} "
                 f"path_shape_ok={res.get('path_shape_ok')} "
                 f"sessionid_match={res.get('consistency_ok')} "
-                f"mode={res.get('consistency_mode')}"
+                f"mode={res.get('consistency_mode')} "
+                f"provider_req={res.get('provider_request_count')}"
             ),
         }],
     )

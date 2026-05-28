@@ -379,3 +379,38 @@ pub fn get_configured_interactive_language_tag(
 fn strip_bom(s: &str) -> &str {
     s.strip_prefix('\u{feff}').unwrap_or(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_language_aliases_and_reads_legacy_language_setting() {
+        assert_eq!(
+            normalize_language_preference(Some("中文")),
+            Some(InteractiveLanguageTag::Zh)
+        );
+        assert_eq!(
+            normalize_language_preference(Some("mandarin")),
+            Some(InteractiveLanguageTag::Zh)
+        );
+        assert_eq!(
+            normalize_language_preference(Some("English")),
+            Some(InteractiveLanguageTag::En)
+        );
+        assert_eq!(normalize_language_preference(Some("auto")), None);
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let config_path = temp.path().join(".mossen.json");
+        std::fs::write(&config_path, r#"{"language":"中文"}"#).expect("write config");
+        assert_eq!(
+            read_persisted_settings_language_preference(&config_path.to_string_lossy()).as_deref(),
+            Some("中文")
+        );
+        assert_eq!(
+            get_interactive_language_preference(&config_path.to_string_lossy(), None, None)
+                .as_deref(),
+            Some("中文")
+        );
+    }
+}

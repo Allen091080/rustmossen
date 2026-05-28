@@ -43,6 +43,7 @@ PROBE_VAL = "R10_PROBE_VALUE"
 def _make_env(ctx, project_cwd: Path | None = None) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     env.pop("MOSSEN_CONFIG_OVERRIDES", None)
     env.pop("MOSSEN_INTERNAL_FC_OVERRIDES", None)
     return env
@@ -51,7 +52,7 @@ def _make_env(ctx, project_cwd: Path | None = None) -> dict:
 def _run_set(env: dict, scope: str, key: str, value, cwd: Path) -> tuple[int, str, str]:
     proc = subprocess.run(
         [
-            str(ROOT / "run-mossen.sh"),
+            str(ROOT / "scripts" / "start-mossen.sh"),
             "--set-mossen-config",
             key,
             json.dumps(value),

@@ -299,6 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn loaded_skill_commands_include_dynamic_user_invocable_skills() {
+        let _guard = crate::dynamic_skill_test_lock();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("tempdir");
         let skill_dir = temp.path().join("audit");

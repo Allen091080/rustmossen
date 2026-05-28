@@ -31,7 +31,7 @@ use mossen_agent::services::compact::pending_compact_request::{
     clear_pending_compact_request, enqueue_pending_compact_request, get_pending_compact_request,
     CompactMode, COMPACT_REQUEST_TIMEOUT,
 };
-use mossen_agent::services::config::profiles as config_profiles;
+use mossen_agent::services::config::{doctor as config_doctor, profiles as config_profiles};
 use mossen_agent::services::lsp::diagnostic_registry::get_pending_lsp_diagnostic_count;
 use mossen_agent::services::root::pending_clear_request::{
     enqueue_pending_clear_request, get_pending_clear_request, CLEAR_REQUEST_TIMEOUT,
@@ -45,7 +45,9 @@ use mossen_agent::services::root::slash_command_capabilities::{
 };
 use mossen_agent::types::PermissionMode;
 use mossen_commands::access::{PERMISSION_ALLOW_RULES_ENV, PERMISSION_DENY_RULES_ENV};
-use mossen_commands::context::{CommandContext, CommandResult, Directive};
+use mossen_commands::context::{
+    CommandContext, CommandCostModelUsage, CommandCostSnapshot, CommandResult, Directive,
+};
 use mossen_utils::git_diff::fetch_git_diff;
 use mossen_utils::model_utils::{
     get_context_window_for_model as model_context_window_for_model, is_model_alias, MODEL_ALIASES,
@@ -787,7 +789,7 @@ impl StructuredIO {
                         )
                     }
                     Some(_) => format!(
-                        "unwired_slash_command: {} (runtime state is not attached to StructuredIO yet)",
+                        "unavailable_slash_command: {} (runtime state is not attached to StructuredIO yet)",
                         command
                     ),
                     None => format!("unsupported_slash_command: {command}"),
@@ -918,6 +920,7 @@ impl StructuredIO {
             .get("compact")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
+        let model_config = config_doctor::model_config_doctor_snapshot();
 
         let render_ready = json_bool(&render, "event_stream")
             && json_bool(&render, "snapshot_stream")
@@ -933,12 +936,17 @@ impl StructuredIO {
         let failed_mcp_count = json_u64(&mcp, "failedCount");
         let needs_auth_mcp_count = json_u64(&mcp, "needsAuthCount");
         let input_closed = json_bool(&runtime, "input_closed");
-        let health_status =
-            if !render_ready || last_error_present || input_closed || failed_mcp_count > 0 {
-                "warning"
-            } else {
-                "normal"
-            };
+        let model_config_status = model_config.status.as_str();
+        let health_status = if !render_ready
+            || last_error_present
+            || input_closed
+            || failed_mcp_count > 0
+            || matches!(model_config_status, "missing" | "warning")
+        {
+            "warning"
+        } else {
+            "normal"
+        };
 
         Ok(serde_json::json!({
             "subtype": "slash_command_result",
@@ -962,6 +970,7 @@ impl StructuredIO {
                     "pendingClearRequest": json_bool(&runtime, "pending_clear_request"),
                     "permissionMode": runtime.get("permission_mode").cloned().unwrap_or(serde_json::Value::Null),
                 },
+                "modelConfig": model_config,
                 "slash": {
                     "manifestVersion": slash
                         .get("manifest_version")
@@ -4921,7 +4930,7 @@ fn slash_model_response(args: &[String]) -> std::result::Result<serde_json::Valu
         let previous = get_main_loop_model_override();
         config_profiles::set_session_active_profile(&profile.name)
             .map_err(|error| format!("slash_command_model_profile_set_failed: {error}"))?;
-        apply_profile_to_runtime_env(&profile);
+        config_profiles::apply_profile_to_custom_backend_env(&profile);
         set_main_loop_model_override(Some(profile.profile.model.clone()));
         return Ok(slash_model_summary_response("set", previous));
     }
@@ -5047,7 +5056,7 @@ fn slash_profile_response(args: &[String]) -> std::result::Result<serde_json::Va
             config_profiles::set_session_active_profile(&requested_profile)
                 .map_err(|error| format!("slash_command_profile_set_failed: {error}"))?;
             if let Some(profile) = config_profiles::get_current_profile() {
-                apply_profile_to_runtime_env(&profile);
+                config_profiles::apply_profile_to_custom_backend_env(&profile);
             }
             Ok(slash_profile_summary_response(&action, previous, true))
         }
@@ -5128,20 +5137,6 @@ fn slash_profile_summary_response(
             "pathsRedacted": true,
         },
     })
-}
-
-fn apply_profile_to_runtime_env(profile: &config_profiles::ListedProfile) {
-    std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
-    std::env::set_var(
-        "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
-        profile.profile.provider.runtime_protocol(),
-    );
-    std::env::set_var("MOSSEN_CODE_CUSTOM_NAME", &profile.name);
-    std::env::set_var("MOSSEN_CODE_CUSTOM_BASE_URL", &profile.profile.base_url);
-    std::env::set_var("MOSSEN_CODE_CUSTOM_API_KEY", &profile.profile.api_key);
-    std::env::set_var("MOSSEN_CODE_CUSTOM_MODEL", &profile.profile.model);
-    std::env::set_var("MOSSEN_API_BASE_URL", &profile.profile.base_url);
-    std::env::set_var("MOSSEN_API_KEY", &profile.profile.api_key);
 }
 
 fn slash_profile_entry(
@@ -5288,11 +5283,23 @@ async fn slash_auth_response(
     let message = if command == "login" {
         slash_login_message().await?
     } else if authenticated {
-        "Use the external CLI logout command to clear locally managed credentials.".to_string()
+        "A local credential source is present. This stream-json command reports status only; remove configured backend credentials from the owning environment or settings file.".to_string()
     } else {
         "No active authentication token was detected in this stream-json process.".to_string()
     };
     let confirmation_received = command == "logout" && action == "confirm";
+    let handoff_type = if command == "login" {
+        "backend_credential_setup"
+    } else {
+        "credential_status"
+    };
+    let next = if command == "login" {
+        "configure a model profile or set MOSSEN_CODE_CUSTOM_BASE_URL plus MOSSEN_CODE_CUSTOM_API_KEY"
+    } else if confirmation_received {
+        "remove backend credentials from the owning environment or settings file if logout is required"
+    } else {
+        "use /logout --confirm to acknowledge status-only logout handling"
+    };
 
     Ok(serde_json::json!({
         "subtype": "slash_command_result",
@@ -5308,11 +5315,12 @@ async fn slash_auth_response(
             "apiKeyPresent": api_key_present,
             "oauthTokenPresent": oauth_token_present,
             "accountInfoPresent": account_info_present,
-            "handoffType": "external_cli_command",
-            "handoffRequired": true,
+            "credentialMode": "personal_backend",
+            "handoffType": handoff_type,
+            "handoffRequired": false,
             "manualCommand": manual_command,
             "equivalentCliCommand": equivalent_cli_command,
-            "requiresExternalInteractiveCli": command == "login",
+            "requiresExternalInteractiveCli": false,
             "requiresConfirmation": command == "logout",
             "confirmationReceived": confirmation_received,
             "mutationSupported": false,
@@ -5325,13 +5333,7 @@ async fn slash_auth_response(
             "rawEnvValuesIncluded": false,
             "sensitiveValuesIncluded": false,
             "message": message,
-            "next": if command == "login" {
-                "run the external login command in an interactive terminal"
-            } else if confirmation_received {
-                "run the external logout command in an interactive terminal to mutate auth state"
-            } else {
-                "use /logout --confirm to request an explicit external logout handoff"
-            },
+            "next": next,
         },
     }))
 }
@@ -5367,7 +5369,7 @@ fn auth_token_source_label(source: &mossen_utils::auth::AuthTokenSource) -> &'st
         }
         mossen_utils::auth::AuthTokenSource::CcrOauthTokenFile => "oauth_token_file",
         mossen_utils::auth::AuthTokenSource::ApiKeyHelper => "api_key_helper",
-        mossen_utils::auth::AuthTokenSource::Hosted => "hosted",
+        mossen_utils::auth::AuthTokenSource::Hosted => "legacy_stored_token",
         mossen_utils::auth::AuthTokenSource::None => "none",
     }
 }
@@ -5385,7 +5387,39 @@ fn slash_command_context() -> std::result::Result<CommandContext, String> {
         cli_name: "mossen".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_time: option_env!("BUILD_TIME").map(|value| value.to_string()),
+        cost_snapshot: slash_command_cost_snapshot(),
     })
+}
+
+fn slash_command_cost_snapshot() -> CommandCostSnapshot {
+    CommandCostSnapshot {
+        total_cost_usd: get_total_cost_usd(),
+        total_api_duration_ms: get_total_api_duration(),
+        total_api_duration_without_retries_ms:
+            crate::bootstrap::get_total_api_duration_without_retries(),
+        total_tool_duration_ms: get_total_tool_duration(),
+        total_lines_added: crate::bootstrap::get_total_lines_added(),
+        total_lines_removed: crate::bootstrap::get_total_lines_removed(),
+        has_unknown_model_cost: has_unknown_model_cost(),
+        model_usage: get_model_usage()
+            .into_iter()
+            .map(|(model, usage)| {
+                (
+                    model,
+                    CommandCostModelUsage {
+                        input_tokens: usage.input_tokens,
+                        output_tokens: usage.output_tokens,
+                        cache_read_input_tokens: usage.cache_read_input_tokens,
+                        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                        web_search_requests: usage.web_search_requests,
+                        cost_usd: usage.cost_usd,
+                        context_window: usage.context_window,
+                        max_output_tokens: usage.max_output_tokens,
+                    },
+                )
+            })
+            .collect(),
+    }
 }
 
 fn slash_readonly_runtime_inventory_response(
@@ -5896,13 +5930,6 @@ fn slash_memory_runtime_snapshot() -> serde_json::Value {
     serde_json::json!({
         "autoMemoryEnabled": crate::memdir::is_auto_memory_enabled(),
         "extractModeActive": crate::memdir::is_extract_mode_active(),
-        "teamMemory": {
-            "buildEnabled": true,
-            "enabled": crate::memdir::is_team_memory_enabled(),
-            "rolloutEnabled": crate::memdir::is_team_memory_rollout_enabled(),
-            "pathIncluded": false,
-            "pathRedacted": true,
-        },
         "sessionMemory": {
             "enabled": session_memory_config.auto_extract_enabled,
             "compactEnabled": session_memory_compact_enabled,
@@ -7411,12 +7438,54 @@ mod tests {
         }
     }
 
+    fn save_profile_runtime_env_vars() -> Vec<(&'static str, Option<String>)> {
+        PROFILE_RUNTIME_ENV_KEYS
+            .iter()
+            .map(|key| (*key, std::env::var(key).ok()))
+            .collect::<Vec<_>>()
+    }
+
+    fn clear_profile_runtime_env_vars() {
+        for key in PROFILE_RUNTIME_ENV_KEYS {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn auth_token_source_label_uses_personal_backend_terms() {
+        let hosted_label = auth_token_source_label(&mossen_utils::auth::AuthTokenSource::Hosted);
+
+        assert_eq!(hosted_label, "legacy_stored_token");
+        assert!(!hosted_label.contains("hosted"));
+    }
+
+    #[test]
+    fn stream_json_slash_capability_manifest_has_no_available_unwired_commands() {
+        let wired = wired_stream_json_slash_commands();
+        for capability in get_stream_json_slash_command_capabilities() {
+            assert_eq!(
+                is_wired_stream_json_slash_command(&capability.command),
+                wired.contains(&capability.command.as_str()),
+                "/{} wired predicate and list diverged",
+                capability.command
+            );
+            if matches!(capability.status, CommandStatus::Available) {
+                assert!(
+                    is_wired_stream_json_slash_command(&capability.command),
+                    "/{} is advertised as available but would return unavailable_slash_command",
+                    capability.command
+                );
+            }
+        }
+    }
+
     const PROFILE_RUNTIME_ENV_KEYS: &[&str] = &[
         "MOSSEN_CODE_USE_CUSTOM_BACKEND",
         "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
         "MOSSEN_CODE_CUSTOM_NAME",
         "MOSSEN_CODE_CUSTOM_BASE_URL",
         "MOSSEN_CODE_CUSTOM_API_KEY",
+        "MOSSEN_CODE_CUSTOM_AUTH_TOKEN",
         "MOSSEN_CODE_CUSTOM_MODEL",
         "MOSSEN_API_BASE_URL",
         "MOSSEN_API_KEY",
@@ -10912,6 +10981,266 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slash_command_doctor_guides_when_model_profile_is_missing() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::Value::Null,
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::Null,
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["doctor"]["healthStatus"], "warning");
+        assert_eq!(body["doctor"]["modelConfig"]["status"], "missing");
+        assert_eq!(
+            body["doctor"]["modelConfig"]["issues"][0],
+            "no_model_profile"
+        );
+        assert_eq!(
+            body["doctor"]["modelConfig"]["nextCommands"][0],
+            "mossen --add-model-profile my-model --provider openai-compatible --baseURL https://api.example.com/v1 --model your-model-name --apiKey \"$YOUR_API_KEY\""
+        );
+        assert_eq!(body["doctor"]["modelConfig"]["rawConfigIncluded"], false);
+        assert_eq!(body["doctor"]["modelConfig"]["baseUrlsRedacted"], true);
+        assert_eq!(body["doctor"]["modelConfig"]["apiKeysRedacted"], true);
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
+    async fn slash_command_doctor_warns_when_active_profile_is_missing() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "example": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-example-secret-value"
+                }
+            }),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("missing".to_string()),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["doctor"]["healthStatus"], "warning");
+        assert_eq!(body["doctor"]["modelConfig"]["status"], "warning");
+        assert!(body["doctor"]["modelConfig"]["issues"]
+            .as_array()
+            .expect("issues array")
+            .iter()
+            .any(|issue| issue == "active_profile_not_found"));
+        assert_eq!(
+            body["doctor"]["modelConfig"]["rawActiveProfileValid"],
+            false
+        );
+        assert_eq!(body["doctor"]["modelConfig"]["visibleProfileCount"], 1);
+        assert_eq!(
+            body["doctor"]["modelConfig"]["nextCommands"][0],
+            "mossen --list-model-profiles"
+        );
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
+    async fn slash_command_doctor_reports_invalid_model_profiles() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "broken": {
+                    "provider": "openai-compatible",
+                    "baseURL": "https://invalid-provider.example/v1",
+                    "model": ""
+                }
+            }),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("broken".to_string()),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["doctor"]["healthStatus"], "warning");
+        assert_eq!(body["doctor"]["modelConfig"]["status"], "missing");
+        let issues = body["doctor"]["modelConfig"]["issues"]
+            .as_array()
+            .expect("issues array");
+        assert!(issues
+            .iter()
+            .any(|issue| issue == "no_valid_settings_profiles"));
+        assert!(issues.iter().any(|issue| issue == "no_model_profile"));
+        assert_eq!(body["doctor"]["modelConfig"]["rawProfileEntryCount"], 1);
+        assert_eq!(
+            body["doctor"]["modelConfig"]["invalidSettingsProfileCount"],
+            1
+        );
+        assert_eq!(body["doctor"]["modelConfig"]["rawConfigIncluded"], false);
+        let body_text = serde_json::to_string(&body).expect("serialize body");
+        assert!(!body_text.contains("https://invalid-provider.example/v1"));
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
+    async fn slash_command_doctor_reports_partial_custom_backend_env() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::Value::Null,
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::Null,
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        std::env::set_var("MOSSEN_CODE_USE_CUSTOM_BACKEND", "1");
+        std::env::set_var(
+            "MOSSEN_CODE_CUSTOM_BASE_URL",
+            "https://partial-provider.example/v1",
+        );
+
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["doctor"]["healthStatus"], "warning");
+        assert_eq!(body["doctor"]["modelConfig"]["status"], "missing");
+        let issues = body["doctor"]["modelConfig"]["issues"]
+            .as_array()
+            .expect("issues array");
+        assert!(issues.iter().any(|issue| issue == "no_model_profile"));
+        assert!(issues
+            .iter()
+            .any(|issue| issue == "custom_backend_env_incomplete"));
+        assert_eq!(body["doctor"]["modelConfig"]["fallbackEnvPartial"], true);
+        assert_eq!(
+            body["doctor"]["modelConfig"]["env"]["customBackendEnabled"],
+            true
+        );
+        assert_eq!(body["doctor"]["modelConfig"]["env"]["baseUrlPresent"], true);
+        assert_eq!(body["doctor"]["modelConfig"]["env"]["modelPresent"], false);
+        assert_eq!(body["doctor"]["modelConfig"]["env"]["apiKeyPresent"], false);
+        assert_eq!(body["doctor"]["modelConfig"]["env"]["valuesRedacted"], true);
+        let body_text = serde_json::to_string(&body).expect("serialize body");
+        assert!(!body_text.contains("https://partial-provider.example/v1"));
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
+    async fn slash_command_doctor_redacts_configured_model_profile_secrets() {
+        let _model_guard = model_state_lock();
+        let _config_guard = config_state_lock();
+        let previous_env = save_profile_runtime_env_vars();
+        clear_profile_runtime_env_vars();
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.profiles",
+            serde_json::json!({
+                "private": {
+                    "provider": "openai-responses",
+                    "baseURL": "https://private-provider.example/v1",
+                    "model": "private-model",
+                    "apiKey": "sk-test-private-secret-value"
+                }
+            }),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            "mossen.activeProfile",
+            serde_json::Value::String("private".to_string()),
+            mossen_agent::services::config::types::ConfigOverrideScope::Override,
+        );
+
+        let io = StructuredIO::new(false);
+        let body = io
+            .slash_doctor_response(&[])
+            .await
+            .expect("doctor response");
+
+        assert_eq!(body["doctor"]["modelConfig"]["status"], "configured");
+        assert_eq!(
+            body["doctor"]["modelConfig"]["currentProfile"]["name"],
+            "private"
+        );
+        assert_eq!(
+            body["doctor"]["modelConfig"]["currentProfile"]["provider"],
+            "openai-responses"
+        );
+        assert_eq!(
+            body["doctor"]["modelConfig"]["currentProfile"]["model"],
+            "private-model"
+        );
+        assert_eq!(
+            body["doctor"]["modelConfig"]["currentProfile"]["baseUrlPresent"],
+            true
+        );
+        assert_eq!(
+            body["doctor"]["modelConfig"]["currentProfile"]["apiKeyPresent"],
+            true
+        );
+        let body_text = serde_json::to_string(&body).expect("serialize body");
+        assert!(!body_text.contains("https://private-provider.example/v1"));
+        assert!(!body_text.contains("sk-test-private-secret-value"));
+
+        mossen_agent::services::config::facade::reset_facade_for_testing();
+        restore_env_vars(previous_env);
+    }
+
+    #[tokio::test]
     async fn slash_command_ide_returns_readonly_mcp_ide_snapshot() {
         let io = StructuredIO::new(false);
         let mut outbound = io.take_outbound_rx().await.expect("outbound receiver");
@@ -11058,11 +11387,11 @@ mod tests {
         mossen_agent::services::config::facade::set_mossen_config_override(
             "mossen.profiles",
             serde_json::json!({
-                "qwen": {
+                "example": {
                     "provider": "openai-compatible",
-                    "baseURL": "https://qwen.example.com/v1",
-                    "model": "qwen3.6-plus[1M]",
-                    "apiKey": "sk-qwen-secret-value"
+                    "baseURL": "https://api.example.com/v1",
+                    "model": "example-large",
+                    "apiKey": "sk-test-example-secret-value"
                 }
             }),
             mossen_agent::services::config::types::ConfigOverrideScope::Override,
@@ -11083,30 +11412,30 @@ mod tests {
                 let body = response.response.response.expect("response body");
                 assert_eq!(body["command"], "model");
                 assert_eq!(body["model"]["profileCount"], 1);
-                assert_eq!(body["model"]["profiles"][0]["name"], "qwen");
-                assert_eq!(body["model"]["profiles"][0]["model"], "qwen3.6-plus[1M]");
+                assert_eq!(body["model"]["profiles"][0]["name"], "example");
+                assert_eq!(body["model"]["profiles"][0]["model"], "example-large");
                 assert_eq!(body["model"]["profiles"][0]["apiKeyRedacted"], true);
                 let body_text = serde_json::to_string(&body).expect("serialize body");
-                assert!(!body_text.contains("sk-qwen-secret-value"));
-                assert!(!body_text.contains("https://qwen.example.com/v1"));
+                assert!(!body_text.contains("sk-test-example-secret-value"));
+                assert!(!body_text.contains("https://api.example.com/v1"));
             }
             other => panic!("expected slash command response, got {other:?}"),
         }
 
         let returned = io
             .process_line(
-                r#"{"type":"control_request","request_id":"slash-model-profiles-2","request":{"subtype":"slash_command","command":"/model","args":["qwen"]}}"#,
+                r#"{"type":"control_request","request_id":"slash-model-profiles-2","request":{"subtype":"slash_command","command":"/model","args":["example"]}}"#,
             )
             .await
             .expect("process line");
         assert!(returned.is_none());
         assert_eq!(
             config_profiles::get_active_profile_name().as_deref(),
-            Some("qwen")
+            Some("example")
         );
         assert_eq!(
             get_main_loop_model_override().as_deref(),
-            Some("qwen3.6-plus[1M]")
+            Some("example-large")
         );
         assert_eq!(
             std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").as_deref(),
@@ -11117,8 +11446,8 @@ mod tests {
             StdoutMessage::ControlResponse(response) => {
                 let body = response.response.response.expect("response body");
                 assert_eq!(body["model"]["action"], "set");
-                assert_eq!(body["model"]["override"], "qwen3.6-plus[1M]");
-                assert_eq!(body["model"]["currentProfileName"], "qwen");
+                assert_eq!(body["model"]["override"], "example-large");
+                assert_eq!(body["model"]["currentProfileName"], "example");
                 assert_eq!(body["model"]["profiles"][0]["active"], true);
             }
             other => panic!("expected slash command response, got {other:?}"),
@@ -11226,6 +11555,20 @@ mod tests {
 
     #[test]
     fn slash_command_memory_response_reports_runtime_without_content() {
+        let _guard = permission_env_lock();
+        let previous_env = [
+            "MOSSEN_CODE_ENABLE_TEAM_MEMORY",
+            "MOSSEN_TEAM_MEMORY",
+            "MOSSEN_MEMORY_TEAM_MEMORY_ENABLED",
+            "MOSSEN_TEAM_MEMORY_ENABLED",
+        ]
+        .into_iter()
+        .map(|key| (key, std::env::var(key).ok()))
+        .collect::<Vec<_>>();
+        for (key, _) in &previous_env {
+            std::env::remove_var(key);
+        }
+
         let body = slash_memory_response();
 
         assert_eq!(body["command"], "memory");
@@ -11234,16 +11577,9 @@ mod tests {
         assert!(body["memory"]["runtime"]["autoMemoryEnabled"].is_boolean());
         assert!(body["memory"]["runtime"]["extractModeActive"].is_boolean());
         assert_eq!(
-            body["memory"]["runtime"]["teamMemory"]["buildEnabled"],
-            true
-        );
-        assert_eq!(
-            body["memory"]["runtime"]["teamMemory"]["pathIncluded"],
-            false
-        );
-        assert_eq!(
-            body["memory"]["runtime"]["teamMemory"]["pathRedacted"],
-            true
+            body["memory"]["runtime"].get("teamMemory"),
+            None,
+            "personal /memory surface must not expose team-memory controls"
         );
         assert_eq!(
             body["memory"]["runtime"]["sessionMemory"]["contentIncluded"],
@@ -11257,6 +11593,9 @@ mod tests {
         assert!(!serialized.contains("apiKey"));
         assert!(!serialized.contains("token"));
         assert!(!serialized.contains("password"));
+        assert!(!serialized.contains("teamMemory"));
+
+        restore_env_vars(previous_env);
     }
 
     #[tokio::test]
@@ -11270,8 +11609,9 @@ mod tests {
         assert_eq!(body["command"], "doctor");
         assert!(body["doctor"]["memory"]["autoMemoryEnabled"].is_boolean());
         assert_eq!(
-            body["doctor"]["memory"]["teamMemory"]["pathIncluded"],
-            false
+            body["doctor"]["memory"].get("teamMemory"),
+            None,
+            "personal /doctor surface must not expose team-memory controls"
         );
         assert_eq!(
             body["doctor"]["memory"]["sessionMemory"]["contentIncluded"],
@@ -11412,7 +11752,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn slash_command_auth_returns_redacted_external_cli_handoff() {
+    async fn slash_command_auth_returns_redacted_backend_credential_status() {
         let _guard = auth_env_lock();
         let keys = vec![
             "MOSSEN_CODE_AUTH_TOKEN",
@@ -11452,9 +11792,11 @@ mod tests {
                 assert_eq!(body["auth"]["status"], "authenticated");
                 assert_eq!(body["auth"]["authTokenSource"], "env_auth_token");
                 assert_eq!(body["auth"]["authTokenPresent"], true);
-                assert_eq!(body["auth"]["handoffType"], "external_cli_command");
+                assert_eq!(body["auth"]["credentialMode"], "personal_backend");
+                assert_eq!(body["auth"]["handoffType"], "backend_credential_setup");
+                assert_eq!(body["auth"]["handoffRequired"], false);
                 assert_eq!(body["auth"]["equivalentCliCommand"], "mossen auth");
-                assert_eq!(body["auth"]["requiresExternalInteractiveCli"], true);
+                assert_eq!(body["auth"]["requiresExternalInteractiveCli"], false);
                 assert_eq!(body["auth"]["mutationSupported"], false);
                 assert_eq!(body["auth"]["mutationPerformed"], false);
                 assert_eq!(body["auth"]["writesAuthStateDirectly"], false);
@@ -11483,8 +11825,11 @@ mod tests {
                 assert_eq!(body["auth"]["action"], "confirm");
                 assert_eq!(body["auth"]["confirmationReceived"], true);
                 assert_eq!(body["auth"]["requiresConfirmation"], true);
-                assert_eq!(body["auth"]["handoffType"], "external_cli_command");
+                assert_eq!(body["auth"]["credentialMode"], "personal_backend");
+                assert_eq!(body["auth"]["handoffType"], "credential_status");
+                assert_eq!(body["auth"]["handoffRequired"], false);
                 assert_eq!(body["auth"]["equivalentCliCommand"], "mossen deauth");
+                assert_eq!(body["auth"]["requiresExternalInteractiveCli"], false);
                 assert_eq!(body["auth"]["mutationSupported"], false);
                 assert_eq!(body["auth"]["mutationPerformed"], false);
                 assert_eq!(body["auth"]["writesAuthStateDirectly"], false);

@@ -122,8 +122,9 @@ impl Directive for VoiceDirective {
                  MOSSEN_CODE_CUSTOM_VOICE_BASE_URL to a speech-to-text endpoint that supports \
                  /api/ws/speech_to_text/voice_stream."
             } else {
-                "Voice mode requires a configured Mossen voice backend or explicit \
-                 hosted voice adapter credentials."
+                "Voice mode requires a configured speech-to-text backend. Set \
+                 VOICE_STREAM_BASE_URL to an endpoint that supports \
+                 /api/ws/speech_to_text/voice_stream."
             };
             return Ok(CommandResult::Text(msg.to_string()));
         }
@@ -141,8 +142,6 @@ impl Directive for VoiceDirective {
             )));
         }
 
-        // All checks passed — enable voice
-        // In production: updateSettingsForSource('userSettings', { voiceEnabled: true })
         let key = get_shortcut_display();
         let (stt_code, fell_back_from) = normalize_language_for_stt(ctx);
 
@@ -156,9 +155,62 @@ impl Directive for VoiceDirective {
             lang_note = format!(" Dictation language: {} (/config to change).", stt_code);
         }
 
-        Ok(CommandResult::Text(format!(
-            "Voice mode enabled. Hold {} to record.{}",
+        Ok(CommandResult::Error(format!(
+            "Cannot enable voice mode from this command runner; live voice capture is not attached to the TUI input loop here. Requested shortcut: {}.{}",
             key, lang_note
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        let mut env_vars = HashMap::new();
+        env_vars.insert(
+            "MOSSEN_VOICE_GROWTHBOOK_ENABLED".to_string(),
+            "1".to_string(),
+        );
+        env_vars.insert(
+            "MOSSEN_CODE_CUSTOM_VOICE_BASE_URL".to_string(),
+            "http://127.0.0.1:3000".to_string(),
+        );
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: true,
+            user_type: None,
+            env_vars,
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn voice_directive_does_not_claim_live_capture_enabled() {
+        let output = tokio_test::block_on(VoiceDirective.execute(&[], &test_context()))
+            .expect("voice command");
+
+        match output {
+            CommandResult::Error(text) => {
+                assert!(text.contains("Cannot enable voice mode"), "{text}");
+                assert!(!text.contains("Voice mode enabled"), "{text}");
+                assert!(!text.to_lowercase().contains("hosted"), "{text}");
+            }
+            CommandResult::Text(text) => {
+                // Hosts without sox should fail before the final enable path.
+                assert!(!text.contains("Voice mode enabled"), "{text}");
+                assert!(!text.to_lowercase().contains("hosted"), "{text}");
+            }
+            other => panic!("unexpected voice result: {other:?}"),
+        }
     }
 }

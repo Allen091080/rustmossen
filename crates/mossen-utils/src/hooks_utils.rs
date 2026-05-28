@@ -5,7 +5,7 @@
 //! React hooks 模式转为普通函数 + struct 方法 + 依赖注入。
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -204,6 +204,8 @@ pub struct PromptHook {
     pub hook_type: String,
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(rename = "if", skip_serializing_if = "Option::is_none")]
     pub if_condition: Option<String>,
@@ -216,6 +218,8 @@ pub struct AgentHook {
     pub hook_type: String,
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(rename = "if", skip_serializing_if = "Option::is_none")]
     pub if_condition: Option<String>,
@@ -227,6 +231,10 @@ pub struct HttpHook {
     #[serde(rename = "type")]
     pub hook_type: String,
     pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    #[serde(rename = "allowedEnvVars", skip_serializing_if = "Option::is_none")]
+    pub allowed_env_vars: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(rename = "if", skip_serializing_if = "Option::is_none")]
@@ -294,6 +302,24 @@ pub struct MatchedHook {
     pub skill_root: Option<String>,
     pub hook_source: Option<String>,
 }
+
+/// Request passed to the runtime adapter for prompt, agent, and HTTP hooks.
+#[derive(Debug, Clone)]
+pub struct DynamicHookRequest {
+    pub hook: Hook,
+    pub hook_name: String,
+    pub hook_event: String,
+    pub tool_use_id: String,
+    pub display_text: String,
+    pub json_input: String,
+}
+
+/// Runtime adapter for hooks that need the agent/API layer.
+pub type DynamicHookExecutor = Arc<
+    dyn Fn(DynamicHookRequest) -> futures::future::BoxFuture<'static, Vec<HookResult>>
+        + Send
+        + Sync,
+>;
 
 /// Hook matcher from configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -446,10 +472,39 @@ pub struct HooksContext {
     pub get_settings_for_source: Arc<dyn Fn(&str) -> Option<Value> + Send + Sync>,
     /// Callback to invalidate session env cache.
     pub invalidate_session_env_cache: Arc<dyn Fn() + Send + Sync>,
+    /// Runtime adapter for prompt, agent, and HTTP hooks.
+    pub dynamic_hook_executor: Option<DynamicHookExecutor>,
     /// Subprocess environment variables.
     pub subprocess_env: HashMap<String, String>,
     /// Known official marketplace plugin names.
     pub allowed_official_marketplace_names: HashSet<String>,
+}
+
+fn runtime_hook_contexts() -> &'static Mutex<HashMap<String, Arc<HooksContext>>> {
+    static STORE: OnceLock<Mutex<HashMap<String, Arc<HooksContext>>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register a live hook context for tool implementations that only receive a
+/// serializable `ToolUseContext`. The returned id is passed through
+/// `ToolUseContext.extra` and removed by the caller after tool execution.
+pub fn register_runtime_hooks_context(ctx: Arc<HooksContext>) -> String {
+    let id = Uuid::new_v4().to_string();
+    runtime_hook_contexts()
+        .lock()
+        .unwrap()
+        .insert(id.clone(), ctx);
+    id
+}
+
+/// Resolve a runtime hook context id created by `register_runtime_hooks_context`.
+pub fn get_runtime_hooks_context(id: &str) -> Option<Arc<HooksContext>> {
+    runtime_hook_contexts().lock().unwrap().get(id).cloned()
+}
+
+/// Remove a runtime hook context id after the tool call that needed it.
+pub fn unregister_runtime_hooks_context(id: &str) {
+    runtime_hook_contexts().lock().unwrap().remove(id);
 }
 
 impl std::fmt::Debug for HooksContext {
@@ -473,6 +528,10 @@ impl std::fmt::Debug for HooksContext {
             .field("main_thread_agent_type", &self.main_thread_agent_type)
             .field("custom_backend_enabled", &self.custom_backend_enabled)
             .field("simple_mode", &self.simple_mode)
+            .field(
+                "dynamic_hook_executor",
+                &self.dynamic_hook_executor.as_ref().map(|_| "<executor>"),
+            )
             .field("subprocess_env_len", &self.subprocess_env.len())
             .field(
                 "allowed_official_marketplace_names_len",
@@ -2174,41 +2233,61 @@ pub async fn execute_hooks(
                 });
                 hook_futures.push(fut);
             }
-            // Prompt, Agent, Http hooks use simplified execution
             Hook::Prompt(_) | Hook::Agent(_) | Hook::Http(_) => {
-                // These hooks need tool use context which we don't have in pure Rust
-                // They delegate to external executors; for now return success placeholder
-                let _hn = hook_name.clone();
-                let _he = hook_event.to_string();
+                let hn = hook_name.clone();
+                let he = hook_event.to_string();
                 let ht = matched.hook.hook_type().to_string();
                 let display = hook_command.clone();
+                let request = DynamicHookRequest {
+                    hook: matched.hook.clone(),
+                    hook_name: hn.clone(),
+                    hook_event: he.clone(),
+                    tool_use_id: tool_use_id.to_string(),
+                    display_text: display.clone(),
+                    json_input: json_input.clone(),
+                };
 
-                let fut = Box::pin(async move {
-                    vec![HookResult {
-                        message: None,
-                        system_message: None,
-                        blocking_error: None,
-                        outcome: HookOutcome::Success,
-                        prevent_continuation: None,
-                        stop_reason: None,
-                        permission_behavior: None,
-                        hook_permission_decision_reason: None,
-                        additional_context: None,
-                        initial_user_message: None,
-                        updated_input: None,
-                        updated_mcp_tool_output: None,
-                        permission_request_result: None,
-                        elicitation_response: None,
-                        watch_paths: None,
-                        elicitation_result_response: None,
-                        retry: None,
-                        hook: MatchedHookInfo {
-                            hook_type: ht,
-                            display_text: display,
-                        },
-                    }]
-                });
-                hook_futures.push(fut);
+                if let Some(executor) = ctx.dynamic_hook_executor.clone() {
+                    hook_futures.push((executor)(request));
+                } else {
+                    let log_error = ctx.log_error.clone();
+                    let fut = Box::pin(async move {
+                        let reason = format!(
+                            "{} hook `{}` is configured but this runtime path has no executor.",
+                            ht, display
+                        );
+                        (log_error)(&reason);
+                        vec![HookResult {
+                            message: Some(create_attachment_message_value(
+                                "hook_non_blocking_error",
+                                &hn,
+                                &he,
+                                &None,
+                            )),
+                            system_message: None,
+                            blocking_error: None,
+                            outcome: HookOutcome::NonBlockingError,
+                            prevent_continuation: None,
+                            stop_reason: None,
+                            permission_behavior: None,
+                            hook_permission_decision_reason: None,
+                            additional_context: Some(reason),
+                            initial_user_message: None,
+                            updated_input: None,
+                            updated_mcp_tool_output: None,
+                            permission_request_result: None,
+                            elicitation_response: None,
+                            watch_paths: None,
+                            elicitation_result_response: None,
+                            retry: None,
+                            hook: MatchedHookInfo {
+                                hook_type: ht,
+                                display_text: display,
+                            },
+                        }]
+                    });
+                    hook_futures.push(fut);
+                }
             }
         }
     }
@@ -2394,6 +2473,44 @@ impl HookOutcomeCounters {
     }
 }
 
+fn dynamic_hook_result_to_outside_repl(
+    default_command: &str,
+    result: HookResult,
+) -> HookOutsideReplResult {
+    let HookResult {
+        system_message,
+        blocking_error,
+        outcome,
+        additional_context,
+        watch_paths,
+        hook,
+        ..
+    } = result;
+
+    let blocked = matches!(outcome, HookOutcome::Blocking) || blocking_error.is_some();
+    let succeeded = matches!(outcome, HookOutcome::Success);
+    let command = if hook.display_text.is_empty() {
+        default_command.to_string()
+    } else {
+        hook.display_text
+    };
+    let output = blocking_error
+        .as_ref()
+        .map(|err| err.blocking_error.clone())
+        .or(additional_context)
+        .or(system_message.clone())
+        .unwrap_or_default();
+
+    HookOutsideReplResult {
+        command,
+        succeeded,
+        output,
+        blocked,
+        watch_paths,
+        system_message,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Execute hooks outside REPL
 // ---------------------------------------------------------------------------
@@ -2481,24 +2598,62 @@ pub async fn execute_hooks_outside_repl(
                 });
             }
             Hook::Prompt(h) => {
-                results.push(HookOutsideReplResult {
-                    command: h.prompt.clone(),
-                    succeeded: false,
-                    output: "Prompt stop hooks are not yet supported outside REPL".to_string(),
-                    blocked: false,
-                    watch_paths: None,
-                    system_message: None,
-                });
+                if let Some(executor) = ctx.dynamic_hook_executor.clone() {
+                    let request = DynamicHookRequest {
+                        hook: matched.hook.clone(),
+                        hook_name: hook_name.clone(),
+                        hook_event: hook_event.to_string(),
+                        tool_use_id: Uuid::new_v4().to_string(),
+                        display_text: h.prompt.clone(),
+                        json_input: json_input.clone(),
+                    };
+                    for result in (executor)(request).await {
+                        results.push(dynamic_hook_result_to_outside_repl(&h.prompt, result));
+                    }
+                } else {
+                    let output = format!(
+                        "prompt hook `{}` is configured but this runtime path has no executor.",
+                        h.prompt
+                    );
+                    (ctx.log_error)(&output);
+                    results.push(HookOutsideReplResult {
+                        command: h.prompt.clone(),
+                        succeeded: false,
+                        output,
+                        blocked: false,
+                        watch_paths: None,
+                        system_message: None,
+                    });
+                }
             }
             Hook::Agent(h) => {
-                results.push(HookOutsideReplResult {
-                    command: h.prompt.clone(),
-                    succeeded: false,
-                    output: "Agent stop hooks are not yet supported outside REPL".to_string(),
-                    blocked: false,
-                    watch_paths: None,
-                    system_message: None,
-                });
+                if let Some(executor) = ctx.dynamic_hook_executor.clone() {
+                    let request = DynamicHookRequest {
+                        hook: matched.hook.clone(),
+                        hook_name: hook_name.clone(),
+                        hook_event: hook_event.to_string(),
+                        tool_use_id: Uuid::new_v4().to_string(),
+                        display_text: h.prompt.clone(),
+                        json_input: json_input.clone(),
+                    };
+                    for result in (executor)(request).await {
+                        results.push(dynamic_hook_result_to_outside_repl(&h.prompt, result));
+                    }
+                } else {
+                    let output = format!(
+                        "agent hook `{}` is configured but this runtime path has no executor.",
+                        h.prompt
+                    );
+                    (ctx.log_error)(&output);
+                    results.push(HookOutsideReplResult {
+                        command: h.prompt.clone(),
+                        succeeded: false,
+                        output,
+                        blocked: false,
+                        watch_paths: None,
+                        system_message: None,
+                    });
+                }
             }
             Hook::Function(_) => {
                 (ctx.log_error)(&format!(
@@ -2516,15 +2671,33 @@ pub async fn execute_hooks_outside_repl(
                 });
             }
             Hook::Http(h) => {
-                // HTTP hooks would use reqwest; simplified here
-                results.push(HookOutsideReplResult {
-                    command: h.url.clone(),
-                    succeeded: false,
-                    output: "HTTP hooks not yet implemented in Rust backend".to_string(),
-                    blocked: false,
-                    watch_paths: None,
-                    system_message: None,
-                });
+                if let Some(executor) = ctx.dynamic_hook_executor.clone() {
+                    let request = DynamicHookRequest {
+                        hook: matched.hook.clone(),
+                        hook_name: hook_name.clone(),
+                        hook_event: hook_event.to_string(),
+                        tool_use_id: Uuid::new_v4().to_string(),
+                        display_text: h.url.clone(),
+                        json_input: json_input.clone(),
+                    };
+                    for result in (executor)(request).await {
+                        results.push(dynamic_hook_result_to_outside_repl(&h.url, result));
+                    }
+                } else {
+                    let output = format!(
+                        "http hook `{}` is configured but this runtime path has no executor.",
+                        h.url
+                    );
+                    (ctx.log_error)(&output);
+                    results.push(HookOutsideReplResult {
+                        command: h.url.clone(),
+                        succeeded: false,
+                        output,
+                        blocked: false,
+                        watch_paths: None,
+                        system_message: None,
+                    });
+                }
             }
             Hook::Command(cmd) => {
                 match exec_command_hook(
@@ -3328,15 +3501,6 @@ pub async fn execute_session_end_hooks(
     cancel_token: Option<&tokio_util::sync::CancellationToken>,
     timeout_ms: u64,
 ) {
-    if ctx.custom_backend_enabled
-        && std::env::var("MOSSEN_CODE_ENABLE_CUSTOM_BACKEND_SESSION_END_HOOKS")
-            .ok()
-            .as_deref()
-            != Some("1")
-    {
-        return;
-    }
-
     let base = create_base_hook_input(ctx, None, None, None);
     let hook_input = serde_json::json!({
         "session_id": base.session_id,
@@ -4014,4 +4178,272 @@ pub async fn execute_worktree_remove_hook(ctx: &HooksContext, worktree_path: &st
     }
 
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_hooks_context(
+        registered_hooks: HashMap<String, Vec<HookMatcher>>,
+        log_errors: Arc<Mutex<Vec<String>>>,
+    ) -> HooksContext {
+        HooksContext {
+            session_id: "test-session".to_string(),
+            original_cwd: ".".to_string(),
+            project_root: ".".to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: Arc::new(|session_id| format!("/tmp/{session_id}.jsonl")),
+            get_agent_transcript_path: Arc::new(|agent_id| format!("/tmp/agent-{agent_id}.jsonl")),
+            log_debug: Arc::new(|_| {}),
+            log_error: Arc::new(move |message| {
+                log_errors.lock().unwrap().push(message.to_string());
+            }),
+            log_event: Arc::new(|_, _| {}),
+            get_settings: Arc::new(|| None),
+            get_settings_for_source: Arc::new(|_| None),
+            invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: None,
+            subprocess_env: HashMap::new(),
+            allowed_official_marketplace_names: HashSet::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn status_line_command_receives_payload_and_returns_trimmed_output() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script_path = temp.path().join("statusline_probe.py");
+        std::fs::write(
+            &script_path,
+            r#"#!/usr/bin/env python3
+import json
+import sys
+
+payload = json.load(sys.stdin)
+print(
+    "STATUSLINE_RUST_OK"
+    f" model={payload['model']['id']}"
+    f" cwd={payload['workspace']['current_dir']}"
+    f" lang={payload['interactive_language']}"
+)
+"#,
+        )
+        .expect("write statusline probe");
+
+        let command_path = script_path.to_string_lossy().replace('\'', "'\\''");
+        let settings = serde_json::json!({
+            "statusLine": {
+                "type": "command",
+                "command": format!("python3 '{command_path}'"),
+                "timeout": 2,
+            }
+        });
+
+        let log_errors = Arc::new(Mutex::new(Vec::new()));
+        let mut ctx = test_hooks_context(HashMap::new(), log_errors);
+        ctx.original_cwd = temp.path().to_string_lossy().to_string();
+        ctx.project_root = ctx.original_cwd.clone();
+        ctx.get_settings = Arc::new(move || Some(settings.clone()));
+
+        let payload = serde_json::json!({
+            "session_id": "statusline-test-session",
+            "model": {"id": "statusline-model"},
+            "workspace": {"current_dir": temp.path().to_string_lossy()},
+            "interactive_language": "zh",
+        });
+
+        let output = execute_status_line_command(&ctx, &payload, None, 2_000, true)
+            .await
+            .expect("statusline output");
+        assert!(output.contains("STATUSLINE_RUST_OK"), "{output}");
+        assert!(output.contains("model=statusline-model"), "{output}");
+        assert!(
+            output.contains(&format!("cwd={}", temp.path().to_string_lossy())),
+            "{output}"
+        );
+        assert!(output.contains("lang=zh"), "{output}");
+    }
+
+    #[test]
+    fn prompt_hooks_without_runtime_executor_do_not_report_success() {
+        tokio_test::block_on(async {
+            let mut registered_hooks = HashMap::new();
+            registered_hooks.insert(
+                "PostSampling".to_string(),
+                vec![HookMatcher {
+                    matcher: None,
+                    hooks: vec![serde_json::json!({
+                        "type": "prompt",
+                        "prompt": "check $ARGUMENTS",
+                    })],
+                    plugin_root: None,
+                    plugin_id: None,
+                    plugin_name: None,
+                    skill_root: None,
+                    skill_name: None,
+                }],
+            );
+            let log_errors = Arc::new(Mutex::new(Vec::new()));
+            let ctx = test_hooks_context(registered_hooks, log_errors.clone());
+            let hook_input = serde_json::json!({
+                "hook_event_name": "PostSampling",
+                "session_id": "test-session",
+                "transcript_path": "/tmp/test-session.jsonl",
+                "cwd": ".",
+            });
+
+            let results = execute_hooks(
+                &ctx,
+                &hook_input,
+                "toolu-test",
+                None,
+                None,
+                TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+                None,
+                false,
+            )
+            .await;
+
+            assert!(results.iter().any(|result| {
+                result
+                    .message
+                    .as_ref()
+                    .and_then(|message| message.pointer("/attachment/type"))
+                    .and_then(|value| value.as_str())
+                    == Some("hook_non_blocking_error")
+            }));
+            assert!(results.iter().any(|result| {
+                result.additional_contexts.as_ref().is_some_and(|contexts| {
+                    contexts
+                        .iter()
+                        .any(|context| context.contains("prompt hook"))
+                })
+            }));
+            assert!(log_errors
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|message| message.contains("prompt hook")));
+        });
+    }
+
+    #[test]
+    fn outside_repl_prompt_hooks_use_runtime_executor() {
+        tokio_test::block_on(async {
+            let mut registered_hooks = HashMap::new();
+            registered_hooks.insert(
+                "PostSampling".to_string(),
+                vec![HookMatcher {
+                    matcher: None,
+                    hooks: vec![serde_json::json!({
+                        "type": "prompt",
+                        "prompt": "check $ARGUMENTS",
+                    })],
+                    plugin_root: None,
+                    plugin_id: None,
+                    plugin_name: None,
+                    skill_root: None,
+                    skill_name: None,
+                }],
+            );
+            let log_errors = Arc::new(Mutex::new(Vec::new()));
+            let mut ctx = test_hooks_context(registered_hooks, log_errors);
+            ctx.dynamic_hook_executor = Some(Arc::new(|request| {
+                Box::pin(async move {
+                    vec![HookResult {
+                        message: Some(create_attachment_message_value(
+                            "hook_success",
+                            &request.hook_name,
+                            &request.hook_event,
+                            &None,
+                        )),
+                        system_message: None,
+                        blocking_error: None,
+                        outcome: HookOutcome::Success,
+                        prevent_continuation: None,
+                        stop_reason: None,
+                        permission_behavior: None,
+                        hook_permission_decision_reason: None,
+                        additional_context: None,
+                        initial_user_message: None,
+                        updated_input: None,
+                        updated_mcp_tool_output: None,
+                        permission_request_result: None,
+                        elicitation_response: None,
+                        watch_paths: None,
+                        elicitation_result_response: None,
+                        retry: None,
+                        hook: MatchedHookInfo {
+                            hook_type: request.hook.hook_type().to_string(),
+                            display_text: request.display_text,
+                        },
+                    }]
+                })
+            }));
+            let hook_input = serde_json::json!({
+                "hook_event_name": "PostSampling",
+                "session_id": "test-session",
+                "transcript_path": "/tmp/test-session.jsonl",
+                "cwd": ".",
+            });
+
+            let results = execute_hooks_outside_repl(
+                &ctx,
+                &hook_input,
+                None,
+                None,
+                TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+            )
+            .await;
+
+            assert_eq!(results.len(), 1);
+            assert!(results[0].succeeded);
+            assert_eq!(results[0].command, "check $ARGUMENTS");
+            assert!(results[0].output.is_empty());
+        });
+    }
+
+    #[tokio::test]
+    async fn session_end_hooks_run_when_custom_backend_is_enabled() {
+        let cwd = tempfile::tempdir().expect("tempdir");
+        let marker_path = cwd.path().join("session_end_marker");
+        let marker_arg = marker_path.to_string_lossy().replace('\'', "'\\''");
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "SessionEnd".to_string(),
+            vec![HookMatcher {
+                matcher: Some("prompt_input_exit".to_string()),
+                hooks: vec![serde_json::json!({
+                    "type": "command",
+                    "command": format!("printf ended > '{marker_arg}'"),
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+        let log_errors = Arc::new(Mutex::new(Vec::new()));
+        let mut ctx = test_hooks_context(registered_hooks, log_errors);
+        ctx.original_cwd = cwd.path().to_string_lossy().to_string();
+        ctx.project_root = cwd.path().to_string_lossy().to_string();
+        ctx.custom_backend_enabled = true;
+
+        execute_session_end_hooks(&ctx, "prompt_input_exit", None, 1_000).await;
+
+        let marker = tokio::fs::read_to_string(marker_path)
+            .await
+            .expect("SessionEnd hook should write marker");
+        assert_eq!(marker, "ended");
+    }
 }

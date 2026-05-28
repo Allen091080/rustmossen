@@ -135,7 +135,7 @@ mod tests {
     use mossen_mcp::McpServerManager;
     use serde_json::json;
     use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock};
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -153,8 +153,17 @@ mod tests {
         }
     }
 
+    fn global_mcp_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("global MCP test lock poisoned")
+    }
+
     #[tokio::test]
     async fn resource_tools_list_and_read_live_global_mcp_manager() {
+        let _guard = global_mcp_test_lock();
+        mossen_mcp::server::clear_global_manager();
         let mock_server = repo_root().join("scripts/harness_mock_mcp_server.py");
         assert!(mock_server.exists(), "mock MCP server fixture exists");
 
@@ -202,5 +211,6 @@ mod tests {
         assert!(read.output.contains("RESOURCE_BODY_M3"), "{}", read.output);
 
         manager.disconnect_all().await;
+        mossen_mcp::server::clear_global_manager();
     }
 }

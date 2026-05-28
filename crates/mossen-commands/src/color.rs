@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
 /// Color command — sets or resets the session prompt bar color.
-/// Teammates cannot change their own color (assigned by team leader).
 pub struct ColorDirective;
 
 /// Available agent colors for the prompt bar.
@@ -17,8 +16,8 @@ const AGENT_COLORS: &[&str] = &[
 /// Aliases that reset to the default (gray) color.
 const RESET_ALIASES: &[&str] = &["default", "reset", "none", "gray", "grey"];
 
-/// Check if the current session is a teammate (swarm child).
-fn is_teammate(ctx: &CommandContext) -> bool {
+/// Check if the current session is a delegated child session.
+fn is_delegated_session(ctx: &CommandContext) -> bool {
     ctx.env_vars
         .get("MOSSEN_TEAMMATE")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
@@ -52,10 +51,9 @@ impl Directive for ColorDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        // Teammates cannot set their own color
-        if is_teammate(ctx) {
+        if is_delegated_session(ctx) {
             return Ok(CommandResult::System(
-                "Cannot set color: This session is a swarm teammate. Teammate colors are assigned by the team leader.".to_string(),
+                "Cannot set color for this child agent session.".to_string(),
             ));
         }
 
@@ -72,10 +70,9 @@ impl Directive for ColorDirective {
 
         // Handle reset to default
         if RESET_ALIASES.contains(&color_arg.as_str()) {
-            // In full implementation: saveAgentColor(sessionId, "default", fullPath)
-            // and update app state to remove color
-            return Ok(CommandResult::System(
-                "Session color reset to default".to_string(),
+            return Ok(CommandResult::Error(
+                "Session color customization is not wired to live TUI state in this build."
+                    .to_string(),
             ));
         }
 
@@ -88,14 +85,56 @@ impl Directive for ColorDirective {
             )));
         }
 
-        // In full implementation:
-        // 1. Get sessionId and transcript path
-        // 2. saveAgentColor(sessionId, colorArg, fullPath)
-        // 3. Update AppState standaloneAgentContext.color
-
-        Ok(CommandResult::System(format!(
-            "Session color set to: {}",
-            color_arg
+        Ok(CommandResult::Error(format!(
+            "Cannot set session color to {color_arg}: color customization is not wired to live TUI state in this build."
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn color_directive_does_not_claim_live_state_changes() {
+        let output = tokio_test::block_on(ColorDirective.execute(&["blue"], &test_context()))
+            .expect("color command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("color should not claim success without live TUI state");
+        };
+        assert!(text.contains("Cannot set session color"), "{text}");
+        assert!(!text.contains("Session color set"), "{text}");
+    }
+
+    #[test]
+    fn color_reset_does_not_claim_live_state_changes() {
+        let output = tokio_test::block_on(ColorDirective.execute(&["reset"], &test_context()))
+            .expect("color command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("color reset should not claim success without live TUI state");
+        };
+        assert!(text.contains("not wired to live TUI state"), "{text}");
+        assert!(!text.contains("reset to default"), "{text}");
     }
 }

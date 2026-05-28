@@ -29,7 +29,7 @@ pub const TASK_GET_TOOL_NAME: &str = "TaskGet";
 pub const TASK_LIST_TOOL_NAME: &str = "TaskList";
 pub const TASK_UPDATE_TOOL_NAME: &str = "TaskUpdate";
 pub const TOOL_SEARCH_TOOL_NAME: &str = "ToolSearch";
-pub const SYNTHETIC_OUTPUT_TOOL_NAME: &str = "SyntheticOutput";
+pub const SYNTHETIC_OUTPUT_TOOL_NAME: &str = "StructuredOutput";
 pub const ENTER_WORKTREE_TOOL_NAME: &str = "EnterWorktree";
 pub const EXIT_WORKTREE_TOOL_NAME: &str = "ExitWorktree";
 pub const WORKFLOW_TOOL_NAME: &str = "Workflow";
@@ -90,7 +90,6 @@ pub static ASYNC_AGENT_ALLOWED_TOOLS: Lazy<HashSet<&'static str>> = Lazy::new(||
     s.insert(FILE_WRITE_TOOL_NAME);
     s.insert(NOTEBOOK_EDIT_TOOL_NAME);
     s.insert(SKILL_TOOL_NAME);
-    s.insert(SYNTHETIC_OUTPUT_TOOL_NAME);
     s.insert(TOOL_SEARCH_TOOL_NAME);
     s.insert(ENTER_WORKTREE_TOOL_NAME);
     s.insert(EXIT_WORKTREE_TOOL_NAME);
@@ -122,7 +121,36 @@ pub static COORDINATOR_MODE_ALLOWED_TOOLS: Lazy<HashSet<&'static str>> = Lazy::n
     let mut s = HashSet::new();
     s.insert(AGENT_TOOL_NAME);
     s.insert(TASK_STOP_TOOL_NAME);
-    s.insert(SEND_MESSAGE_TOOL_NAME);
-    s.insert(SYNTHETIC_OUTPUT_TOOL_NAME);
+    s.insert(TASK_OUTPUT_TOOL_NAME);
     s
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coordinator_mode_allowed_tools_match_personal_runtime_surface() {
+        assert!(COORDINATOR_MODE_ALLOWED_TOOLS.contains(AGENT_TOOL_NAME));
+        assert!(COORDINATOR_MODE_ALLOWED_TOOLS.contains(TASK_OUTPUT_TOOL_NAME));
+        assert!(COORDINATOR_MODE_ALLOWED_TOOLS.contains(TASK_STOP_TOOL_NAME));
+        for hidden in [
+            SEND_MESSAGE_TOOL_NAME,
+            TASK_CREATE_TOOL_NAME,
+            TASK_GET_TOOL_NAME,
+            TASK_LIST_TOOL_NAME,
+            TASK_UPDATE_TOOL_NAME,
+            WORKFLOW_TOOL_NAME,
+        ] {
+            assert!(
+                !COORDINATOR_MODE_ALLOWED_TOOLS.contains(hidden),
+                "{hidden} must not be coordinator-allowed in the personal runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn structured_output_constant_matches_registered_tool_name() {
+        assert_eq!(SYNTHETIC_OUTPUT_TOOL_NAME, "StructuredOutput");
+    }
+}

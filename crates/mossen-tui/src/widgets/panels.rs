@@ -32,6 +32,17 @@ fn truncate_display_width(text: &str, max_width: usize, glyphs: RenderGlyphs) ->
     out
 }
 
+fn selected_window_start(len: usize, visible_count: usize, selected: usize) -> usize {
+    if len <= visible_count {
+        return 0;
+    }
+    selected
+        .min(len.saturating_sub(1))
+        .saturating_add(1)
+        .saturating_sub(visible_count)
+        .min(len.saturating_sub(visible_count))
+}
+
 fn panel_block<'a>(title: &'a str, theme: &Theme, glyphs: RenderGlyphs) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
@@ -157,8 +168,17 @@ impl<'a> Widget for ModelPickerWidget<'a> {
         buf.set_line(chunks[0].x, chunks[0].y, &filter_line, chunks[0].width);
 
         let filtered = self.state.filtered();
-        for (visible_index, (_, model)) in filtered.iter().enumerate() {
-            let y = chunks[1].y + visible_index as u16;
+        let visible_count = chunks[1].height as usize;
+        let start = selected_window_start(filtered.len(), visible_count, self.state.selected);
+
+        for (row, (visible_index, (_, model))) in filtered
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(visible_count)
+            .enumerate()
+        {
+            let y = chunks[1].y + row as u16;
             if y >= chunks[1].y + chunks[1].height {
                 break;
             }
@@ -286,11 +306,16 @@ impl<'a> Widget for MemoryPanelWidget<'a> {
             return;
         }
 
+        let visible_count = inner.height as usize;
+        let start =
+            selected_window_start(self.state.entries.len(), visible_count, self.state.selected);
         let items = self
             .state
             .entries
             .iter()
             .enumerate()
+            .skip(start)
+            .take(visible_count)
             .map(|(i, entry)| {
                 let selected = i == self.state.selected;
                 let bg = if selected {
@@ -387,8 +412,19 @@ impl<'a> Widget for SkillsPanelWidget<'a> {
             return;
         }
 
-        for (i, skill) in self.state.skills.iter().enumerate() {
-            let y = inner.y + i as u16;
+        let visible_count = inner.height as usize;
+        let start =
+            selected_window_start(self.state.skills.len(), visible_count, self.state.selected);
+        for (row, (i, skill)) in self
+            .state
+            .skills
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(visible_count)
+            .enumerate()
+        {
+            let y = inner.y + row as u16;
             if y >= inner.y + inner.height {
                 break;
             }
@@ -458,7 +494,7 @@ mod tests {
         let theme = Theme::default();
         let model = ModelPickerState::new(vec![ModelInfo {
             id: "m2".into(),
-            name: "MiniMax-M2.7 逐行阅读核心代码模型".into(),
+            name: "example-fast 逐行阅读核心代码模型".into(),
             provider: "custom".into(),
             supports_thinking: true,
             supports_streaming: true,
@@ -468,7 +504,7 @@ mod tests {
         ModelPickerWidget::new(&model, &theme).render(buf.area, &mut buf);
         let rendered = buffer_text(&buf);
         assert!(rendered.contains("Select Model"));
-        assert!(rendered.contains("MiniMax"));
+        assert!(rendered.contains("example-fast"));
         assert!(!rendered.contains("legacy-dialog-marker"));
     }
 
@@ -477,7 +513,7 @@ mod tests {
         let theme = Theme::default();
         let model = ModelPickerState::new(vec![ModelInfo {
             id: "m2".into(),
-            name: "MiniMax-M2.7 plain rendering profile clipping".into(),
+            name: "example-fast plain rendering profile clipping".into(),
             provider: "custom".into(),
             supports_thinking: false,
             supports_streaming: true,
@@ -493,5 +529,71 @@ mod tests {
         assert!(rendered.contains('+'), "{rendered}");
         assert!(rendered.contains("..."), "{rendered}");
         assert!(!rendered.contains('…'), "{rendered}");
+    }
+
+    #[test]
+    fn model_picker_window_follows_selected_profile() {
+        let theme = Theme::default();
+        let mut model = ModelPickerState::new(
+            (0..14)
+                .map(|index| ModelInfo {
+                    id: format!("profile-{index:02}"),
+                    name: format!("Model {index:02}"),
+                    provider: "settings".into(),
+                    supports_thinking: false,
+                    supports_streaming: true,
+                    is_current: index == 11,
+                })
+                .collect(),
+        );
+        model.selected = 11;
+        let mut buf = Buffer::empty(Rect::new(0, 0, 48, 8));
+
+        ModelPickerWidget::new(&model, &theme).render(buf.area, &mut buf);
+
+        let rendered = buffer_text(&buf);
+        assert!(rendered.contains("Model 11"), "{rendered}");
+        assert!(rendered.contains("Model 07"), "{rendered}");
+        assert!(
+            !rendered.contains("Model 00"),
+            "model picker should scroll past initial rows:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn skills_and_memory_panels_follow_selected_item() {
+        let theme = Theme::default();
+        let skills = SkillsPanelState {
+            skills: (0..12)
+                .map(|index| SkillInfo {
+                    name: format!("skill-{index:02}"),
+                    description: "project skill".into(),
+                    enabled: true,
+                })
+                .collect(),
+            selected: 10,
+        };
+        let memory = MemoryPanelState {
+            entries: (0..12)
+                .map(|index| MemoryEntry {
+                    title: format!("memory-{index:02}"),
+                    category: "project".into(),
+                    preview: String::new(),
+                })
+                .collect(),
+            selected: 10,
+        };
+
+        let mut skill_buf = Buffer::empty(Rect::new(0, 0, 48, 6));
+        SkillsPanelWidget::new(&skills, &theme).render(skill_buf.area, &mut skill_buf);
+        let rendered_skills = buffer_text(&skill_buf);
+        assert!(rendered_skills.contains("skill-10"), "{rendered_skills}");
+        assert!(!rendered_skills.contains("skill-00"), "{rendered_skills}");
+
+        let mut memory_buf = Buffer::empty(Rect::new(0, 0, 48, 6));
+        MemoryPanelWidget::new(&memory, &theme).render(memory_buf.area, &mut memory_buf);
+        let rendered_memory = buffer_text(&memory_buf);
+        assert!(rendered_memory.contains("memory-10"), "{rendered_memory}");
+        assert!(!rendered_memory.contains("memory-00"), "{rendered_memory}");
     }
 }

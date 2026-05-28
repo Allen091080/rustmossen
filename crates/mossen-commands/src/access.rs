@@ -171,6 +171,7 @@ mod tests {
             cli_name: "mossen".to_string(),
             version: "test".to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         }
     }
 

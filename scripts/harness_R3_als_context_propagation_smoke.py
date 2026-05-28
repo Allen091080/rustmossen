@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from harness_fixture import make_fixture, write_assertions, write_command_log
+from lib.mock_openai_provider import apply_mock_provider_env, mock_openai_provider
 
 MARKER = "R3_TEST_MARKER_xyz"
 
@@ -41,17 +42,52 @@ MARKER = "R3_TEST_MARKER_xyz"
 def _make_env(ctx) -> dict:
     env = dict(ctx.env)
     env["MOSSEN_CONFIG_DIR"] = str(ctx.mossen_config_home)
+    env["MOSSEN_START_BUILD"] = "never"
     return env
 
 
 def _find_session_logs(home: Path) -> list[Path]:
     found = []
-    for pattern in ("**/projects/**/*.jsonl", "**/sessions/**/*.jsonl",
-                    "**/.mossen/**/*.jsonl"):
+    for pattern in (
+        "**/.mossen/transcripts/*.json",
+        "**/transcripts/*.json",
+        "**/projects/**/*.jsonl",
+        "**/sessions/**/*.jsonl",
+        "**/.mossen/**/*.jsonl",
+    ):
         for p in home.glob(pattern):
             if p.is_file() and p not in found:
                 found.append(p)
     return found
+
+
+def _message_contents(path: Path):
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    if path.suffix == ".json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return
+        if isinstance(payload, dict):
+            for msg in payload.get("messages", []):
+                if isinstance(msg, dict):
+                    yield msg.get("content")
+        return
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        msg = ev.get("message", ev) if isinstance(ev, dict) else {}
+        if isinstance(msg, dict):
+            yield msg.get("content")
 
 
 def _scan_tool_pairing(session_logs: list[Path], expected_marker: str) -> dict:
@@ -62,20 +98,7 @@ def _scan_tool_pairing(session_logs: list[Path], expected_marker: str) -> dict:
     marker_in_some_result = False
 
     for log in session_logs:
-        try:
-            text = log.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            msg = ev.get("message", ev) if isinstance(ev, dict) else {}
-            content = msg.get("content") if isinstance(msg, dict) else None
+        for content in _message_contents(log):
             if not isinstance(content, list):
                 continue
             for block in content:
@@ -111,6 +134,52 @@ def _scan_tool_pairing(session_logs: list[Path], expected_marker: str) -> dict:
     }
 
 
+def _scan_provider_tool_pairing(provider_requests: list[dict], expected_marker: str) -> dict:
+    bash_use_ids = set()
+    bash_use_inputs = {}
+    tool_result_by_id = {}
+    marker_in_some_result = False
+
+    for request in provider_requests:
+        body = request.get("body") if isinstance(request, dict) else {}
+        messages = body.get("messages") if isinstance(body, dict) else []
+        if not isinstance(messages, list):
+            continue
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            for tool_call in msg.get("tool_calls") or []:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function") or {}
+                if function.get("name") != "Bash":
+                    continue
+                bid = tool_call.get("id")
+                if not bid:
+                    continue
+                bash_use_ids.add(bid)
+                bash_use_inputs[bid] = str(function.get("arguments", ""))
+            if msg.get("role") == "tool":
+                tid = msg.get("tool_call_id")
+                if tid:
+                    content = str(msg.get("content", ""))
+                    tool_result_by_id[tid] = content
+                    if expected_marker in content:
+                        marker_in_some_result = True
+
+    paired_ids = bash_use_ids & set(tool_result_by_id.keys())
+    unpaired_uses = bash_use_ids - set(tool_result_by_id.keys())
+    return {
+        "bash_use_ids": sorted(bash_use_ids),
+        "tool_result_ids": sorted(tool_result_by_id.keys()),
+        "paired_ids": sorted(paired_ids),
+        "unpaired_uses": sorted(unpaired_uses),
+        "marker_in_some_result": marker_in_some_result,
+        "bash_use_inputs": bash_use_inputs,
+        "tool_result_count": len(tool_result_by_id),
+    }
+
+
 def case_als_context_propagation() -> dict:
     ctx = make_fixture("R3_als_ctx")
     env = _make_env(ctx)
@@ -120,25 +189,49 @@ def case_als_context_propagation() -> dict:
 
     prompt = f"请用 Bash 工具执行: sleep 0.5 && echo {MARKER}"
 
-    proc = subprocess.run(
-        [str(ROOT / "run-mossen.sh"), "-p", "--allowedTools", "Bash"],
-        input=prompt,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=300,  # sleep 0.5 + LLM 余裕
-        cwd=str(fake_proj),
-    )
+    command = [
+        str(ROOT / "scripts" / "start-mossen.sh"),
+        "--stdin",
+        "--instruments",
+        "Bash",
+        "--access-policy",
+        "unrestricted",
+    ]
+    with mock_openai_provider(model="r3-als-model") as (base_url, provider):
+        apply_mock_provider_env(
+            env,
+            base_url,
+            model="r3-als-model",
+            name="R3 ALS Mock",
+        )
+        ctx.env.update(env)
+        proc = subprocess.run(
+            command,
+            input=prompt,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=str(fake_proj),
+        )
+        provider_snapshot = provider.snapshot()
     write_command_log(
         ctx,
-        ["mossen", "-p", "--allowedTools", "Bash"],
+        ["mossen", "--stdin", "--instruments", "Bash", "--access-policy", "unrestricted"],
         proc.stdout,
         proc.stderr,
         proc.returncode,
     )
+    provider_requests_path = ctx.artifacts_dir / "provider_requests.json"
+    provider_requests_path.write_text(
+        json.dumps(provider_snapshot["requests"], indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     session_logs = _find_session_logs(ctx.home_dir)
-    pairing = _scan_tool_pairing(session_logs, MARKER)
+    transcript_pairing = _scan_tool_pairing(session_logs, MARKER)
+    provider_pairing = _scan_provider_tool_pairing(provider_snapshot["requests"], MARKER)
+    pairing = provider_pairing if provider_pairing["bash_use_ids"] else transcript_pairing
 
     bash_attempted = len(pairing["bash_use_ids"]) > 0
     pairing_complete = len(pairing["unpaired_uses"]) == 0
@@ -162,6 +255,12 @@ def case_als_context_propagation() -> dict:
         "paired_count": len(pairing["paired_ids"]),
         "unpaired_uses": pairing["unpaired_uses"],
         "marker_in_result": pairing["marker_in_some_result"],
+        "provider_request_count": provider_snapshot["request_count"],
+        "provider_tool_call_sent": provider_snapshot["tool_call_sent"],
+        "provider_requests": str(provider_requests_path),
+        "pairing_source": "provider_replay"
+        if provider_pairing["bash_use_ids"]
+        else "transcript",
         "stdout_excerpt": proc.stdout[:300],
         "stderr_excerpt": proc.stderr[:300],
         "fixture_root": str(ctx.root_dir),
@@ -196,7 +295,9 @@ def main() -> int:
                 f"exit={res.get('exit_code')} "
                 f"bash_use={res.get('bash_use_count')} "
                 f"paired={res.get('paired_count')} "
-                f"marker_in_result={res.get('marker_in_result')}"
+                f"marker_in_result={res.get('marker_in_result')} "
+                f"provider_req={res.get('provider_request_count')} "
+                f"source={res.get('pairing_source')}"
             ),
         }],
     )

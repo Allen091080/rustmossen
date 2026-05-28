@@ -129,7 +129,7 @@ def case_messages_create_rejects_with_bad_url() -> dict:
         "const timer = setTimeout(() => { timed_out = true; }, 8000);"
         "try {"
         "  await client.beta.messages.create({"
-        "    model: 'qwen3.6-plus',"
+        "    model: 'example-large',"
         "    max_tokens: 10,"
         "    messages: [{role: 'user', content: 'test'}],"
         "  });"

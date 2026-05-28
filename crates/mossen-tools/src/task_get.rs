@@ -23,6 +23,8 @@ pub struct WorkItemQueryInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkItemQueryOutput {
     pub task: Option<TaskDetail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +36,30 @@ pub struct TaskDetail {
     pub blocks: Vec<String>,
     #[serde(rename = "blockedBy")]
     pub blocked_by: Vec<String>,
+}
+
+fn parse_input(input: Value) -> Result<WorkItemQueryInput, String> {
+    match input {
+        Value::Null => {
+            Err("TaskGet requires a JSON object with a `taskId` string; received null.".to_string())
+        }
+        Value::Object(_) => serde_json::from_value(input).map_err(|error| {
+            format!(
+                "TaskGet received invalid input: {error}. Expected object: {{\"taskId\":\"...\"}}."
+            )
+        }),
+        other => Err(format!(
+            "TaskGet requires a JSON object with a `taskId` string; received {}.",
+            other
+        )),
+    }
+}
+
+fn error_output(message: impl Into<String>) -> WorkItemQueryOutput {
+    WorkItemQueryOutput {
+        task: None,
+        error: Some(message.into()),
+    }
 }
 
 fn build_input_schema() -> ToolInputSchema {
@@ -76,7 +102,28 @@ impl Tool for WorkItemQuery {
     }
 
     async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
-        let inp: WorkItemQueryInput = serde_json::from_value(input)?;
+        let start = std::time::Instant::now();
+        let inp = match parse_input(input) {
+            Ok(input) => input,
+            Err(message) => {
+                return Ok(ToolResult {
+                    output: serde_json::to_string(&error_output(message))?,
+                    is_error: true,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    metadata: HashMap::new(),
+                })
+            }
+        };
+        if inp.task_id.trim().is_empty() {
+            return Ok(ToolResult {
+                output: serde_json::to_string(&error_output(
+                    "TaskGet requires a non-empty `taskId` string.",
+                ))?,
+                is_error: true,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        }
         let output = WorkItemQueryOutput {
             task: crate::task_store::get_task(&inp.task_id).map(|r| TaskDetail {
                 id: r.id,
@@ -86,12 +133,59 @@ impl Tool for WorkItemQuery {
                 blocks: r.blocks,
                 blocked_by: r.blocked_by,
             }),
+            error: None,
         };
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
             is_error: false,
-            duration_ms: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
             metadata: HashMap::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WorkItemQuery;
+    use mossen_agent::tool_registry::Tool;
+    use mossen_types::ToolUseContext;
+    use serde_json::Value;
+
+    fn context() -> ToolUseContext {
+        ToolUseContext {
+            cwd: ".".to_string(),
+            additional_working_directories: None,
+            extra: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn task_get_null_input_returns_structured_tool_error() {
+        let result = WorkItemQuery
+            .execute(Value::Null, &context())
+            .await
+            .expect("TaskGet result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("taskId"));
+    }
+
+    #[tokio::test]
+    async fn task_get_empty_id_returns_structured_tool_error() {
+        let result = WorkItemQuery
+            .execute(serde_json::json!({"taskId": ""}), &context())
+            .await
+            .expect("TaskGet result");
+        let output: Value = serde_json::from_str(&result.output).expect("json output");
+
+        assert!(result.is_error);
+        assert!(output["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("non-empty"));
     }
 }

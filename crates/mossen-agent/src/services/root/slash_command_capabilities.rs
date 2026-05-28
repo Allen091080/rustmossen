@@ -636,16 +636,16 @@ static CAPABILITIES: Lazy<Vec<SlashCommandCapability>> = Lazy::new(|| {
             let mut capability = cap(
                 "slash.login",
                 "login",
-                "Backend login",
+                "Backend credentials",
                 CommandStatus::Available,
-                false,
+                true,
                 false,
                 ArgsMode::Subcommand,
-                SideEffect::AuthState,
+                SideEffect::ReadOnly,
                 ResultKind::Auth,
                 &["auth"],
                 "crates/mossen-cli/src/structured_io.rs:slash_command/auth",
-                "Return a redacted auth-status snapshot plus external CLI handoff for login.",
+                "Return redacted backend credential status plus setup guidance for personal custom backends.",
                 None,
             );
             capability.accepted_args = vec![
@@ -662,16 +662,16 @@ static CAPABILITIES: Lazy<Vec<SlashCommandCapability>> = Lazy::new(|| {
             let mut capability = cap(
                 "slash.logout",
                 "logout",
-                "Backend logout",
+                "Credential logout status",
                 CommandStatus::Available,
-                false,
+                true,
                 true,
                 ArgsMode::ConfirmOnly,
-                SideEffect::AuthState,
+                SideEffect::ReadOnly,
                 ResultKind::Auth,
                 &["auth"],
                 "crates/mossen-cli/src/structured_io.rs:slash_command/auth",
-                "Return a redacted auth-status snapshot plus external CLI handoff for logout.",
+                "Return redacted local credential status without mutating personal backend configuration.",
                 None,
             );
             capability.aliases = vec!["signout".to_string()];
@@ -827,5 +827,28 @@ pub fn serialize_stream_json_slash_command_capability(
         aliases: capability.aliases.clone(),
         summary: capability.summary.clone(),
         reason: capability.reason.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn personal_auth_capabilities_are_status_only_backend_credentials() {
+        let login = get_stream_json_slash_command_capability("login").expect("login capability");
+        assert_eq!(login.title, "Backend credentials");
+        assert!(login.read_only);
+        assert_eq!(login.side_effect, SideEffect::ReadOnly);
+        assert!(login.summary.contains("backend credential status"));
+        let obsolete_handoff_label = ["external CLI", "handoff"].join(" ");
+        assert!(!login.summary.contains(&obsolete_handoff_label));
+
+        let logout = get_stream_json_slash_command_capability("logout").expect("logout capability");
+        assert_eq!(logout.title, "Credential logout status");
+        assert!(logout.read_only);
+        assert_eq!(logout.side_effect, SideEffect::ReadOnly);
+        assert!(logout.summary.contains("without mutating"));
+        assert!(!logout.summary.contains(&obsolete_handoff_label));
     }
 }

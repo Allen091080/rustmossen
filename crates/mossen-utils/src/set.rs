@@ -51,7 +51,7 @@ mod tests {
         b.insert(3);
         b.insert(4);
         assert!(!intersects(&a, &b));
-        
+
         b.insert(2);
         assert!(intersects(&a, &b));
     }

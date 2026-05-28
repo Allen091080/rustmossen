@@ -166,18 +166,18 @@ pub fn get_simple_prompt(config: &PromptConfig) -> String {
 
     let tool_preference_items = if embedded {
         vec![
-            "Read files: Use FileRead (NOT cat/head/tail)".to_string(),
-            "Edit files: Use FileEdit (NOT sed/awk)".to_string(),
-            "Write files: Use FileWrite (NOT echo >/cat <<EOF)".to_string(),
+            "Read files: Use Read (NOT cat/head/tail)".to_string(),
+            "Edit files: Use Edit (NOT sed/awk)".to_string(),
+            "Write files: Use Write (NOT echo >/cat <<EOF)".to_string(),
             "Communication: Output text directly (NOT echo/printf)".to_string(),
         ]
     } else {
         vec![
             "File search: Use Glob (NOT find or ls)".to_string(),
             "Content search: Use Grep (NOT grep or rg)".to_string(),
-            "Read files: Use FileRead (NOT cat/head/tail)".to_string(),
-            "Edit files: Use FileEdit (NOT sed/awk)".to_string(),
-            "Write files: Use FileWrite (NOT echo >/cat <<EOF)".to_string(),
+            "Read files: Use Read (NOT cat/head/tail)".to_string(),
+            "Edit files: Use Edit (NOT sed/awk)".to_string(),
+            "Write files: Use Write (NOT echo >/cat <<EOF)".to_string(),
             "Communication: Output text directly (NOT echo/printf)".to_string(),
         ]
     };
@@ -250,4 +250,30 @@ pub fn get_simple_prompt(config: &PromptConfig) -> String {
     }
 
     prompt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bash_prompt_uses_registered_tool_names() {
+        let prompt = get_simple_prompt(&PromptConfig {
+            user_type: "external".to_string(),
+            is_undercover: false,
+            include_git_instructions: false,
+            has_embedded_search_tools: false,
+            is_simple_mode: false,
+            disable_background_tasks: false,
+            sandboxing_enabled: false,
+            sandbox_config: None,
+        });
+
+        for expected in ["Use Read", "Use Edit", "Use Write"] {
+            assert!(prompt.contains(expected), "{prompt}");
+        }
+        for stale in ["FileRead", "FileEdit", "FileWrite"] {
+            assert!(!prompt.contains(stale), "{prompt}");
+        }
+    }
 }

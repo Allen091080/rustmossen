@@ -199,10 +199,10 @@ pub enum SubCmd {
     /// 版本升级 (对应 /upgrade)。
     Evolve,
 
-    /// 登录认证 (对应 /login)。
+    /// 显示个人版后端凭据配置状态 (对应 /login)。
     Auth,
 
-    /// 登出 (对应 /logout)。
+    /// 报告本地凭据登出状态 (对应 /logout)。
     Deauth,
 
     /// 诊断工具 (对应 /doctor)。

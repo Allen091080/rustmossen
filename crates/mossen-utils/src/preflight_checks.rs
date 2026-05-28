@@ -260,10 +260,43 @@ mod tests {
     }
 
     #[test]
+    fn endpoints_custom_backend_missing_url_points_to_local_config() {
+        let cfg = PreflightConfig {
+            is_custom_backend_enabled: true,
+            ..Default::default()
+        };
+        let ep = get_preflight_endpoints(&cfg);
+        let message = ep
+            .configuration_error
+            .expect("missing custom backend URL should produce a configuration error");
+
+        assert!(message.contains("MOSSEN_CODE_CUSTOM_BASE_URL"));
+        assert!(!message.contains("api.mossen.invalid"));
+        assert!(!message.contains("mossen.ai/login"));
+        assert!(!message.contains("Please login"));
+    }
+
+    #[test]
     fn endpoints_no_mossen_api_base() {
         let cfg = PreflightConfig::default();
         let ep = get_preflight_endpoints(&cfg);
         assert!(ep.configuration_error.is_some());
+    }
+
+    #[test]
+    fn endpoints_no_backend_points_to_personal_config_without_hosted_login() {
+        let cfg = PreflightConfig::default();
+        let ep = get_preflight_endpoints(&cfg);
+        let message = ep
+            .configuration_error
+            .expect("missing backend should produce a configuration error");
+
+        assert!(message.contains("MOSSEN_CODE_CUSTOM_BASE_URL"));
+        assert!(message.contains("MOSSEN_CODE_CUSTOM_API_KEY"));
+        assert!(message.contains("MOSSEN_CODE_CUSTOM_AUTH_TOKEN"));
+        assert!(!message.contains("api.mossen.invalid"));
+        assert!(!message.contains("mossen.ai/login"));
+        assert!(!message.contains("Please login"));
     }
 
     #[test]

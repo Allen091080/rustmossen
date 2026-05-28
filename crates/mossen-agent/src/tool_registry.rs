@@ -236,6 +236,7 @@ fn alias_tool_name(name: &str) -> Option<&'static str> {
         // `Agent`. Accept both spellings so model output does not dead-end
         // after the user approves a perfectly valid sub-agent call.
         "Task" => Some("Agent"),
+        "Brief" => Some("SendUserMessage"),
         _ => None,
     }
 }

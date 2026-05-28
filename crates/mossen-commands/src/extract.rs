@@ -9,12 +9,10 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Export command — saves conversation to file.
+/// Export command metadata.
 ///
-/// Supported formats:
-/// - `md` / `markdown`: Formatted markdown with code blocks
-/// - `json`: Structured JSON with full message metadata
-/// - `txt` / `text`: Plain text without formatting
+/// A real export needs the live transcript snapshot. The generic command
+/// runner cannot write a meaningful transcript file by itself.
 pub struct ExtractDirective;
 
 /// Supported export formats.
@@ -62,6 +60,14 @@ impl Directive for ExtractDirective {
             )));
         }
 
+        if args.is_empty() {
+            let fmts = EXPORT_FORMATS.join(", ");
+            return Ok(CommandResult::Text(format!(
+                "Usage: /export [format] [filename]\n\nExport requires a live transcript snapshot. Supported formats: {}",
+                fmts
+            )));
+        }
+
         let format = args
             .first()
             .map(|s| s.to_lowercase())
@@ -84,9 +90,45 @@ impl Directive for ExtractDirective {
         }
 
         let export_path = ctx.cwd.join(&filename);
-        Ok(CommandResult::System(format!(
-            "Exported conversation to: {}",
+        Ok(CommandResult::Error(format!(
+            "Cannot export conversation to {} from this command runner. No live transcript snapshot is attached, so no file was written.",
             export_path.display()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("/tmp"),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn export_does_not_claim_file_written_without_transcript() {
+        let output = tokio_test::block_on(ExtractDirective.execute(&["md"], &test_context()))
+            .expect("export command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("export should fail closed without transcript");
+        };
+        assert!(text.contains("Cannot export conversation"), "{text}");
+        assert!(!text.contains("Exported conversation"), "{text}");
     }
 }

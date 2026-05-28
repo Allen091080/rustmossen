@@ -45,9 +45,8 @@ impl Directive for SlackAppDirective {
         "Install the Mossen Slack app"
     }
 
-    fn is_enabled(&self, _ctx: &CommandContext) -> bool {
-        // Only available for hosted subscribers
-        true
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_hosted_platform_features()
     }
 
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {

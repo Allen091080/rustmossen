@@ -166,7 +166,29 @@ pub mod undo; // /rewind, /checkpoint
 pub mod wipe; // /clear, /reset, /new // /tag
 
 // Re-export core types
-pub use context::{BoxedDirective, CommandContext, CommandResult, Directive, DirectiveType};
+pub use context::{
+    BoxedDirective, CommandContext, CommandCostModelUsage, CommandCostSnapshot, CommandResult,
+    Directive, DirectiveType,
+};
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    pub(crate) fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("command env test lock poisoned")
+    }
+
+    pub(crate) fn skill_state_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("command skill state test lock poisoned")
+    }
+}
 
 /// Build the full registry of all built-in directives.
 pub fn all_directives() -> Vec<BoxedDirective> {
@@ -310,7 +332,9 @@ pub fn visible_directives<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Serialize;
     use std::collections::HashMap;
+    use std::fs;
     use std::path::PathBuf;
 
     fn test_context() -> CommandContext {
@@ -325,6 +349,7 @@ mod tests {
             cli_name: "mossen".to_string(),
             version: "test".to_string(),
             build_time: None,
+            cost_snapshot: Default::default(),
         }
     }
 
@@ -339,6 +364,155 @@ mod tests {
             ("standard", test_context()),
             ("internal", internal_test_context()),
         ]
+    }
+
+    fn visible_command_names(ctx: &CommandContext) -> Vec<String> {
+        let directives = all_directives();
+        visible_directives(&directives, ctx)
+            .into_iter()
+            .map(|directive| directive.name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn personal_help_excludes_hosted_remote_and_team_only_surfaces() {
+        let ctx = test_context();
+        let directives = all_directives();
+        let visible = visible_directives(&directives, &ctx);
+        let names: Vec<&str> = visible.iter().map(|directive| directive.name()).collect();
+        for hidden in [
+            "session",
+            "mobile",
+            "chrome",
+            "remote-env",
+            "remote-setup",
+            "install-slack-app",
+            "install-github-app",
+            "passes",
+            "rate-limit-options",
+            "stickers",
+            "branch",
+            "install",
+            "keybindings",
+            "privacy-settings",
+            "feedback",
+            "desktop",
+            "logout",
+        ] {
+            assert!(
+                !names.contains(&hidden),
+                "personal /help should not expose /{hidden}"
+            );
+        }
+        for directive in visible {
+            assert!(
+                !directive.aliases().contains(&"team"),
+                "personal /help should not expose /team alias"
+            );
+        }
+    }
+
+    #[test]
+    fn hosted_opt_in_exposes_platform_commands_without_custom_provider_coupling() {
+        let mut ctx = test_context();
+        ctx.env_vars
+            .insert("MOSSEN_ENABLE_HOSTED_COMMANDS".to_string(), "1".to_string());
+        let names = visible_command_names(&ctx);
+        for visible in [
+            "mobile",
+            "chrome",
+            "remote-setup",
+            "install-slack-app",
+            "install-github-app",
+            "passes",
+            "rate-limit-options",
+        ] {
+            assert!(
+                names.iter().any(|name| name == visible),
+                "hosted opt-in should expose /{visible}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agents_spawn_wires_to_background_agent_task() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{Mutex, OnceLock};
+        use std::time::Duration;
+
+        struct EnvTaskStoreRestore {
+            bin: Option<String>,
+            depth: Option<String>,
+        }
+        impl Drop for EnvTaskStoreRestore {
+            fn drop(&mut self) {
+                if let Some(value) = self.bin.take() {
+                    std::env::set_var("MOSSEN_AGENT_SUBPROCESS_BIN", value);
+                } else {
+                    std::env::remove_var("MOSSEN_AGENT_SUBPROCESS_BIN");
+                }
+                if let Some(value) = self.depth.take() {
+                    std::env::set_var("MOSSEN_AGENT_SUBPROCESS_DEPTH", value);
+                } else {
+                    std::env::remove_var("MOSSEN_AGENT_SUBPROCESS_DEPTH");
+                }
+                mossen_tools::task_store::clear();
+            }
+        }
+
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _lock = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _restore = EnvTaskStoreRestore {
+            bin: std::env::var("MOSSEN_AGENT_SUBPROCESS_BIN").ok(),
+            depth: std::env::var("MOSSEN_AGENT_SUBPROCESS_DEPTH").ok(),
+        };
+        mossen_tools::task_store::clear();
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_bin = temp.path().join("fake-mossen-subagent");
+        std::fs::write(
+            &fake_bin,
+            "#!/bin/sh\nprintf 'agent-command-output\\n'\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\"; done\n",
+        )
+        .expect("write fake agent");
+        let mut perms = std::fs::metadata(&fake_bin).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&fake_bin, perms).unwrap();
+        std::env::set_var("MOSSEN_AGENT_SUBPROCESS_BIN", &fake_bin);
+        std::env::remove_var("MOSSEN_AGENT_SUBPROCESS_DEPTH");
+
+        let ctx = test_context();
+        let result = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let result = delegates::DelegatesDirective
+                    .execute(&["spawn", "find", "agent-smoke-marker"], &ctx)
+                    .await
+                    .expect("spawn agent");
+                let CommandResult::System(text) = result else {
+                    panic!("expected system launch result");
+                };
+                let task_id = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Task: "))
+                    .expect("task id in result")
+                    .to_string();
+                for _ in 0..250 {
+                    if let Some(task) = mossen_tools::task_store::get_task(&task_id) {
+                        if mossen_tools::task_store::is_task_ready_status(&task.status) {
+                            return task;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("agent task did not finish");
+            });
+
+        assert_eq!(result.status, "completed");
+        assert!(result.output.contains("agent-smoke-marker"));
     }
 
     #[test]
@@ -417,6 +591,29 @@ mod tests {
     }
 
     #[test]
+    fn help_rejects_hidden_or_disabled_commands_by_name() {
+        let ctx = test_context();
+        for hidden in [
+            "remote-env",
+            "session",
+            "install",
+            "keybindings",
+            "passes",
+            "mobile",
+        ] {
+            let result = tokio_test::block_on(guide::GuideDirective.execute(&[hidden], &ctx))
+                .unwrap_or_else(|error| panic!("/help {hidden} failed: {error}"));
+            let CommandResult::Error(text) = result else {
+                panic!("/help {hidden} should return an error in personal default context");
+            };
+            assert!(
+                text.contains("Unknown command"),
+                "/help {hidden} exposed hidden command help: {text}"
+            );
+        }
+    }
+
+    #[test]
     fn help_visible_directives_have_usable_safe_entrypoints() {
         let mut failures = Vec::new();
         for (ctx_name, ctx) in help_contexts() {
@@ -474,16 +671,256 @@ mod tests {
         );
     }
 
+    #[derive(Serialize)]
+    struct CommandMatrix {
+        total: usize,
+        by_category_counts: HashMap<String, usize>,
+        by_category_names: HashMap<String, Vec<String>>,
+        entries: Vec<CommandMatrixEntry>,
+    }
+
+    #[derive(Serialize)]
+    struct CommandMatrixEntry {
+        command: String,
+        description: String,
+        aliases: Vec<String>,
+        is_hidden: bool,
+        is_enabled: bool,
+        visible: bool,
+        argument_hint: String,
+        directive_type: &'static str,
+        is_immediate: bool,
+        supports_non_interactive: bool,
+        category: &'static str,
+        side_effect: &'static str,
+        test_mode: &'static str,
+        expected: &'static str,
+        script: Option<&'static str>,
+    }
+
+    #[test]
+    fn command_inventory_matrix_covers_current_personal_registry() {
+        let ctx = test_context();
+        let matrix = command_inventory_matrix(&ctx);
+
+        assert!(
+            matrix.total >= 50,
+            "expected a populated current Rust command registry"
+        );
+        assert!(
+            matrix
+                .by_category_counts
+                .get("no_side_effect")
+                .copied()
+                .unwrap_or(0)
+                >= 5,
+            "expected read-only commands in matrix"
+        );
+
+        let names: std::collections::HashSet<&str> = matrix
+            .entries
+            .iter()
+            .map(|entry| entry.command.as_str())
+            .collect();
+        for must_have in [
+            "help",
+            "clear",
+            "compact",
+            "context",
+            "model",
+            "mcp",
+            "memory",
+            "status",
+            "permissions",
+            "skills",
+            "plugin",
+            "lang",
+            "resume",
+            "agents",
+        ] {
+            assert!(
+                names.contains(must_have),
+                "current Rust slash registry is missing /{must_have}"
+            );
+        }
+
+        if let Ok(path) = std::env::var("MOSSEN_COMMAND_MATRIX_JSON") {
+            let json = serde_json::to_string_pretty(&matrix).expect("serialize command matrix");
+            fs::write(path, json).expect("write command matrix json");
+        }
+    }
+
+    fn command_inventory_matrix(ctx: &CommandContext) -> CommandMatrix {
+        let directives = all_directives();
+        let mut entries = directives
+            .iter()
+            .map(|directive| command_matrix_entry(directive.as_ref(), ctx))
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| left.command.cmp(&right.command));
+
+        let mut by_category_names: HashMap<String, Vec<String>> = HashMap::new();
+        for entry in &entries {
+            by_category_names
+                .entry(entry.category.to_string())
+                .or_default()
+                .push(entry.command.clone());
+        }
+        let by_category_counts = by_category_names
+            .iter()
+            .map(|(category, names)| (category.clone(), names.len()))
+            .collect();
+
+        CommandMatrix {
+            total: entries.len(),
+            by_category_counts,
+            by_category_names,
+            entries,
+        }
+    }
+
+    fn command_matrix_entry(directive: &dyn Directive, ctx: &CommandContext) -> CommandMatrixEntry {
+        let is_hidden = directive.is_hidden();
+        let is_enabled = directive.is_enabled(ctx);
+        let visible = is_enabled && !is_hidden;
+        let (category, side_effect, test_mode) = categorize_for_matrix(directive.name(), visible);
+
+        CommandMatrixEntry {
+            command: directive.name().to_string(),
+            description: directive.description().to_string(),
+            aliases: directive
+                .aliases()
+                .iter()
+                .map(|alias| alias.to_string())
+                .collect(),
+            is_hidden,
+            is_enabled,
+            visible,
+            argument_hint: directive.argument_hint().to_string(),
+            directive_type: directive_type_label_for_matrix(directive.directive_type()),
+            is_immediate: directive.is_immediate(),
+            supports_non_interactive: directive.supports_non_interactive(),
+            category,
+            side_effect,
+            test_mode,
+            expected: "see-category-rule",
+            script: None,
+        }
+    }
+
+    fn directive_type_label_for_matrix(directive_type: DirectiveType) -> &'static str {
+        match directive_type {
+            DirectiveType::Local => "local",
+            DirectiveType::LocalWidget => "local_widget",
+            DirectiveType::Prompt => "prompt",
+        }
+    }
+
+    fn categorize_for_matrix(
+        name: &str,
+        visible_in_personal_default: bool,
+    ) -> (&'static str, &'static str, &'static str) {
+        if !visible_in_personal_default {
+            return (
+                "temporarily_unsupported",
+                "hidden_or_disabled_in_personal_default",
+                "hidden_or_opt_in",
+            );
+        }
+
+        if matches!(
+            name,
+            "share"
+                | "github-app"
+                | "slack-app"
+                | "desktop"
+                | "mobile"
+                | "chrome"
+                | "remote-env"
+                | "remote-setup"
+                | "teleport"
+                | "feedback"
+                | "release-notes"
+                | "pr-comments"
+        ) {
+            return (
+                "external_service",
+                "calls_external_api_or_platform_service",
+                "mock_or_hidden",
+            );
+        }
+
+        if matches!(
+            name,
+            "compact"
+                | "clear"
+                | "exit"
+                | "rewind"
+                | "commit"
+                | "ship"
+                | "review"
+                | "security-review"
+                | "branch"
+                | "init"
+                | "init-verifiers"
+                | "doctor"
+                | "heapdump"
+        ) {
+            return (
+                "high_risk_tool",
+                "modifies_session_repo_or_debug_state",
+                "fixture_with_permission",
+            );
+        }
+
+        if matches!(
+            name,
+            "config"
+                | "model"
+                | "profile"
+                | "lang"
+                | "permissions"
+                | "mcp"
+                | "memory"
+                | "skills"
+                | "plugin"
+                | "statusline"
+                | "hooks"
+                | "vim"
+                | "theme"
+                | "color"
+                | "output-style"
+                | "keybindings"
+                | "add-dir"
+                | "rename"
+                | "tag"
+                | "reload-plugins"
+                | "sandbox-toggle"
+                | "onboarding"
+                | "terminal-setup"
+                | "effort"
+        ) {
+            return (
+                "writes_config",
+                "writes_user_project_or_session_config",
+                "fixture_home",
+            );
+        }
+
+        ("no_side_effect", "read_only_or_prompt_preview", "real_run")
+    }
+
     fn smoke_args(name: &str) -> &'static [&'static str] {
         match name {
             "access" | "bridges" | "crafts" | "delegates" | "metrics" | "passes" | "plugin"
             | "privacy" | "rate_limit" | "sandbox" | "usage" => &["help"],
+            "branch" => &["help"],
             "changes" => &["summary"],
             "config" => &["list"],
             "deauth" => &["status"],
             "heapdump" => &["help"],
             "ide" => &["status"],
             "install" => &["status"],
+            "keybindings" => &["help"],
             "output_style" => &["list"],
             "pr_comments" => &["help"],
             "project" => &["info"],
@@ -509,8 +946,16 @@ mod tests {
             "stub",
             "not implemented",
             "unimplemented",
+            "not wired",
             "phase 5 tui",
             "phase 5 implementation",
+            "hosted",
+            "team memory",
+            "direct-connect",
+            "ssh remote",
+            "remote attach",
+            "hosted bridge",
+            "hosted workflow",
         ];
         for term in forbidden_terms {
             if lowered.contains(term) {

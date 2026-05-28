@@ -9,18 +9,10 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Compact command — reduces conversation context size.
+/// Compact command metadata.
 ///
-/// Compaction strategies (applied in order):
-/// 1. Session memory compaction (if no custom instructions)
-/// 2. Reactive compaction (if reactive-only mode enabled)
-/// 3. Traditional compaction (microcompact + summarize)
-///
-/// After compaction:
-/// - Resets lastSummarizedMessageId
-/// - Suppresses compact warning
-/// - Clears user context cache
-/// - Runs post-compact cleanup hooks
+/// Real compaction is owned by the TUI/structured runtime because it requires
+/// live model history, hook context, cancellation, and transcript updates.
 pub struct CondenseDirective;
 
 #[async_trait]
@@ -60,38 +52,59 @@ impl Directive for CondenseDirective {
             args.join(" ")
         };
 
-        // Strategy 1: Try session memory compaction (no custom instructions)
-        if custom_instructions.is_empty() {
-            // In full implementation:
-            // - trySessionMemoryCompaction(messages, agentId)
-            // - If successful: clear caches, run post-compact cleanup
-            // - notifyCompaction for prompt cache break detection
-            // - markPostCompaction()
-            // - suppressCompactWarning()
-            return Ok(CommandResult::System(
-                "Conversation compacted successfully. Context freed for new messages.".to_string(),
+        if matches!(
+            args.first().copied(),
+            Some("help" | "-h" | "--help" | "status" | "plan" | "preview")
+        ) || custom_instructions.is_empty()
+        {
+            return Ok(CommandResult::Text(
+                "Compact status\nNo live conversation history is attached to this command runner. In the interactive TUI, use /compact plan, /compact status, or /compact run to perform real compaction."
+                    .to_string(),
             ));
         }
 
-        // Strategy 2: Check reactive-only mode
-        // In full implementation: reactiveCompact.isReactiveOnlyMode()
-        // - Execute pre-compact hooks
-        // - Build cache sharing params
-        // - Run reactive compaction
-        // - Merge hook instructions with custom instructions
-
-        // Strategy 3: Traditional compaction
-        // In full implementation:
-        // - microcompactMessages(messages) to reduce tokens
-        // - compactConversation(messages, context, cacheSharingParams)
-        // - Reset lastSummarizedMessageId
-        // - suppressCompactWarning()
-        // - Clear user context cache
-        // - Run post-compact cleanup
-
-        Ok(CommandResult::System(format!(
-            "Conversation compacted with focus: {}\n             Context freed for new messages.",
+        Ok(CommandResult::Error(format!(
+            "Cannot compact conversation with focus \"{}\" from this command runner. No live model history, hook context, or transcript updater is attached.",
             custom_instructions
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn compact_directive_does_not_claim_history_mutation_without_runtime_state() {
+        let output = tokio_test::block_on(
+            CondenseDirective.execute(&["keep", "decisions"], &test_context()),
+        )
+        .expect("compact command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("compact should fail closed without live history");
+        };
+        assert!(text.contains("Cannot compact conversation"), "{text}");
+        assert!(!text.contains("Conversation compacted"), "{text}");
+        assert!(!text.contains("Context freed"), "{text}");
     }
 }

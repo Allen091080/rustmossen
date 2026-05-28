@@ -25,7 +25,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_fixture import make_fixture, write_assertions, write_command_log
 
 REAL_HOME = Path.home()
-DEBUG_MOSSEN = ROOT / "target" / "debug" / "mossen"
 MCP_SERVER_NAME = "harness_mock_slow_M10_2"
 MCP_TOOL_FULL_NAME = f"mcp__{MCP_SERVER_NAME}__forever_M10_2"
 FOREVER_SLEEP_SECS = 60
@@ -36,8 +35,6 @@ FINAL_MARKER = "FINAL_OK_M10_2"
 
 
 def mossen_runner() -> str:
-    if DEBUG_MOSSEN.exists() and DEBUG_MOSSEN.is_file():
-        return str(DEBUG_MOSSEN)
     return str(ROOT / "scripts" / "start-mossen.sh")
 
 

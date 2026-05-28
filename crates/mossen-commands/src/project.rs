@@ -96,19 +96,11 @@ impl Directive for ProjectDirective {
                 ))
             }
             ProjectAction::Purge(target) => {
-                match target {
-                    Some(ref path) => Ok(CommandResult::System(format!(
-                        "Purging project data for: {}",
-                        path
-                    ))),
-                    None => {
-                        // Purge current project data
-                        Ok(CommandResult::System(format!(
-                            "Purging project data for current directory: {}",
-                            ctx.cwd.display()
-                        )))
-                    }
-                }
+                let target = target.unwrap_or_else(|| ctx.cwd.display().to_string());
+                Ok(CommandResult::Error(format!(
+                    "Cannot purge project data from this command runner. Requested target: {}. Use an explicit filesystem command after reviewing the files to delete.",
+                    target
+                )))
             }
             ProjectAction::Info => Ok(CommandResult::Text(format!(
                 "Project root: {}\nProduct: {}\nVersion: {}",
@@ -117,5 +109,41 @@ impl Directive for ProjectDirective {
                 ctx.version
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("/tmp/example-project"),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn project_purge_does_not_claim_deletion_when_unwired() {
+        let output = tokio_test::block_on(ProjectDirective.execute(&["purge"], &test_context()))
+            .expect("project command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("project purge should fail closed");
+        };
+        assert!(text.contains("Cannot purge project data"), "{text}");
+        assert!(!text.contains("Purging project data"), "{text}");
     }
 }

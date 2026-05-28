@@ -489,6 +489,7 @@ mod tests {
             get_settings: std::sync::Arc::new(|| None),
             get_settings_for_source: std::sync::Arc::new(|_| None),
             invalidate_session_env_cache: std::sync::Arc::new(|| {}),
+            dynamic_hook_executor: None,
             subprocess_env: std::env::vars().collect(),
             allowed_official_marketplace_names: HashSet::new(),
         }

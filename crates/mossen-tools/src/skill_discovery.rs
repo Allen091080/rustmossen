@@ -132,6 +132,7 @@ mod tests {
 
     #[tokio::test]
     async fn observe_tool_file_paths_discovers_project_skill_dir() {
+        let _guard = crate::dynamic_skill_test_lock();
         mossen_skills::clear_dynamic_skills();
         let temp = tempfile::tempdir().expect("tempdir");
         let skill_dir = temp.path().join(".mossen").join("skills").join("reviewer");

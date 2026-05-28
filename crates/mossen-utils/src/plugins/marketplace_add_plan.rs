@@ -206,6 +206,9 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    static TEST_PLAN_STORE_MUTEX: Lazy<tokio::sync::Mutex<()>> =
+        Lazy::new(|| tokio::sync::Mutex::new(()));
+
     fn github_source() -> MarketplaceSource {
         MarketplaceSource::GitHub {
             repo: "owner/repo".to_string(),
@@ -217,6 +220,7 @@ mod tests {
 
     #[tokio::test]
     async fn marketplace_add_plan_confirms_once_and_clears_caches() {
+        let _guard = TEST_PLAN_STORE_MUTEX.lock().await;
         reset_plugin_marketplace_add_plan_store_for_testing();
         let source = github_source();
         let plan = match get_plugin_marketplace_add_plan(
@@ -310,6 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn marketplace_add_plan_rejects_missing_and_invalid_sources() {
+        let _guard = TEST_PLAN_STORE_MUTEX.lock().await;
         reset_plugin_marketplace_add_plan_store_for_testing();
         let missing =
             get_plugin_marketplace_add_plan(None, async { Ok(Some(github_source())) }, |_| {

@@ -3,13 +3,17 @@
 //! 对应 TS `ExitWorktreeTool`（330 行）。退出 worktree 并可选保留或删除。
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::process::Command;
 
 use mossen_agent::tool_registry::{Tool, ToolResult, ToolType};
 use mossen_types::{ToolDefinition, ToolInputSchema, ToolUseContext};
+use mossen_utils::hooks_utils::execute_worktree_remove_hook;
 
 /// 分支回归器 — 退出 worktree 并返回原始工作目录。
 pub struct BranchRejoin;
@@ -58,6 +62,38 @@ fn build_input_schema() -> ToolInputSchema {
     }
 }
 
+async fn git_output(cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+async fn git_status(cwd: &Path, args: &[&str]) -> anyhow::Result<()> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl Tool for BranchRejoin {
     fn name(&self) -> &str {
@@ -81,22 +117,145 @@ impl Tool for BranchRejoin {
         false
     }
 
-    async fn execute(&self, input: Value, _context: &ToolUseContext) -> anyhow::Result<ToolResult> {
+    async fn execute(&self, input: Value, context: &ToolUseContext) -> anyhow::Result<ToolResult> {
+        let start = Instant::now();
         let inp: BranchRejoinInput = serde_json::from_value(input)?;
+        let Some(session) = crate::enter_worktree::active_worktree_session() else {
+            let output = BranchRejoinOutput {
+                action: inp.action,
+                original_cwd: String::new(),
+                worktree_path: String::new(),
+                worktree_branch: None,
+                discarded_files: None,
+                discarded_commits: None,
+                message: "No EnterWorktree session is active; nothing to exit.".to_string(),
+            };
+            return Ok(ToolResult {
+                output: serde_json::to_string(&output)?,
+                is_error: false,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata: HashMap::new(),
+            });
+        };
+
+        if !matches!(inp.action.as_str(), "keep" | "remove") {
+            anyhow::bail!("action must be \"keep\" or \"remove\"");
+        }
+
+        if session.hook_managed {
+            let mut is_error = false;
+            let message = if inp.action == "remove" {
+                match crate::task_hooks::runtime_hook_context(context) {
+                    Some(hooks_context) => {
+                        if execute_worktree_remove_hook(
+                            hooks_context.as_ref(),
+                            &session.worktree_path,
+                        )
+                        .await
+                        {
+                            crate::enter_worktree::clear_active_worktree_session();
+                            "Removed hook-managed worktree and returned subsequent tool calls to the original cwd.".to_string()
+                        } else {
+                            is_error = true;
+                            "WorktreeRemove hook did not remove the hook-managed worktree."
+                                .to_string()
+                        }
+                    }
+                    None => {
+                        is_error = true;
+                        "Cannot remove hook-managed worktree because hook context is unavailable."
+                            .to_string()
+                    }
+                }
+            } else {
+                crate::enter_worktree::clear_active_worktree_session();
+                "Kept hook-managed worktree on disk and returned subsequent tool calls to the original cwd.".to_string()
+            };
+
+            let output = BranchRejoinOutput {
+                action: inp.action,
+                original_cwd: session.original_cwd.clone(),
+                worktree_path: session.worktree_path.clone(),
+                worktree_branch: None,
+                discarded_files: None,
+                discarded_commits: None,
+                message,
+            };
+            let mut metadata = HashMap::new();
+            if !is_error {
+                metadata.insert("set_cwd".to_string(), Value::String(session.original_cwd));
+            }
+            return Ok(ToolResult {
+                output: serde_json::to_string(&output)?,
+                is_error,
+                duration_ms: start.elapsed().as_millis() as u64,
+                metadata,
+            });
+        }
+
+        let repo_root = Path::new(&session.repo_root);
+        let worktree_path = Path::new(&session.worktree_path);
+        let dirty_count = git_output(worktree_path, &["status", "--porcelain"])
+            .await
+            .unwrap_or_default()
+            .lines()
+            .count() as u64;
+        let commit_count = git_output(
+            worktree_path,
+            &[
+                "rev-list",
+                "--count",
+                &format!("{}..HEAD", session.base_head),
+            ],
+        )
+        .await
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+
+        let mut is_error = false;
+        let message = if inp.action == "remove" {
+            let discard = inp.discard_changes.unwrap_or(false);
+            if !discard && (dirty_count > 0 || commit_count > 0) {
+                is_error = true;
+                format!(
+                    "Refusing to remove worktree with {dirty_count} changed files and {commit_count} commits. Re-run with discard_changes=true after user confirmation."
+                )
+            } else {
+                git_status(
+                    repo_root,
+                    &["worktree", "remove", "--force", &session.worktree_path],
+                )
+                .await?;
+                let _ = git_status(repo_root, &["branch", "-D", &session.worktree_branch]).await;
+                crate::enter_worktree::clear_active_worktree_session();
+                "Removed worktree and returned subsequent tool calls to the original cwd."
+                    .to_string()
+            }
+        } else {
+            crate::enter_worktree::clear_active_worktree_session();
+            "Kept worktree on disk and returned subsequent tool calls to the original cwd."
+                .to_string()
+        };
+
         let output = BranchRejoinOutput {
             action: inp.action,
-            original_cwd: String::new(),
-            worktree_path: String::new(),
-            worktree_branch: None,
-            discarded_files: None,
-            discarded_commits: None,
-            message: "Worktree exit is a stub in this build.".to_string(),
+            original_cwd: session.original_cwd.clone(),
+            worktree_path: session.worktree_path.clone(),
+            worktree_branch: Some(session.worktree_branch.clone()),
+            discarded_files: Some(dirty_count),
+            discarded_commits: Some(commit_count),
+            message,
         };
+        let mut metadata = HashMap::new();
+        if !is_error {
+            metadata.insert("set_cwd".to_string(), Value::String(session.original_cwd));
+        }
         Ok(ToolResult {
             output: serde_json::to_string(&output)?,
-            is_error: false,
-            duration_ms: 0,
-            metadata: HashMap::new(),
+            is_error,
+            duration_ms: start.elapsed().as_millis() as u64,
+            metadata,
         })
     }
 }

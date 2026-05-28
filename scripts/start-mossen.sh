@@ -2,11 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CALLER_CWD="$PWD"
 cd "$ROOT"
-
-# Keep interactive launches clean. Development checks should still use the
-# normal cargo commands without this wrapper when warning output is desired.
-export RUSTFLAGS="${RUSTFLAGS:-} -Awarnings"
 
 BIN="$ROOT/target/debug/mossen"
 BUILD_MODE="${MOSSEN_START_BUILD:-auto}"
@@ -42,4 +39,5 @@ if [[ "$needs_build" == "1" ]]; then
   cargo build --quiet -p mossen-cli --bin mossen
 fi
 
+cd "$CALLER_CWD"
 exec "$BIN" "$@"

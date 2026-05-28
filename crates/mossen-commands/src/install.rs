@@ -61,6 +61,10 @@ impl Directive for InstallDirective {
         DirectiveType::LocalWidget
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.is_env_truthy("MOSSEN_ENABLE_NATIVE_INSTALLER_COMMAND")
+    }
+
     fn argument_hint(&self) -> &str {
         "[latest|stable|version] [--force]"
     }
@@ -70,38 +74,70 @@ impl Directive for InstallDirective {
     }
 
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
+        if args
+            .first()
+            .map(|a| matches!(*a, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
+            return Ok(CommandResult::Text(
+                "Usage: /install status\n\nNative packaging is not wired into this source checkout command runner."
+                    .to_string(),
+            ));
+        }
+
         let parsed = parse_install_args(args);
         let product_name = &ctx.product_name;
         let cli_name = &ctx.cli_name;
         let channel_or_version = parsed.target.as_deref().unwrap_or("latest");
 
-        // Build installation progress report
-        let mut output = String::new();
-
-        // Step 1: Installing
-        output.push_str(&format!(
-            "Installing the {} native build {}{}...\n",
-            product_name,
-            channel_or_version,
-            if parsed.force { " (forced)" } else { "" }
-        ));
-
-        // Step 2: Setting up launcher and shell integration
-        output.push_str("Setting up launcher and shell integration...\n\n");
-
-        // Step 3: Success report
-        output.push_str(&format!("{} successfully installed!\n", product_name));
-        output.push_str(&format!("Location: {}\n", get_installation_path(cli_name)));
-        output.push_str(&format!("\nNext: Run {} --help to get started", cli_name));
-
-        // If user specified a channel, note it was saved
-        if matches!(channel_or_version, "latest" | "stable") {
-            output.push_str(&format!(
-                "\n\nAuto-updates channel set to: {}",
-                channel_or_version
-            ));
+        if matches!(channel_or_version, "status" | "current" | "show") {
+            return Ok(CommandResult::Text(format!(
+                "Install status\nProduct: {}\nExpected user install path: {}\nNative packaging is not wired into this source checkout command runner.",
+                product_name,
+                get_installation_path(cli_name)
+            )));
         }
 
-        Ok(CommandResult::Text(output))
+        Ok(CommandResult::Error(format!(
+            "Cannot install {} {} from this command runner; native packaging is not wired in this source checkout.",
+            product_name, channel_or_version
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn install_directive_does_not_claim_native_install_success() {
+        let output = tokio_test::block_on(InstallDirective.execute(&["latest"], &test_context()))
+            .expect("install command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("install should not claim success when packaging is not wired");
+        };
+        assert!(text.contains("Cannot install"), "{text}");
+        assert!(!text.contains("successfully installed"), "{text}");
+        assert!(!text.contains("Auto-updates channel set"), "{text}");
     }
 }

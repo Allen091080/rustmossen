@@ -269,7 +269,7 @@ pub fn classify_tool_error(message: &str) -> &'static str {
 /// `toolExecution.ts` `buildSchemaNotSentHint`.
 pub fn build_schema_not_sent_hint(tool_name: &str) -> String {
     format!(
-        "Tool {} was called before its schema was loaded. Use ToolSearch to fetch the schema first.",
+        "Tool {} was called before its schema was loaded and is not available in the current tool surface. Enable or register the tool before calling it.",
         tool_name
     )
 }
@@ -286,4 +286,17 @@ pub enum McpServerType {
     SseIde,
     WsIde,
     HostedProxy,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_not_sent_hint_does_not_reference_gated_tool_search() {
+        let hint = build_schema_not_sent_hint("ExampleTool");
+
+        assert!(hint.contains("ExampleTool"));
+        assert!(!hint.contains("ToolSearch"), "{hint}");
+    }
 }

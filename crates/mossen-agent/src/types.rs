@@ -364,6 +364,18 @@ pub enum EffortLevel {
     Low,
     Medium,
     High,
+    Max,
+}
+
+impl EffortLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Max => "max",
+        }
+    }
 }
 
 /// 链路追踪上下文。
@@ -857,6 +869,11 @@ pub struct StreamRequestParams {
     /// 额外请求体。
     #[serde(flatten)]
     pub extra_body: HashMap<String, serde_json::Value>,
+    /// Provider-neutral effort level. The API client maps this to the
+    /// selected backend protocol instead of leaking one provider's field
+    /// names into every request body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<EffortLevel>,
 }
 
 /// 消息参数（API 请求中使用的格式）。
@@ -924,6 +941,8 @@ pub struct OrchestratorConfig {
     pub origin_tag: OriginTag,
     /// 快速模式。
     pub fast_mode: Option<bool>,
+    /// Effort level applied to provider-specific reasoning controls.
+    pub effort: Option<EffortLevel>,
     /// API 基础 URL。
     pub api_base_url: Option<String>,
     /// API 密钥。
@@ -1008,6 +1027,10 @@ pub struct PromptParams {
     pub api_key: Option<String>,
     /// 额外请求体。
     pub extra_body: HashMap<String, serde_json::Value>,
+    /// Optional live fast-mode override for this turn/session.
+    pub fast_mode: Option<bool>,
+    /// Optional live effort override for this turn/session.
+    pub effort: Option<EffortLevel>,
     /// Session permission mode.
     pub permission_mode: PermissionMode,
     /// Optional permission gate forwarded to the orchestrator. The TUI uses

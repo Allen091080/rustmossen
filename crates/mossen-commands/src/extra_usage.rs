@@ -43,7 +43,7 @@ impl Directive for ExtraUsageDirective {
         true
     }
 
-    async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
+    async fn execute(&self, args: &[&str], _ctx: &CommandContext) -> Result<CommandResult> {
         if args
             .first()
             .map(|a| matches!(*a, "help" | "-h" | "--help"))
@@ -56,24 +56,50 @@ impl Directive for ExtraUsageDirective {
             )));
         }
 
-        if ctx.is_non_interactive {
-            return Ok(CommandResult::Text(
-                "Extra Usage Allowance\n                 =====================\n\n                 Base plan: Standard\n                 Add-ons: None\n                 Boosts: None\n                 Total capacity: Default limits"
-                    .to_string(),
-            ));
-        }
+        Ok(CommandResult::Text(
+            "Extra Usage Allowance\n\
+             =====================\n\n\
+             No extra usage allowance snapshot is available in this local build.\n\
+             Use /usage for local session usage recorded by the current run."
+                .to_string(),
+        ))
+    }
+}
 
-        // Open the usage controls page in the browser
-        let product_name = &ctx.product_name;
-        let backend_name = if ctx.is_custom_backend {
-            "Custom backend"
-        } else {
-            "Mossen backend"
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn extra_usage_does_not_print_fake_plan_capacity() {
+        let output = tokio_test::block_on(ExtraUsageDirective.execute(&[], &test_context()))
+            .expect("extra usage command");
+        let CommandResult::Text(text) = output else {
+            panic!("extra usage should return text");
         };
-        let url = "https://mossen.ai/usage";
-        Ok(CommandResult::Text(format!(
-            "Open usage controls for {}: {}",
-            backend_name, url
-        )))
+
+        assert!(text.contains("No extra usage allowance snapshot"), "{text}");
+        assert!(!text.to_ascii_lowercase().contains("hosted"), "{text}");
+        assert!(!text.contains("Base plan: Standard"), "{text}");
+        assert!(!text.contains("Total capacity: Default limits"), "{text}");
     }
 }

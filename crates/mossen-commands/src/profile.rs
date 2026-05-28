@@ -1,11 +1,11 @@
-//! `/profile` — Show or switch user profile.
+//! `/profile` — Show local runtime profile status.
 
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Profile directive — displays the current user profile or switches between profiles.
+/// Profile directive — displays local user/runtime profile status.
 pub struct ProfileDirective;
 
 /// Get the current profile display name.
@@ -26,53 +26,96 @@ impl Directive for ProfileDirective {
     }
 
     fn description(&self) -> &str {
-        "Show or switch user profile"
+        "Show local runtime profile status"
     }
 
     fn directive_type(&self) -> DirectiveType {
-        DirectiveType::LocalWidget
+        DirectiveType::Local
+    }
+
+    fn argument_hint(&self) -> &str {
+        "[status]"
     }
 
     fn is_immediate(&self) -> bool {
         true
     }
 
+    fn supports_non_interactive(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
-        if args.is_empty() {
-            // Show current profile info
+        if args
+            .first()
+            .map(|arg| matches!(*arg, "help" | "-h" | "--help"))
+            .unwrap_or(false)
+        {
+            return Ok(CommandResult::Text(
+                "Usage: /profile [status]\n\nShows local runtime identity and backend configuration. Use /model to list or switch model profiles."
+                    .to_string(),
+            ));
+        }
+
+        if args
+            .first()
+            .map(|arg| matches!(*arg, "status" | "current" | "show" | "summary"))
+            .unwrap_or(args.is_empty())
+        {
             let profile = get_profile_display(ctx);
             let backend = if ctx.is_custom_backend {
                 "custom backend"
             } else {
-                "hosted"
+                "not configured"
             };
             return Ok(CommandResult::Text(format!(
-                "Current profile: {}\nBackend: {}\nCWD: {}",
+                "Local profile: {}\nBackend: {}\nCWD: {}\nModel profiles: use /model to list or switch.",
                 profile,
                 backend,
                 ctx.cwd.display()
             )));
         }
 
-        // Show profile selector information
-        let profile = ctx
-            .env_vars
-            .get("MOSSEN_PROFILE")
-            .cloned()
-            .unwrap_or_else(|| "default".to_string());
-        let backend = if ctx.is_custom_backend {
-            "custom"
-        } else {
-            "hosted"
+        Ok(CommandResult::Error(
+            "Unsupported /profile argument. Use /profile status for local runtime status, or /model <profile> to switch model profiles."
+                .to_string(),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn profile_status_does_not_claim_hosted_or_switching() {
+        let output = tokio_test::block_on(ProfileDirective.execute(&[], &test_context()))
+            .expect("profile command");
+        let CommandResult::Text(text) = output else {
+            panic!("profile should return text");
         };
-        Ok(CommandResult::Text(format!(
-            "Profile: {}\n\
-             Backend: {}\n\
-             CWD: {}\n\n\
-             Use /profile <name> to switch profiles.",
-            profile,
-            backend,
-            ctx.cwd.display()
-        )))
+        assert!(text.contains("Backend: not configured"), "{text}");
+        assert!(!text.to_ascii_lowercase().contains("hosted"), "{text}");
+        assert!(!text.contains("Use /profile <name> to switch"), "{text}");
+        assert!(text.contains("use /model to list or switch"), "{text}");
     }
 }

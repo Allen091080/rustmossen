@@ -40,7 +40,6 @@ def require_text(text: str, token: str, label: str, failures: list[str]) -> None
 def main() -> int:
     structured = (ROOT / "crates/mossen-cli/src/structured_io.rs").read_text()
     run_all = (ROOT / "scripts/run_all_smoke.sh").read_text()
-    phase = (ROOT / "phases/03g-rendering-product-grade-plan.md").read_text()
 
     failures: list[str] = []
     for script_name in PTY_SCRIPTS:
@@ -82,13 +81,6 @@ def main() -> int:
         "run_all registration",
         failures,
     )
-    require_text(
-        phase,
-        "Terminal-render no-fullscreen-clear external PTY contract",
-        "phase note",
-        failures,
-    )
-
     if failures:
         print("=== W320 terminal no-fullscreen-clear external PTY contract smoke ===")
         for failure in failures:

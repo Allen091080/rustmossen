@@ -36,15 +36,15 @@ pub fn validate_uuid<S: AsRef<str>>(maybe_uuid: S) -> Option<String> {
 /// - `create_agent_id(Some("compact"))` → "acompact-a3f2c1b4d5e6f7a8"
 pub fn create_agent_id(label: Option<&str>) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    
+
     let random: u64 = (timestamp ^ (timestamp >> 32)) as u64;
     let hex = format!("{:016x}", random);
-    
+
     match label {
         Some(l) => format!("a{}-{}", l, hex),
         None => format!("a{}", hex),

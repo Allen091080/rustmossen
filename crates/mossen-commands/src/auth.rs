@@ -1,4 +1,4 @@
-//! `/login` — Authenticate with the platform.
+//! `/login` — Show backend credential setup.
 //!
 //! Translates `commands/login/login.tsx` (36 lines).
 //! Shows auth status and instructions for configuring backend credentials.
@@ -8,15 +8,12 @@ use async_trait::async_trait;
 
 use crate::context::{CommandContext, CommandResult, Directive, DirectiveType};
 
-/// Get the message shown when hosted auth is disabled.
-fn get_hosted_auth_disabled_message(product_name: &str) -> String {
+/// Get the message shown when no interactive account flow is attached.
+fn get_backend_setup_message(product_name: &str) -> String {
     format!(
-        "{} does not use a built-in account flow on this branch. \
+        "{} personal edition does not use a built-in account flow. \
          Configure backend credentials with MOSSEN_CODE_CUSTOM_BASE_URL plus \
-         MOSSEN_CODE_CUSTOM_API_KEY or MOSSEN_CODE_CUSTOM_AUTH_TOKEN. \
-         If you intentionally wrap an external hosted service, \
-         enable that Mossen adapter explicitly with \
-         MOSSEN_CODE_ENABLE_HOSTED_AUTH_ADAPTER=1 and inject its credentials there.",
+         MOSSEN_CODE_CUSTOM_API_KEY or MOSSEN_CODE_CUSTOM_AUTH_TOKEN.",
         product_name
     )
 }
@@ -31,7 +28,7 @@ impl Directive for AuthDirective {
     }
 
     fn description(&self) -> &str {
-        "Authenticate with the platform"
+        "Show backend credential setup"
     }
 
     fn directive_type(&self) -> DirectiveType {
@@ -44,7 +41,7 @@ impl Directive for AuthDirective {
 
     async fn execute(&self, _args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let product_name = &ctx.product_name;
-        Ok(CommandResult::System(get_hosted_auth_disabled_message(
+        Ok(CommandResult::System(get_backend_setup_message(
             product_name,
         )))
     }

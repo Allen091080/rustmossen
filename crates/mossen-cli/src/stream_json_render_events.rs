@@ -5604,7 +5604,7 @@ fn terminal_approval_bridge_status_label(status: &str) -> &'static str {
         "interrupted" => "turn interrupted",
         "empty_command" => "empty command",
         "no_edit_command" => "no edit in progress",
-        "unsupported" => "not wired",
+        "unsupported" => "unsupported",
         "no_pending_permission" => "no pending request",
         "send_failed" => "send failed",
         _ => "decision bridge pending",
@@ -6873,8 +6873,8 @@ mod tests {
                 { "name": "mcp", "title": "Inspect MCP servers", "supported": true },
                 { "name": "config", "title": "Inspect configuration", "supported": true },
                 { "name": "doctor", "title": "Run diagnostics", "supported": true },
-                { "name": "login", "title": "Auth handoff", "supported": true },
-                { "name": "logout", "title": "Logout handoff", "supported": true },
+                { "name": "login", "title": "Backend credentials", "supported": true },
+                { "name": "logout", "title": "Credential logout status", "supported": true },
                 { "name": "experimental", "title": "Known command", "supported": false }
             ]
         });
@@ -8313,6 +8313,43 @@ mod tests {
             .expect("approval lines")
             .iter()
             .any(|line| line.as_str() == Some("edit: type command, Enter submits, Esc cancels")));
+    }
+
+    #[test]
+    fn terminal_approval_unsupported_bridge_status_does_not_render_not_wired() {
+        let mut emitter = StreamJsonRenderEventEmitter::new();
+        emitter.emit_terminal_permission_request_items(
+            "Bash",
+            &json!({ "command": "cargo test -q", "description": "verify changes" }),
+        );
+        emitter.emit_terminal_widget_control_items(
+            StreamJsonTerminalWidgetControl::ActivateApprovalActionByKey('e'),
+        );
+
+        let items = emitter.emit_terminal_approval_edit_command_items("unsupported", None, true);
+
+        let frame = items
+            .iter()
+            .find(|item| {
+                item.get("type").and_then(Value::as_str) == Some(STREAM_JSON_RENDER_FRAME_TYPE)
+            })
+            .expect("unsupported bridge status frame");
+        let approval_region = frame["regions"]
+            .as_array()
+            .expect("regions")
+            .iter()
+            .find(|region| region["id"] == "approval")
+            .expect("approval region");
+        let rendered = approval_region["lines"]
+            .as_array()
+            .expect("approval lines")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered.contains("unsupported"), "{rendered}");
+        assert!(!rendered.contains("not wired"), "{rendered}");
     }
 
     #[test]

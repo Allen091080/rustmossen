@@ -89,14 +89,48 @@ impl Directive for UndoDirective {
                 ))
             }
             UndoTarget::Steps(n) => {
-                // In full implementation: remove the last N message pairs
-                // (user + assistant) from the active conversation
-                Ok(CommandResult::System(format!(
-                    "Rewound {} message {}. Use /undo to pick a specific point.",
+                Ok(CommandResult::Error(format!(
+                    "Cannot rewind {} message {} from this command runner. Use /undo in the interactive TUI so the visible transcript and engine history are updated together.",
                     n,
                     if n == 1 { "pair" } else { "pairs" }
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn undo_directive_does_not_claim_history_rewrite_outside_tui() {
+        let output = tokio_test::block_on(UndoDirective.execute(&["1"], &test_context()))
+            .expect("undo command");
+
+        let CommandResult::Error(text) = output else {
+            panic!("undo should not claim success outside TUI");
+        };
+        assert!(text.contains("Cannot rewind"), "{text}");
+        assert!(!text.contains("Rewound"), "{text}");
     }
 }

@@ -63,13 +63,17 @@ impl Directive for MobileDirective {
         true
     }
 
+    fn is_enabled(&self, ctx: &CommandContext) -> bool {
+        ctx.can_use_hosted_platform_features()
+    }
+
     async fn execute(&self, args: &[&str], ctx: &CommandContext) -> Result<CommandResult> {
         let product_name = &ctx.product_name;
 
         // Check for custom backend without mobile URLs
         if ctx.is_custom_backend {
             return Ok(CommandResult::System(format!(
-                "{} has no hosted mobile download URL configured for this build.",
+                "{} has no mobile download URL configured for this build.",
                 product_name
             )));
         }

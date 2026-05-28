@@ -9,7 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use mossen_utils::hooks_utils::{AggregatedHookResult, HookMatcher, HooksContext};
+use mossen_utils::hooks_utils::{
+    execute_config_change_hooks, AggregatedHookResult, ConfigChangeSource, DynamicHookExecutor,
+    DynamicHookRequest, Hook, HookBlockingError, HookMatcher, HookOutcome as UtilsHookOutcome,
+    HookResult as UtilsHookResult, HooksContext, MatchedHookInfo, TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+};
 use mossen_utils::plugins::load_plugin_hooks::{
     self as plugin_hooks, HookEvent as PluginHookEvent, HookMatcherConfig, LoadedPluginForHooks,
     PluginHookMatcher, PluginsResult,
@@ -23,8 +27,290 @@ use tracing::{debug, info, warn};
 
 use crate::bootstrap::SharedBootstrapState;
 
+use mossen_agent::services::config::types::ConfigOverrideScope;
+
 const SESSION_START_HOOK_TIMEOUT_MS: u64 =
     mossen_utils::hooks_utils::TOOL_HOOK_EXECUTION_TIMEOUT_MS;
+
+fn runtime_dynamic_hook_executor() -> DynamicHookExecutor {
+    Arc::new(|request| Box::pin(async move { execute_runtime_dynamic_hook(request).await }))
+}
+
+async fn execute_runtime_dynamic_hook(request: DynamicHookRequest) -> Vec<UtilsHookResult> {
+    match &request.hook {
+        Hook::Prompt(hook) => {
+            let config = mossen_agent::hooks::exec_prompt::PromptHookConfig {
+                prompt: hook.prompt.clone(),
+                model: hook.model.clone(),
+                timeout_secs: hook.timeout.map(|timeout| timeout as f64),
+            };
+            let result = mossen_agent::hooks::exec_prompt::exec_prompt_hook(
+                &config,
+                &request.json_input,
+                &request.hook_name,
+            )
+            .await;
+            let outcome = map_runtime_hook_outcome(result.outcome);
+            let blocking_error = result
+                .blocking_error
+                .map(|blocking_error| HookBlockingError {
+                    blocking_error,
+                    command: request.display_text.clone(),
+                });
+            let additional_context = if matches!(outcome, UtilsHookOutcome::NonBlockingError) {
+                result.response_text
+            } else {
+                None
+            };
+            vec![runtime_hook_result(
+                &request,
+                outcome,
+                blocking_error,
+                result.prevent_continuation.then_some(true),
+                result.stop_reason,
+                additional_context,
+                None,
+                None,
+            )]
+        }
+        Hook::Agent(hook) => {
+            let config = mossen_agent::hooks::exec_agent::AgentHookConfig {
+                prompt: hook.prompt.clone(),
+                model: hook.model.clone(),
+                timeout_secs: hook.timeout.map(|timeout| timeout as f64),
+            };
+            let result = mossen_agent::hooks::exec_agent::exec_agent_hook(
+                &config,
+                &request.json_input,
+                &request.hook_name,
+            )
+            .await;
+            let outcome = map_runtime_hook_outcome(result.outcome);
+            let stop_reason = result
+                .structured_output
+                .as_ref()
+                .and_then(|output| output.reason.clone());
+            let blocking_error = result.blocking_error.or_else(|| {
+                if matches!(outcome, UtilsHookOutcome::Blocking) {
+                    Some(format!(
+                        "Agent hook condition was not met: {}",
+                        stop_reason.as_deref().unwrap_or("(no reason given)")
+                    ))
+                } else {
+                    None
+                }
+            });
+            let blocking_error = blocking_error.map(|blocking_error| HookBlockingError {
+                blocking_error,
+                command: request.display_text.clone(),
+            });
+            let additional_context = if matches!(outcome, UtilsHookOutcome::NonBlockingError) {
+                Some("Agent hook failed while evaluating the configured prompt.".to_string())
+            } else {
+                None
+            };
+            vec![runtime_hook_result(
+                &request,
+                outcome,
+                blocking_error,
+                matches!(outcome, UtilsHookOutcome::Blocking).then_some(true),
+                stop_reason,
+                additional_context,
+                None,
+                None,
+            )]
+        }
+        Hook::Http(hook) => {
+            let policy = mossen_agent::hooks::exec_http::HttpHookPolicy::default();
+            let result = mossen_agent::hooks::exec_http::exec_http_hook(
+                &hook.url,
+                hook.headers.as_ref(),
+                hook.allowed_env_vars.as_deref(),
+                &request.json_input,
+                hook.timeout.map(|timeout| timeout as f64),
+                &policy,
+            )
+            .await;
+            if result.aborted {
+                return vec![runtime_hook_result(
+                    &request,
+                    UtilsHookOutcome::Cancelled,
+                    None,
+                    None,
+                    None,
+                    Some("HTTP hook cancelled.".to_string()),
+                    None,
+                    None,
+                )];
+            }
+            if !result.ok {
+                let additional_context = result.error.or_else(|| {
+                    result
+                        .status_code
+                        .map(|status| format!("HTTP hook returned status {status}"))
+                });
+                return vec![runtime_hook_result(
+                    &request,
+                    UtilsHookOutcome::NonBlockingError,
+                    None,
+                    None,
+                    None,
+                    additional_context,
+                    None,
+                    None,
+                )];
+            }
+
+            let parsed = mossen_utils::hooks_utils::parse_http_hook_output(&result.body);
+            if let Some(validation_error) = parsed.validation_error {
+                return vec![runtime_hook_result(
+                    &request,
+                    UtilsHookOutcome::NonBlockingError,
+                    None,
+                    None,
+                    None,
+                    Some(validation_error),
+                    None,
+                    None,
+                )];
+            }
+
+            if let Some(json) = parsed.json {
+                let processed = mossen_utils::hooks_utils::process_hook_json_output(
+                    &json,
+                    &request.display_text,
+                    &request.hook_name,
+                    &request.tool_use_id,
+                    &request.hook_event,
+                    Some(&request.hook_event),
+                    Some(&result.body),
+                    None,
+                    result.status_code.map(i32::from),
+                    None,
+                );
+                let outcome = if processed.blocking_error.is_some()
+                    || processed.prevent_continuation == Some(true)
+                {
+                    UtilsHookOutcome::Blocking
+                } else {
+                    UtilsHookOutcome::Success
+                };
+                return vec![UtilsHookResult {
+                    message: processed.message,
+                    system_message: processed.system_message,
+                    blocking_error: processed.blocking_error,
+                    outcome,
+                    prevent_continuation: processed.prevent_continuation,
+                    stop_reason: processed.stop_reason,
+                    permission_behavior: processed.permission_behavior,
+                    hook_permission_decision_reason: processed.hook_permission_decision_reason,
+                    additional_context: processed.additional_context,
+                    initial_user_message: processed.initial_user_message,
+                    updated_input: processed.updated_input,
+                    updated_mcp_tool_output: processed.updated_mcp_tool_output,
+                    permission_request_result: processed.permission_request_result,
+                    elicitation_response: processed.elicitation_response,
+                    watch_paths: processed.watch_paths,
+                    elicitation_result_response: processed.elicitation_result_response,
+                    retry: processed.retry,
+                    hook: MatchedHookInfo {
+                        hook_type: "http".to_string(),
+                        display_text: request.display_text.clone(),
+                    },
+                }];
+            }
+
+            vec![runtime_hook_result(
+                &request,
+                UtilsHookOutcome::Success,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )]
+        }
+        _ => vec![runtime_hook_result(
+            &request,
+            UtilsHookOutcome::NonBlockingError,
+            None,
+            None,
+            None,
+            Some(format!(
+                "{} hook cannot be handled by the dynamic hook executor.",
+                request.hook.hook_type()
+            )),
+            None,
+            None,
+        )],
+    }
+}
+
+fn map_runtime_hook_outcome(outcome: mossen_types::hooks::HookOutcome) -> UtilsHookOutcome {
+    match outcome {
+        mossen_types::hooks::HookOutcome::Success => UtilsHookOutcome::Success,
+        mossen_types::hooks::HookOutcome::Blocking => UtilsHookOutcome::Blocking,
+        mossen_types::hooks::HookOutcome::NonBlockingError => UtilsHookOutcome::NonBlockingError,
+        mossen_types::hooks::HookOutcome::Cancelled => UtilsHookOutcome::Cancelled,
+    }
+}
+
+fn runtime_hook_result(
+    request: &DynamicHookRequest,
+    outcome: UtilsHookOutcome,
+    blocking_error: Option<HookBlockingError>,
+    prevent_continuation: Option<bool>,
+    stop_reason: Option<String>,
+    additional_context: Option<String>,
+    system_message: Option<String>,
+    watch_paths: Option<Vec<String>>,
+) -> UtilsHookResult {
+    UtilsHookResult {
+        message: runtime_hook_attachment(&outcome, request),
+        system_message,
+        blocking_error,
+        outcome,
+        prevent_continuation,
+        stop_reason,
+        permission_behavior: None,
+        hook_permission_decision_reason: None,
+        additional_context,
+        initial_user_message: None,
+        updated_input: None,
+        updated_mcp_tool_output: None,
+        permission_request_result: None,
+        elicitation_response: None,
+        watch_paths,
+        elicitation_result_response: None,
+        retry: None,
+        hook: MatchedHookInfo {
+            hook_type: request.hook.hook_type().to_string(),
+            display_text: request.display_text.clone(),
+        },
+    }
+}
+
+fn runtime_hook_attachment(
+    outcome: &UtilsHookOutcome,
+    request: &DynamicHookRequest,
+) -> Option<Value> {
+    let attachment_type = match outcome {
+        UtilsHookOutcome::Success => "hook_success",
+        UtilsHookOutcome::Blocking => return None,
+        UtilsHookOutcome::NonBlockingError => "hook_non_blocking_error",
+        UtilsHookOutcome::Cancelled => "hook_cancelled",
+    };
+
+    Some(serde_json::json!({
+        "type": "attachment",
+        "attachment": {
+            "type": attachment_type,
+            "hookName": &request.hook_name,
+            "hookEvent": &request.hook_event,
+        }
+    }))
+}
 
 struct CliPluginHookLoader;
 
@@ -417,6 +703,77 @@ pub async fn run_setup_hooks(
     messages
 }
 
+/// Execute SessionEnd hooks for a CLI session.
+pub async fn run_session_end_hooks(
+    state: &SharedBootstrapState,
+    reason: &str,
+    is_non_interactive: bool,
+) {
+    let snapshot = match SessionHookStateSnapshot::from_state(state, is_non_interactive) {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            warn!(
+                target: "mossen_agent::hooks",
+                error = %err,
+                "SessionEnd hook context unavailable; continuing cleanup"
+            );
+            return;
+        }
+    };
+    let context = snapshot.to_hooks_context();
+    mossen_utils::hooks_utils::execute_session_end_hooks(
+        &context,
+        reason,
+        None,
+        SESSION_START_HOOK_TIMEOUT_MS,
+    )
+    .await;
+}
+
+fn config_change_source_for_scope(scope: ConfigOverrideScope) -> ConfigChangeSource {
+    match scope {
+        ConfigOverrideScope::User => ConfigChangeSource::UserSettings,
+        ConfigOverrideScope::Project => ConfigChangeSource::ProjectSettings,
+        ConfigOverrideScope::Override => ConfigChangeSource::LocalSettings,
+    }
+}
+
+/// Install ConfigChange hooks for live CLI config mutations.
+pub fn install_config_change_hook_listener(
+    hooks_context: Option<Arc<HooksContext>>,
+) -> Option<Box<dyn FnOnce() + Send>> {
+    let hooks_context = hooks_context?;
+    Some(
+        mossen_agent::services::config::facade::on_mossen_config_change(Arc::new(
+            move |scope, key| {
+                let hooks_context = Arc::clone(&hooks_context);
+                tokio::spawn(async move {
+                    let source = config_change_source_for_scope(scope);
+                    let key_for_log = key.as_deref().unwrap_or("(all)");
+                    let results = execute_config_change_hooks(
+                        hooks_context.as_ref(),
+                        source,
+                        None,
+                        TOOL_HOOK_EXECUTION_TIMEOUT_MS,
+                    )
+                    .await;
+                    for result in &results {
+                        if !result.succeeded {
+                            warn!(
+                                target: "mossen_agent::hooks",
+                                key = key_for_log,
+                                command = %result.command,
+                                output = %result.output.trim(),
+                                "ConfigChange hook failed"
+                            );
+                        }
+                    }
+                });
+            },
+        )),
+    )
+}
+
 #[derive(Clone)]
 struct SessionHookStateSnapshot {
     session_id: String,
@@ -499,6 +856,7 @@ impl SessionHookStateSnapshot {
                     .and_then(|settings| serde_json::to_value(settings).ok())
             }),
             invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: Some(runtime_dynamic_hook_executor()),
             subprocess_env: std::env::vars().collect(),
             allowed_official_marketplace_names: HashSet::new(),
         }
@@ -618,6 +976,58 @@ fn value_to_hook_message(value: serde_json::Value) -> HookResultMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    fn config_change_test_hooks_context(
+        cwd: &std::path::Path,
+        command: String,
+    ) -> Arc<HooksContext> {
+        let mut registered_hooks = HashMap::new();
+        registered_hooks.insert(
+            "ConfigChange".to_string(),
+            vec![HookMatcher {
+                matcher: None,
+                hooks: vec![json!({
+                    "type": "command",
+                    "command": command,
+                    "timeout": 1
+                })],
+                plugin_root: None,
+                plugin_id: None,
+                plugin_name: None,
+                skill_root: None,
+                skill_name: None,
+            }],
+        );
+
+        Arc::new(HooksContext {
+            session_id: "config-change-hook-test".to_string(),
+            original_cwd: cwd.to_string_lossy().to_string(),
+            project_root: cwd.to_string_lossy().to_string(),
+            is_non_interactive: true,
+            trust_accepted: true,
+            hooks_config_snapshot: None,
+            registered_hooks: Some(registered_hooks),
+            disable_all_hooks: false,
+            managed_hooks_only: false,
+            main_thread_agent_type: Some("main".to_string()),
+            custom_backend_enabled: false,
+            simple_mode: false,
+            get_transcript_path: Arc::new(|session_id| format!("/tmp/{session_id}.jsonl")),
+            get_agent_transcript_path: Arc::new(|agent_id| format!("/tmp/agent-{agent_id}.jsonl")),
+            log_debug: Arc::new(|_| {}),
+            log_error: Arc::new(|_| {}),
+            log_event: Arc::new(|_, _| {}),
+            get_settings: Arc::new(|| None),
+            get_settings_for_source: Arc::new(|_| None),
+            invalidate_session_env_cache: Arc::new(|| {}),
+            dynamic_hook_executor: None,
+            subprocess_env: std::env::vars().collect(),
+            allowed_official_marketplace_names: HashSet::new(),
+        })
+    }
 
     #[test]
     fn registered_hooks_config_ignores_malformed_matchers() {
@@ -731,5 +1141,41 @@ mod tests {
             matchers[0].hooks[0].get("command").and_then(Value::as_str),
             Some("echo registered")
         );
+    }
+
+    #[tokio::test]
+    async fn config_change_listener_runs_registered_hook() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let marker = temp.path().join("config-change.log");
+        let ctx =
+            config_change_test_hooks_context(temp.path(), format!("cat >> {}", marker.display()));
+        let unsubscribe =
+            install_config_change_hook_listener(Some(ctx)).expect("config change listener");
+        let key = "mossen.test.configChangeHook";
+
+        mossen_agent::services::config::facade::set_mossen_config_override(
+            key,
+            json!(true),
+            ConfigOverrideScope::Override,
+        );
+
+        let mut log = String::new();
+        for _ in 0..20 {
+            if let Ok(value) = std::fs::read_to_string(&marker) {
+                if !value.trim().is_empty() {
+                    log = value;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        unsubscribe();
+        mossen_agent::services::config::facade::clear_mossen_config_overrides(
+            ConfigOverrideScope::Override,
+            Some(key),
+        );
+
+        assert!(log.contains(r#""hook_event_name":"ConfigChange""#), "{log}");
+        assert!(log.contains(r#""source":"local_settings""#), "{log}");
     }
 }

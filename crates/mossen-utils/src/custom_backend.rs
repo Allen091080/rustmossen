@@ -539,10 +539,53 @@ pub const CUSTOM_BACKEND_PROTOCOLS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{get_custom_backend_protocol, CustomBackendProtocol};
+    use super::{
+        get_custom_backend_auth_headers, get_custom_backend_protocol, CustomBackendProtocol,
+    };
+
+    struct EnvRestore {
+        vars: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl EnvRestore {
+        fn set(values: &[(&'static str, Option<&str>)]) -> Self {
+            let vars = values
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect();
+            for (key, value) in values {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+            Self { vars }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in self.vars.drain(..) {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
+
+    fn custom_backend_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("custom backend env test lock poisoned")
+    }
 
     #[test]
     fn custom_backend_protocol_defaults_to_openai_compatible() {
+        let _guard = custom_backend_env_lock();
         let previous = std::env::var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL").ok();
         std::env::remove_var("MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL");
 
@@ -558,6 +601,7 @@ mod tests {
 
     #[test]
     fn custom_backend_protocol_parses_new_protocols() {
+        let _guard = custom_backend_env_lock();
         assert_eq!(
             CustomBackendProtocol::from_str("openai-responses"),
             Some(CustomBackendProtocol::OpenaiResponses)
@@ -566,5 +610,74 @@ mod tests {
             CustomBackendProtocol::from_str("anthropic"),
             Some(CustomBackendProtocol::Anthropic)
         );
+    }
+
+    #[test]
+    fn custom_backend_auth_headers_use_bearer_for_openai_compatible() {
+        let _guard = custom_backend_env_lock();
+        let _env = EnvRestore::set(&[
+            ("MOSSEN_CODE_CUSTOM_API_KEY", Some("sk-test-openai")),
+            ("MOSSEN_CODE_CUSTOM_AUTH_TOKEN", None),
+            (
+                "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+                Some("openai-compatible"),
+            ),
+            ("MOSSEN_CODE_CUSTOM_HEADERS", None),
+        ]);
+
+        let headers = get_custom_backend_auth_headers();
+
+        assert_eq!(
+            headers.get("Authorization").map(String::as_str),
+            Some("Bearer sk-test-openai")
+        );
+        assert!(!headers.contains_key("x-api-key"));
+    }
+
+    #[test]
+    fn custom_backend_auth_headers_use_x_api_key_for_mossen_compatible() {
+        let _guard = custom_backend_env_lock();
+        let _env = EnvRestore::set(&[
+            ("MOSSEN_CODE_CUSTOM_API_KEY", Some("sk-test-mossen")),
+            ("MOSSEN_CODE_CUSTOM_AUTH_TOKEN", None),
+            (
+                "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+                Some("mossen-compatible"),
+            ),
+            ("MOSSEN_CODE_CUSTOM_HEADERS", None),
+        ]);
+
+        let headers = get_custom_backend_auth_headers();
+
+        assert_eq!(
+            headers.get("x-api-key").map(String::as_str),
+            Some("sk-test-mossen")
+        );
+        assert!(!headers.contains_key("Authorization"));
+    }
+
+    #[test]
+    fn custom_backend_auth_headers_preserve_explicit_user_auth_header() {
+        let _guard = custom_backend_env_lock();
+        let _env = EnvRestore::set(&[
+            ("MOSSEN_CODE_CUSTOM_API_KEY", Some("sk-test-profile")),
+            ("MOSSEN_CODE_CUSTOM_AUTH_TOKEN", None),
+            (
+                "MOSSEN_CODE_CUSTOM_BACKEND_PROTOCOL",
+                Some("openai-compatible"),
+            ),
+            (
+                "MOSSEN_CODE_CUSTOM_HEADERS",
+                Some(r#"{"Authorization":"Bearer user-supplied"}"#),
+            ),
+        ]);
+
+        let headers = get_custom_backend_auth_headers();
+
+        assert_eq!(
+            headers.get("Authorization").map(String::as_str),
+            Some("Bearer user-supplied")
+        );
+        assert!(!headers.contains_key("x-api-key"));
     }
 }

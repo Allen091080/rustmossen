@@ -359,7 +359,7 @@ This PR adds a GitHub Actions workflow that enables the {integration_label} for 
 ### What does this workflow do?
 
 The {workflow_label} can help with:
-- Bug fixes and improvements  
+- Bug fixes and improvements
 - Documentation updates
 - Implementing new features
 - Code reviews and suggestions

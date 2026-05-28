@@ -54,26 +54,57 @@ impl Directive for ReleaseNotesDirective {
             )));
         }
 
-        // In full implementation:
-        // 1. Try fetchAndStoreChangelog() with timeout
-        // 2. Parse release notes from stored changelog
-        // 3. Format as version headers with bullet points
-
         let version_filter = args.first().map(|v| v.trim_start_matches('v'));
 
         match version_filter {
             Some(v) => {
                 Ok(CommandResult::Text(format!(
-                    "No release notes found for version {}.\n                     See full changelog at: {}",
+                    "No bundled release notes source is attached to this build for version {}.\n                     See full changelog at: {}",
                     v, CHANGELOG_URL
                 )))
             }
             None => {
                 Ok(CommandResult::Text(format!(
-                    "Version {}:\n                     · Current release\n\n                     See full changelog at: {}",
+                    "Release notes are not bundled in this source checkout.\n                     Current binary version: {}\n                     See full changelog at: {}",
                     ctx.version, CHANGELOG_URL
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::CommandContext;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    fn test_context() -> CommandContext {
+        CommandContext {
+            cwd: PathBuf::from("."),
+            is_non_interactive: true,
+            is_remote_mode: false,
+            is_custom_backend: false,
+            user_type: None,
+            env_vars: HashMap::new(),
+            product_name: "Mossen".to_string(),
+            cli_name: "mossen".to_string(),
+            version: "test".to_string(),
+            build_time: None,
+            cost_snapshot: Default::default(),
+        }
+    }
+
+    #[test]
+    fn release_notes_do_not_invent_current_release_notes() {
+        let output = tokio_test::block_on(ReleaseNotesDirective.execute(&[], &test_context()))
+            .expect("release-notes command");
+
+        let CommandResult::Text(text) = output else {
+            panic!("release-notes should return text");
+        };
+        assert!(text.contains("not bundled"), "{text}");
+        assert!(!text.contains("Current release"), "{text}");
     }
 }
