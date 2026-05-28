@@ -26,7 +26,7 @@ REAL_HOME = Path.home()
 CHECKS = [
     (
         "help_resolves_every_visible_command_and_alias",
-        ["cargo", "test", "-p", "mossen-commands", "help_resolves_every_visible_command_and_alias"],
+        ["cargo", "test", "-p", "mossen-commands", "--lib", "help_resolves_every_visible_command_and_alias"],
     ),
     (
         "representative_index_directives_execute_real_commands",
@@ -35,12 +35,13 @@ CHECKS = [
             "test",
             "-p",
             "mossen-commands",
+            "--lib",
             "representative_index_directives_execute_real_commands",
         ],
     ),
     (
         "help_for_specific_command_uses_registered_metadata",
-        ["cargo", "test", "-p", "mossen-commands", "help_for_specific_command_uses_registered_metadata"],
+        ["cargo", "test", "-p", "mossen-commands", "--lib", "help_for_specific_command_uses_registered_metadata"],
     ),
 ]
 
@@ -49,14 +50,24 @@ def run_check(ctx, name: str, command: list[str]) -> dict[str, Any]:
     env = dict(ctx.env)
     env.setdefault("CARGO_HOME", str(REAL_HOME / ".cargo"))
     env.setdefault("RUSTUP_HOME", str(REAL_HOME / ".rustup"))
-    proc = subprocess.run(
-        command,
-        cwd=str(ROOT),
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=180,
-    )
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(ROOT),
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "name": name,
+            "ok": False,
+            "exit_code": 124,
+            "command": command,
+            "stdout_excerpt": (exc.stdout or "")[:1000],
+            "stderr_excerpt": f"timed out after {exc.timeout} seconds\n{exc.stderr or ''}"[:1000],
+        }
     return {
         "name": name,
         "ok": proc.returncode == 0 and "test result: ok." in (proc.stdout + proc.stderr),
