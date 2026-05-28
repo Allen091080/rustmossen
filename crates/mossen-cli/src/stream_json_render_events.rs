@@ -11091,14 +11091,30 @@ mod tests {
         };
         let mut emitter = StreamJsonRenderEventEmitter::new();
         let first_items = emitter.emit_terminal_draw_plan_items_for_sdk_message(&message);
-        let first_frame_hash = first_items[0]["sourceFrame"]["frameHash"].clone();
+        let first_frame_hash = first_items[0]["sourceFrame"]["frameHash"]
+            .as_str()
+            .expect("first frame hash")
+            .to_string();
 
         let resize_items = emitter.emit_terminal_resize_draw_plan_items();
 
         assert_eq!(resize_items.len(), 1);
         let draw_plan = &resize_items[0];
+        let resize_frame_hash = emitter
+            .previous_frame_fingerprint
+            .as_ref()
+            .expect("resize frame fingerprint")
+            .frame_hash
+            .as_str();
         assert_eq!(draw_plan["type"], STREAM_JSON_RENDER_DRAW_PLAN_TYPE);
-        assert_eq!(draw_plan["sourceFrame"]["frameHash"], first_frame_hash);
+        assert_eq!(
+            draw_plan["sourceFrame"]["frameHash"].as_str(),
+            Some(resize_frame_hash)
+        );
+        assert_eq!(
+            draw_plan["sourceFrame"]["previousAppliedFrameHash"].as_str(),
+            Some(first_frame_hash.as_str())
+        );
         assert_eq!(draw_plan["draw"]["forcedRedraw"], true);
         assert_eq!(draw_plan["draw"]["forceRedrawReason"], "viewport_resize");
         assert_eq!(draw_plan["draw"]["skipped"], false);
