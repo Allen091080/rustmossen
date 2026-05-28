@@ -2,7 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Mossen is a Rust-native terminal coding agent. It implements the core Claude Code-style workflow in a local-first, provider-flexible CLI: conversational coding, file editing, shell execution with permissions, slash commands, context management, MCP integration, sub-agents, and terminal rendering.
+[![CI](https://github.com/Allen091080/rustmossen/actions/workflows/ci.yml/badge.svg)](https://github.com/Allen091080/rustmossen/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](rust-toolchain.toml)
+
+Mossen is a local-first, Rust-native terminal coding agent for developers who want a Claude Code-style workflow with their own model providers.
+
+It implements conversational coding, file editing, shell execution with permissions, slash commands, context management, MCP integration, sub-agents, and terminal rendering in one Rust workspace.
 
 Mossen is not affiliated with Anthropic or Claude Code. The goal is to provide an open Rust implementation of the same class of developer experience, with user-controlled model providers and credentials.
 
@@ -19,7 +25,9 @@ Mossen is not affiliated with Anthropic or Claude Code. The goal is to provide a
 
 Current release target: **V1.0.0**.
 
-This version is intended to be the first public source release. Packaging and installer polish can evolve after the source release; the priority for V1.0 is that the core coding-agent workflow is usable and configurable from source.
+This version is the first public source release. Packaging and installer polish can evolve after the source release; the priority for V1.0 is that the core coding-agent workflow is usable and configurable from source.
+
+See [docs/RELEASE_NOTES_V1.0.0.md](docs/RELEASE_NOTES_V1.0.0.md) for the V1.0 release notes and [docs/LAUNCH.md](docs/LAUNCH.md) for copy-ready launch material.
 
 ## Requirements
 
