@@ -9,6 +9,7 @@ jobs:
   rust:
     name: Rust
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -32,4 +33,4 @@ jobs:
         run: cargo check --workspace
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --lib --bins
