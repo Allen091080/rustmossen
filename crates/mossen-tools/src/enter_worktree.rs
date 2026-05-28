@@ -38,7 +38,7 @@ mod tests {
     use std::collections::HashMap;
     use std::collections::HashSet;
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::{Arc, OnceLock};
     use tokio::process::Command;
 
     async fn git(cwd: &Path, args: &[&str]) {
@@ -131,8 +131,16 @@ mod tests {
         (context, HookRegistration { id })
     }
 
+    async fn worktree_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
+    }
+
     #[tokio::test]
     async fn enter_and_exit_worktree_create_switch_metadata_and_remove() {
+        let _guard = worktree_test_guard().await;
         clear_active_worktree_session();
         let temp = tempfile::tempdir().expect("tempdir");
         git(temp.path(), &["init"]).await;
@@ -184,6 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn enter_and_exit_worktree_use_hooks_outside_git_repo() {
+        let _guard = worktree_test_guard().await;
         clear_active_worktree_session();
         let temp = tempfile::tempdir().expect("tempdir");
         let hook_worktree = temp.path().join("hook-worktree");
