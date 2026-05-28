@@ -12,12 +12,22 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from harness_rust_context import Step, cargo_test, run_context_harness, source_check
 
 
-def doctor_cargo_test() -> list[str]:
+DOCTOR_MODEL_CONFIG_TESTS = [
+    "structured_io::tests::slash_command_doctor_guides_when_model_profile_is_missing",
+    "structured_io::tests::slash_command_doctor_warns_when_active_profile_is_missing",
+    "structured_io::tests::slash_command_doctor_reports_invalid_model_profiles",
+    "structured_io::tests::slash_command_doctor_reports_partial_custom_backend_env",
+    "structured_io::tests::slash_command_doctor_redacts_configured_model_profile_secrets",
+]
+
+
+def doctor_cargo_test(test_name: str) -> list[str]:
     command = cargo_test(
         "-p",
         "mossen-cli",
-        "slash_command_doctor",
+        test_name,
     )
+    command.append("--exact")
     command.append("--test-threads=1")
     return command
 
@@ -25,10 +35,11 @@ def doctor_cargo_test() -> list[str]:
 def main() -> int:
     steps = [
         Step(
-            name="doctor_common_config_diagnostics",
-            command=doctor_cargo_test(),
-            timeout_secs=240,
-        ),
+            name=test_name.rsplit("::", 1)[-1],
+            command=doctor_cargo_test(test_name),
+            timeout_secs=180,
+        )
+        for test_name in DOCTOR_MODEL_CONFIG_TESTS
     ]
     checks = [
         source_check(
