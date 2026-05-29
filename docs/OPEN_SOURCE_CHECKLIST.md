@@ -6,7 +6,7 @@ Use this checklist before publishing the repository.
 
 ## Required
 
-- Confirm the public version is set to `1.0.0` in `Cargo.toml`.
+- Confirm the public version is set to `1.1.0` in `Cargo.toml`.
 - Confirm `LICENSE` exists and matches the license declared in `Cargo.toml`.
 - Remove internal planning, audit, conversation export, local render/session data, and generated harness report files.
 - Keep only public docs, source code, examples, and reproducible test assets.
@@ -62,7 +62,7 @@ Real-provider long soaks are useful before binary releases, but do not commit ke
 
 ## Release Notes
 
-V1.0.0 should say clearly:
+V1.1.0 should say clearly:
 
 - Mossen is a Rust-native terminal coding agent.
 - It implements the Claude Code-style local coding workflow.

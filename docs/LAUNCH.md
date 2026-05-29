@@ -2,7 +2,7 @@
 
 [English](LAUNCH.md) | [简体中文](LAUNCH.zh-CN.md)
 
-This file contains copy-ready material for announcing Mossen V1.0.0.
+This file contains copy-ready material for announcing Mossen V1.1.0.
 
 ## Positioning
 
@@ -35,7 +35,7 @@ It implements the core Claude Code-style workflow: conversational coding, file e
 
 The main design goal is provider flexibility. Mossen supports OpenAI-compatible Chat Completions, OpenAI Responses-compatible endpoints, and Anthropic-compatible endpoints. API keys stay in the user's local ~/.mossen/settings.json file rather than in the repository.
 
-V1.0.0 is a source release focused on the core workflow. Packaging and installer polish can improve next, but the current priority is that developers can build it from source, configure their own model provider, and use the terminal coding-agent workflow locally.
+V1.1.0 is the external-user-ready source release. The quick start, provider setup, `/doctor` diagnostics, sub-agent feedback, and TUI scroll/copy/input coverage have been tightened so developers can clone the repository, configure their own model provider, and try the terminal coding-agent workflow locally.
 
 GitHub: https://github.com/Allen091080/rustmossen
 Configuration docs: https://github.com/Allen091080/rustmossen/blob/main/docs/CONFIGURATION.md
@@ -54,7 +54,7 @@ Mossen: an open-source Rust terminal coding agent with local-first model configu
 Post:
 
 ```text
-I released Mossen V1.0.0, a Rust-native terminal coding agent.
+I released Mossen V1.1.0, a Rust-native terminal coding agent.
 
 It provides a Claude Code-style workflow in a local CLI: conversational coding, file editing, permissioned shell execution, slash commands, context management, MCP integration, sub-agents, and terminal rendering.
 
@@ -68,13 +68,13 @@ Credentials are stored locally in ~/.mossen/settings.json and are not part of th
 Repo: https://github.com/Allen091080/rustmossen
 Docs: https://github.com/Allen091080/rustmossen/blob/main/README.md
 
-V1.0.0 is a source release. I would appreciate feedback on buildability, provider compatibility, terminal UX, and the Rust architecture.
+V1.1.0 is the external-user-ready source release. I would appreciate feedback on buildability, provider compatibility, terminal UX, sub-agent behavior, and the Rust architecture.
 ```
 
 ## X / Twitter Draft
 
 ```text
-I open-sourced Mossen V1.0.0: a Rust-native terminal coding agent.
+I released Mossen V1.1.0: a Rust-native terminal coding agent.
 
 It brings Claude Code-style workflows to a local-first CLI:
 - file edits
@@ -135,7 +135,7 @@ local-first
 
 - Add a short screen recording or GIF to the README.
 - Confirm CI is green on `main`.
-- Create the `v1.0.0` GitHub release.
+- Create the `v1.1.0` GitHub release.
 - Enable GitHub Discussions if you want public Q&A.
 - Add repository topics and a concise repository description.
 - Watch issues closely for the first week after launch.

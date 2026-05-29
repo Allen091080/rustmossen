@@ -6,7 +6,7 @@
 
 ## 必须检查
 
-- 确认 `Cargo.toml` 中公开版本为 `1.0.0`。
+- 确认 `Cargo.toml` 中公开版本为 `1.1.0`。
 - 确认 `LICENSE` 存在，并且和 `Cargo.toml` 声明的 license 一致。
 - 移除内部计划、审计文档、对话导出、本地渲染/session 数据，以及生成的 harness report 文件。
 - 只保留公开文档、源码、示例和可复现测试资产。
@@ -62,7 +62,7 @@ python3 scripts/harness_M17_1_tui_rendering_interaction_smoke.py
 
 ## 发布说明
 
-V1.0.0 应该清楚说明：
+V1.1.0 应该清楚说明：
 
 - Mossen 是 Rust 原生的终端编码代理。
 - 它实现 Claude Code 风格的本地编码工作流。

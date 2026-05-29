@@ -14,11 +14,11 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
-repository = "https://github.com/mossen/mossen-rs"
+repository = "https://github.com/Allen091080/rustmossen"
 description = "Mossen - Rust-native terminal coding agent"
 authors = ["Mossen Team"]
 

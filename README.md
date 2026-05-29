@@ -23,11 +23,11 @@ Mossen is not affiliated with Anthropic or Claude Code. The goal is to provide a
 
 ## Status
 
-Current public release: **V1.0.0**. Current development target: **V1.1 External User Ready**.
+Current public release: **V1.1.0**. Current development target: **V1.2 Reliability & Production UX**.
 
-This version is the first public source release. Packaging and installer polish can evolve after the source release; the priority for V1.0 is that the core coding-agent workflow is usable and configurable from source.
+V1.1 is the external-user-ready release. It focuses on a five-minute source install path, clearer model configuration guidance, provider compatibility checks, sub-agent lifecycle feedback, and focused TUI scroll/copy/input coverage.
 
-See [docs/RELEASE_NOTES_V1.0.0.md](docs/RELEASE_NOTES_V1.0.0.md) for the V1.0 release notes and [docs/LAUNCH.md](docs/LAUNCH.md) for copy-ready launch material.
+See [docs/RELEASE_NOTES_V1.1.0.md](docs/RELEASE_NOTES_V1.1.0.md) for the V1.1 release notes and [docs/LAUNCH.md](docs/LAUNCH.md) for copy-ready launch material.
 
 ## Requirements
 
@@ -210,7 +210,7 @@ examples/               non-secret configuration examples
 
 ## Scope
 
-Mossen is a local CLI project. Hosted service features, team sync, remote attach, and account-managed workflows are not required for the V1.0 source release unless they are wired to a real public implementation.
+Mossen is a local CLI project. Hosted service features, team sync, remote attach, and account-managed workflows are not part of the current public release unless they are wired to a real public implementation.
 
 ## License
 
