@@ -733,7 +733,7 @@ impl Tool for CreateGoalTool {
     }
 
     fn description(&self) -> &str {
-        "Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks. Set token_budget only when an explicit token budget is requested. Fails if a goal exists; use update_goal only for status."
+        "Create a goal only when explicitly requested by the user or system/developer instructions; do not infer goals from ordinary tasks.\nSet token_budget only when an explicit token budget is requested. Fails if a goal exists; use update_goal only for status."
     }
 
     fn definition(&self) -> ToolDefinition {
@@ -801,7 +801,7 @@ impl Tool for UpdateGoalTool {
     }
 
     fn description(&self) -> &str {
-        "Update the existing goal. Use this tool only to mark the goal achieved or genuinely blocked. Set status to `complete` only when the objective has actually been achieved and no required work remains. Set status to `blocked` only when the same blocking condition has repeated for at least three consecutive goal turns, counting the original/user-triggered turn and any automatic continuations, and the agent cannot make meaningful progress without user input or an external-state change. If the user resumes a goal that was previously marked `blocked`, treat the resumed run as a fresh blocked audit. If the same blocking condition then repeats for at least three consecutive resumed goal turns, set status to `blocked` again. Once the blocked threshold is satisfied, do not keep reporting that you are still blocked while leaving the goal active; set status to `blocked`. Do not use `blocked` merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification. Do not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work. You cannot use this tool to pause, resume, budget-limit, or usage-limit a goal; those status changes are controlled by the user or system. When marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user."
+        "Update the existing goal.\nUse this tool only to mark the goal achieved or genuinely blocked.\nSet status to `complete` only when the objective has actually been achieved and no required work remains.\nSet status to `blocked` only when the same blocking condition has repeated for at least three consecutive goal turns, counting the original/user-triggered turn and any automatic continuations, and the agent cannot make meaningful progress without user input or an external-state change.\nIf the user resumes a goal that was previously marked `blocked`, treat the resumed run as a fresh blocked audit. If the same blocking condition then repeats for at least three consecutive resumed goal turns, set status to `blocked` again.\nOnce the blocked threshold is satisfied, do not keep reporting that you are still blocked while leaving the goal active; set status to `blocked`.\nDo not use `blocked` merely because the work is hard, slow, uncertain, incomplete, or would benefit from clarification.\nDo not mark a goal complete merely because its budget is nearly exhausted or because you are stopping work.\nYou cannot use this tool to pause, resume, budget-limit, or usage-limit a goal; those status changes are controlled by the user or system.\nWhen marking a budgeted goal achieved with status `complete`, report the final token usage from the tool result to the user."
     }
 
     fn definition(&self) -> ToolDefinition {
@@ -835,9 +835,9 @@ impl Tool for UpdateGoalTool {
         let status = match input.get("status").and_then(Value::as_str) {
             Some("complete") => ThreadGoalStatus::Complete,
             Some("blocked") => ThreadGoalStatus::Blocked,
-            Some(other) => {
+            Some(_) => {
                 return Err(anyhow!(
-                    "update_goal can only mark the existing goal complete or blocked; got {other}"
+                    "update_goal can only mark the existing goal complete or blocked; pause, resume, budget-limited, and usage-limited status changes are controlled by the user or system"
                 ));
             }
             None => return Err(anyhow!("status is required")),
@@ -968,6 +968,22 @@ mod tests {
             Some(ThreadGoalStatus::Complete)
         );
         assert!(output.completion_budget_report.is_some());
+    }
+
+    #[tokio::test]
+    async fn update_goal_rejects_non_terminal_status_with_codex_message() {
+        let context = test_context("thread-invalid-status");
+        let update = UpdateGoalTool;
+
+        let error = update
+            .execute(json!({"status": "paused"}), &context)
+            .await
+            .expect_err("paused is system/user controlled");
+
+        assert_eq!(
+            error.to_string(),
+            "update_goal can only mark the existing goal complete or blocked; pause, resume, budget-limited, and usage-limited status changes are controlled by the user or system"
+        );
     }
 
     #[test]
