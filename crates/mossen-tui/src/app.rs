@@ -1833,6 +1833,7 @@ pub struct App {
     /// Latest goal visible to footer/status rendering.
     pub current_goal: Option<mossen_agent::goal::ThreadGoal>,
     pending_goal_replacement_objective: Option<String>,
+    pending_goal_steering_messages: Vec<mossen_types::Message>,
 
     // --- Terminal services (chrome / dialogs / search / message-selector) ---
     /// Auxiliary services: terminal title + tab status + cost/idle/search/
@@ -2058,6 +2059,7 @@ impl App {
             goal_thread_id,
             current_goal: None,
             pending_goal_replacement_objective: None,
+            pending_goal_steering_messages: Vec::new(),
             services: crate::app_services::TerminalServices::new(),
             skill_registry: None,
             known_skill_names: std::collections::HashSet::new(),
@@ -8049,9 +8051,12 @@ impl App {
             .unwrap_or_default();
         tools.extend(self.extra_tool_definitions.clone());
 
+        let mut history_messages = self.engine_history.clone();
+        history_messages.extend(self.pending_goal_steering_messages.drain(..));
+
         let params = PromptParams {
             prompt,
-            history_messages: self.engine_history.clone(),
+            history_messages,
             additional_blocks,
             model: cfg.model.clone(),
             system_prompt,
@@ -10187,10 +10192,12 @@ impl App {
             "clear" => match store.clear(&self.goal_thread_id) {
                 Ok(true) => {
                     self.current_goal = None;
+                    self.pending_goal_steering_messages.clear();
                     Ok("Goal cleared".to_string())
                 }
                 Ok(false) => {
                     self.current_goal = None;
+                    self.pending_goal_steering_messages.clear();
                     Ok("No goal is set".to_string())
                 }
                 Err(error) => Err(error),
@@ -10244,6 +10251,8 @@ impl App {
                 match store.replace(&self.goal_thread_id, &objective, None) {
                     Ok(goal) => {
                         self.current_goal = Some(goal.clone());
+                        self.pending_goal_steering_messages
+                            .push(mossen_agent::goal::objective_updated_message(&goal));
                         Ok(mossen_agent::goal::format_goal_summary(&goal))
                     }
                     Err(error) => Err(error),
@@ -10274,6 +10283,8 @@ impl App {
         ) {
             Ok(goal) => {
                 self.current_goal = Some(goal.clone());
+                self.pending_goal_steering_messages
+                    .push(mossen_agent::goal::objective_updated_message(&goal));
                 self.push_command_output(
                     "goal",
                     mossen_agent::goal::format_goal_summary(&goal),
@@ -10320,6 +10331,8 @@ impl App {
     ) -> anyhow::Result<String> {
         let goal = store.set_or_replace(&self.goal_thread_id, objective, status, token_budget)?;
         self.current_goal = Some(goal.clone());
+        self.pending_goal_steering_messages
+            .push(mossen_agent::goal::objective_updated_message(&goal));
         Ok(mossen_agent::goal::format_goal_summary(&goal))
     }
 
@@ -16568,6 +16581,9 @@ mod engine_stream_tests {
 
         app.submit_prompt_to_engine("continue".to_string(), Vec::new());
         let pending = app.pending_submit.take().expect("prompt params");
+        let steering_json =
+            serde_json::to_string(&pending.history_messages).expect("history serializes");
+        assert!(steering_json.contains("The active thread goal objective was edited by the user"));
         assert_eq!(
             pending
                 .tool_use_context
