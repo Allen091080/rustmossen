@@ -197,12 +197,29 @@ def tui_event_key_count(path: Path) -> int:
     return sum(int(match.group(1)) for match in EVENT_KEYS_RE.finditer(text))
 
 
+def wait_for_tui_key_count(
+    path: Path,
+    *,
+    minimum: int,
+    deadline_secs: float,
+    master_fd: int,
+    output: bytearray,
+) -> int:
+    deadline = time.time() + max(0.0, deadline_secs)
+    observed = tui_event_key_count(path)
+    while observed < minimum and time.time() < deadline:
+        read_pty(master_fd, output, timeout=0.04)
+        observed = tui_event_key_count(path)
+    return observed
+
+
 def run_probe() -> dict[str, Any]:
     ctx = make_fixture("M17.2_tui_agent_input_responsiveness")
     project = ctx.root_dir / "project"
     project.mkdir(parents=True, exist_ok=True)
     tui_event_log_path = ctx.artifacts_dir / "tui_events.log"
     child_delay_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_CHILD_DELAY_SECS", "6"))
+    probe_event_wait_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_EVENT_WAIT_SECS", "3"))
     timeout = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_TIMEOUT_SECS", "60"))
     server, state, thread = start_mock_server(child_delay_secs)
     port = server.server_address[1]
@@ -245,6 +262,8 @@ def run_probe() -> dict[str, Any]:
     sent_prompt = False
     sent_input_probe = False
     sent_quit = False
+    probe_key_events_before: int | None = None
+    probe_key_events_after: int | None = None
     started = time.time()
     proc: subprocess.Popen[bytes] | None = None
 
@@ -271,11 +290,23 @@ def run_probe() -> dict[str, Any]:
                 actions.append({"name": "prompt", "offset": len(output), "ts": time.time()})
 
             if sent_prompt and not sent_input_probe and snapshot["child_request_seen"]:
+                probe_key_events_before = tui_event_key_count(tui_event_log_path)
                 typed_bytes = os.write(master_fd, INPUT_PROBE_TEXT.encode("utf-8"))
-                time.sleep(0.25)
-                for _ in range(8):
-                    read_pty(master_fd, output, timeout=0.02)
+                probe_key_events_after = wait_for_tui_key_count(
+                    tui_event_log_path,
+                    minimum=probe_key_events_before + len(INPUT_PROBE_TEXT),
+                    deadline_secs=probe_event_wait_secs,
+                    master_fd=master_fd,
+                    output=output,
+                )
                 erased_bytes = os.write(master_fd, b"\x7f" * len(INPUT_PROBE_TEXT))
+                probe_key_events_after = wait_for_tui_key_count(
+                    tui_event_log_path,
+                    minimum=probe_key_events_before + len(INPUT_PROBE_TEXT),
+                    deadline_secs=0.5,
+                    master_fd=master_fd,
+                    output=output,
+                )
                 sent_input_probe = True
                 actions.append(
                     {
@@ -283,6 +314,8 @@ def run_probe() -> dict[str, Any]:
                         "text": INPUT_PROBE_TEXT,
                         "typed_bytes": typed_bytes,
                         "erased_bytes": erased_bytes,
+                        "key_events_before": probe_key_events_before,
+                        "key_events_after": probe_key_events_after,
                         "offset": len(output),
                         "request_count": snapshot["request_count"],
                         "ts": time.time(),
@@ -334,7 +367,12 @@ def run_probe() -> dict[str, Any]:
     text = decode_output(output)
     snapshot = state.snapshot()
     key_events_seen = tui_event_key_count(tui_event_log_path)
-    minimum_expected_key_events = len(prompt) + len(INPUT_PROBE_TEXT) + len("/quit") + 1
+    probe_key_events_delta = (
+        max(0, (probe_key_events_after or 0) - probe_key_events_before)
+        if probe_key_events_before is not None
+        else 0
+    )
+    minimum_expected_key_events = len(INPUT_PROBE_TEXT)
     exit_code = proc.returncode if proc is not None and proc.returncode is not None else -1
 
     raw_path = ctx.artifacts_dir / "pty_raw_output.bin"
@@ -349,14 +387,17 @@ def run_probe() -> dict[str, Any]:
     evidence_path.write_text(
         json.dumps(
             {
-                "ok": sent_input_probe and key_events_seen >= minimum_expected_key_events,
+                "ok": sent_input_probe and probe_key_events_delta >= minimum_expected_key_events,
                 "method": "pty_background_agent_input_probe",
                 "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "during_background_agent_work": True,
                 "observations": [
                     {
                         "action": "typed and erased probe text while child Agent request was in flight",
-                        "result": f"processed key_events={key_events_seen} expected_min={minimum_expected_key_events}",
+                        "result": (
+                            f"processed probe_key_events_delta={probe_key_events_delta} "
+                            f"expected_min={minimum_expected_key_events} total_key_events={key_events_seen}"
+                        ),
                     }
                 ],
             },
@@ -377,8 +418,12 @@ def run_probe() -> dict[str, Any]:
         ("input_probe_sent_while_child_running", sent_input_probe, f"probe={INPUT_PROBE_TEXT}"),
         (
             "input_probe_key_events_processed",
-            key_events_seen >= minimum_expected_key_events,
-            f"key_events={key_events_seen} expected_min={minimum_expected_key_events}",
+            probe_key_events_delta >= minimum_expected_key_events,
+            (
+                f"probe_key_events_delta={probe_key_events_delta} "
+                f"expected_min={minimum_expected_key_events} total_key_events={key_events_seen} "
+                f"before={probe_key_events_before} after={probe_key_events_after}"
+            ),
         ),
         ("parent_final_marker_rendered", PARENT_MARKER in text, PARENT_MARKER),
     ]
@@ -414,6 +459,9 @@ def run_probe() -> dict[str, Any]:
         "sent_input_probe": sent_input_probe,
         "sent_quit": sent_quit,
         "key_events_seen": key_events_seen,
+        "probe_key_events_before": probe_key_events_before,
+        "probe_key_events_after": probe_key_events_after,
+        "probe_key_events_delta": probe_key_events_delta,
         "minimum_expected_key_events": minimum_expected_key_events,
         "mock": {
             "request_count": snapshot["request_count"],
