@@ -1571,6 +1571,7 @@ pub enum PickerKind {
     OutputStyle,
     BackgroundTasks,
     PermissionMode,
+    GoalReplace,
 }
 
 impl ActiveModal {
@@ -1831,6 +1832,7 @@ pub struct App {
     pub goal_thread_id: String,
     /// Latest goal visible to footer/status rendering.
     pub current_goal: Option<mossen_agent::goal::ThreadGoal>,
+    pending_goal_replacement_objective: Option<String>,
 
     // --- Terminal services (chrome / dialogs / search / message-selector) ---
     /// Auxiliary services: terminal title + tab status + cost/idle/search/
@@ -1956,6 +1958,10 @@ pub struct App {
     external_statusline_result_rx: mpsc::UnboundedReceiver<ExternalStatusLineCommandResult>,
 }
 
+fn should_confirm_before_replacing_goal(goal: &mossen_agent::goal::ThreadGoal) -> bool {
+    !matches!(goal.status, mossen_agent::goal::ThreadGoalStatus::Complete)
+}
+
 impl App {
     /// Create a new App instance without engine wiring (legacy path — keeps
     /// existing tests/screens working; will not actually call the model).
@@ -2051,6 +2057,7 @@ impl App {
             command_context,
             goal_thread_id,
             current_goal: None,
+            pending_goal_replacement_objective: None,
             services: crate::app_services::TerminalServices::new(),
             skill_registry: None,
             known_skill_names: std::collections::HashSet::new(),
@@ -7823,6 +7830,9 @@ impl App {
                         self.apply_picker_choice(kind, &choice);
                     }
                     KeyCode::Esc => {
+                        if matches!(kind, PickerKind::GoalReplace) {
+                            self.pending_goal_replacement_objective = None;
+                        }
                         self.active_modal = ActiveModal::None;
                     }
                     _ => {}
@@ -7904,6 +7914,9 @@ impl App {
             }
             PickerKind::PermissionMode => {
                 self.apply_permission_mode_choice(choice);
+            }
+            PickerKind::GoalReplace => {
+                self.apply_goal_replace_choice(choice);
             }
             PickerKind::OutputStyle => {
                 let Some(display) = self.apply_output_style_choice(choice) else {
@@ -10209,6 +10222,25 @@ impl App {
             }
             _ => {
                 let objective = args.join(" ");
+                let existing = match store.get(&self.goal_thread_id) {
+                    Ok(goal) => goal,
+                    Err(error) => {
+                        return self.push_command_output("goal", error.to_string(), true);
+                    }
+                };
+                if existing
+                    .as_ref()
+                    .is_some_and(should_confirm_before_replacing_goal)
+                {
+                    self.pending_goal_replacement_objective = Some(objective);
+                    self.active_modal = ActiveModal::Picker {
+                        kind: PickerKind::GoalReplace,
+                        title: "Replace goal?".to_string(),
+                        items: vec!["Replace current goal".to_string(), "Cancel".to_string()],
+                        selected: 0,
+                    };
+                    return;
+                }
                 match store.replace(&self.goal_thread_id, &objective, None) {
                     Ok(goal) => {
                         self.current_goal = Some(goal.clone());
@@ -10220,6 +10252,34 @@ impl App {
         };
         match result {
             Ok(body) => self.push_command_output("goal", body, false),
+            Err(error) => self.push_command_output("goal", error.to_string(), true),
+        }
+    }
+
+    fn apply_goal_replace_choice(&mut self, choice: &str) {
+        self.active_modal = ActiveModal::None;
+        let objective = self.pending_goal_replacement_objective.take();
+        if choice != "Replace current goal" {
+            self.push_command_output("goal", "Goal unchanged".to_string(), false);
+            return;
+        }
+        let Some(objective) = objective else {
+            self.push_command_output("goal", "No pending goal replacement".to_string(), true);
+            return;
+        };
+        match mossen_agent::goal::GoalStore::default().replace(
+            &self.goal_thread_id,
+            &objective,
+            None,
+        ) {
+            Ok(goal) => {
+                self.current_goal = Some(goal.clone());
+                self.push_command_output(
+                    "goal",
+                    mossen_agent::goal::format_goal_summary(&goal),
+                    false,
+                );
+            }
             Err(error) => self.push_command_output("goal", error.to_string(), true),
         }
     }
@@ -16482,6 +16542,29 @@ mod engine_stream_tests {
 
         app.handle_command("goal edit");
         assert_eq!(app.prompt.input.value, "/goal edit ship the release");
+
+        app.handle_command("goal replace with a different release goal");
+        assert!(matches!(
+            app.active_modal,
+            ActiveModal::Picker {
+                kind: PickerKind::GoalReplace,
+                ..
+            }
+        ));
+        assert_eq!(
+            app.current_goal
+                .as_ref()
+                .map(|goal| goal.objective.as_str()),
+            Some("ship the release")
+        );
+        app.apply_picker_choice(PickerKind::GoalReplace, "Replace current goal");
+        assert!(matches!(app.active_modal, ActiveModal::None));
+        assert_eq!(
+            app.current_goal
+                .as_ref()
+                .map(|goal| goal.objective.as_str()),
+            Some("replace with a different release goal")
+        );
 
         app.submit_prompt_to_engine("continue".to_string(), Vec::new());
         let pending = app.pending_submit.take().expect("prompt params");

@@ -995,6 +995,7 @@ async fn execute_turn_cycle(
             }
             Err(RetryError::CannotRetry(e)) => {
                 let error = e.to_string();
+                mark_goal_usage_limited_after_api_error_text(spec, tx, session_id, &error).await;
                 execute_stop_failure_hooks_for_error(spec, None, &error, None).await;
                 return Ok((TerminalReason::ModelError { error: e }, cost_state));
             }
@@ -1041,6 +1042,7 @@ async fn execute_turn_cycle(
                     let last_assistant_text =
                         (!visible_text.trim().is_empty()).then_some(visible_text.as_str());
                     let error = e.to_string();
+                    mark_goal_usage_limited_after_api_error(spec, tx, session_id, &e).await;
                     execute_stop_failure_hooks_for_error(
                         spec,
                         last_assistant_text,
@@ -2289,6 +2291,71 @@ async fn emit_goal_event(
     }
 }
 
+async fn mark_goal_usage_limited_after_api_error(
+    spec: &DialogueSpec,
+    tx: &tokio::sync::mpsc::Sender<SdkMessage>,
+    session_id: &str,
+    error: &ApiError,
+) {
+    if !api_error_is_usage_limit(error) {
+        return;
+    }
+    mark_goal_usage_limited_after_api_error_text(spec, tx, session_id, &error.to_string()).await;
+}
+
+async fn mark_goal_usage_limited_after_api_error_text(
+    spec: &DialogueSpec,
+    tx: &tokio::sync::mpsc::Sender<SdkMessage>,
+    session_id: &str,
+    error: &str,
+) {
+    if !error_text_is_usage_limit(error) {
+        return;
+    }
+    let goal_thread_id = crate::goal::resolve_thread_id_from_context(&spec.tool_use_context);
+    match crate::goal::GoalStore::default().usage_limit_active(&goal_thread_id) {
+        Ok(Some(goal)) => {
+            emit_goal_event(
+                tx,
+                crate::goal::GoalEvent {
+                    kind: crate::goal::GoalEventKind::Updated,
+                    thread_id: goal_thread_id,
+                    turn_id: Some(session_id.to_string()),
+                    goal: Some(goal),
+                },
+            )
+            .await;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            warn!(error = %error, "failed to mark thread goal usage-limited");
+        }
+    }
+}
+
+fn api_error_is_usage_limit(error: &ApiError) -> bool {
+    match error {
+        ApiError::RateLimited { .. } => true,
+        ApiError::Http { status, message } | ApiError::Auth { status, message } => {
+            *status == 429 || error_text_is_usage_limit(message)
+        }
+        ApiError::Overloaded { message }
+        | ApiError::Connection { message }
+        | ApiError::Network(message)
+        | ApiError::StreamParse(message) => error_text_is_usage_limit(message),
+        ApiError::ContextOverflow { .. } | ApiError::StreamTimeout | ApiError::Cancelled => false,
+    }
+}
+
+fn error_text_is_usage_limit(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    text.contains("usage limit")
+        || text.contains("rate limit")
+        || text.contains("quota")
+        || text.contains("insufficient_quota")
+        || text.contains("429")
+}
+
 /// 将 StreamEvent 转换为 SDK StreamEventData。
 fn stream_event_to_sdk(event: &StreamEvent) -> Option<StreamEventData> {
     match event {
@@ -2395,12 +2462,12 @@ async fn execute_mcp_tool(
 #[cfg(test)]
 mod tests {
     use super::{
-        effective_permission_mode, execute_pending_clear_request, execute_pending_compact_request,
-        execute_turn_cycle, permission_mode_decision, session_permission_rule_decision,
-        strip_synthetic_thinking_sections, PendingClearExecutionOutcome,
-        PendingCompactExecutionOutcome,
+        api_error_is_usage_limit, effective_permission_mode, execute_pending_clear_request,
+        execute_pending_compact_request, execute_turn_cycle, permission_mode_decision,
+        session_permission_rule_decision, strip_synthetic_thinking_sections,
+        PendingClearExecutionOutcome, PendingCompactExecutionOutcome,
     };
-    use crate::api_client::ApiClientConfig;
+    use crate::api_client::{ApiClientConfig, ApiError};
     use crate::hooks::post_sampling::PostSamplingHookRegistry;
     use crate::services::compact::pending_compact_request::{
         clear_pending_compact_request, enqueue_pending_compact_request, CompactMode,
@@ -2438,6 +2505,20 @@ mod tests {
 
     async fn custom_backend_test_lock() -> tokio::sync::MutexGuard<'static, ()> {
         crate::test_support::env_lock_async().await
+    }
+
+    #[test]
+    fn usage_limit_error_detection_matches_goal_status_semantics() {
+        assert!(api_error_is_usage_limit(&ApiError::RateLimited {
+            retry_after_ms: 1000,
+        }));
+        assert!(api_error_is_usage_limit(&ApiError::Http {
+            status: 400,
+            message: "insufficient_quota".to_string(),
+        }));
+        assert!(!api_error_is_usage_limit(&ApiError::Overloaded {
+            message: "server overloaded".to_string(),
+        }));
     }
 
     fn restore_permission_env(previous: Option<String>) {
