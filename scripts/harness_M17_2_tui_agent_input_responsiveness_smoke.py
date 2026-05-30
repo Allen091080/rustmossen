@@ -213,13 +213,32 @@ def wait_for_tui_key_count(
     return observed
 
 
+def type_text_slow(
+    master_fd: int,
+    output: bytearray,
+    text: str,
+    *,
+    key_interval_secs: float,
+) -> int:
+    written = 0
+    for char in text:
+        written += os.write(master_fd, char.encode("utf-8"))
+        read_pty(master_fd, output, timeout=0.02)
+        if key_interval_secs > 0:
+            time.sleep(key_interval_secs)
+    return written
+
+
 def run_probe() -> dict[str, Any]:
     ctx = make_fixture("M17.2_tui_agent_input_responsiveness")
     project = ctx.root_dir / "project"
     project.mkdir(parents=True, exist_ok=True)
     tui_event_log_path = ctx.artifacts_dir / "tui_events.log"
-    child_delay_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_CHILD_DELAY_SECS", "6"))
-    probe_event_wait_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_EVENT_WAIT_SECS", "3"))
+    child_delay_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_CHILD_DELAY_SECS", "10"))
+    probe_event_wait_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_EVENT_WAIT_SECS", "6"))
+    probe_key_interval_secs = float(
+        os.environ.get("MOSSEN_AGENT_INPUT_PROBE_KEY_INTERVAL_SECS", "0.025")
+    )
     timeout = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_TIMEOUT_SECS", "60"))
     server, state, thread = start_mock_server(child_delay_secs)
     port = server.server_address[1]
@@ -291,7 +310,12 @@ def run_probe() -> dict[str, Any]:
 
             if sent_prompt and not sent_input_probe and snapshot["child_request_seen"]:
                 probe_key_events_before = tui_event_key_count(tui_event_log_path)
-                typed_bytes = os.write(master_fd, INPUT_PROBE_TEXT.encode("utf-8"))
+                typed_bytes = type_text_slow(
+                    master_fd,
+                    output,
+                    INPUT_PROBE_TEXT,
+                    key_interval_secs=probe_key_interval_secs,
+                )
                 probe_key_events_after = wait_for_tui_key_count(
                     tui_event_log_path,
                     minimum=probe_key_events_before + len(INPUT_PROBE_TEXT),
@@ -299,7 +323,12 @@ def run_probe() -> dict[str, Any]:
                     master_fd=master_fd,
                     output=output,
                 )
-                erased_bytes = os.write(master_fd, b"\x7f" * len(INPUT_PROBE_TEXT))
+                erased_bytes = type_text_slow(
+                    master_fd,
+                    output,
+                    "\x7f" * len(INPUT_PROBE_TEXT),
+                    key_interval_secs=probe_key_interval_secs,
+                )
                 probe_key_events_after = wait_for_tui_key_count(
                     tui_event_log_path,
                     minimum=probe_key_events_before + len(INPUT_PROBE_TEXT),
