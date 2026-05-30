@@ -1827,6 +1827,10 @@ pub struct App {
     pub directives: Option<Arc<Vec<BoxedDirective>>>,
     /// Cached `CommandContext` used when invoking directives.
     pub command_context: CommandContext,
+    /// Stable thread id used by `/goal` and goal tools for this session.
+    pub goal_thread_id: String,
+    /// Latest goal visible to footer/status rendering.
+    pub current_goal: Option<mossen_agent::goal::ThreadGoal>,
 
     // --- Terminal services (chrome / dialogs / search / message-selector) ---
     /// Auxiliary services: terminal title + tab status + cost/idle/search/
@@ -1962,13 +1966,22 @@ impl App {
             .ok()
             .and_then(|p| p.to_str().map(|s| s.to_string()))
             .unwrap_or_else(|| ".".to_string());
+        let goal_thread_id = std::env::var(mossen_agent::goal::GOAL_THREAD_ID_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(mossen_agent::goal::new_thread_id);
+        let mut env_vars: HashMap<String, String> = std::env::vars().collect();
+        env_vars.insert(
+            mossen_agent::goal::GOAL_THREAD_ID_ENV.to_string(),
+            goal_thread_id.clone(),
+        );
         let command_context = CommandContext {
             cwd: std::path::PathBuf::from(&cwd),
             is_non_interactive: false,
             is_remote_mode: false,
             is_custom_backend: false,
             user_type: None,
-            env_vars: std::env::vars().collect(),
+            env_vars,
             product_name: "Mossen".to_string(),
             cli_name: "mossen".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -2036,6 +2049,8 @@ impl App {
             active_modal: ActiveModal::None,
             directives: None,
             command_context,
+            goal_thread_id,
+            current_goal: None,
             services: crate::app_services::TerminalServices::new(),
             skill_registry: None,
             known_skill_names: std::collections::HashSet::new(),
@@ -2504,6 +2519,19 @@ impl App {
         app.refresh_slash_catalog();
         app.refresh_mcp_statuses();
         app
+    }
+
+    pub fn set_goal_thread_id(&mut self, thread_id: impl Into<String>) {
+        let thread_id = thread_id.into();
+        self.goal_thread_id = thread_id.clone();
+        self.command_context.env_vars.insert(
+            mossen_agent::goal::GOAL_THREAD_ID_ENV.to_string(),
+            thread_id.clone(),
+        );
+        self.current_goal = mossen_agent::goal::GoalStore::default()
+            .get(&thread_id)
+            .ok()
+            .flatten();
     }
 
     /// Inject a pre-built skill registry. Separated from [`with_engine`] so the
@@ -5004,6 +5032,10 @@ impl App {
             reasoning: self.reasoning_status_label(),
             context: self.context_usage_render_model(),
             turn_state: Some(self.turn_state_label().to_string()),
+            goal_status: self
+                .current_goal
+                .as_ref()
+                .map(mossen_agent::goal::format_goal_status_indicator),
             activity: self.state.render_activity.status_line(),
             cost: if self.total_cost_usd > 0.0 {
                 Some(format!("${:.2}", self.total_cost_usd))
@@ -8018,7 +8050,7 @@ impl App {
                 } else {
                     Some(self.additional_working_directories.clone())
                 },
-                extra: Default::default(),
+                extra: mossen_agent::goal::context_extra_for_thread(&self.goal_thread_id),
             },
             origin_tag: cfg.origin_tag.clone(),
             max_turns: cfg.max_turns,
@@ -10124,6 +10156,113 @@ impl App {
         );
     }
 
+    fn handle_goal_command(&mut self, args: &[&str]) {
+        let store = mossen_agent::goal::GoalStore::default();
+        let first = args.first().copied().unwrap_or("");
+        let result = match first {
+            "" => match store.get(&self.goal_thread_id) {
+                Ok(Some(goal)) => {
+                    self.current_goal = Some(goal.clone());
+                    Ok(mossen_agent::goal::format_goal_summary(&goal))
+                }
+                Ok(None) => {
+                    self.current_goal = None;
+                    Ok("No goal is set.\nUsage: /goal <objective>\nCommands: /goal edit <objective>, /goal pause, /goal resume, /goal clear".to_string())
+                }
+                Err(error) => Err(error),
+            },
+            "clear" => match store.clear(&self.goal_thread_id) {
+                Ok(true) => {
+                    self.current_goal = None;
+                    Ok("Goal cleared".to_string())
+                }
+                Ok(false) => {
+                    self.current_goal = None;
+                    Ok("No goal is set".to_string())
+                }
+                Err(error) => Err(error),
+            },
+            "pause" => {
+                self.set_goal_status_from_tui(&store, mossen_agent::goal::ThreadGoalStatus::Paused)
+            }
+            "resume" => {
+                self.set_goal_status_from_tui(&store, mossen_agent::goal::ThreadGoalStatus::Active)
+            }
+            "edit" => {
+                let objective = args.iter().skip(1).copied().collect::<Vec<_>>().join(" ");
+                if objective.trim().is_empty() {
+                    self.prepare_goal_edit_from_tui(&store)
+                } else {
+                    let existing = match store.get(&self.goal_thread_id) {
+                        Ok(goal) => goal,
+                        Err(error) => {
+                            return self.push_command_output("goal", error.to_string(), true);
+                        }
+                    };
+                    let status = existing
+                        .as_ref()
+                        .map(|goal| mossen_agent::goal::edited_goal_status(goal.status))
+                        .unwrap_or(mossen_agent::goal::ThreadGoalStatus::Active);
+                    let token_budget = existing.and_then(|goal| goal.token_budget);
+                    self.set_goal_objective_from_tui(&store, &objective, status, token_budget)
+                }
+            }
+            _ => {
+                let objective = args.join(" ");
+                match store.replace(&self.goal_thread_id, &objective, None) {
+                    Ok(goal) => {
+                        self.current_goal = Some(goal.clone());
+                        Ok(mossen_agent::goal::format_goal_summary(&goal))
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        };
+        match result {
+            Ok(body) => self.push_command_output("goal", body, false),
+            Err(error) => self.push_command_output("goal", error.to_string(), true),
+        }
+    }
+
+    fn prepare_goal_edit_from_tui(
+        &mut self,
+        store: &mossen_agent::goal::GoalStore,
+    ) -> anyhow::Result<String> {
+        match store.get(&self.goal_thread_id)? {
+            Some(goal) => {
+                self.current_goal = Some(goal.clone());
+                self.prompt.input.clear();
+                self.prompt
+                    .input
+                    .insert_str(&format!("/goal edit {}", goal.objective));
+                Ok("Edit goal in the prompt input, then press Enter.".to_string())
+            }
+            None => Ok("No goal to edit.\nUsage: /goal <objective>".to_string()),
+        }
+    }
+
+    fn set_goal_status_from_tui(
+        &mut self,
+        store: &mossen_agent::goal::GoalStore,
+        status: mossen_agent::goal::ThreadGoalStatus,
+    ) -> anyhow::Result<String> {
+        let goal = store.update_status(&self.goal_thread_id, status)?;
+        self.current_goal = Some(goal.clone());
+        Ok(mossen_agent::goal::format_goal_summary(&goal))
+    }
+
+    fn set_goal_objective_from_tui(
+        &mut self,
+        store: &mossen_agent::goal::GoalStore,
+        objective: &str,
+        status: mossen_agent::goal::ThreadGoalStatus,
+        token_budget: Option<i64>,
+    ) -> anyhow::Result<String> {
+        let goal = store.set_or_replace(&self.goal_thread_id, objective, status, token_budget)?;
+        self.current_goal = Some(goal.clone());
+        Ok(mossen_agent::goal::format_goal_summary(&goal))
+    }
+
     fn open_help_dialog(&mut self, query: &str) {
         self.active_modal = ActiveModal::HelpDialog(HelpDialogState::new(query.trim()));
     }
@@ -10199,6 +10338,10 @@ impl App {
                 } else {
                     self.apply_model_picker_choice(requested_model);
                 }
+                return;
+            }
+            "goal" => {
+                self.handle_goal_command(&args);
                 return;
             }
             "add-dir" => {
@@ -11813,6 +11956,16 @@ impl App {
                 ));
                 self.note_transcript_changed();
             }
+            SdkMessage::ThreadGoalUpdated { goal, .. } => {
+                self.current_goal = Some(goal);
+                self.mark_render_dirty();
+            }
+            SdkMessage::ThreadGoalCleared { thread_id, .. } => {
+                if self.goal_thread_id == thread_id {
+                    self.current_goal = None;
+                    self.mark_render_dirty();
+                }
+            }
         }
     }
 
@@ -11830,6 +11983,8 @@ impl App {
             | SdkMessage::ConversationCleared { .. }
             | SdkMessage::ClearRequestStatus { .. }
             | SdkMessage::ApiRetry { .. }
+            | SdkMessage::ThreadGoalUpdated { .. }
+            | SdkMessage::ThreadGoalCleared { .. }
             | SdkMessage::Result { .. } => {
                 self.ensure_current_render_turn_id();
             }
@@ -13783,6 +13938,7 @@ fn available_commands() -> Vec<Suggestion> {
         ("exit", "Exit the application"),
         ("quit", "Exit the application"),
         ("model", "Change the active model"),
+        ("goal", "Set or view a long-running task goal"),
         ("compact", "Compact conversation history"),
         ("permissions", "Select permission mode or manage rules"),
         ("permission-mode", "Select the session permission mode"),
@@ -14045,6 +14201,7 @@ fn builtin_tui_command_aliases(name: &str) -> &'static [&'static str] {
 fn builtin_tui_command_argument_hint(name: &str) -> &'static str {
     match name {
         "compact" => "[run|plan|status|cancel]",
+        "goal" => "[objective|edit|pause|resume|clear]",
         "permissions" => "[mode|allow|deny|list|reset]",
         "permission-mode" => "[supervised|plan|accept-edits|full-auto|dont-ask]",
         "render-snapshot" => "[write|check]",
@@ -14062,9 +14219,9 @@ fn command_category(name: &str) -> &'static str {
         | "logs" | "errors" | "errs" | "failures" | "approvals" | "approval-history"
         | "approval-log" | "version" | "doctor" | "usage" | "summary" | "summaries" | "results"
         | "final-summary" | "raw" | "debug-raw" | "debug-config" | "debugconfig" => "Info",
-        "clear" | "reset" | "new" | "compact" | "resume" | "continue" | "session" | "exit"
-        | "quit" | "rename" | "copy" | "export" | "title" | "session-title" | "render-snapshot"
-        | "snapshot" | "render-session" => "Session",
+        "clear" | "reset" | "new" | "compact" | "goal" | "resume" | "continue" | "session"
+        | "exit" | "quit" | "rename" | "copy" | "export" | "title" | "session-title"
+        | "render-snapshot" | "snapshot" | "render-session" => "Session",
         "model" | "theme" | "output-style" | "permissions" | "permission-mode"
         | "approval-mode" | "statusline" | "status-line" | "config" | "settings" | "memory"
         | "effort" | "lang" | "vim" | "color" => "Config",
@@ -14868,6 +15025,13 @@ mod engine_stream_tests {
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .expect("skill reload lock")
+    }
+
+    fn goal_config_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("goal config lock")
     }
 
     fn isolate_model_env() -> EnvGuard {
@@ -16292,6 +16456,56 @@ mod engine_stream_tests {
             mossen_utils::context::MODEL_CONTEXT_WINDOW_DEFAULT
         );
         assert_eq!(context.label(), "ctx 2k/200k");
+    }
+
+    #[test]
+    fn goal_slash_command_updates_store_footer_and_prompt_context() {
+        let _lock = goal_config_lock();
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let _env = EnvGuard(vec![(
+            "MOSSEN_CONFIG_DIR",
+            std::env::var("MOSSEN_CONFIG_DIR").ok(),
+        )]);
+        std::env::set_var("MOSSEN_CONFIG_DIR", dir.path());
+
+        let mut app = App::new();
+        app.set_goal_thread_id("tui-goal-thread");
+        app.handle_command("goal ship the release");
+
+        let goal = app.current_goal.as_ref().expect("goal should be set");
+        assert_eq!(goal.objective, "ship the release");
+        assert_eq!(goal.status, mossen_agent::goal::ThreadGoalStatus::Active);
+        assert_eq!(
+            app.footer_render_model().goal_status.as_deref(),
+            Some("Pursuing goal")
+        );
+
+        app.handle_command("goal edit");
+        assert_eq!(app.prompt.input.value, "/goal edit ship the release");
+
+        app.submit_prompt_to_engine("continue".to_string(), Vec::new());
+        let pending = app.pending_submit.take().expect("prompt params");
+        assert_eq!(
+            pending
+                .tool_use_context
+                .extra
+                .get(mossen_agent::goal::GOAL_THREAD_ID_CONTEXT_KEY)
+                .and_then(serde_json::Value::as_str),
+            Some("tui-goal-thread")
+        );
+
+        app.handle_command("goal pause");
+        assert_eq!(
+            app.current_goal.as_ref().map(|goal| goal.status),
+            Some(mossen_agent::goal::ThreadGoalStatus::Paused)
+        );
+        assert_eq!(
+            app.footer_render_model().goal_status.as_deref(),
+            Some("Goal paused (/goal resume)")
+        );
+
+        app.handle_command("goal clear");
+        assert!(app.current_goal.is_none());
     }
 
     #[test]

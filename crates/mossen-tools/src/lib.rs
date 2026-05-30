@@ -199,6 +199,9 @@ pub(crate) fn dynamic_skill_test_lock() -> std::sync::MutexGuard<'static, ()> {
 /// 获取所有 P0 内置工具实例。
 pub fn all_p0_tools() -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
+        Box::new(mossen_agent::goal::GetGoalTool),
+        Box::new(mossen_agent::goal::CreateGoalTool),
+        Box::new(mossen_agent::goal::UpdateGoalTool),
         Box::new(sleep::DeferralTimer),
         Box::new(todo::TaskNotePad),
         Box::new(agent::SubagentLauncher),

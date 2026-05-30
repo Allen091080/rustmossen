@@ -1102,6 +1102,7 @@ async fn execute_turn_cycle(
         let call_duration = call_start.elapsed();
 
         // 记录用量和成本
+        let mut budget_limit_goal = None;
         if let Some(ref usage) = accumulator.usage {
             let cost = cost_tracker::calculate_usd_cost(&env.model, usage);
             cost_tracker::add_to_total_session_cost(cost, usage, &env.model, &mut cost_state);
@@ -1110,6 +1111,33 @@ async fn execute_turn_cycle(
                 call_duration.as_millis() as u64,
                 false,
             );
+            let goal_thread_id =
+                crate::goal::resolve_thread_id_from_context(&state.tool_use_context);
+            match crate::goal::GoalStore::default().account_usage(
+                &goal_thread_id,
+                usage,
+                call_duration,
+            ) {
+                Ok(Some(goal)) => {
+                    if matches!(goal.status, crate::goal::ThreadGoalStatus::BudgetLimited) {
+                        budget_limit_goal = Some(goal.clone());
+                    }
+                    emit_goal_event(
+                        tx,
+                        crate::goal::GoalEvent {
+                            kind: crate::goal::GoalEventKind::Updated,
+                            thread_id: goal_thread_id,
+                            turn_id: Some(format!("{}:{}", session_id, state.turn_count)),
+                            goal: Some(goal),
+                        },
+                    )
+                    .await;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(error = %error, "failed to account thread goal usage");
+                }
+            }
         }
 
         // 构建助手消息
@@ -1285,6 +1313,28 @@ async fn execute_turn_cycle(
                         state.messages.push(assistant_message);
                         return Ok((TerminalReason::StopHookPrevented, cost_state));
                     }
+                }
+            }
+
+            if let Some(goal) = budget_limit_goal {
+                state.messages.push(assistant_message);
+                state
+                    .messages
+                    .push(crate::goal::budget_limit_message(&goal));
+                state.advance_turn(ContinueReason::GoalContinuation);
+                continue;
+            }
+
+            match crate::goal::maybe_goal_continuation_message(&state.tool_use_context) {
+                Ok(Some(message)) => {
+                    state.messages.push(assistant_message);
+                    state.messages.push(message);
+                    state.advance_turn(ContinueReason::GoalContinuation);
+                    continue;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(error = %error, "failed to prepare thread goal continuation");
                 }
             }
 
@@ -1586,6 +1636,9 @@ async fn execute_turn_cycle(
                             execute_cwd_changed_hooks_for_transition(spec, &old_cwd, next_cwd)
                                 .await;
                         }
+                    }
+                    if let Some(event) = crate::goal::parse_goal_event_metadata(&result.metadata) {
+                        emit_goal_event(tx, event).await;
                     }
 
                     ContentBlock::ToolResult(ToolResultBlock {
@@ -2205,6 +2258,34 @@ fn build_assistant_message(acc: &StreamAccumulator) -> Message {
         origin: None,
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         extra,
+    }
+}
+
+async fn emit_goal_event(
+    tx: &tokio::sync::mpsc::Sender<SdkMessage>,
+    event: crate::goal::GoalEvent,
+) {
+    match event.kind {
+        crate::goal::GoalEventKind::Updated => {
+            if let Some(goal) = event.goal {
+                let _ = tx
+                    .send(SdkMessage::ThreadGoalUpdated {
+                        thread_id: event.thread_id,
+                        turn_id: event.turn_id,
+                        goal,
+                        task_id: None,
+                    })
+                    .await;
+            }
+        }
+        crate::goal::GoalEventKind::Cleared => {
+            let _ = tx
+                .send(SdkMessage::ThreadGoalCleared {
+                    thread_id: event.thread_id,
+                    task_id: None,
+                })
+                .await;
+        }
     }
 }
 

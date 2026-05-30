@@ -367,7 +367,7 @@ pub async fn launch_repl(
     info!("launch_repl: initializing interactive session");
 
     // 1. 标记为交互式模式
-    let (model, cwd, cwd_path, system_prompt_override) = {
+    let (model, cwd, cwd_path, session_id, system_prompt_override) = {
         let mut s = state
             .write()
             .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
@@ -382,7 +382,13 @@ pub async fn launch_repl(
             .unwrap_or_else(default_model_for_unset_cli);
         let cwd_path = s.cwd.clone();
         let cwd = s.cwd.to_string_lossy().to_string();
-        (model, cwd, cwd_path, config.system_prompt.clone())
+        (
+            model,
+            cwd,
+            cwd_path,
+            s.session_id.clone(),
+            config.system_prompt.clone(),
+        )
     };
     let builtin_tool_options = mossen_tools::ToolRuntimeOptions {
         mcp_resources: config.mcp_enabled,
@@ -522,9 +528,10 @@ pub async fn launch_repl(
         compact_hook_context,
     };
     let directives = std::sync::Arc::new(mossen_commands::all_directives());
-    let app = mossen_tui::App::with_engine(engine_config, directives)
+    let mut app = mossen_tui::App::with_engine(engine_config, directives)
         .with_startup_hook_messages(session_hook_messages)
         .with_startup_render_session_restore(config.restore_mode);
+    app.set_goal_thread_id(session_id);
     info!("launch_repl: TUI app created (engine + directives wired)");
 
     // Skill registry is built once and handed to the TUI so slash commands,
@@ -2778,7 +2785,7 @@ async fn build_oneshot_prompt_params(
     config: &ReplConfig,
 ) -> Result<(PromptParams, String)> {
     // 标记为非交互式，并捕获 model/cwd
-    let (mut model, cwd, main_agent_type) = {
+    let (mut model, cwd, session_id, main_agent_type) = {
         let mut s = state
             .write()
             .map_err(|e| anyhow::anyhow!("failed to write state: {}", e))?;
@@ -2793,6 +2800,7 @@ async fn build_oneshot_prompt_params(
         (
             m,
             s.cwd.to_string_lossy().to_string(),
+            s.session_id.clone(),
             s.main_agent_type.clone(),
         )
     };
@@ -2965,7 +2973,7 @@ async fn build_oneshot_prompt_params(
         tool_use_context: ToolUseContext {
             cwd,
             additional_working_directories: None,
-            extra: Default::default(),
+            extra: mossen_agent::goal::context_extra_for_thread(&session_id),
         },
         origin_tag: OriginTag::Sdk,
         // Allow the full tool/response round-trip while keeping unattended
@@ -3194,7 +3202,10 @@ pub async fn submit_once(
         tool_use_context: ToolUseContext {
             cwd,
             additional_working_directories: None,
-            extra: Default::default(),
+            extra: mossen_agent::goal::context_extra_for_thread(
+                &std::env::var(mossen_agent::goal::GOAL_THREAD_ID_ENV)
+                    .unwrap_or_else(|_| mossen_agent::goal::new_thread_id()),
+            ),
         },
         model,
         user_specified_model: None,

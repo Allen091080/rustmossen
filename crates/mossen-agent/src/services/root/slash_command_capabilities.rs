@@ -19,6 +19,7 @@ pub enum SideEffect {
     None,
     ClearsConversation,
     SwitchesSessionModel,
+    UpdatesGoal,
     ReadOnly,
     WritesConfig,
     WritesFiles,
@@ -44,6 +45,7 @@ pub enum ResultKind {
     Auth,
     Profile,
     Model,
+    Goal,
     Clear,
     Cost,
     Skills,
@@ -146,6 +148,30 @@ static CAPABILITIES: Lazy<Vec<SlashCommandCapability>> = Lazy::new(|| {
             "Return runtime status for the current stream-json session.",
             None,
         ),
+        {
+            let mut capability = cap(
+                "slash.goal",
+                "goal",
+                "Thread goal",
+                CommandStatus::Available,
+                false,
+                false,
+                ArgsMode::Subcommand,
+                SideEffect::UpdatesGoal,
+                ResultKind::Goal,
+                &["goal", "message"],
+                "crates/mossen-cli/src/structured_io.rs:slash_command/goal",
+                "Set, inspect, pause, resume, edit, or clear the persistent thread goal.",
+                None,
+            );
+            capability.accepted_args = vec![
+                "edit".to_string(),
+                "pause".to_string(),
+                "resume".to_string(),
+                "clear".to_string(),
+            ];
+            capability
+        },
         {
             let mut capability = cap(
                 "slash.model",

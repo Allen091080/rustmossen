@@ -567,6 +567,8 @@ pub enum RawEngineEventKind {
     ConversationCleared,
     ClearRequestStatus,
     ApiRetry,
+    ThreadGoalUpdated,
+    ThreadGoalCleared,
 }
 
 impl RawEngineEventKind {
@@ -583,6 +585,8 @@ impl RawEngineEventKind {
             RawEngineEventKind::ConversationCleared => "conversation_cleared",
             RawEngineEventKind::ClearRequestStatus => "clear_request_status",
             RawEngineEventKind::ApiRetry => "api_retry",
+            RawEngineEventKind::ThreadGoalUpdated => "thread_goal_updated",
+            RawEngineEventKind::ThreadGoalCleared => "thread_goal_cleared",
         }
     }
 
@@ -599,6 +603,8 @@ impl RawEngineEventKind {
             SdkMessage::ConversationCleared { .. } => RawEngineEventKind::ConversationCleared,
             SdkMessage::ClearRequestStatus { .. } => RawEngineEventKind::ClearRequestStatus,
             SdkMessage::ApiRetry { .. } => RawEngineEventKind::ApiRetry,
+            SdkMessage::ThreadGoalUpdated { .. } => RawEngineEventKind::ThreadGoalUpdated,
+            SdkMessage::ThreadGoalCleared { .. } => RawEngineEventKind::ThreadGoalCleared,
         }
     }
 }
@@ -763,6 +769,21 @@ fn raw_engine_event_summary(message: &SdkMessage) -> String {
             retry_in_ms,
             preview_token(error, 96)
         ),
+        SdkMessage::ThreadGoalUpdated {
+            thread_id,
+            turn_id,
+            goal,
+            ..
+        } => format!(
+            "thread={} turn={} status={} objective_chars={}",
+            preview_token(thread_id, 48),
+            turn_id.as_deref().unwrap_or("-"),
+            mossen_agent::goal::goal_status_label(goal.status),
+            goal.objective.chars().count()
+        ),
+        SdkMessage::ThreadGoalCleared { thread_id, .. } => {
+            format!("thread={}", preview_token(thread_id, 48))
+        }
     }
 }
 

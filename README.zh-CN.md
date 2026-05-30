@@ -127,7 +127,10 @@ mossen --oneshot "List the test commands for this project" --emit stream-json
 mossen --cwd /path/to/project
 ```
 
-进入 TUI 后，可以用 `/help` 查看可用斜杠命令。
+进入 TUI 后，可以用 `/help` 查看可用斜杠命令。对于长任务，可以用
+`/goal <objective>` 设置持久线程目标；`/goal` 查看当前进度，`/goal pause`
+暂停，`/goal resume` 恢复，`/goal edit <objective>` 更新目标，`/goal clear`
+清除目标。
 
 ## 配置 LLM 供应商
 

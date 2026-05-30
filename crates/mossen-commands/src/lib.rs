@@ -151,6 +151,7 @@ pub mod exit; // /exit, /quit
 pub mod extract; // /export
 pub mod files; // /files
 pub mod files_index;
+pub mod goal; // /goal
 pub mod meter; // /cost
 pub mod output_style; // /output-style
 pub mod rename; // /rename
@@ -225,6 +226,7 @@ pub fn all_directives() -> Vec<BoxedDirective> {
         Box::new(copy::CopyDirective),
         Box::new(changes::ChangesDirective),
         Box::new(files::FilesDirective),
+        Box::new(goal::GoalDirective),
         Box::new(environ::EnvironDirective),
         Box::new(effort::EffortDirective),
         Box::new(output_style::OutputStyleDirective),

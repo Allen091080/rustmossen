@@ -453,6 +453,7 @@ pub fn render_events_for_sdk_message(message: &SdkMessage) -> Vec<RenderEvent> {
             scope,
             UiStage::Retrying,
         )],
+        SdkMessage::ThreadGoalUpdated { .. } | SdkMessage::ThreadGoalCleared { .. } => Vec::new(),
     }
 }
 

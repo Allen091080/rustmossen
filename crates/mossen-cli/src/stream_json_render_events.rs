@@ -6391,6 +6391,8 @@ fn sdk_message_type_key(message: &SdkMessage) -> &'static str {
         SdkMessage::ConversationCleared { .. } => "conversation_cleared",
         SdkMessage::ClearRequestStatus { .. } => "clear_request_status",
         SdkMessage::ApiRetry { .. } => "api_retry",
+        SdkMessage::ThreadGoalUpdated { .. } => "thread_goal_updated",
+        SdkMessage::ThreadGoalCleared { .. } => "thread_goal_cleared",
     }
 }
 

@@ -54,7 +54,7 @@ use mossen_utils::model_utils::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -656,6 +656,13 @@ impl StructuredIO {
                 self.emit_slash_command_success(request_id, self.slash_status_response().await)
                     .await;
             }
+            "goal" => match slash_goal_response(&args).await {
+                Ok(response) => self.emit_slash_command_success(request_id, response).await,
+                Err(error) => {
+                    self.emit_slash_command_error(request_id, &command, error)
+                        .await;
+                }
+            },
             "model" => match slash_model_response(&args) {
                 Ok(response) => self.emit_slash_command_success(request_id, response).await,
                 Err(error) => {
@@ -4882,6 +4889,48 @@ fn slash_capabilities_response() -> serde_json::Value {
     })
 }
 
+async fn slash_goal_response(args: &[String]) -> std::result::Result<serde_json::Value, String> {
+    let context = slash_command_context()
+        .map_err(|error| format!("slash_command_goal_context_unavailable: {error}"))?;
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let directive = mossen_commands::goal::GoalDirective;
+    let body = match directive
+        .execute(&arg_refs, &context)
+        .await
+        .map_err(|error| format!("slash_command_goal_failed: {error}"))?
+    {
+        CommandResult::Text(body) | CommandResult::System(body) => body,
+        CommandResult::Empty => String::new(),
+        CommandResult::Widget => return Err("slash_command_goal_widget_unavailable".to_string()),
+        CommandResult::Exit(message) => {
+            return Err(format!(
+                "slash_command_goal_unexpected_exit{}",
+                message
+                    .map(|message| format!(": {message}"))
+                    .unwrap_or_default()
+            ));
+        }
+        CommandResult::Error(error) => return Err(format!("slash_command_goal_error: {error}")),
+    };
+    let thread_id = context
+        .env_vars
+        .get(mossen_agent::goal::GOAL_THREAD_ID_ENV)
+        .cloned()
+        .unwrap_or_else(stream_json_goal_thread_id);
+    let goal = mossen_agent::goal::GoalStore::default()
+        .get(&thread_id)
+        .map_err(|error| format!("slash_command_goal_read_failed: {error}"))?;
+
+    Ok(serde_json::json!({
+        "subtype": "slash_command_result",
+        "command": "goal",
+        "status": "completed",
+        "message": body,
+        "goal": goal,
+        "threadId": thread_id,
+    }))
+}
+
 fn slash_model_response(args: &[String]) -> std::result::Result<serde_json::Value, String> {
     if args.is_empty()
         || (args.len() == 1
@@ -5376,19 +5425,36 @@ fn auth_token_source_label(source: &mossen_utils::auth::AuthTokenSource) -> &'st
 
 fn slash_command_context() -> std::result::Result<CommandContext, String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+    let mut env_vars: HashMap<String, String> = std::env::vars().collect();
+    env_vars.insert(
+        mossen_agent::goal::GOAL_THREAD_ID_ENV.to_string(),
+        stream_json_goal_thread_id(),
+    );
     Ok(CommandContext {
         cwd,
         is_non_interactive: true,
         is_remote_mode: get_is_remote_mode(),
         is_custom_backend: std::env::var("MOSSEN_CODE_CUSTOM_BASE_URL").is_ok(),
         user_type: std::env::var("MOSSEN_CODE_USER_TYPE").ok(),
-        env_vars: std::env::vars().collect(),
+        env_vars,
         product_name: "Mossen".to_string(),
         cli_name: "mossen".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         build_time: option_env!("BUILD_TIME").map(|value| value.to_string()),
         cost_snapshot: slash_command_cost_snapshot(),
     })
+}
+
+fn stream_json_goal_thread_id() -> String {
+    static THREAD_ID: OnceLock<String> = OnceLock::new();
+    THREAD_ID
+        .get_or_init(|| {
+            std::env::var(mossen_agent::goal::GOAL_THREAD_ID_ENV)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(mossen_agent::goal::new_thread_id)
+        })
+        .clone()
 }
 
 fn slash_command_cost_snapshot() -> CommandCostSnapshot {
@@ -7299,6 +7365,7 @@ fn is_wired_stream_json_slash_command(command: &str) -> bool {
         "help"
             | "capabilities"
             | "status"
+            | "goal"
             | "model"
             | "profile"
             | "cost"
@@ -7329,6 +7396,7 @@ fn wired_stream_json_slash_commands() -> Vec<&'static str> {
         "help",
         "capabilities",
         "status",
+        "goal",
         "model",
         "profile",
         "cost",
@@ -7477,6 +7545,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn slash_command_goal_sets_reports_and_clears_thread_goal() {
+        let _guard = permission_env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let previous = vec![
+            ("MOSSEN_CONFIG_DIR", std::env::var("MOSSEN_CONFIG_DIR").ok()),
+            (
+                mossen_agent::goal::GOAL_THREAD_ID_ENV,
+                std::env::var(mossen_agent::goal::GOAL_THREAD_ID_ENV).ok(),
+            ),
+        ];
+        std::env::set_var("MOSSEN_CONFIG_DIR", temp.path());
+        std::env::set_var(mossen_agent::goal::GOAL_THREAD_ID_ENV, "stream-json-goal");
+
+        let created = slash_goal_response(&["ship".to_string(), "goal".to_string()])
+            .await
+            .expect("set goal");
+        assert_eq!(created["command"], "goal");
+        assert_eq!(created["status"], "completed");
+        assert_eq!(created["goal"]["objective"], "ship goal");
+        assert_eq!(created["goal"]["status"], "active");
+
+        let status = slash_goal_response(&[]).await.expect("goal status");
+        assert_eq!(status["goal"]["objective"], "ship goal");
+
+        let cleared = slash_goal_response(&["clear".to_string()])
+            .await
+            .expect("clear goal");
+        assert!(cleared["goal"].is_null());
+
+        restore_env_vars(previous);
     }
 
     const PROFILE_RUNTIME_ENV_KEYS: &[&str] = &[

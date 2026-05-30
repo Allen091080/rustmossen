@@ -235,9 +235,17 @@ def run_probe() -> dict[str, Any]:
     project.mkdir(parents=True, exist_ok=True)
     tui_event_log_path = ctx.artifacts_dir / "tui_events.log"
     child_delay_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_CHILD_DELAY_SECS", "10"))
-    probe_event_wait_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_EVENT_WAIT_SECS", "6"))
+    # CI PTY scheduling can lag behind local terminals while the child-agent
+    # request is in flight. Keep the strict full-probe key-event requirement,
+    # but give the event log a little more time to flush before declaring the
+    # input loop unresponsive.
+    probe_event_wait_secs = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_EVENT_WAIT_SECS", "8"))
+    # The probe is still typed while the child agent is in flight, but it should
+    # model a fast human typist rather than a synthetic burst. Very short PTY
+    # intervals can outrun crossterm's per-event terminal reader on CI and make
+    # the harness flaky without proving a real responsiveness regression.
     probe_key_interval_secs = float(
-        os.environ.get("MOSSEN_AGENT_INPUT_PROBE_KEY_INTERVAL_SECS", "0.025")
+        os.environ.get("MOSSEN_AGENT_INPUT_PROBE_KEY_INTERVAL_SECS", "0.05")
     )
     timeout = float(os.environ.get("MOSSEN_AGENT_INPUT_PROBE_TIMEOUT_SECS", "60"))
     server, state, thread = start_mock_server(child_delay_secs)

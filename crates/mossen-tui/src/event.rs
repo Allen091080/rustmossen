@@ -95,45 +95,45 @@ impl Default for EventBus {
     }
 }
 
-/// Spawn a background task that reads crossterm events and forwards them.
+/// Spawn a background reader that forwards terminal events.
+///
+/// Crossterm event polling is blocking. Keep it off the async runtime so slow
+/// renders or engine-message bursts cannot starve keyboard input while a
+/// background tool is still running.
 pub fn spawn_crossterm_reader(tx: mpsc::UnboundedSender<AppEvent>) {
-    tokio::spawn(async move {
-        loop {
-            if crossterm::event::poll(std::time::Duration::from_millis(16)).unwrap_or(false) {
-                match crossterm::event::read() {
-                    Ok(crossterm::event::Event::Key(key)) => {
-                        if tx.send(AppEvent::Key(key)).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(crossterm::event::Event::Mouse(mouse)) => {
-                        if tx.send(AppEvent::Mouse(mouse)).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(crossterm::event::Event::Resize(w, h)) => {
-                        if tx
-                            .send(AppEvent::Resize {
-                                width: w,
-                                height: h,
-                            })
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Ok(crossterm::event::Event::FocusGained) => {
-                        let _ = tx.send(AppEvent::FocusChange(true));
-                    }
-                    Ok(crossterm::event::Event::FocusLost) => {
-                        let _ = tx.send(AppEvent::FocusChange(false));
-                    }
-                    Ok(_) => {}
-                    Err(_) => break,
+    let _ = std::thread::Builder::new()
+        .name("mossen-tui-event-reader".to_string())
+        .spawn(move || loop {
+            let has_event =
+                crossterm::event::poll(std::time::Duration::from_millis(16)).unwrap_or(false);
+            if !has_event {
+                continue;
+            }
+
+            if !forward_next_crossterm_event(&tx) {
+                break;
+            }
+
+            while crossterm::event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
+                if !forward_next_crossterm_event(&tx) {
+                    return;
                 }
             }
+        });
+}
+
+fn forward_next_crossterm_event(tx: &mpsc::UnboundedSender<AppEvent>) -> bool {
+    match crossterm::event::read() {
+        Ok(crossterm::event::Event::Key(key)) => tx.send(AppEvent::Key(key)).is_ok(),
+        Ok(crossterm::event::Event::Mouse(mouse)) => tx.send(AppEvent::Mouse(mouse)).is_ok(),
+        Ok(crossterm::event::Event::Resize(width, height)) => {
+            tx.send(AppEvent::Resize { width, height }).is_ok()
         }
-    });
+        Ok(crossterm::event::Event::FocusGained) => tx.send(AppEvent::FocusChange(true)).is_ok(),
+        Ok(crossterm::event::Event::FocusLost) => tx.send(AppEvent::FocusChange(false)).is_ok(),
+        Ok(_) => true,
+        Err(_) => false,
+    }
 }
 
 /// Spawn a tick timer for animations.

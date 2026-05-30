@@ -3046,6 +3046,7 @@ pub struct FooterRenderModel {
     pub reasoning: Option<String>,
     pub context: Option<ContextUsageRenderModel>,
     pub turn_state: Option<String>,
+    pub goal_status: Option<String>,
     pub activity: Option<String>,
     pub cost: Option<String>,
     pub message_count: Option<usize>,
@@ -3067,6 +3068,7 @@ pub struct TopStatusRenderModel {
     pub access_mode: Option<String>,
     pub reasoning: Option<String>,
     pub context: Option<ContextUsageRenderModel>,
+    pub goal_status: Option<String>,
     pub message_count: Option<usize>,
     pub blocking: Option<BlockingRenderModel>,
 }
@@ -3080,6 +3082,7 @@ impl TopStatusRenderModel {
             access_mode: footer.access_mode.clone(),
             reasoning: footer.reasoning.clone(),
             context: footer.context,
+            goal_status: footer.goal_status.clone(),
             message_count: footer.message_count,
             blocking: footer.blocking.clone(),
         }

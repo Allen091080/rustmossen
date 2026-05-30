@@ -191,6 +191,7 @@ mod tests {
                 used_tokens: 24_000,
                 window_tokens: 200_000,
             }),
+            goal_status: None,
             message_count: Some(17),
             blocking: None,
         };

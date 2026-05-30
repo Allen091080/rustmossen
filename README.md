@@ -127,7 +127,10 @@ Use a specific working directory:
 mossen --cwd /path/to/project
 ```
 
-Inside the TUI, use `/help` to inspect available slash commands.
+Inside the TUI, use `/help` to inspect available slash commands. For long-running
+work, `/goal <objective>` sets a persistent thread goal; `/goal` shows current
+progress, `/goal pause` pauses it, `/goal resume` resumes it, `/goal edit
+<objective>` updates it, and `/goal clear` removes it.
 
 ## Configure LLM Providers
 

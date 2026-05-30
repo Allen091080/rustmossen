@@ -85,6 +85,7 @@ pub mod cost_tracker;
 pub mod diagnostics;
 pub mod dialogue;
 pub mod engine;
+pub mod goal;
 pub mod history;
 pub mod hooks;
 pub mod mcp;

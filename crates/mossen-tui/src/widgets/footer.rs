@@ -204,6 +204,12 @@ fn push_status_span<'a>(spans: &mut Vec<Span<'a>>, footer: &FooterRenderModel, t
             Style::default().fg(theme.text_dim).bg(theme.surface),
         ));
     }
+    if let Some(goal_status) = footer.goal_status.as_deref() {
+        spans.push(Span::styled(
+            format!(" {goal_status} "),
+            Style::default().fg(theme.secondary).bg(theme.surface),
+        ));
+    }
 }
 
 fn project_tail(project: &str) -> String {
@@ -396,6 +402,7 @@ mod tests {
                 window_tokens: 200_000,
             }),
             turn_state: Some("waiting approval".to_string()),
+            goal_status: None,
             activity: Some("approval: Bash".to_string()),
             cost: Some("$0.15".to_string()),
             message_count: Some(17),

@@ -116,12 +116,13 @@
     {
       "id": "slash_commands",
       "title": "Slash command inventory, help, and hidden command rules",
-      "user_entries": ["/help"],
+      "user_entries": ["/help", "/goal"],
       "launcher": "scripts/start-mossen.sh",
       "code_paths": ["crates/mossen-commands/src", "crates/mossen-tui/src/app.rs"],
       "invariants": [
         "/help lists only visible enabled commands",
-        "visible commands are routed by the current TUI slash router"
+        "visible commands are routed by the current TUI slash router",
+        "/goal persists a thread objective and exposes pause/resume/edit/clear state"
       ],
       "verification": {
         "script_globs": ["scripts/harness_M8_*.py"]

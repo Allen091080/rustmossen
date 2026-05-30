@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::goal::ThreadGoal;
+
 pub use mossen_types::{
     AssistantMessage, ContentBlock, Message, Role, ToolDefinition, ToolUseContext,
     ToolUseSummaryMessage, UserMessage,
@@ -478,6 +480,8 @@ pub enum ContinueReason {
     StopHookBlocking,
     /// 站点 7：token budget 自动续行。
     TokenBudgetContinuation,
+    /// Active thread goal asks the model to keep working after an idle stop.
+    GoalContinuation,
     /// 站点 8：正常下一轮工具调用。
     NextTurn,
 }
@@ -695,6 +699,25 @@ pub enum SdkMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         task_id: Option<String>,
     },
+    /// Thread goal state changed.
+    #[serde(rename = "thread_goal_updated")]
+    ThreadGoalUpdated {
+        thread_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        goal: ThreadGoal,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
+    /// Thread goal state was cleared.
+    #[serde(rename = "thread_goal_cleared")]
+    ThreadGoalCleared {
+        thread_id: String,
+        /// 消息来源 task id。None = 主 agent。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+    },
 }
 
 impl SdkMessage {
@@ -713,6 +736,8 @@ impl SdkMessage {
             SdkMessage::ConversationCleared { task_id, .. } => task_id.as_deref(),
             SdkMessage::ClearRequestStatus { task_id, .. } => task_id.as_deref(),
             SdkMessage::ApiRetry { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ThreadGoalUpdated { task_id, .. } => task_id.as_deref(),
+            SdkMessage::ThreadGoalCleared { task_id, .. } => task_id.as_deref(),
         }
     }
 }
